@@ -131,7 +131,7 @@ textarea{
 }
 .rowsGrid{
   display:grid;
-  grid-template-columns: 1fr 140px 1fr;
+  grid-template-columns: 1fr 140px 1fr 120px;
   gap:8px;
   align-items:center;
 }
@@ -254,6 +254,8 @@ footer{
   const HOME_COL  = { x: 710, align: "right",  size: 22.6, color: "#ffffff", weight: 800 };
   const SCORE_COL = { x: 750, align: "center", size: 27.2, color: "#223b7c", weight: 800 };
   const AWAY_COL  = { x: 790, align: "left",   size: 22.6, color: "#ffffff", weight: 800 };  
+  // Fixtures "V" + issue markers should be smaller (same size as team names)
+  const SCORE_SMALL = { size: 22.6, weight: 800 };
 
   // Rectangles per row
   const HOME_ICON_X = 360;
@@ -383,13 +385,14 @@ footer{
 
   const ROWS_COUNT = 12;
 
-  // Each row: { home: TEAM_NAME or "", away: TEAM_NAME or "", score: string }
-  const rowsState = Array.from({length: ROWS_COUNT}, ()=> ({ home:"", away:"", score:"" }));
+  // Each row: { home: TEAM_NAME or "", away: TEAM_NAME or "", score: string, issue: ""|"P-P"|"A-A"|"L-L" }
+  const rowsState = Array.from({length: ROWS_COUNT}, ()=> ({ home:"", away:"", score:"", issue:"" }));
 
   // UI refs per row
   const homeSelectEls = [];
   const awaySelectEls = [];
   const scoreInputEls = [];
+  const issueSelectEls = [];
 
   /* ================= HELPERS ================= */
 
@@ -534,6 +537,31 @@ footer{
 
     return s;
   }
+  function buildIssueSelect(){
+    const s = document.createElement("select");
+
+    const normal = document.createElement("option");
+    normal.value = "";
+    normal.textContent = "Normal";
+    s.appendChild(normal);
+
+    const pp = document.createElement("option");
+    pp.value = "P-P";
+    pp.textContent = "P-P";
+    s.appendChild(pp);
+
+    const aa = document.createElement("option");
+    aa.value = "A-A";
+    aa.textContent = "A-A";
+    s.appendChild(aa);
+
+    const ll = document.createElement("option");
+    ll.value = "L-L";
+    ll.textContent = "L-L";
+    s.appendChild(ll);
+
+    return s;
+  }
 
   function isRowHidden(row){
     // Hide all row elements only when BOTH sides are None
@@ -545,7 +573,11 @@ footer{
     for(let i=0;i<ROWS_COUNT;i++){
       const inp = scoreInputEls[i];
       if(!inp) continue;
-      inp.disabled = !isResults;
+
+      const issue = (rowsState[i] && rowsState[i].issue) ? rowsState[i].issue : "";
+
+      // Only allow score entry in Results mode AND when no issue override is selected
+      inp.disabled = (!isResults) || !!issue;
       inp.placeholder = isResults ? "e.g. 2-1" : "";
     }
   }
@@ -559,10 +591,12 @@ footer{
     homeSelectEls.length = 0;
     awaySelectEls.length = 0;
     scoreInputEls.length = 0;
+    issueSelectEls.length = 0;    
 
     for(let i=0;i<ROWS_COUNT;i++){
       const homeSel = buildClubSelect();
       const awaySel = buildClubSelect();
+      const issueSel = buildIssueSelect();
 
       const scoreInp = document.createElement("input");
       scoreInp.type = "text";
@@ -572,6 +606,7 @@ footer{
       homeSel.value = rowsState[i].home || "";
       awaySel.value = rowsState[i].away || "";
       scoreInp.value = rowsState[i].score || "";
+      issueSel.value = rowsState[i].issue || "";
 
       homeSel.addEventListener("change", ()=>{
         rowsState[i].home = homeSel.value || "";
@@ -587,6 +622,13 @@ footer{
 
       scoreInp.addEventListener("input", ()=>{
         rowsState[i].score = scoreInp.value || "";
+        autosave();
+        scheduleRender();
+      });
+
+            issueSel.addEventListener("change", ()=>{
+        rowsState[i].issue = issueSel.value || "";
+        syncScoreInputsEnabled();
         autosave();
         scheduleRender();
       });
@@ -635,10 +677,13 @@ footer{
       rowsGridEl.appendChild(homeSel);
       rowsGridEl.appendChild(scoreInp);
       rowsGridEl.appendChild(awaySel);
+      rowsGridEl.appendChild(issueSel);
 
       homeSelectEls.push(homeSel);
       scoreInputEls.push(scoreInp);
       awaySelectEls.push(awaySel);
+      issueSelectEls.push(issueSel);
+      
     }
 
     syncScoreInputsEnabled();
@@ -674,6 +719,7 @@ footer{
           rowsState[i].home = typeof r.home === "string" ? r.home : "";
           rowsState[i].away = typeof r.away === "string" ? r.away : "";
           rowsState[i].score = typeof r.score === "string" ? r.score : "";
+          rowsState[i].issue = typeof r.issue === "string" ? r.issue : "";          
         }
       }
     }catch{}
@@ -782,9 +828,13 @@ footer{
         ctx.fillText(awayText, AWAY_COL.x, cy);
       }
 
-      // Score / V
+      // Score / V / Issue override
       let scoreText = "";
-      if(!isResults){
+
+      const issue = (row.issue || "").trim(); // "", "P-P", "A-A", "L-L"
+      if(issue){
+        scoreText = issue;
+      }else if(!isResults){
         // Fixtures: show V when BOTH teams selected
         scoreText = (row.home && row.away) ? "V" : "";
       }else{
@@ -795,7 +845,16 @@ footer{
 
       if(scoreText){
         ctx.textAlign = SCORE_COL.align;
-        setTextStyle(ctx, SCORE_COL.size, SCORE_COL.color, SCORE_COL.weight);
+
+        // Fixtures V + issue markers: smaller (team-name size)
+        const useSmall = (!!issue) || (!isResults);
+
+        if(useSmall){
+          setTextStyle(ctx, SCORE_SMALL.size, SCORE_COL.color, SCORE_SMALL.weight);
+        }else{
+          setTextStyle(ctx, SCORE_COL.size, SCORE_COL.color, SCORE_COL.weight);
+        }
+
         ctx.fillText(scoreText, SCORE_COL.x, cy);
       }
     }
@@ -908,19 +967,32 @@ footer{
           c.fillText(awayText, AWAY_COL.x, cy);
         }
 
-        // Score / V
+        // Score / V / Issue override
         let scoreText = "";
-        if(!isResults){
+
+        const issue = (row.issue || "").trim();
+        if(issue){
+          scoreText = issue;
+        }else if(!isResults){
           scoreText = (row.home && row.away) ? "V" : "";
         }else{
           scoreText = (row.score || "").trim();
         }
+
         scoreText = safeUpper(scoreText);
 
         if(scoreText){
           c.textAlign = SCORE_COL.align;
           c.fillStyle = SCORE_COL.color;
-          c.font = `${SCORE_COL.weight} ${SCORE_COL.size}px ${FONT_FAMILY}`;
+
+          const useSmall = (!!issue) || (!isResults);
+
+          if(useSmall){
+            c.font = `${SCORE_SMALL.weight} ${SCORE_SMALL.size}px ${FONT_FAMILY}`;
+          }else{
+            c.font = `${SCORE_COL.weight} ${SCORE_COL.size}px ${FONT_FAMILY}`;
+          }
+
           c.fillText(scoreText, SCORE_COL.x, cy);
         }
       }
@@ -960,9 +1032,12 @@ footer{
       rowsState[i].home = "";
       rowsState[i].away = "";
       rowsState[i].score = "";
+      rowsState[i].issue = "";
+
       if(homeSelectEls[i]) homeSelectEls[i].value = "";
       if(awaySelectEls[i]) awaySelectEls[i].value = "";
       if(scoreInputEls[i]) scoreInputEls[i].value = "";
+      if(issueSelectEls[i]) issueSelectEls[i].value = "";
     }
 
     syncScoreInputsEnabled();
