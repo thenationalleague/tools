@@ -251,8 +251,8 @@ footer{
         <button type="button" id="copyExport">Copy</button>
         <button type="button" id="copyExcel">Copy Excel (3 cols)</button>
       </div>
-      <textarea id="exportOut" rows="8" placeholder="Export text appears here"></textarea>
-      <textarea id="excelOut" rows="8" placeholder="Excel export (TSV: Date &#9; Team &#9; Player) appears here"></textarea>
+      <textarea id="exportOut" rows="8" placeholder="Export text appears here" readonly></textarea>
+      <textarea id="excelOut" rows="8" placeholder="Excel export (TSV: Date &#9; Team &#9; Player) appears here" readonly></textarea>
     </div>
 
 
@@ -723,10 +723,25 @@ footer{
     }
   }
 
+  // Live-build the two output textareas as you type (debounced)
+  let outputsQueued = false;
+  function scheduleOutputs(){
+    if(outputsQueued) return;
+    outputsQueued = true;
+
+    window.clearTimeout(scheduleOutputs._t);
+    scheduleOutputs._t = window.setTimeout(()=>{
+      outputsQueued = false;
+      buildExportText({ silent:true });
+      buildExcelTSV({ silent:true });
+    }, 120);
+  }
+
   let renderQueued = false;
   function scheduleRender(){
     if(renderQueued) return;
     renderQueued = true;
+
     requestAnimationFrame(async ()=>{
       renderQueued = false;
       try{
@@ -776,6 +791,7 @@ footer{
         stateByPos[posKey].team = teamSel.value;
         autosave();
         scheduleRender();
+        scheduleOutputs();
       });
 
       nameInp.addEventListener("input", ()=>{
@@ -783,12 +799,14 @@ footer{
         stateByPos[posKey].name = nameInp.value;
         autosave();
         scheduleRender();
+        scheduleOutputs();
       });
 
       perfInp.addEventListener("input", ()=>{
         stateByPos[posKey] = stateByPos[posKey] || {};
         stateByPos[posKey].perf = perfInp.value;
         autosave();
+        scheduleOutputs();
       });
 
       lineupEl.appendChild(posCell);
@@ -809,7 +827,8 @@ footer{
 
   /* ================= EXPORT TEXT ================= */
 
-  function buildExportText(){
+  function buildExportText(opts){
+    const silent = !!(opts && opts.silent);
     const scores = (scoresEl.value || "").trim();
     const formation = formationSel.value;
     const slots = getFormationPositions(formation);
@@ -829,7 +848,7 @@ footer{
     }
 
     exportOutEl.value = lines.join("\n");
-    setStatus("Export built");
+    if(!silent) setStatus("Export built");
     autosave();
   }
 
@@ -841,7 +860,8 @@ footer{
       setStatus("Clipboard blocked");
     }
   }
-    function buildExcelTSV(){
+    function buildExcelTSV(opts){
+    const silent = !!(opts && opts.silent);
     const formation = formationSel.value;
     const slots = getFormationPositions(formation);
 
@@ -861,6 +881,7 @@ footer{
 
     excelOutEl.value = rows.join("\n");
     autosave();
+    if(!silent) setStatus("Excel built");
   }
 
   async function copyExcelTSV(){
@@ -1128,6 +1149,7 @@ footer{
       rebuildLineup();
       autosave();
       scheduleRender();
+      scheduleOutputs();
     });
 
     divisionSel.addEventListener("change", async ()=>{
@@ -1137,10 +1159,15 @@ footer{
       scheduleRender();
     });
 
-    dateEl.addEventListener("input", autosave);
+    dateEl.addEventListener("input", ()=>{
+      autosave();
+      scheduleOutputs();
+    });
 
-    scoresEl.addEventListener("input", autosave);
-    exportOutEl.addEventListener("input", autosave);
+    scoresEl.addEventListener("input", ()=>{
+      autosave();
+      scheduleOutputs();
+    });
 
     zoomResetBtn.addEventListener("click", resetViewport);
 
@@ -1153,7 +1180,10 @@ footer{
 
     downloadBtn.addEventListener("click", downloadPNG);
 
-    buildExportBtn.addEventListener("click", buildExportText);
+    buildExportBtn.addEventListener("click", ()=>{
+      buildExportText({ silent:false });
+      buildExcelTSV({ silent:false });
+    });
     copyExportBtn.addEventListener("click", copyExportText);
     copyExcelBtn.addEventListener("click", copyExcelTSV);
 
@@ -1198,6 +1228,7 @@ footer{
     autoload();
     rebuildLineup();
     bindUI();
+    scheduleOutputs();
 
     try{
       await ensureBaseImages();
