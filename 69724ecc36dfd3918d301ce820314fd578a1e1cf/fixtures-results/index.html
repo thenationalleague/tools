@@ -67,17 +67,19 @@ body{
 
 @media (max-width: 640px){
   .rowsGrid{
-    grid-template-columns: 1fr 110px 1fr 96px;
+    /* Make Home/Away wider, Score + Status tighter */
+    grid-template-columns: 1fr 76px 1fr 56px;
     gap:10px;
   }
 
   .rowsGrid select,
   .rowsGrid input{
-    min-height:44px;
+    min-height:46px;
     padding:12px 10px;
     font-size:16px; /* stops iOS zoom + improves legibility */
     color: var(--fg);
     background:#fff;
+    border-width:2px;
   }
 }
   
@@ -157,10 +159,11 @@ canvas{
   text-align:center;
 }
 
-.rowsGrid .rowHint{
-  grid-column: 1 / -1;
+.rowsGrid .colHead{
   font-size:12px;
   color:var(--muted);
+  font-weight:700;
+  letter-spacing:0.3px;
 }
 
 .rowsGrid input:disabled{
@@ -218,10 +221,7 @@ footer{
     </div>
 
     <div class="box section">
-      <label>Rows (12)</label>
-      <div class="rowsGrid" id="rowsGrid">
-        <div class="rowHint">Home / Score / Away. Choose “None” on both sides to hide that row completely.</div>
-      </div>
+      <div class="rowsGrid" id="rowsGrid"></div>
     </div>
 
     <footer>
@@ -583,7 +583,7 @@ footer{
 
     const normal = document.createElement("option");
     normal.value = "";
-    normal.textContent = "Normal";
+    normal.textContent = "-";
     s.appendChild(normal);
 
     for(const code of ["P-P","A-A","L-L"]){
@@ -614,9 +614,18 @@ footer{
   }
 
   function rebuildRowsUI(){
-    const hint = rowsGridEl.querySelector(".rowHint");
     rowsGridEl.innerHTML = "";
-    if(hint) rowsGridEl.appendChild(hint);
+
+    // Column headers
+    const h1 = document.createElement("div"); h1.className = "colHead"; h1.textContent = "Home";
+    const h2 = document.createElement("div"); h2.className = "colHead"; h2.textContent = "Score";
+    const h3 = document.createElement("div"); h3.className = "colHead"; h3.textContent = "Away";
+    const h4 = document.createElement("div"); h4.className = "colHead"; h4.textContent = "Status";
+
+    rowsGridEl.appendChild(h1);
+    rowsGridEl.appendChild(h2);
+    rowsGridEl.appendChild(h3);
+    rowsGridEl.appendChild(h4);
 
     homeSelectEls.length = 0;
     awaySelectEls.length = 0;
@@ -632,6 +641,10 @@ footer{
       scoreInp.type = "text";
       scoreInp.inputMode = "text";
       scoreInp.autocomplete = "off";
+
+      // Keep score box behaviour tight (e.g. "3-3", "10-0")
+      scoreInp.maxLength = 5;
+      scoreInp.placeholder = "";
 
       homeSel.value = rowsState[i].home || "";
       awaySel.value = rowsState[i].away || "";
@@ -840,9 +853,12 @@ footer{
 
       if(scoreText){
         c.textAlign = SCORE_COL.align;
-        const useSmall = (!!issue) || (!isResults);
 
-        if(useSmall){
+        // A-A / P-P / L-L should be FULL size (same as scorelines)
+        // Only "V" in Fixtures stays small
+        const isV = (!isResults && !issue && scoreText === "V");
+
+        if(isV){
           setTextStyle(c, SCORE_SMALL.size, SCORE_COL.color, SCORE_SMALL.weight);
         }else{
           setTextStyle(c, SCORE_COL.size, SCORE_COL.color, SCORE_COL.weight);
@@ -922,7 +938,7 @@ footer{
 
       const OUT_W = 1080;
       const OUT_H = 1347;
-      const SRC_X = 210;
+      const SRC_X = 230;
       const SRC_Y = 0;
 
       const out = document.createElement("canvas");
