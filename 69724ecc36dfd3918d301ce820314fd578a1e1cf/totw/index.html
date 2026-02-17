@@ -249,9 +249,12 @@ footer{
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button type="button" id="buildExport">Build export</button>
         <button type="button" id="copyExport">Copy</button>
+        <button type="button" id="copyExcel">Copy Excel (3 cols)</button>
       </div>
       <textarea id="exportOut" rows="8" placeholder="Export text appears here"></textarea>
+      <textarea id="excelOut" rows="8" placeholder="Excel export (TSV: Date &#9; Team &#9; Player) appears here"></textarea>
     </div>
+
 
 <footer>
   <span id="status">Ready</span>
@@ -366,6 +369,13 @@ footer{
     "Horsham","Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
   ];
 
+  // Team shortnames aligned to TEAM_NAMES order (DO NOT reorder unless TEAM_NAMES changes)
+  const TEAM_SHORTNAMES = [
+    "ALD","ALT","BHW","BOS","BRK","BRA","CAR","EAS","HAL","FGR","GAT","HAR","MOR","ROC","SCU","SOL","SOU","SUT","TAM","TRU","WEA","WOK","YEO","YOR",
+    "FYL","TEL","ALF","BED","BUX","CHE","CHO","CUR","DAR","HER","KID","KLT","LEA","MAC","MAR","MER","OXC","PBS","RAD","SCA","SSH","SPT","SPE","WRK",
+    "TOT","BAT","CHC","CHU","CHI","DAG","DOR","DOV","EAB","EBB","ENF","FAB","HRB","HHT","HOR","HRS","MHU","MSU","SAL","SLO","TON","TOR","WSM","WOR"
+  ];
+
   const TEAM_CREST_URLS = [
     "https://images.gc.nationalleagueservices.co.uk/a7c43c30-6bba-11f0-9fba-1febf6c72628.png",
     "https://images.gc.nationalleagueservices.co.uk/ec9a31b0-6bbb-11f0-9fba-1febf6c72628.png",
@@ -462,8 +472,10 @@ footer{
   const lineupEl = document.getElementById("lineup");
   const scoresEl = document.getElementById("scores");
   const exportOutEl = document.getElementById("exportOut");
+  const excelOutEl = document.getElementById("excelOut");
   const buildExportBtn = document.getElementById("buildExport");
   const copyExportBtn = document.getElementById("copyExport");
+  const copyExcelBtn = document.getElementById("copyExcel");
   const statusEl = document.getElementById("status");
 
   /* ================= STATE ================= */
@@ -513,6 +525,30 @@ footer{
   function formatDMMMyy(dateStr){
     if(!dateStr) return "";
     const [y,m,d] = dateStr.split("-").map(Number);
+    if(!y || !m || !d) return "";
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const dd = String(d);
+    const mon = months[m-1] || "";
+    const yy = String(y).slice(-2);
+    return `${dd}${mon}${yy}`;
+  }
+
+  function formatDDMMYYYY(dateStr){
+    if(!dateStr) return "";
+    const [y,m,d] = dateStr.split("-").map(Number);
+    if(!y || !m || !d) return "";
+    const dd = String(d).padStart(2, "0");
+    const mm = String(m).padStart(2, "0");
+    const yyyy = String(y);
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  function getTeamShort(teamName){
+    const idx = TEAM_NAMES.indexOf(teamName);
+    if(idx >= 0 && idx < TEAM_SHORTNAMES.length) return TEAM_SHORTNAMES[idx];
+    return "";
+  }
+
     if(!y || !m || !d) return "";
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const dd = String(d);
@@ -813,6 +849,38 @@ footer{
       setStatus("Clipboard blocked");
     }
   }
+    function buildExcelTSV(){
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    const dateOut = formatDDMMYYYY(dateEl.value);
+
+    const rows = [];
+    for(const slot of slots){
+      const s = stateByPos[slot.pos] || {};
+      const player = safeText(s.name);
+      const teamName = safeText(s.team);
+
+      if(!player) continue;
+
+      const short = getTeamShort(teamName) || "";
+      rows.push([dateOut, short, player].join("\t"));
+    }
+
+    excelOutEl.value = rows.join("\n");
+    autosave();
+  }
+
+  async function copyExcelTSV(){
+    buildExcelTSV();
+    try{
+      await navigator.clipboard.writeText(excelOutEl.value || "");
+      setStatus("Copied (Excel)");
+    }catch{
+      setStatus("Clipboard blocked");
+    }
+  }
+
 
   /* ================= DOWNLOAD ================= */
 
@@ -856,7 +924,9 @@ footer{
       division: divisionSel.value,
       date: dateEl.value,
       scores: scoresEl.value,
+      scores: scoresEl.value,
       exportOut: exportOutEl.value,
+      excelOut: excelOutEl.value,
       stateByPos,
       offsetsByFormation,
       viewport: { viewScale, viewPanX, viewPanY }
@@ -1092,6 +1162,7 @@ footer{
 
     buildExportBtn.addEventListener("click", buildExportText);
     copyExportBtn.addEventListener("click", copyExportText);
+    copyExcelBtn.addEventListener("click", copyExcelTSV);
 
     // Preview interactions
     canvas.addEventListener("wheel", onWheel, {passive:false});
