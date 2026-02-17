@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TOTW Builder v5.2</title>
+
+<style>
+:root{
+  --border:#d0d7de;
+  --bg:#f6f8fa;
+  --fg:#24292f;
+  --muted:#57606a;
+  --brand:#9e0000;
+}
+
+*{ box-sizing:border-box; }
+
+body{
+  margin:16px;
+  font:14px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:var(--fg);
+  background:#fff;
+}
+
+/* ===== APP LAYOUT (DESKTOP: 2 COLS, MOBILE: STACK) ===== */
+.app{
+  display:grid;
+  grid-template-columns: minmax(480px, 920px) minmax(380px, 1fr);
+  gap:16px;
+  align-items:start;
+}
+.previewWrap{ grid-column:1; grid-row:1; }
+.panel{ grid-column:2; grid-row:1; }
+
+@media (max-width: 980px){
+  .app{ grid-template-columns: 1fr; }
+  .previewWrap{ grid-column:1; grid-row:1; }
+  .panel{ grid-column:1; grid-row:2; }
+}
+
+/* ===== PREVIEW ===== */
+.previewWrap{
+  position:sticky;
+  top:12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--bg);
+  overflow:hidden;
+}
+
+canvas{
+  display:block;
+  width:100%;
+  height:auto;
+  touch-action:none;
+}
+
+/* ===== RIGHT PANEL ===== */
+.panel{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-width:0;
+}
+
+.box{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px;
+  background:#fff;
+}
+
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.controls select,
+.controls input{
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+  font:inherit;
+}
+
+/* Brand buttons */
+.controls button,
+.box button{
+  padding:8px 10px;
+  border:1px solid var(--brand);
+  border-radius:10px;
+  background:var(--brand);
+  color:#fff;
+  font:inherit;
+  cursor:pointer;
+}
+.controls button:hover,
+.box button:hover{ filter:brightness(0.95); }
+.controls button:active,
+.box button:active{ filter:brightness(0.9); }
+
+/* ===== LINEUP GRID ===== */
+.lineup{
+  display:grid;
+  grid-template-columns: 64px 240px minmax(160px, 1fr) minmax(280px, 2fr);
+  gap:6px;
+  align-items:center;
+}
+.lineup .pos{
+  font-weight:700;
+  color:var(--muted);
+  text-align:center;
+}
+.lineup input,
+.lineup select{
+  width:100%;
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  font:inherit;
+}
+
+/* Performance: unlimited text, single-line display */
+.lineup input.perf{
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+@media (max-width: 720px){
+  .lineup{
+    grid-template-columns: 64px 1fr;
+  }
+}
+
+/* ===== TEXTAREAS ===== */
+.section{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+textarea{
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  font:inherit;
+  resize:vertical;
+}
+
+footer{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- ===== PREVIEW (LEFT) ===== -->
+  <div class="previewWrap">
+    <canvas id="preview" width="1080" height="1080" aria-label="TOTW preview"></canvas>
+  </div>
+
+  <!-- ===== PANEL (RIGHT) ===== -->
+  <div class="panel">
+
+    <div class="box controls">
+      <select id="formation" title="Formation">
+        <option value="4-3-3">4-3-3</option>
+        <option value="5-3-2">5-3-2</option>
+        <option value="3-5-2">3-5-2</option>
+        <option value="4-4-2">4-4-2</option>
+        <option value="4-2-3-1">4-2-3-1</option>
+        <option value="5-4-1">5-4-1</option>
+        <option value="4-2-4">4-2-4</option>
+        <option value="3-4-3">3-4-3</option>
+        <option value="4-5-1">4-5-1</option>
+      </select>
+
+      <select id="division" title="Division">
+        <option value="National">National</option>
+        <option value="North">North</option>
+        <option value="South">South</option>
+      </select>
+
+      <input type="date" id="date" title="Date">
+
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="manualMove">
+        Manual move
+      </label>
+
+      <button type="button" id="zoomReset" title="Reset preview zoom/pan">Reset zoom</button>
+      <button type="button" id="resetPositions" title="Reset moved player positions (current formation)">Reset positions</button>
+
+      <button type="button" id="download" title="Download PNG export">Download PNG</button>
+    </div>
+
+    <div class="box">
+      <div class="lineup" id="lineup"></div>
+    </div>
+
+    <div class="box section">
+      <label for="scores">Scorelines</label>
+      <textarea id="scores" rows="5" placeholder="Wealdstone 1-3 York City&#10;..."></textarea>
+    </div>
+
+    <div class="box section">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button type="button" id="buildExport">Build export</button>
+        <button type="button" id="copyExport">Copy</button>
+      </div>
+      <textarea id="exportOut" rows="8" placeholder="Export text appears here"></textarea>
+    </div>
+
+    <footer>
+      <span id="status">Ready</span>
+      <span>v5.2</span>
+    </footer>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ================= CONFIG ================= */
+
+  const VERSION = "v5.2";
+  const STORAGE_KEY = "totw-builder-v5.2";
+
+  const EXPORT_SIZE = 1080;
+  const CREST_MAX = 100;
+
+  // Names locked at 54px below crest centre
+  const NAME_OFFSET = 54;
+
+  // Font stack
+  const NAME_FONT_STACK = `"DIN Next LT Pro Condensed","Arial Narrow",Arial,sans-serif`;
+  const NAME_FONT_SIZE = 25;
+  const NAME_COLOR = "#ffffff";
+
+  // Background + division badges
+  const BG_URL = "https://images.gc.nationalleagueservices.co.uk/86a76230-0b28-11f1-85c8-45bfeb09479e.jpg";
+
+  const DIV_BADGE = {
+    National: "https://images.gc.nationalleagueservices.co.uk/a95e6fe0-0b4a-11f1-81c5-055e14995095.png",
+    North:    "https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
+    South:    "https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
+  };
+
+  // Division badge placement: at (540, 952), 10% of native, centered
+  const DIV_BADGE_POS = { x: 540, y: 952, scale: 0.10 };
+
+  // Your formations + coordinates (crest centres)
+  const FORMATIONS = {
+    "4-3-3": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LCM",x:390,y:432},{pos:"CM",x:540,y:432},{pos:"RCM",x:690,y:432},
+      {pos:"LW",x:330,y:300},{pos:"CF",x:540,y:256},{pos:"RW",x:750,y:300}
+    ],
+    "5-3-2": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LWB",x:232,y:520},{pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},{pos:"RWB",x:848,y:520},
+      {pos:"LCM",x:390,y:432},{pos:"CM",x:540,y:432},{pos:"RCM",x:690,y:432},
+      {pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256}
+    ],
+    "3-5-2": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},
+      {pos:"LM",x:232,y:400},{pos:"LCM",x:390,y:432},{pos:"CM",x:540,y:432},{pos:"RCM",x:690,y:432},{pos:"RM",x:848,y:400},
+      {pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256}
+    ],
+    "4-4-2": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LM",x:232,y:400},{pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},{pos:"RM",x:848,y:400},
+      {pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256}
+    ],
+    "4-2-3-1": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LDM",x:410,y:474},{pos:"RDM",x:670,y:474},
+      {pos:"LW",x:280,y:345},{pos:"AM",x:540,y:387},{pos:"RW",x:800,y:345},
+      {pos:"CF",x:540,y:256}
+    ],
+    "5-4-1": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LWB",x:232,y:520},{pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},{pos:"RWB",x:848,y:520},
+      {pos:"LM",x:280,y:350},{pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},{pos:"RM",x:800,y:350},
+      {pos:"CF",x:540,y:256}
+    ],
+    "4-2-4": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},
+      {pos:"LW",x:280,y:370},{pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256},{pos:"RW",x:800,y:370}
+    ],
+    "3-4-3": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},
+      {pos:"LM",x:270,y:432},{pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},{pos:"RM",x:810,y:432},
+      {pos:"LW",x:360,y:294},{pos:"CF",x:540,y:256},{pos:"RW",x:720,y:294}
+    ],
+    "4-5-1": [
+      {pos:"GK",x:540,y:732},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LM",x:280,y:360},{pos:"LCM",x:390,y:432},{pos:"DM",x:540,y:500},{pos:"RCM",x:690,y:432},{pos:"RM",x:800,y:360},
+      {pos:"CF",x:540,y:256}
+    ]
+  };
+
+  // Teams + crests (same order you supplied)
+  const TEAM_NAMES = [
+    "Aldershot Town","Altrincham","Boreham Wood","Boston United","Brackley Town","Braintree Town","Carlisle United","Eastleigh",
+    "FC Halifax Town","Forest Green Rovers","Gateshead","Hartlepool United","Morecambe","Rochdale","Scunthorpe United","Solihull Moors",
+    "Southend United","Sutton United","Tamworth","Truro City","Wealdstone","Woking","Yeovil Town","York City","AFC Fylde","AFC Telford United",
+    "Alfreton Town","Bedford Town","Buxton","Chester","Chorley","Curzon Ashton","Darlington","Hereford","Kidderminster Harriers","King's Lynn Town",
+    "Leamington","Macclesfield","Marine","Merthyr Town","Oxford City","Peterborough Sports","Radcliffe","Scarborough Athletic","South Shields","Southport",
+    "Spennymoor Town","Worksop Town","AFC Totton","Bath City","Chelmsford City","Chesham United","Chippenham Town","Dagenham & Redbridge","Dorking Wanderers",
+    "Dover Athletic","Eastbourne Borough","Ebbsfleet United","Enfield Town","Farnborough","Hampton & Richmond Borough","Hemel Hempstead Town","Hornchurch",
+    "Horsham","Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
+  ];
+
+  const TEAM_CREST_URLS = [
+    "https://images.gc.nationalleagueservices.co.uk/a7c43c30-6bba-11f0-9fba-1febf6c72628.png",
+    "https://images.gc.nationalleagueservices.co.uk/ec9a31b0-6bbb-11f0-9fba-1febf6c72628.png",
+    "https://images.gc.nationalleagueservices.co.uk/a6ec79d0-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a667b970-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a7046ea0-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a5f3e900-6bba-11f0-ba40-9bb2eb24c27b.png",
+    "https://images.gc.nationalleagueservices.co.uk/a7a71740-6bba-11f0-9115-dd57c750e3ab.png",
+    "https://images.gc.nationalleagueservices.co.uk/a778b440-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a75d8b20-6bba-11f0-9115-dd57c750e3ab.png",
+    "https://images.gc.nationalleagueservices.co.uk/a62afe90-6bba-11f0-9fba-1febf6c72628.png",
+    "https://images.gc.nationalleagueservices.co.uk/a61ca6b0-6bba-11f0-a204-77da2e942f8e.png",
+    "https://images.gc.nationalleagueservices.co.uk/a779ecc0-6bba-11f0-9115-dd57c750e3ab.png",
+    "https://images.gc.nationalleagueservices.co.uk/a7238f60-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a6dff6b0-6bba-11f0-9115-dd57c750e3ab.png",
+    "https://images.gc.nationalleagueservices.co.uk/a7bbb0b0-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a61c3180-6bba-11f0-ba40-9bb2eb24c27b.png",
+    "https://images.gc.nationalleagueservices.co.uk/a66177e0-6bba-11f0-9fba-1febf6c72628.png",
+    "https://images.gc.nationalleagueservices.co.uk/a73346d0-6bba-11f0-9115-dd57c750e3ab.png",
+    "https://images.gc.nationalleagueservices.co.uk/a7046ea0-6bba-11f0-9115-dd57c750e3ab.png",
+    "https://images.gc.nationalleagueservices.co.uk/a5f3c1f0-6bba-11f0-8704-15462866abfc.png",
+    "https://images.gc.nationalleagueservices.co.uk/a6367040-6bba-11f0-82ea-7b9dcc8be154.png",
+    "https://images.gc.nationalleagueservices.co.uk/a631b550-6bba-11f0-ba40-9bb2eb24c27b.png",
+    "https://images.gc.nationalleagueservices.co.uk/a71621e0-6bba-11f0-9fba-1febf6c72628.png",
+    "https://images.gc.nationalleagueservices.co.uk/a656c980-6bba-11f0-ba40-9bb2eb24c27b.png",
+    "https://images.gc.nationalleagueservices.co.uk/533c3ae0-7c41-11f0-b1a3-bf28d21bf22d.png",
+    "https://images.gc.nationalleagueservices.co.uk/5287df00-7c41-11f0-a11d-7bd151620190.png",
+    "https://images.gc.nationalleagueservices.co.uk/535b0d80-7c41-11f0-b1a3-bf28d21bf22d.png",
+    "https://images.gc.nationalleagueservices.co.uk/52da92e0-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/52b99d60-7c41-11f0-b3ac-8f8a6e4490bc.png",
+    "https://images.gc.nationalleagueservices.co.uk/5351e5c0-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/531f3d00-7c41-11f0-b1a3-bf28d21bf22d.png",
+    "https://images.gc.nationalleagueservices.co.uk/b7dedd40-7c41-11f0-9c3e-f58f1c8129a7.png",
+    "https://images.gc.nationalleagueservices.co.uk/53e6f9d0-7c41-11f0-9c3e-f58f1c8129a7.png",
+    "https://images.gc.nationalleagueservices.co.uk/53a97ba0-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/53230d90-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/53acd700-7c41-11f0-b1a3-bf28d21bf22d.png",
+    "https://images.gc.nationalleagueservices.co.uk/53dd5ce0-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/53e6d2c0-7c41-11f0-a11d-7bd151620190.png",
+    "https://images.gc.nationalleagueservices.co.uk/53e0df50-7c41-11f0-b3ac-8f8a6e4490bc.png",
+    "https://images.gc.nationalleagueservices.co.uk/533a1800-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/53752530-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/52b3a9f0-7c41-11f0-a11d-7bd151620190.png",
+    "https://images.gc.nationalleagueservices.co.uk/533c8900-7c41-11f0-b3ac-8f8a6e4490bc.png",
+    "https://images.gc.nationalleagueservices.co.uk/52e679c0-7c41-11f0-b1a3-bf28d21bf22d.png",
+    "https://images.gc.nationalleagueservices.co.uk/52cd2560-7c41-11f0-a11d-7bd151620190.png",
+    "https://images.gc.nationalleagueservices.co.uk/53d4f870-7c41-11f0-b1a3-bf28d21bf22d.png",
+    "https://images.gc.nationalleagueservices.co.uk/531c2fc0-7c41-11f0-9c3e-f58f1c8129a7.png",
+    "https://images.gc.nationalleagueservices.co.uk/53bdc6f0-7c41-11f0-a19e-4b23b11f44d5.png",
+    "https://images.gc.nationalleagueservices.co.uk/4390b4f0-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/426888a0-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/42914650-7c45-11f0-ac62-2574d4a11b88.png",
+    "https://images.gc.nationalleagueservices.co.uk/42ad80e0-7c45-11f0-ac62-2574d4a11b88.png",
+    "https://images.gc.nationalleagueservices.co.uk/42b5be40-7c45-11f0-ae0a-edd6b6f7485a.png",
+    "https://images.gc.nationalleagueservices.co.uk/42ead800-7c45-11f0-ad0b-c5a247b8c1be.png",
+    "https://images.gc.nationalleagueservices.co.uk/43697de0-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/4324fad0-7c45-11f0-ad0b-c5a247b8c1be.png",
+    "https://images.gc.nationalleagueservices.co.uk/42a8c5f0-7c45-11f0-bd35-bd8bd8572bf3.png",
+    "https://images.gc.nationalleagueservices.co.uk/4408f230-7c45-11f0-ad0b-c5a247b8c1be.png",
+    "https://images.gc.nationalleagueservices.co.uk/44019f30-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/426888a0-7c45-11f0-ac62-2574d4a11b88.png",
+    "https://images.gc.nationalleagueservices.co.uk/42818ee0-7c45-11f0-a3e2-6dbb3bc3c280.png",
+    "https://images.gc.nationalleagueservices.co.uk/42fd2780-7c45-11f0-ae0a-edd6b6f7485a.png",
+    "https://images.gc.nationalleagueservices.co.uk/42990e80-7c45-11f0-ad0b-c5a247b8c1be.png",
+    "https://images.gc.nationalleagueservices.co.uk/4258f840-7c45-11f0-bd35-bd8bd8572bf3.png",
+    "https://images.gc.nationalleagueservices.co.uk/433bb720-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/429257c0-7c45-11f0-bd35-bd8bd8572bf3.png",
+    "https://images.gc.nationalleagueservices.co.uk/42e0ecf0-7c45-11f0-ae0a-edd6b6f7485a.png",
+    "https://images.gc.nationalleagueservices.co.uk/43bef0e0-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/432485a0-7c45-11f0-ae0a-edd6b6f7485a.png",
+    "https://images.gc.nationalleagueservices.co.uk/42b85650-7c45-11f0-96e6-13bffcc7953b.png",
+    "https://images.gc.nationalleagueservices.co.uk/42c3c800-7c45-11f0-ad0b-c5a247b8c1be.png",
+    "https://images.gc.nationalleagueservices.co.uk/429fec50-7c45-11f0-96e6-13bffcc7953b.png"
+  ];
+
+  const TEAMS = TEAM_NAMES.map((name, i) => ({
+    name,
+    crest: TEAM_CREST_URLS[i] || TEAM_CREST_URLS[0]
+  }));
+
+  /* ================= ELEMENTS ================= */
+
+  const canvas = document.getElementById("preview");
+  const ctx = canvas.getContext("2d");
+
+  const formationSel = document.getElementById("formation");
+  const divisionSel = document.getElementById("division");
+  const dateEl = document.getElementById("date");
+  const manualMoveEl = document.getElementById("manualMove");
+  const zoomResetBtn = document.getElementById("zoomReset");
+  const resetPositionsBtn = document.getElementById("resetPositions");
+  const downloadBtn = document.getElementById("download");
+
+  const lineupEl = document.getElementById("lineup");
+  const scoresEl = document.getElementById("scores");
+  const exportOutEl = document.getElementById("exportOut");
+  const buildExportBtn = document.getElementById("buildExport");
+  const copyExportBtn = document.getElementById("copyExport");
+  const statusEl = document.getElementById("status");
+
+  /* ================= STATE ================= */
+
+  // Persisted per position (names retained across formation switches)
+  const stateByPos = {}; // { "GK": {team,name,perf}, ... }
+
+  // Per formation position offsets (manual move)
+  // { "4-3-3": { "GK": {dx,dy}, ... }, ... }
+  const offsetsByFormation = {};
+
+  // Lineup tab order (down columns)
+  let lineupTabOrder = []; // [teamSelects..., nameInputs..., perfInputs...]
+  let lineupTabIndexMap = new Map(); // element -> index
+
+  // Preview viewport transform (does NOT affect export)
+  let viewScale = 1;
+  let viewPanX = 0;
+  let viewPanY = 0;
+
+  // Drag mode
+  let isDragging = false;
+  let dragMode = "pan"; // "pan" | "player"
+  let dragStart = {x:0,y:0};
+  let dragStartPan = {x:0,y:0};
+  let dragPosKey = null;
+  let dragStartOffset = {dx:0,dy:0};
+
+  // Pinch
+  let lastPinchDist = 0;
+
+  // Image cache
+  const imgCache = new Map(); // url -> Promise<HTMLImageElement>
+
+  /* ================= HELPERS ================= */
+
+  function setStatus(msg){
+    statusEl.textContent = msg;
+    window.clearTimeout(setStatus._t);
+    setStatus._t = window.setTimeout(()=> statusEl.textContent = "Ready", 900);
+  }
+
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+  function pad2(n){ return String(n).padStart(2,"0"); }
+
+  function formatDMMMyy(dateStr){
+    if(!dateStr) return "";
+    const [y,m,d] = dateStr.split("-").map(Number);
+    if(!y || !m || !d) return "";
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const dd = String(d);
+    const mon = months[m-1] || "";
+    const yy = String(y).slice(-2);
+    return `${dd}${mon}${yy}`;
+  }
+
+  function buildFilename(){
+    const div = divisionSel.value || "National";
+    const d = formatDMMMyy(dateEl.value) || "";
+    return `TOTW ${div}${d ? " " + d : ""}.png`;
+  }
+
+  function getTeamCrestUrl(teamName){
+    const t = TEAMS.find(x => x.name === teamName);
+    return t ? t.crest : TEAMS[0].crest;
+  }
+
+  function buildTeamSelect(current){
+    const s = document.createElement("select");
+    for(const t of TEAMS){
+      const o = document.createElement("option");
+      o.value = t.name;
+      o.textContent = t.name;
+      s.appendChild(o);
+    }
+    if(current) s.value = current;
+    return s;
+  }
+
+  function getFormationPositions(formation){
+    return FORMATIONS[formation] || [];
+  }
+
+  function getOffset(formation, posKey){
+    if(!offsetsByFormation[formation]) offsetsByFormation[formation] = {};
+    return offsetsByFormation[formation][posKey] || {dx:0,dy:0};
+  }
+
+  function setOffset(formation, posKey, dx, dy){
+    if(!offsetsByFormation[formation]) offsetsByFormation[formation] = {};
+    offsetsByFormation[formation][posKey] = {dx,dy};
+  }
+
+  function resetOffsetsForFormation(formation){
+    offsetsByFormation[formation] = {};
+  }
+
+  function screenToCanvas(e){
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: cx * scaleX, y: cy * scaleY };
+  }
+
+  function canvasToWorld(pt){
+    return {
+      x: (pt.x - viewPanX) / viewScale,
+      y: (pt.y - viewPanY) / viewScale
+    };
+  }
+
+  function worldToCanvas(pt){
+    return {
+      x: pt.x * viewScale + viewPanX,
+      y: pt.y * viewScale + viewPanY
+    };
+  }
+
+  function pinchDistance(t0,t1){
+    const dx = t0.clientX - t1.clientX;
+    const dy = t0.clientY - t1.clientY;
+    return Math.hypot(dx,dy);
+  }
+
+  function loadImage(url){
+    if(imgCache.has(url)) return imgCache.get(url);
+    const p = new Promise((resolve,reject)=>{
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = ()=> resolve(img);
+      img.onerror = ()=> reject(new Error("Failed to load: " + url));
+      img.src = url;
+    });
+    imgCache.set(url, p);
+    return p;
+  }
+
+  function drawContainedImage(c, img, centerX, centerY, maxW, maxH){
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if(!iw || !ih) return;
+
+    const s = Math.min(maxW / iw, maxH / ih);
+    const dw = iw * s;
+    const dh = ih * s;
+    const x = centerX - dw/2;
+    const y = centerY - dh/2;
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(img, x, y, dw, dh);
+  }
+
+  function drawName(c, text, centerX, crestCenterY){
+    const name = (text || "").trim();
+    if(!name) return;
+
+    c.font = `${NAME_FONT_SIZE}px ${NAME_FONT_STACK}`;
+    c.fillStyle = NAME_COLOR;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    c.fillText(name, centerX, crestCenterY + NAME_OFFSET);
+  }
+
+  function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
+
+  /* ================= RENDER ================= */
+
+  let bgImg = null;
+  let divBadgeImg = null;
+
+  async function ensureBaseImages(){
+    if(!bgImg) bgImg = await loadImage(BG_URL);
+    const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
+    divBadgeImg = await loadImage(divUrl);
+  }
+
+  async function renderTo(c, useViewport){
+    await ensureBaseImages();
+
+    c.setTransform(1,0,0,1,0,0);
+    c.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+
+    if(useViewport){
+      c.setTransform(viewScale,0,0,viewScale,viewPanX,viewPanY);
+    }else{
+      c.setTransform(1,0,0,1,0,0);
+    }
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    for(const slot of slots){
+      const posKey = slot.pos;
+      const s = stateByPos[posKey] || {};
+      const team = s.team || TEAMS[0].name;
+      const crestUrl = getTeamCrestUrl(team);
+
+      let crestImg = null;
+      try{ crestImg = await loadImage(crestUrl); }catch{ crestImg = null; }
+
+      const off = getOffset(formation, posKey);
+      const x = slot.x + (off.dx || 0);
+      const y = slot.y + (off.dy || 0);
+
+      if(crestImg){
+        drawContainedImage(c, crestImg, x, y, CREST_MAX, CREST_MAX);
+      }
+
+      drawName(c, s.name, x, y);
+    }
+
+    if(divBadgeImg){
+      const iw = divBadgeImg.naturalWidth || divBadgeImg.width;
+      const ih = divBadgeImg.naturalHeight || divBadgeImg.height;
+      const dw = iw * DIV_BADGE_POS.scale;
+      const dh = ih * DIV_BADGE_POS.scale;
+      const bx = DIV_BADGE_POS.x - dw/2;
+      const by = DIV_BADGE_POS.y - dh/2;
+      c.drawImage(divBadgeImg, bx, by, dw, dh);
+    }
+  }
+
+  let renderQueued = false;
+  function scheduleRender(){
+    if(renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(async ()=>{
+      renderQueued = false;
+      try{
+        await renderTo(ctx, true);
+      }catch(e){
+        console.error(e);
+        setStatus("Render error (check image CORS)");
+      }
+    });
+  }
+
+  /* ================= LINEUP UI + TAB ORDER ================= */
+
+  function rebuildLineup(){
+    lineupEl.innerHTML = "";
+
+    const teamEls = [];
+    const nameEls = [];
+    const perfEls = [];
+
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    for(const slot of slots){
+      const posKey = slot.pos;
+      const saved = stateByPos[posKey] || { team: TEAMS[0].name, name:"", perf:"" };
+
+      const posCell = document.createElement("div");
+      posCell.className = "pos";
+      posCell.textContent = posKey;
+
+      const teamSel = buildTeamSelect(saved.team);
+
+      const nameInp = document.createElement("input");
+      nameInp.type = "text";
+      nameInp.placeholder = "Player name";
+      nameInp.value = saved.name || "";
+
+      const perfInp = document.createElement("input");
+      perfInp.type = "text";
+      perfInp.className = "perf";
+      perfInp.placeholder = "Performance (single line, unlimited)";
+      perfInp.value = saved.perf || "";
+
+      teamSel.addEventListener("input", ()=>{
+        stateByPos[posKey] = stateByPos[posKey] || {};
+        stateByPos[posKey].team = teamSel.value;
+        autosave();
+        scheduleRender();
+      });
+
+      nameInp.addEventListener("input", ()=>{
+        stateByPos[posKey] = stateByPos[posKey] || {};
+        stateByPos[posKey].name = nameInp.value;
+        autosave();
+        scheduleRender();
+      });
+
+      perfInp.addEventListener("input", ()=>{
+        stateByPos[posKey] = stateByPos[posKey] || {};
+        stateByPos[posKey].perf = perfInp.value;
+        autosave();
+      });
+
+      lineupEl.appendChild(posCell);
+      lineupEl.appendChild(teamSel);
+      lineupEl.appendChild(nameInp);
+      lineupEl.appendChild(perfInp);
+
+      teamEls.push(teamSel);
+      nameEls.push(nameInp);
+      perfEls.push(perfInp);
+    }
+
+    // Tab order: teams (down) → names (down) → performance (down)
+    lineupTabOrder = [...teamEls, ...nameEls, ...perfEls];
+    lineupTabIndexMap = new Map();
+    lineupTabOrder.forEach((el, idx)=> lineupTabIndexMap.set(el, idx));
+  }
+
+  /* ================= EXPORT TEXT ================= */
+
+  function buildExportText(){
+    const scores = (scoresEl.value || "").trim();
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    const lines = [];
+    if(scores) lines.push(scores, "");
+
+    for(const slot of slots){
+      const posKey = slot.pos;
+      const s = stateByPos[posKey] || {};
+      const team = safeText(s.team);
+      const name = safeText(s.name);
+      const perf = safeText(s.perf);
+
+      const line = [posKey, team, name, perf].filter(Boolean).join(" ");
+      if(line) lines.push(line);
+    }
+
+    exportOutEl.value = lines.join("\n");
+    setStatus("Export built");
+    autosave();
+  }
+
+  async function copyExportText(){
+    try{
+      await navigator.clipboard.writeText(exportOutEl.value || "");
+      setStatus("Copied");
+    }catch{
+      setStatus("Clipboard blocked");
+    }
+  }
+
+  /* ================= DOWNLOAD ================= */
+
+  async function downloadPNG(){
+    const out = document.createElement("canvas");
+    out.width = EXPORT_SIZE;
+    out.height = EXPORT_SIZE;
+    const outCtx = out.getContext("2d");
+
+    try{
+      await renderTo(outCtx, false);
+    }catch(e){
+      console.error(e);
+      setStatus("Export error (check image CORS)");
+      return;
+    }
+
+    const blob = await new Promise(res => out.toBlob(res, "image/png"));
+    if(!blob){
+      setStatus("Export failed");
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = buildFilename();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+
+    setStatus("Downloaded");
+  }
+
+  /* ================= AUTOSAVE ================= */
+
+  function autosave(){
+    const payload = {
+      v: VERSION,
+      formation: formationSel.value,
+      division: divisionSel.value,
+      date: dateEl.value,
+      scores: scoresEl.value,
+      exportOut: exportOutEl.value,
+      stateByPos,
+      offsetsByFormation,
+      viewport: { viewScale, viewPanX, viewPanY }
+    };
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    }catch{}
+  }
+
+  function autoload(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return;
+
+      const d = JSON.parse(raw);
+      if(!d || typeof d !== "object") return;
+
+      if(d.formation && FORMATIONS[d.formation]) formationSel.value = d.formation;
+      if(d.division && DIV_BADGE[d.division]) divisionSel.value = d.division;
+      if(typeof d.date === "string") dateEl.value = d.date;
+
+      if(typeof d.scores === "string") scoresEl.value = d.scores;
+      if(typeof d.exportOut === "string") exportOutEl.value = d.exportOut;
+
+      if(d.stateByPos && typeof d.stateByPos === "object"){
+        for(const k of Object.keys(d.stateByPos)){
+          stateByPos[k] = d.stateByPos[k];
+        }
+      }
+
+      if(d.offsetsByFormation && typeof d.offsetsByFormation === "object"){
+        for(const f of Object.keys(d.offsetsByFormation)){
+          offsetsByFormation[f] = d.offsetsByFormation[f];
+        }
+      }
+
+      if(d.viewport && typeof d.viewport === "object"){
+        if(typeof d.viewport.viewScale === "number") viewScale = d.viewport.viewScale;
+        if(typeof d.viewport.viewPanX === "number") viewPanX = d.viewport.viewPanX;
+        if(typeof d.viewport.viewPanY === "number") viewPanY = d.viewport.viewPanY;
+      }
+    }catch{}
+  }
+
+  /* ================= INTERACTION ================= */
+
+  function resetViewport(){
+    viewScale = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+    autosave();
+    scheduleRender();
+  }
+
+  function hitTestPlayer(worldPt){
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    for(let i = slots.length - 1; i >= 0; i--){
+      const slot = slots[i];
+      const off = getOffset(formation, slot.pos);
+      const cx = slot.x + (off.dx||0);
+      const cy = slot.y + (off.dy||0);
+
+      const half = CREST_MAX/2 + 6;
+      if(worldPt.x >= cx - half && worldPt.x <= cx + half && worldPt.y >= cy - half && worldPt.y <= cy + half){
+        return slot.pos;
+      }
+    }
+    return null;
+  }
+
+  function onPointerDown(e){
+    const pt = screenToCanvas(e);
+    const world = canvasToWorld(pt);
+
+    isDragging = true;
+    dragStart = { x: world.x, y: world.y };
+    dragStartPan = { x: viewPanX, y: viewPanY };
+
+    if(manualMoveEl.checked){
+      const hit = hitTestPlayer(world);
+      if(hit){
+        dragMode = "player";
+        dragPosKey = hit;
+        const off = getOffset(formationSel.value, hit);
+        dragStartOffset = { dx: off.dx || 0, dy: off.dy || 0 };
+      }else{
+        dragMode = "pan";
+        dragPosKey = null;
+      }
+    }else{
+      dragMode = "pan";
+      dragPosKey = null;
+    }
+
+    e.preventDefault();
+  }
+
+  function onPointerMove(e){
+    if(!isDragging) return;
+    const pt = screenToCanvas(e);
+    const world = canvasToWorld(pt);
+
+    const dx = world.x - dragStart.x;
+    const dy = world.y - dragStart.y;
+
+    if(dragMode === "pan"){
+      viewPanX = dragStartPan.x + dx * viewScale;
+      viewPanY = dragStartPan.y + dy * viewScale;
+      autosave();
+      scheduleRender();
+    }else if(dragMode === "player" && dragPosKey){
+      const formation = formationSel.value;
+      setOffset(formation, dragPosKey, dragStartOffset.dx + dx, dragStartOffset.dy + dy);
+      autosave();
+      scheduleRender();
+    }
+
+    e.preventDefault();
+  }
+
+  function onPointerUp(){
+    isDragging = false;
+    dragMode = "pan";
+    dragPosKey = null;
+  }
+
+  function onWheel(e){
+    e.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const cy = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+    const worldBefore = canvasToWorld({x:cx, y:cy});
+
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    viewScale = clamp(viewScale * factor, 0.35, 4.0);
+
+    const canvasAfter = worldToCanvas(worldBefore);
+    viewPanX += (cx - canvasAfter.x);
+    viewPanY += (cy - canvasAfter.y);
+
+    autosave();
+    scheduleRender();
+  }
+
+  function onTouchStart(e){
+    if(e.touches && e.touches.length === 2){
+      lastPinchDist = pinchDistance(e.touches[0], e.touches[1]);
+    }else{
+      onPointerDown(e);
+    }
+  }
+
+  function onTouchMove(e){
+    if(e.touches && e.touches.length === 2){
+      e.preventDefault();
+
+      const d = pinchDistance(e.touches[0], e.touches[1]);
+      if(lastPinchDist){
+        const rect = canvas.getBoundingClientRect();
+        const midClientX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midClientY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+        const cx = (midClientX - rect.left) * (canvas.width / rect.width);
+        const cy = (midClientY - rect.top) * (canvas.height / rect.height);
+
+        const worldBefore = canvasToWorld({x:cx, y:cy});
+
+        const factor = d / lastPinchDist;
+        viewScale = clamp(viewScale * factor, 0.35, 4.0);
+
+        const canvasAfter = worldToCanvas(worldBefore);
+        viewPanX += (cx - canvasAfter.x);
+        viewPanY += (cy - canvasAfter.y);
+
+        autosave();
+        scheduleRender();
+      }
+      lastPinchDist = d;
+    }else{
+      onPointerMove(e);
+    }
+  }
+
+  function onTouchEnd(){
+    lastPinchDist = 0;
+    onPointerUp();
+  }
+
+  /* ================= INIT ================= */
+
+  function setDefaultDateIfBlank(){
+    if(dateEl.value) return;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = pad2(now.getMonth()+1);
+    const d = pad2(now.getDate());
+    dateEl.value = `${y}-${m}-${d}`;
+  }
+
+  function bindUI(){
+    formationSel.addEventListener("change", ()=>{
+      rebuildLineup();
+      autosave();
+      scheduleRender();
+    });
+
+    divisionSel.addEventListener("change", async ()=>{
+      divBadgeImg = null;
+      autosave();
+      rebuildLineup();
+      scheduleRender();
+    });
+
+    dateEl.addEventListener("input", autosave);
+
+    scoresEl.addEventListener("input", autosave);
+    exportOutEl.addEventListener("input", autosave);
+
+    zoomResetBtn.addEventListener("click", resetViewport);
+
+    resetPositionsBtn.addEventListener("click", ()=>{
+      resetOffsetsForFormation(formationSel.value);
+      autosave();
+      scheduleRender();
+      setStatus("Positions reset");
+    });
+
+    downloadBtn.addEventListener("click", downloadPNG);
+
+    buildExportBtn.addEventListener("click", buildExportText);
+    copyExportBtn.addEventListener("click", copyExportText);
+
+    // Preview interactions
+    canvas.addEventListener("wheel", onWheel, {passive:false});
+    canvas.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
+
+    canvas.addEventListener("touchstart", onTouchStart, {passive:false});
+    canvas.addEventListener("touchmove", onTouchMove, {passive:false});
+    window.addEventListener("touchend", onTouchEnd, {passive:true});
+
+    // Lineup: Tab goes down columns (team → name → performance)
+    lineupEl.addEventListener("keydown", (e)=>{
+      if(e.key !== "Tab") return;
+
+      const active = document.activeElement;
+      if(!lineupTabIndexMap.has(active)) return;
+
+      e.preventDefault();
+
+      const idx = lineupTabIndexMap.get(active);
+      const dir = e.shiftKey ? -1 : 1;
+      const nextIdx = idx + dir;
+
+      if(nextIdx < 0 || nextIdx >= lineupTabOrder.length){
+        if(!e.shiftKey){
+          scoresEl.focus();
+        }else{
+          dateEl.focus();
+        }
+        return;
+      }
+
+      lineupTabOrder[nextIdx].focus();
+    });
+  }
+
+  async function start(){
+    setDefaultDateIfBlank();
+    autoload();
+    rebuildLineup();
+    bindUI();
+
+    try{
+      await ensureBaseImages();
+      scheduleRender();
+      setStatus("Loaded");
+    }catch(e){
+      console.error(e);
+      setStatus("Image load error (CORS?)");
+    }
+  }
+
+  start();
+
+})();
+</script>
+
+</body>
+</html>
