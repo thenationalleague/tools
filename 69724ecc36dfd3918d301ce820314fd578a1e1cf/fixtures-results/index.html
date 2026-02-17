@@ -517,16 +517,127 @@ footer{
   }
 
   /* ================= AUTOSAVE ================= */
+  function buildClubSelect(){
+    const s = document.createElement("select");
 
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "None";
+    s.appendChild(none);
+
+    for(const name of TEAM_NAMES){
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      s.appendChild(o);
+    }
+
+    return s;
+  }
+
+  function isRowHidden(row){
+    // Hide all row elements only when BOTH sides are None
+    return !row.home && !row.away;
+  }
+
+  function syncScoreInputsEnabled(){
+    const isResults = (statusSel.value === "Results");
+    for(let i=0;i<ROWS_COUNT;i++){
+      const inp = scoreInputEls[i];
+      if(!inp) continue;
+      inp.disabled = !isResults;
+      inp.placeholder = isResults ? "e.g. 2-1" : "";
+    }
+  }
+
+  function rebuildRowsUI(){
+    // Keep the existing hint node (first child) if present
+    const hint = rowsGridEl.querySelector(".rowHint");
+    rowsGridEl.innerHTML = "";
+    if(hint) rowsGridEl.appendChild(hint);
+
+    homeSelectEls.length = 0;
+    awaySelectEls.length = 0;
+    scoreInputEls.length = 0;
+
+    for(let i=0;i<ROWS_COUNT;i++){
+      const homeSel = buildClubSelect();
+      const awaySel = buildClubSelect();
+
+      const scoreInp = document.createElement("input");
+      scoreInp.type = "text";
+      scoreInp.inputMode = "text";
+      scoreInp.autocomplete = "off";
+
+      homeSel.value = rowsState[i].home || "";
+      awaySel.value = rowsState[i].away || "";
+      scoreInp.value = rowsState[i].score || "";
+
+      homeSel.addEventListener("change", ()=>{
+        rowsState[i].home = homeSel.value || "";
+        autosave();
+        scheduleRender();
+      });
+
+      awaySel.addEventListener("change", ()=>{
+        rowsState[i].away = awaySel.value || "";
+        autosave();
+        scheduleRender();
+      });
+
+      scoreInp.addEventListener("input", ()=>{
+        rowsState[i].score = scoreInp.value || "";
+        autosave();
+        scheduleRender();
+      });
+
+      // Paste spread: only on the TOP score box (row 0), in Results mode
+      if(i === 0){
+        scoreInp.addEventListener("paste", (e)=>{
+          if(statusSel.value !== "Results") return;
+
+          const text = (e.clipboardData && e.clipboardData.getData("text")) ? e.clipboardData.getData("text") : "";
+          if(!text) return;
+
+          // If it looks multi-line, spread into all 12
+          if(/\r?\n/.test(text)){
+            e.preventDefault();
+
+            const lines = text
+              .split(/\r?\n/)
+              .map(x => (x || "").trim())
+              .slice(0, ROWS_COUNT);
+
+            for(let r=0;r<ROWS_COUNT;r++){
+              const v = lines[r] || "";
+              rowsState[r].score = v;
+              if(scoreInputEls[r]) scoreInputEls[r].value = v;
+            }
+
+            autosave();
+            scheduleRender();
+          }
+        });
+      }
+
+      rowsGridEl.appendChild(homeSel);
+      rowsGridEl.appendChild(scoreInp);
+      rowsGridEl.appendChild(awaySel);
+
+      homeSelectEls.push(homeSel);
+      scoreInputEls.push(scoreInp);
+      awaySelectEls.push(awaySel);
+    }
+
+    syncScoreInputsEnabled();
+  }
   function autosave(){
     const payload = {
       v: VERSION,
       matchday: matchdaySel.value,
       division: divisionSel.value,
       status: statusSel.value,
-      homeTeams: homeTeamsEl.value,
-      awayTeams: awayTeamsEl.value,
-      scores: scoresEl.value
+      rowsState: rowsState
     };
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -544,9 +655,15 @@ footer{
       if(typeof d.division === "string") divisionSel.value = d.division;
       if(typeof d.status === "string") statusSel.value = d.status;
 
-      if(typeof d.homeTeams === "string") homeTeamsEl.value = d.homeTeams;
-      if(typeof d.awayTeams === "string") awayTeamsEl.value = d.awayTeams;
-      if(typeof d.scores === "string") scoresEl.value = d.scores;
+      if(Array.isArray(d.rowsState)){
+        for(let i=0;i<ROWS_COUNT;i++){
+          const r = d.rowsState[i];
+          if(!r || typeof r !== "object") continue;
+          rowsState[i].home = typeof r.home === "string" ? r.home : "";
+          rowsState[i].away = typeof r.away === "string" ? r.away : "";
+          rowsState[i].score = typeof r.score === "string" ? r.score : "";
+        }
+      }
     }catch{}
   }
 
@@ -602,37 +719,26 @@ footer{
       ctx.drawImage(divBadgeImg, bx, by, dw, dh);
     }
 
-    // Rows text
-    const homeLinesRaw  = getLinesFromTextarea(homeTeamsEl, MAX_LINES);
-    const scoreLinesRaw = getLinesFromTextarea(scoresEl, MAX_LINES);
-    const awayLinesRaw  = getLinesFromTextarea(awayTeamsEl, MAX_LINES);
+    // Rows from dropdowns (always 12; hide when both sides are None)
+    const isResults = (statusSel.value === "Results");
 
-    const homeLines  = homeLinesRaw.map(safeUpper);
-    const scoreLines = scoreLinesRaw.map(safeUpper);
-    const awayLines  = awayLinesRaw.map(safeUpper);
+    for(let i=0;i<ROWS_COUNT;i++){
+      const row = rowsState[i];
+      if(isRowHidden(row)) continue;
 
-    const rowCount = Math.max(homeLines.length, scoreLines.length, awayLines.length);
-
-    // Draw row rectangles + crests per row
-    for(let i=0;i<rowCount;i++){
       const cy = ROWS_Y_START + (i * ROWS_LINE_GAP);
 
-      // Blue tall rectangle (score column background)
+      // Blue bar (spans 360..1140) + center white square
       drawCenteredRect(ctx, SCORE_COL.x, cy, BLUE_PILL.w, BLUE_PILL.h, BLUE_PILL.color);
-
-      // White square on top (center)
       drawCenteredRect(ctx, SCORE_COL.x, cy, WHITE_BOX.w, WHITE_BOX.h, WHITE_BOX.color);
 
       // Red squares left/right
       drawCenteredRect(ctx, HOME_ICON_X, cy, RED_BOX.w, RED_BOX.h, RED_BOX.color);
       drawCenteredRect(ctx, AWAY_ICON_X, cy, RED_BOX.w, RED_BOX.h, RED_BOX.color);
 
-      // Crests on top of red squares (max 50x50)
-      const homeClubLine = homeLinesRaw[i] || "";
-      const awayClubLine = awayLinesRaw[i] || "";
-
-      const homeCrestUrl = getClubCrestUrlFromLine(homeClubLine);
-      const awayCrestUrl = getClubCrestUrlFromLine(awayClubLine);
+      // Crests (from selected club)
+      const homeCrestUrl = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
+      const awayCrestUrl = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
 
       if(homeCrestUrl){
         try{
@@ -647,28 +753,39 @@ footer{
           drawContainedImage(ctx, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
         }catch{}
       }
-    }
 
-    // Draw row text last (on top)
-    // Home
-    ctx.textAlign = HOME_COL.align;
-    setTextStyle(ctx, HOME_COL.size, HOME_COL.color, HOME_COL.weight);
-    for(let i=0;i<homeLines.length;i++){
-      ctx.fillText(homeLines[i], HOME_COL.x, ROWS_Y_START + (i * ROWS_LINE_GAP));
-    }
+      // Home/Away names (display mapping)
+      const homeText = safeUpper(displayClubName(row.home));
+      const awayText = safeUpper(displayClubName(row.away));
 
-    // Scores
-    ctx.textAlign = SCORE_COL.align;
-    setTextStyle(ctx, SCORE_COL.size, SCORE_COL.color, SCORE_COL.weight);
-    for(let i=0;i<scoreLines.length;i++){
-      ctx.fillText(scoreLines[i], SCORE_COL.x, ROWS_Y_START + (i * ROWS_LINE_GAP));
-    }
+      if(homeText){
+        ctx.textAlign = HOME_COL.align;
+        setTextStyle(ctx, HOME_COL.size, HOME_COL.color, HOME_COL.weight);
+        ctx.fillText(homeText, HOME_COL.x, cy);
+      }
 
-    // Away
-    ctx.textAlign = AWAY_COL.align;
-    setTextStyle(ctx, AWAY_COL.size, AWAY_COL.color, AWAY_COL.weight);
-    for(let i=0;i<awayLines.length;i++){
-      ctx.fillText(awayLines[i], AWAY_COL.x, ROWS_Y_START + (i * ROWS_LINE_GAP));
+      if(awayText){
+        ctx.textAlign = AWAY_COL.align;
+        setTextStyle(ctx, AWAY_COL.size, AWAY_COL.color, AWAY_COL.weight);
+        ctx.fillText(awayText, AWAY_COL.x, cy);
+      }
+
+      // Score / V
+      let scoreText = "";
+      if(!isResults){
+        // Fixtures: show V when BOTH teams selected
+        scoreText = (row.home && row.away) ? "V" : "";
+      }else{
+        scoreText = (row.score || "").trim();
+      }
+
+      scoreText = safeUpper(scoreText);
+
+      if(scoreText){
+        ctx.textAlign = SCORE_COL.align;
+        setTextStyle(ctx, SCORE_COL.size, SCORE_COL.color, SCORE_COL.weight);
+        ctx.fillText(scoreText, SCORE_COL.x, cy);
+      }
     }
 
     autosave();
@@ -720,31 +837,30 @@ footer{
         c.drawImage(divBadgeImg, bx, by, dw, dh);
       }
 
-      const homeLinesRaw  = getLinesFromTextarea(homeTeamsEl, MAX_LINES);
-      const scoreLinesRaw = getLinesFromTextarea(scoresEl, MAX_LINES);
-      const awayLinesRaw  = getLinesFromTextarea(awayTeamsEl, MAX_LINES);
+      // Rows from dropdowns (always 12; hide when both sides are None)
+      const isResults = (statusSel.value === "Results");
 
-      const homeLines  = homeLinesRaw.map(safeUpper);
-      const scoreLines = scoreLinesRaw.map(safeUpper);
-      const awayLines  = awayLinesRaw.map(safeUpper);
+      for(let i=0;i<ROWS_COUNT;i++){
+        const row = rowsState[i];
+        if(isRowHidden(row)) continue;
 
-      const rowCount = Math.max(homeLines.length, scoreLines.length, awayLines.length);
-
-      for(let i=0;i<rowCount;i++){
         const cy = ROWS_Y_START + (i * ROWS_LINE_GAP);
 
+        // Blue bar + center white square
         c.fillStyle = BLUE_PILL.color;
         c.fillRect(SCORE_COL.x - (BLUE_PILL.w/2), cy - (BLUE_PILL.h/2), BLUE_PILL.w, BLUE_PILL.h);
 
         c.fillStyle = WHITE_BOX.color;
         c.fillRect(SCORE_COL.x - (WHITE_BOX.w/2), cy - (WHITE_BOX.h/2), WHITE_BOX.w, WHITE_BOX.h);
 
+        // Red squares
         c.fillStyle = RED_BOX.color;
         c.fillRect(HOME_ICON_X - (RED_BOX.w/2), cy - (RED_BOX.h/2), RED_BOX.w, RED_BOX.h);
         c.fillRect(AWAY_ICON_X - (RED_BOX.w/2), cy - (RED_BOX.h/2), RED_BOX.w, RED_BOX.h);
 
-        const homeCrestUrl = getClubCrestUrlFromLine(homeLinesRaw[i] || "");
-        const awayCrestUrl = getClubCrestUrlFromLine(awayLinesRaw[i] || "");
+        // Crests
+        const homeCrestUrl = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
+        const awayCrestUrl = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
 
         if(homeCrestUrl){
           try{
@@ -758,32 +874,44 @@ footer{
             drawContainedImage(c, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
           }catch{}
         }
+
+        // Text baseline
+        c.textBaseline = "middle";
+
+        // Home text
+        const homeText = safeUpper(displayClubName(row.home));
+        if(homeText){
+          c.textAlign = HOME_COL.align;
+          c.fillStyle = HOME_COL.color;
+          c.font = `${HOME_COL.weight} ${HOME_COL.size}px ${FONT_FAMILY}`;
+          c.fillText(homeText, HOME_COL.x, cy);
+        }
+
+        // Away text
+        const awayText = safeUpper(displayClubName(row.away));
+        if(awayText){
+          c.textAlign = AWAY_COL.align;
+          c.fillStyle = AWAY_COL.color;
+          c.font = `${AWAY_COL.weight} ${AWAY_COL.size}px ${FONT_FAMILY}`;
+          c.fillText(awayText, AWAY_COL.x, cy);
+        }
+
+        // Score / V
+        let scoreText = "";
+        if(!isResults){
+          scoreText = (row.home && row.away) ? "V" : "";
+        }else{
+          scoreText = (row.score || "").trim();
+        }
+        scoreText = safeUpper(scoreText);
+
+        if(scoreText){
+          c.textAlign = SCORE_COL.align;
+          c.fillStyle = SCORE_COL.color;
+          c.font = `${SCORE_COL.weight} ${SCORE_COL.size}px ${FONT_FAMILY}`;
+          c.fillText(scoreText, SCORE_COL.x, cy);
+        }
       }
-
-      // Text
-      c.textBaseline = "middle";
-
-      c.textAlign = HOME_COL.align;
-      c.fillStyle = HOME_COL.color;
-      c.font = `${HOME_COL.weight} ${HOME_COL.size}px ${FONT_FAMILY}`;
-      for(let i=0;i<homeLines.length;i++){
-        c.fillText(homeLines[i], HOME_COL.x, ROWS_Y_START + (i * ROWS_LINE_GAP));
-      }
-
-      c.textAlign = SCORE_COL.align;
-      c.fillStyle = SCORE_COL.color;
-      c.font = `${SCORE_COL.weight} ${SCORE_COL.size}px ${FONT_FAMILY}`;
-      for(let i=0;i<scoreLines.length;i++){
-        c.fillText(scoreLines[i], SCORE_COL.x, ROWS_Y_START + (i * ROWS_LINE_GAP));
-      }
-
-      c.textAlign = AWAY_COL.align;
-      c.fillStyle = AWAY_COL.color;
-      c.font = `${AWAY_COL.weight} ${AWAY_COL.size}px ${FONT_FAMILY}`;
-      for(let i=0;i<awayLines.length;i++){
-        c.fillText(awayLines[i], AWAY_COL.x, ROWS_Y_START + (i * ROWS_LINE_GAP));
-      }
-
     }catch(e){
       console.error(e);
       setStatus("Export error (CORS?)");
@@ -816,9 +944,16 @@ footer{
     divisionSel.value = "National";
     statusSel.value = "Fixtures";
 
-    homeTeamsEl.value = "";
-    scoresEl.value = "";
-    awayTeamsEl.value = "";
+    for(let i=0;i<ROWS_COUNT;i++){
+      rowsState[i].home = "";
+      rowsState[i].away = "";
+      rowsState[i].score = "";
+      if(homeSelectEls[i]) homeSelectEls[i].value = "";
+      if(awaySelectEls[i]) awaySelectEls[i].value = "";
+      if(scoreInputEls[i]) scoreInputEls[i].value = "";
+    }
+
+    syncScoreInputsEnabled();
 
     // force reload badge on next render
     divBadgeImg = null;
@@ -860,21 +995,7 @@ footer{
     });
 
     statusSel.addEventListener("change", ()=>{
-      autosave();
-      scheduleRender();
-    });
-
-    homeTeamsEl.addEventListener("input", ()=>{
-      autosave();
-      scheduleRender();
-    });
-
-    scoresEl.addEventListener("input", ()=>{
-      autosave();
-      scheduleRender();
-    });
-
-    awayTeamsEl.addEventListener("input", ()=>{
+      syncScoreInputsEnabled();
       autosave();
       scheduleRender();
     });
@@ -886,7 +1007,11 @@ footer{
   async function start(){
     buildMatchdayOptions();
     autoload();
+    rebuildRowsUI();
     bindUI();
+
+    // Make sure UI reflects current status mode on load
+    syncScoreInputsEnabled();
 
     try{
       await ensureBaseImages();
