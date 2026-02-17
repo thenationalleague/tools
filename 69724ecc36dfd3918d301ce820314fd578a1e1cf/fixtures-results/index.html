@@ -155,6 +155,13 @@ textarea{
   font-size:12px;
   color:var(--muted);
 }
+  .rowsGrid input:disabled{
+  background:#eeeeee;
+  color:#777777;
+  border-color:#d7d7d7;
+  cursor:not-allowed;
+  opacity:1; /* keeps it consistently “greyed” rather than browser-faded */
+}
 footer{
   margin-top:4px;
   font-size:12px;
@@ -196,7 +203,8 @@ footer{
         <option value="Results">Results</option>
       </select>
 
-      <button type="button" id="download">Download PNG</button>
+      <button type="button" id="download">Download 1x1 PNG</button>
+      <button type="button" id="download45">Download 4x5 PNG</button>
       <button type="button" id="resetAll" title="Wipe all fields back to defaults">Reset all</button>
     </div>
 
@@ -374,7 +382,7 @@ footer{
   const resetAllBtn = document.getElementById("resetAll");
 
   const rowsGridEl = document.getElementById("rowsGrid");
-
+  const download45Btn = document.getElementById("download45");
   const statusTextEl = document.getElementById("statusText");
 
   /* ================= STATE ================= */
@@ -512,11 +520,17 @@ footer{
     divBadgeImg = await loadImage(divUrl);
   }
 
-  function buildFilename(){
+  function buildFilename(kind){
     const md = matchdaySel.value === "NA" ? "MATCHDAY" : `MATCHDAY ${matchdaySel.value}`;
     const d = divisionSel.value;
     const s = statusSel.value;
-    return `${md} - ${d} - ${s}.png`.replace(/\s+/g, " ").trim();
+
+    if(kind === "4x5"){
+      return `${md} - ${d} - ${s} - 4x5.png`.replace(/\s+/g, " ").trim();
+    }
+
+    // default 1x1
+    return `${md} - ${d} - ${s} - 1x1.png`.replace(/\s+/g, " ").trim();
   }
 
   /* ================= AUTOSAVE ================= */
@@ -865,7 +879,7 @@ footer{
 
   /* ================= DOWNLOAD ================= */
 
-  async function downloadPNG(){
+  async function downloadPNG_1x1(){
     const out = document.createElement("canvas");
     out.width = CANVAS_SIZE;
     out.height = CANVAS_SIZE;
@@ -1013,7 +1027,173 @@ footer{
 
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = buildFilename();
+    a.download = buildFilename("1x1");
+  async function downloadPNG_4x5(){
+    // 4x5 output is 1080 x 1347 crop of the 1347x1347 canvas
+    // Crop horizontally so that x=750 is centered => left = 750 - 540 = 210, right = 1290
+    const OUT_W = 1080;
+    const OUT_H = 1347;
+    const SRC_X = 210;
+    const SRC_Y = 0;
+
+    // First render a full 1347x1347 into a temp canvas (same as the 1x1 export)
+    const full = document.createElement("canvas");
+    full.width = CANVAS_SIZE;
+    full.height = CANVAS_SIZE;
+    const fc = full.getContext("2d");
+
+    try{
+      await ensureBaseImages();
+
+      fc.setTransform(1,0,0,1,0,0);
+      fc.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+
+      fc.imageSmoothingEnabled = true;
+      fc.imageSmoothingQuality = "high";
+      fc.drawImage(bgImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+      const header1 = buildMatchdayText().toUpperCase();
+      fc.textAlign = HEADER_1.align;
+      fc.fillStyle = HEADER_1.color;
+      fc.font = `${HEADER_1.weight} ${HEADER_1.size}px ${FONT_FAMILY}`;
+      fc.textBaseline = "middle";
+      fc.fillText(header1, HEADER_1.x, HEADER_1.y);
+
+      const header2 = buildDivisionStatusText();
+      fc.textAlign = HEADER_2.align;
+      fc.fillStyle = HEADER_2.color;
+      fc.font = `${HEADER_2.weight} ${HEADER_2.size}px ${FONT_FAMILY}`;
+      fc.textBaseline = "middle";
+      fc.fillText(header2, HEADER_2.x, HEADER_2.y);
+
+      if(divBadgeImg){
+        const iw = divBadgeImg.naturalWidth || divBadgeImg.width;
+        const ih = divBadgeImg.naturalHeight || divBadgeImg.height;
+        const dw = iw * DIV_BADGE_POS.scale;
+        const dh = ih * DIV_BADGE_POS.scale;
+        const bx = DIV_BADGE_POS.x - dw/2;
+        const by = DIV_BADGE_POS.y - dh/2;
+        fc.drawImage(divBadgeImg, bx, by, dw, dh);
+      }
+
+      const isResults = (statusSel.value === "Results");
+
+      for(let i=0;i<ROWS_COUNT;i++){
+        const row = rowsState[i];
+        if(isRowHidden(row)) continue;
+
+        const cy = ROWS_Y_START + (i * ROWS_LINE_GAP);
+
+        // Blue bar + center white square
+        fc.fillStyle = BLUE_PILL.color;
+        fc.fillRect(SCORE_COL.x - (BLUE_PILL.w/2), cy - (BLUE_PILL.h/2), BLUE_PILL.w, BLUE_PILL.h);
+
+        fc.fillStyle = WHITE_BOX.color;
+        fc.fillRect(SCORE_COL.x - (WHITE_BOX.w/2), cy - (WHITE_BOX.h/2), WHITE_BOX.w, WHITE_BOX.h);
+
+        // Red squares
+        fc.fillStyle = RED_BOX.color;
+        fc.fillRect(HOME_ICON_X - (RED_BOX.w/2), cy - (RED_BOX.h/2), RED_BOX.w, RED_BOX.h);
+        fc.fillRect(AWAY_ICON_X - (RED_BOX.w/2), cy - (RED_BOX.h/2), RED_BOX.w, RED_BOX.h);
+
+        // Crests
+        const homeCrestUrl = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
+        const awayCrestUrl = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
+
+        if(homeCrestUrl){
+          try{
+            const img = await loadImage(homeCrestUrl);
+            drawContainedImage(fc, img, HOME_ICON_X, cy, CREST_MAX, CREST_MAX);
+          }catch{}
+        }
+        if(awayCrestUrl){
+          try{
+            const img = await loadImage(awayCrestUrl);
+            drawContainedImage(fc, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
+          }catch{}
+        }
+
+        // Text
+        fc.textBaseline = "middle";
+
+        const homeText = safeUpper(displayClubName(row.home));
+        if(homeText){
+          fc.textAlign = HOME_COL.align;
+          fc.fillStyle = HOME_COL.color;
+          fc.font = `${HOME_COL.weight} ${HOME_COL.size}px ${FONT_FAMILY}`;
+          fc.fillText(homeText, HOME_COL.x, cy);
+        }
+
+        const awayText = safeUpper(displayClubName(row.away));
+        if(awayText){
+          fc.textAlign = AWAY_COL.align;
+          fc.fillStyle = AWAY_COL.color;
+          fc.font = `${AWAY_COL.weight} ${AWAY_COL.size}px ${FONT_FAMILY}`;
+          fc.fillText(awayText, AWAY_COL.x, cy);
+        }
+
+        // Score / V / Issue override
+        let scoreText = "";
+        const issue = (row.issue || "").trim();
+
+        if(issue){
+          scoreText = issue;
+        }else if(!isResults){
+          scoreText = (row.home && row.away) ? "V" : "";
+        }else{
+          scoreText = (row.score || "").trim();
+        }
+
+        scoreText = safeUpper(scoreText);
+
+        if(scoreText){
+          fc.textAlign = SCORE_COL.align;
+          fc.fillStyle = SCORE_COL.color;
+
+          const useSmall = (!!issue) || (!isResults);
+
+          if(useSmall){
+            fc.font = `${SCORE_SMALL.weight} ${SCORE_SMALL.size}px ${FONT_FAMILY}`;
+          }else{
+            fc.font = `${SCORE_COL.weight} ${SCORE_COL.size}px ${FONT_FAMILY}`;
+          }
+
+          fc.fillText(scoreText, SCORE_COL.x, cy);
+        }
+      }
+
+    }catch(e){
+      console.error(e);
+      setStatus("Export error (CORS?)");
+      return;
+    }
+
+    // Now crop to 1080x1347 from x=210..1290
+    const out = document.createElement("canvas");
+    out.width = OUT_W;
+    out.height = OUT_H;
+    const oc = out.getContext("2d");
+
+    oc.imageSmoothingEnabled = true;
+    oc.imageSmoothingQuality = "high";
+    oc.drawImage(full, SRC_X, SRC_Y, OUT_W, OUT_H, 0, 0, OUT_W, OUT_H);
+
+    const blob = await new Promise(res => out.toBlob(res, "image/png"));
+    if(!blob){
+      setStatus("Export failed");
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = buildFilename("4x5");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+
+    setStatus("Downloaded");
+  }
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1088,7 +1268,8 @@ footer{
       scheduleRender();
     });
 
-    downloadBtn.addEventListener("click", downloadPNG);
+    downloadBtn.addEventListener("click", downloadPNG_1x1);
+    download45Btn.addEventListener("click", downloadPNG_4x5);
     resetAllBtn.addEventListener("click", resetAll);
   }
 
