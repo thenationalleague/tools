@@ -58,6 +58,21 @@ body{
 
 .previewWrap{
   position:sticky;
+  @media (max-width: 640px){
+  .rowsGrid{
+    grid-template-columns: 1fr 110px 1fr 96px;
+    gap:10px;
+  }
+
+  .rowsGrid select,
+  .rowsGrid input{
+    min-height:44px;
+    padding:12px 10px;
+    font-size:16px; /* stops iOS zoom + improves legibility */
+    color: var(--fg);
+    background:#fff;
+  }
+}
   top:14px;
   border:1px solid var(--border);
   border-radius:14px;
@@ -223,8 +238,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v1.3";
-  const STORAGE_KEY = "fixtures-results-builder-v1.3";
+  const VERSION = "v1.5";
+  const STORAGE_KEY = "fixtures-results-builder-v1.5";
 
   const CANVAS_SIZE = 1347;
 
@@ -460,15 +475,74 @@ footer{
     divBadgeImg = await loadImage(divUrl);
   }
 
-  function buildFilename(kind){
-    const md = matchdaySel.value === "NA" ? "MATCHDAY" : `MATCHDAY ${matchdaySel.value}`;
-    const d = divisionSel.value;
-    const s = statusSel.value;
+  function dateStamp(d){
+      async function preloadRowCrests(){
+    const urls = new Set();
 
-    if(kind === "4x5"){
-      return `${md} - ${d} - ${s} - 4x5.png`.replace(/\s+/g, " ").trim();
+    for(let i=0;i<ROWS_COUNT;i++){
+      const row = rowsState[i];
+      if(isRowHidden(row)) continue;
+
+      const h = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
+      const a = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
+
+      if(h) urls.add(h);
+      if(a) urls.add(a);
     }
-    return `${md} - ${d} - ${s} - 1x1.png`.replace(/\s+/g, " ").trim();
+
+    const tasks = [];
+    for(const u of urls){
+      tasks.push(loadImage(u).catch(()=>null));
+    }
+    await Promise.all(tasks);
+  }
+
+    // e.g. 17Feb26 (uses local browser date)
+    const day = String(d.getDate());
+    const mon = d.toLocaleString("en-GB", { month: "short" });
+    const yy  = String(d.getFullYear()).slice(-2);
+    return `${day}${mon}${yy}`;
+  }
+
+  function buildFilename(kind){
+    const status = statusSel.value;      // Fixtures / Results
+    const div = divisionSel.value;       // National / North / South
+    const mdVal = matchdaySel.value;     // "NA" or "1".."46"
+    const suffix = (kind === "4x5") ? "4x5" : "1x1";
+
+    if(mdVal && mdVal !== "NA"){
+      return `${status} ${div} MD${mdVal} - ${suffix}.png`.replace(/\s+/g, " ").trim();
+    }
+
+    const stamp = dateStamp(new Date());
+    return `${status} ${div} ${stamp} - ${suffix}.png`.replace(/\s+/g, " ").trim();
+  }
+  const MQ_COMPACT = window.matchMedia("(max-width: 520px)");
+
+  function shortClubName(full){
+    // Keep option VALUES as the FULL official name.
+    // Only shorten the option LABEL on small screens.
+    if(full === "Hampton & Richmond Borough") return "Hampton & Rich";
+    if(full === "Dagenham & Redbridge") return "Dag & Red";
+    if(full === "FC Halifax Town") return "Halifax";
+    if(full === "Forest Green Rovers") return "Forest Green";
+
+    let t = full;
+
+    // Remove common prefixes
+    t = t.replace(/^AFC\s+/i, "");
+    t = t.replace(/^FC\s+/i, "");
+
+    // Remove trailing "Town" where it helps
+    t = t.replace(/\s+Town$/i, "");
+
+    // Hard cap so dropdown stays usable
+    if(t.length > 18) t = t.slice(0, 18) + "…";
+    return t;
+  }
+
+  function clubLabel(name){
+    return MQ_COMPACT.matches ? shortClubName(name) : name;
   }
 
   function buildClubSelect(){
@@ -481,12 +555,26 @@ footer{
 
     for(const name of TEAM_NAMES){
       const o = document.createElement("option");
-      o.value = name;
-      o.textContent = name;
+      o.value = name;                 // IMPORTANT: full name retained
+      o.textContent = clubLabel(name); // label may be shortened on mobile
       s.appendChild(o);
     }
 
     return s;
+  }
+
+  function refreshClubSelectLabels(){
+    const all = [];
+    for(const el of homeSelectEls) all.push(el);
+    for(const el of awaySelectEls) all.push(el);
+
+    for(const sel of all){
+      if(!sel) continue;
+      for(const opt of sel.options){
+        if(!opt.value) continue; // skip "None"
+        opt.textContent = clubLabel(opt.value);
+      }
+    }
   }
 
   function buildIssueSelect(){
@@ -663,7 +751,10 @@ footer{
 
   /* ================= RENDER (shared) ================= */
 
-  function renderToContext(c){
+  async function renderToContext(c){
+    await ensureBaseImages();
+    await preloadRowCrests();
+
     c.setTransform(1,0,0,1,0,0);
     c.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
 
@@ -698,7 +789,7 @@ footer{
       if(isRowHidden(row)) continue;
 
       const cy = ROWS_Y_START + (i * ROWS_LINE_GAP);
-      const ty = cy + 2; // text Y offset (team names + scores + V + A-A etc)
+      const ty = cy + 2; // text Y offset
 
       drawCenteredRect(c, SCORE_COL.x, cy, BLUE_PILL.w, BLUE_PILL.h, BLUE_PILL.color);
       drawCenteredRect(c, SCORE_COL.x, cy, WHITE_BOX.w, WHITE_BOX.h, WHITE_BOX.color);
@@ -708,29 +799,14 @@ footer{
       const homeCrestUrl = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
       const awayCrestUrl = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
 
-      // Crests are async loads; by render time they’re typically cached.
-      // If not cached yet, they’ll appear on next render; exports call ensure preloads anyway.
-      // We keep this synchronous to avoid blocking UI paint.
-      if(homeCrestUrl && imgCache.has(homeCrestUrl)){
-        imgCache.get(homeCrestUrl).then(img=>{
-          drawContainedImage(c, img, HOME_ICON_X, cy, CREST_MAX, CREST_MAX);
-        }).catch(()=>{});
-      }else if(homeCrestUrl){
-        loadImage(homeCrestUrl).then(img=>{
-          drawContainedImage(c, img, HOME_ICON_X, cy, CREST_MAX, CREST_MAX);
-          scheduleRender();
-        }).catch(()=>{});
+      if(homeCrestUrl){
+        const img = await loadImage(homeCrestUrl).catch(()=>null);
+        if(img) drawContainedImage(c, img, HOME_ICON_X, cy, CREST_MAX, CREST_MAX);
       }
 
-      if(awayCrestUrl && imgCache.has(awayCrestUrl)){
-        imgCache.get(awayCrestUrl).then(img=>{
-          drawContainedImage(c, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
-        }).catch(()=>{});
-      }else if(awayCrestUrl){
-        loadImage(awayCrestUrl).then(img=>{
-          drawContainedImage(c, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
-          scheduleRender();
-        }).catch(()=>{});
+      if(awayCrestUrl){
+        const img = await loadImage(awayCrestUrl).catch(()=>null);
+        if(img) drawContainedImage(c, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
       }
 
       const homeText = safeUpper(displayClubName(row.home));
@@ -770,11 +846,11 @@ footer{
         }else{
           setTextStyle(c, SCORE_COL.size, SCORE_COL.color, SCORE_COL.weight);
         }
+
         c.fillText(scoreText, SCORE_COL.x, ty);
       }
     }
   }
-
   let renderQueued = false;
   function scheduleRender(){
     if(renderQueued) return;
@@ -783,8 +859,8 @@ footer{
     requestAnimationFrame(async ()=>{
       renderQueued = false;
       try{
-        await ensureBaseImages();
-        renderToContext(ctx);
+        if(document.fonts && document.fonts.ready) await document.fonts.ready;
+        await renderToContext(ctx);
         autosave();
       }catch(e){
         console.error(e);
@@ -794,8 +870,8 @@ footer{
   }
 
   async function renderNow(){
-    await ensureBaseImages();
-    renderToContext(ctx);
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    await renderToContext(ctx);
     autosave();
   }
 
@@ -811,7 +887,7 @@ footer{
       out.height = CANVAS_SIZE;
       const c = out.getContext("2d");
 
-      renderToContext(c);
+      await renderToContext(c);
 
       const blob = await new Promise(res => out.toBlob(res, "image/png"));
       if(!blob){ setStatus("Export failed"); return; }
@@ -841,7 +917,7 @@ footer{
       full.height = CANVAS_SIZE;
       const fc = full.getContext("2d");
 
-      renderToContext(fc);
+      await renderToContext(fc);
 
       const OUT_W = 1080;
       const OUT_H = 1347;
@@ -947,6 +1023,11 @@ footer{
     buildMatchdayOptions();
     autoload();
     rebuildRowsUI();
+
+    MQ_COMPACT.addEventListener("change", ()=>{
+      refreshClubSelectLabels();
+    });
+
     bindUI();
 
     syncScoreInputsEnabled();
