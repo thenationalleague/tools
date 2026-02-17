@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fixtures/Results Graphic Tool</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fixtures/Results Graphic Builder</title>
 
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 
@@ -12,6 +12,8 @@
   --border:#d0d7de;
   --bg:#f6f8fa;
   --fg:#24292f;
+  --muted:#57606a;
+  --brand:#9e0000;
 }
 
 *{ box-sizing:border-box; }
@@ -19,31 +21,61 @@
 body{
   margin:0;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  background:#fff;
+  font-size:14px;
   color:var(--fg);
+  background:#fff;
 }
 
-.page{ padding:22px 18px 28px; }
+.page{
+  width:100%;
+  padding:24px 18px 28px;
+}
+
+.app-header{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin-bottom:18px;
+}
+
+.app-header h1{
+  margin:0;
+  font-size:22px;
+  font-weight:800;
+}
 
 .app{
   display:grid;
-  grid-template-columns:minmax(520px,900px) minmax(320px,1fr);
+  grid-template-columns:minmax(520px, 920px) minmax(360px, 1fr);
   gap:20px;
+  align-items:start;
+}
+
+@media (max-width: 980px){
+  .app{ grid-template-columns:1fr; }
 }
 
 .previewWrap{
+  position:sticky;
+  top:16px;
   border:1px solid var(--border);
   border-radius:14px;
   background:var(--bg);
   padding:10px;
 }
 
-canvas{ width:100%; height:auto; display:block; }
+canvas{
+  display:block;
+  width:100%;
+  height:auto;
+  border-radius:10px;
+}
 
 .panel{
   display:flex;
   flex-direction:column;
-  gap:12px;
+  gap:14px;
+  min-width:0;
 }
 
 .box{
@@ -55,172 +87,474 @@ canvas{ width:100%; height:auto; display:block; }
 
 .controls{
   display:flex;
-  flex-direction:column;
+  flex-wrap:wrap;
   gap:8px;
+  align-items:end;
 }
 
-select{
+.controls label{
+  font-size:12px;
+  color:var(--muted);
+  font-weight:700;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+select, textarea{
   padding:8px 10px;
   border:1px solid var(--border);
   border-radius:10px;
+  background:#fff;
   font:inherit;
+}
+
+textarea{
+  resize:vertical;
 }
 
 button{
   padding:8px 10px;
+  border:1px solid var(--brand);
   border-radius:10px;
-  border:1px solid #9e0000;
-  background:#9e0000;
+  background:var(--brand);
   color:#fff;
+  font:inherit;
   cursor:pointer;
+}
+
+button:hover{ filter:brightness(.95); }
+
+.grid3{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:10px;
+}
+
+@media (max-width: 980px){
+  .grid3{ grid-template-columns:1fr; }
+}
+
+footer{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
 }
 </style>
 </head>
 
 <body>
-
 <div class="page">
+
+<header class="app-header">
+  <h1>Fixtures/Results Graphic Builder</h1>
+</header>
 
 <div class="app">
 
-<div class="previewWrap">
-<canvas id="preview" width="1347" height="1347"></canvas>
+  <div class="previewWrap">
+    <canvas id="preview" width="1347" height="1347"></canvas>
+  </div>
+
+  <div class="panel">
+
+    <div class="box controls">
+      <label>
+        Matchday
+        <select id="matchday"></select>
+      </label>
+
+      <label>
+        Division
+        <select id="division">
+          <option value="National">National</option>
+          <option value="North">North</option>
+          <option value="South">South</option>
+        </select>
+      </label>
+
+      <label>
+        Status
+        <select id="status">
+          <option value="Fixtures">Fixtures</option>
+          <option value="Results">Results</option>
+        </select>
+      </label>
+
+      <button type="button" id="resetAll" title="Reset all fields">Reset all</button>
+      <button type="button" id="download" title="Download PNG">Download PNG</button>
+    </div>
+
+    <div class="box">
+      <div class="grid3">
+        <div>
+          <label style="font-size:12px;color:var(--muted);font-weight:700;">Home teams (up to 12 lines)</label>
+          <textarea id="homeTeams" rows="12" placeholder="HOME TEAM 1&#10;HOME TEAM 2&#10;..."></textarea>
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:var(--muted);font-weight:700;">Scores (up to 12 lines)</label>
+          <textarea id="scores" rows="12" placeholder="2-0&#10;1-1&#10;..."></textarea>
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:var(--muted);font-weight:700;">Away teams (up to 12 lines)</label>
+          <textarea id="awayTeams" rows="12" placeholder="AWAY TEAM 1&#10;AWAY TEAM 2&#10;..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <span id="statusText">Ready</span>
+      <span style="opacity:.8;">v2.4</span>
+    </footer>
+
+  </div>
 </div>
 
-<div class="panel">
-
-<div class="box controls">
-
-<label>Matchday</label>
-<select id="matchday"></select>
-
-<label>Division</label>
-<select id="division">
-<option>National</option>
-<option>North</option>
-<option>South</option>
-</select>
-
-<label>Status</label>
-<select id="status">
-<option>Fixtures</option>
-<option>Results</option>
-</select>
-
-<button id="download">Download PNG</button>
-
-</div>
-
-</div>
-</div>
 </div>
 
 <script>
-const VERSION="v2.2";
+(function(){
+  "use strict";
 
-const canvas=document.getElementById("preview");
-const ctx=canvas.getContext("2d");
+  /* ================= CONFIG ================= */
 
-const matchdaySel=document.getElementById("matchday");
-const divisionSel=document.getElementById("division");
-const statusSel=document.getElementById("status");
-const downloadBtn=document.getElementById("download");
+  const VERSION = "v2.4";
+  const STORAGE_KEY = "fixtures-results-builder-v2.4";
 
-const BG_URL="Fixtures background 1x1.png";
+  const CANVAS_SIZE = 1347;
 
-const DIV_BADGE={
-National:"https://images.gc.nationalleagueservices.co.uk/a95e6fe0-0b4a-11f1-81c5-055e14995095.png",
-North:"https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
-South:"https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
-};
+  // Background image (local, same folder as this HTML, in /fixtures-results/)
+  const BG_URL = "./Fixtures background 1x1.png";
 
-let bgImg=null;
-let crestImg=null;
+  // Division crest images (same as your previous set)
+  const DIV_BADGE = {
+    National: "https://images.gc.nationalleagueservices.co.uk/a95e6fe0-0b4a-11f1-81c5-055e14995095.png",
+    North:    "https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
+    South:    "https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
+  };
 
-function loadImage(url){
-  return new Promise((resolve,reject)=>{
-    const img=new Image();
-    img.crossOrigin="anonymous";
-    img.onload=()=>resolve(img);
-    img.onerror=()=>reject();
-    img.src=url;
-  });
-}
+  // Crest placement: centered at (750, 1258), 7.5% of native
+  const DIV_BADGE_POS = { x: 750, y: 1258, scale: 0.075 };
 
-async function ensureImages(){
-  if(!bgImg) bgImg=await loadImage(BG_URL);
-  crestImg=await loadImage(DIV_BADGE[divisionSel.value]);
-}
+  // Header line positions / styles
+  const LINE1 = { x: 750, y: 200, size: 84, color: "#9e0000" };  // MATCHDAY...
+  const LINE2 = { x: 750, y: 270, size: 32, color: "#223b7c" };  // Competition...
 
-function buildMatchdayOptions(){
-  matchdaySel.innerHTML="";
-  const na=document.createElement("option");
-  na.value="N/A";
-  na.textContent="N/A";
-  matchdaySel.appendChild(na);
+  // Rows positions / styles
+  const ROWS_Y_START = 690;
+  const ROWS_LINE_GAP = 70.2;
 
-  for(let i=1;i<=46;i++){
-    const o=document.createElement("option");
-    o.value=i;
-    o.textContent=i;
-    matchdaySel.appendChild(o);
+  const HOME_COL = { x: 543, align: "right", size: 22.6, color: "#ffffff" };
+  const SCORE_COL = { x: 750, align: "center", size: 27.2, color: "#223b7c" };
+  const AWAY_COL = { x: 964, align: "left", size: 22.6, color: "#ffffff" };
+
+  const MAX_LINES = 12;
+
+  /* ================= ELEMENTS ================= */
+
+  const canvas = document.getElementById("preview");
+  const ctx = canvas.getContext("2d");
+
+  const matchdaySel = document.getElementById("matchday");
+  const divisionSel = document.getElementById("division");
+  const statusSel = document.getElementById("status");
+  const resetAllBtn = document.getElementById("resetAll");
+  const downloadBtn = document.getElementById("download");
+
+  const homeTeamsEl = document.getElementById("homeTeams");
+  const scoresEl = document.getElementById("scores");
+  const awayTeamsEl = document.getElementById("awayTeams");
+
+  const statusTextEl = document.getElementById("statusText");
+
+  /* ================= HELPERS ================= */
+
+  function setStatus(msg){
+    statusTextEl.textContent = msg;
+    window.clearTimeout(setStatus._t);
+    setStatus._t = window.setTimeout(()=> statusTextEl.textContent = "Ready", 900);
   }
-}
 
-function getMatchdayText(){
-  if(matchdaySel.value==="N/A") return "MATCHDAY";
-  return "MATCHDAY "+matchdaySel.value;
-}
+  function safeUpper(s){
+    return (s || "").toString().replace(/\s+/g, " ").trim().toUpperCase();
+  }
 
-function getCompetitionText(){
-  const div=divisionSel.value;
-  const status=statusSel.value;
+  function getLinesFromTextarea(el, maxLines){
+    const raw = (el && el.value ? el.value : "");
+    return raw
+      .split(/\r?\n/)
+      .map(s => (s || "").trim())
+      .filter(Boolean)
+      .slice(0, maxLines);
+  }
 
-  if(div==="National") return `NATIONAL LEAGUE ${status.toUpperCase()}`;
-  return `NATIONAL LEAGUE ${div.toUpperCase()} ${status.toUpperCase()}`;
-}
+  function setTextStyle(c, fontSizePx, colorHex){
+    c.fillStyle = colorHex;
+    c.textBaseline = "middle";
+    c.font = `800 ${fontSizePx}px "carbona-variable", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+  }
 
-async function render(){
-  await ensureImages();
+  function drawOneLine(c, text, x, y, fontSizePx, colorHex){
+    if(!text) return;
+    c.textAlign = "center";
+    setTextStyle(c, fontSizePx, colorHex);
+    c.fillText(text, x, y);
+  }
 
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+  function drawLines(c, lines, x, yStart, lineGap, align, fontSizePx, colorHex){
+    c.textAlign = align;
+    setTextStyle(c, fontSizePx, colorHex);
 
-  ctx.textAlign="center";
+    for(let i=0;i<lines.length;i++){
+      c.fillText(lines[i], x, yStart + (i * lineGap));
+    }
+  }
 
-  /* LINE 1 — MATCHDAY */
-  ctx.fillStyle="#9e0000";
-  ctx.font="800 84px carbona-variable, Arial Black, Arial";
-  ctx.fillText(getMatchdayText(),750,200);
+  function buildMatchdayText(){
+    const v = matchdaySel.value;
+    if(v === "NA") return "MATCHDAY";
+    return `MATCHDAY ${v}`;
+  }
 
-  /* LINE 2 — COMPETITION */
-  ctx.fillStyle="#223b7c";
-  ctx.font="800 32px carbona-variable, Arial Black, Arial";
-  ctx.fillText(getCompetitionText(),750,270);
+  function buildCompetitionText(){
+    const div = divisionSel.value;
+    const st = statusSel.value;
 
-  /* CREST */
-  const scale=0.075;
-  const w=crestImg.width*scale;
-  const h=crestImg.height*scale;
-  ctx.drawImage(crestImg,750-w/2,1258-h/2,w,h);
-}
+    if(div === "National") return `NATIONAL LEAGUE ${safeUpper(st)}`;
+    return `NATIONAL LEAGUE ${safeUpper(div)} ${safeUpper(st)}`;
+  }
 
-downloadBtn.onclick=async()=>{
-  await render();
-  const a=document.createElement("a");
-  a.href=canvas.toDataURL("image/png");
-  a.download="fixtures-results.png";
-  a.click();
-};
+  function buildFilename(){
+    const div = divisionSel.value || "National";
+    const st = statusSel.value || "Fixtures";
+    const md = matchdaySel.value === "NA" ? "MATCHDAY" : `MATCHDAY ${matchdaySel.value}`;
+    return `${md} - ${div} - ${st}.png`.replace(/[\/\\:*?"<>|]+/g, "-");
+  }
 
-matchdaySel.onchange=render;
-divisionSel.onchange=render;
-statusSel.onchange=render;
+  /* ================= IMAGES ================= */
 
-buildMatchdayOptions();
-render();
+  const imgCache = new Map(); // url -> Promise<HTMLImageElement>
+  function loadImage(url){
+    if(imgCache.has(url)) return imgCache.get(url);
+    const p = new Promise((resolve, reject)=>{
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = ()=> resolve(img);
+      img.onerror = ()=> reject(new Error("Failed to load: " + url));
+      img.src = url;
+    });
+    imgCache.set(url, p);
+    return p;
+  }
+
+  let bgImg = null;
+  let crestImg = null;
+
+  async function ensureImages(){
+    if(!bgImg) bgImg = await loadImage(BG_URL);
+
+    const crestUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
+    crestImg = await loadImage(crestUrl);
+  }
+
+  /* ================= RENDER ================= */
+
+  let renderQueued = false;
+  function scheduleRender(){
+    if(renderQueued) return;
+    renderQueued = true;
+
+    requestAnimationFrame(async ()=>{
+      renderQueued = false;
+      try{
+        await render();
+      }catch(e){
+        console.error(e);
+        setStatus("Render error");
+      }
+    });
+  }
+
+  async function render(){
+    await ensureImages();
+
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // Background
+    ctx.drawImage(bgImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    // Header lines (ALL CAPS)
+    drawOneLine(ctx, safeUpper(buildMatchdayText()), LINE1.x, LINE1.y, LINE1.size, LINE1.color);
+    drawOneLine(ctx, safeUpper(buildCompetitionText()), LINE2.x, LINE2.y, LINE2.size, LINE2.color);
+
+    // Division crest
+    if(crestImg){
+      const iw = crestImg.naturalWidth || crestImg.width;
+      const ih = crestImg.naturalHeight || crestImg.height;
+      const dw = iw * DIV_BADGE_POS.scale;
+      const dh = ih * DIV_BADGE_POS.scale;
+      ctx.drawImage(
+        crestImg,
+        DIV_BADGE_POS.x - (dw/2),
+        DIV_BADGE_POS.y - (dh/2),
+        dw, dh
+      );
+    }
+
+    // Row columns
+    const homeLines = getLinesFromTextarea(homeTeamsEl, MAX_LINES).map(safeUpper);
+    const scoreLines = getLinesFromTextarea(scoresEl, MAX_LINES).map(safeUpper);
+    const awayLines = getLinesFromTextarea(awayTeamsEl, MAX_LINES).map(safeUpper);
+
+    drawLines(ctx, homeLines, HOME_COL.x, ROWS_Y_START, ROWS_LINE_GAP, HOME_COL.align, HOME_COL.size, HOME_COL.color);
+    drawLines(ctx, scoreLines, SCORE_COL.x, ROWS_Y_START, ROWS_LINE_GAP, SCORE_COL.align, SCORE_COL.size, SCORE_COL.color);
+    drawLines(ctx, awayLines, AWAY_COL.x, ROWS_Y_START, ROWS_LINE_GAP, AWAY_COL.align, AWAY_COL.size, AWAY_COL.color);
+
+    autosave();
+  }
+
+  /* ================= DOWNLOAD ================= */
+
+  async function downloadPNG(){
+    // Render once more to guarantee latest (and correct crest for division)
+    try{
+      await render();
+    }catch{}
+
+    const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
+    if(!blob){
+      setStatus("Export failed");
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = buildFilename();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+
+    setStatus("Downloaded");
+  }
+
+  /* ================= RESET ALL ================= */
+
+  function resetAll(){
+    matchdaySel.value = "NA";
+    divisionSel.value = "National";
+    statusSel.value = "Fixtures";
+
+    homeTeamsEl.value = "";
+    scoresEl.value = "";
+    awayTeamsEl.value = "";
+
+    bgImg = null;
+    crestImg = null;
+
+    autosave(true);
+    scheduleRender();
+    setStatus("Reset");
+  }
+
+  /* ================= AUTOSAVE ================= */
+
+  function autosave(silent){
+    const payload = {
+      v: VERSION,
+      matchday: matchdaySel.value,
+      division: divisionSel.value,
+      status: statusSel.value,
+      homeTeams: homeTeamsEl.value,
+      scores: scoresEl.value,
+      awayTeams: awayTeamsEl.value
+    };
+
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      if(!silent) {}
+    }catch{}
+  }
+
+  function autoload(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return;
+      const d = JSON.parse(raw);
+      if(!d || typeof d !== "object") return;
+
+      if(typeof d.matchday === "string") matchdaySel.value = d.matchday;
+      if(typeof d.division === "string") divisionSel.value = d.division;
+      if(typeof d.status === "string") statusSel.value = d.status;
+
+      if(typeof d.homeTeams === "string") homeTeamsEl.value = d.homeTeams;
+      if(typeof d.scores === "string") scoresEl.value = d.scores;
+      if(typeof d.awayTeams === "string") awayTeamsEl.value = d.awayTeams;
+    }catch{}
+  }
+
+  /* ================= INIT ================= */
+
+  function buildMatchdayOptions(){
+    const opts = [];
+
+    // N/A first
+    opts.push({ v:"NA", t:"N/A" });
+
+    // 1-46
+    for(let i=1;i<=46;i++){
+      opts.push({ v:String(i), t:String(i) });
+    }
+
+    matchdaySel.innerHTML = "";
+    for(const o of opts){
+      const opt = document.createElement("option");
+      opt.value = o.v;
+      opt.textContent = o.t;
+      matchdaySel.appendChild(opt);
+    }
+  }
+
+  function bindUI(){
+    matchdaySel.addEventListener("change", scheduleRender);
+    divisionSel.addEventListener("change", ()=>{
+      crestImg = null;
+      scheduleRender();
+    });
+    statusSel.addEventListener("change", scheduleRender);
+
+    homeTeamsEl.addEventListener("input", scheduleRender);
+    scoresEl.addEventListener("input", scheduleRender);
+    awayTeamsEl.addEventListener("input", scheduleRender);
+
+    resetAllBtn.addEventListener("click", resetAll);
+    downloadBtn.addEventListener("click", downloadPNG);
+  }
+
+  async function start(){
+    buildMatchdayOptions();
+    matchdaySel.value = "NA";
+
+    autoload();
+    bindUI();
+    scheduleRender();
+
+    setStatus("Loaded");
+  }
+
+  start();
+
+})();
 </script>
 
 </body>
 </html>
-  
