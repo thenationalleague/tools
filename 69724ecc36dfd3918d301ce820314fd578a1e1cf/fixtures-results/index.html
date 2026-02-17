@@ -129,7 +129,32 @@ textarea{
   resize:vertical;
   min-height:140px;
 }
+.rowsGrid{
+  display:grid;
+  grid-template-columns: 1fr 140px 1fr;
+  gap:8px;
+  align-items:center;
+}
 
+.rowsGrid select,
+.rowsGrid input{
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+  font:inherit;
+  width:100%;
+}
+
+.rowsGrid input{
+  text-align:center;
+}
+
+.rowsGrid .rowHint{
+  grid-column: 1 / -1;
+  font-size:12px;
+  color:var(--muted);
+}
 footer{
   margin-top:4px;
   font-size:12px;
@@ -176,18 +201,10 @@ footer{
     </div>
 
     <div class="box section">
-      <label for="homeTeams">Home teams (max 12 lines)</label>
-      <textarea id="homeTeams" placeholder="South Shields&#10;Darlington&#10;..."></textarea>
-    </div>
-
-    <div class="box section">
-      <label for="scores">Scores (max 12 lines)</label>
-      <textarea id="scores" placeholder="2-1&#10;0-0&#10;..."></textarea>
-    </div>
-
-    <div class="box section">
-      <label for="awayTeams">Away teams (max 12 lines)</label>
-      <textarea id="awayTeams" placeholder="York City&#10;Spennymoor Town&#10;..."></textarea>
+      <label>Rows (12)</label>
+      <div class="rowsGrid" id="rowsGrid">
+        <div class="rowHint">Home / Score / Away. Choose “None” on both sides to hide that row completely.</div>
+      </div>
     </div>
 
     <footer>
@@ -239,11 +256,13 @@ footer{
   const AWAY_COL  = { x: 964, align: "left",   size: 22.6, color: "#ffffff", weight: 800 };
 
   // Rectangles per row
-  const BLUE_PILL  = { w: 272, h: 52, color: "#223b7c" };   // centered at 750
-  const WHITE_BOX  = { w: 52, h: 52,  color: "#ffffff" };   // centered at 750 on top of blue
-  const RED_BOX    = { w: 52, h: 52,  color: "#9e0000" };   // centered at 360 and 1140
   const HOME_ICON_X = 360;
   const AWAY_ICON_X = 1140;
+
+  // Blue bar stretches from 360 to 1140 (centered at 750)
+  const BLUE_PILL  = { w: (AWAY_ICON_X - HOME_ICON_X), h: 52, color: "#223b7c" };
+  const WHITE_BOX  = { w: 52, h: 52,  color: "#ffffff" };   // centered at 750 on top of blue
+  const RED_BOX    = { w: 52, h: 52,  color: "#9e0000" };   // centered at 360 and 1140
 
   // Crest draw max (on top of red squares)
   const CREST_MAX = 50;
@@ -352,9 +371,7 @@ footer{
   const downloadBtn = document.getElementById("download");
   const resetAllBtn = document.getElementById("resetAll");
 
-  const homeTeamsEl = document.getElementById("homeTeams");
-  const scoresEl = document.getElementById("scores");
-  const awayTeamsEl = document.getElementById("awayTeams");
+  const rowsGridEl = document.getElementById("rowsGrid");
 
   const statusTextEl = document.getElementById("statusText");
 
@@ -363,6 +380,16 @@ footer{
   const imgCache = new Map(); // url -> Promise<HTMLImageElement>
   let bgImg = null;
   let divBadgeImg = null;
+
+  const ROWS_COUNT = 12;
+
+  // Each row: { home: TEAM_NAME or "", away: TEAM_NAME or "", score: string }
+  const rowsState = Array.from({length: ROWS_COUNT}, ()=> ({ home:"", away:"", score:"" }));
+
+  // UI refs per row
+  const homeSelectEls = [];
+  const awaySelectEls = [];
+  const scoreInputEls = [];
 
   /* ================= HELPERS ================= */
 
@@ -413,17 +440,9 @@ footer{
   function safeUpper(s){
     return (s || "").replace(/\s+/g," ").trim().toUpperCase();
   }
-
-  function getLinesFromTextarea(el, maxLines){
-    const raw = (el.value || "").split(/\r?\n/);
-    const out = [];
-    for(const line of raw){
-      const t = (line || "").trim();
-      if(!t) continue;
-      out.push(t);
-      if(out.length >= maxLines) break;
-    }
-    return out;
+  function displayClubName(clubName){
+    if(clubName === "Hampton & Richmond Borough") return "Hampton & Richmond";
+    return clubName || "";
   }
 
   function buildMatchdayText(){
