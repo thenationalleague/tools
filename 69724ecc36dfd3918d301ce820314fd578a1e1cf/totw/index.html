@@ -234,8 +234,8 @@ footer{
       <button type="button" id="resetPositions" title="Reset moved player positions (current formation)">Reset positions</button>
 
       <button type="button" id="download" title="Download PNG export">Download PNG</button>
+      <button type="button" id="resetAll" title="Reset everything (formation, division, date, lineup, scores, positions, zoom)">Reset all</button>
     </div>
-
     <div class="box">
       <div class="lineup" id="lineup"></div>
     </div>
@@ -247,9 +247,8 @@ footer{
 
     <div class="box section">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <button type="button" id="buildExport">Build export</button>
-        <button type="button" id="copyExport">Copy</button>
-        <button type="button" id="copyExcel">Copy Excel (3 cols)</button>
+        <button type="button" id="copyExport">Copy roundup</button>
+        <button type="button" id="copyExcel">Copy for Excel</button>
       </div>
       <textarea id="exportOut" rows="8" placeholder="Export text appears here" readonly></textarea>
       <textarea id="excelOut" rows="8" placeholder="Excel export (TSV: Date &#9; Team &#9; Player) appears here" readonly></textarea>
@@ -473,9 +472,9 @@ footer{
   const scoresEl = document.getElementById("scores");
   const exportOutEl = document.getElementById("exportOut");
   const excelOutEl = document.getElementById("excelOut");
-  const buildExportBtn = document.getElementById("buildExport");
   const copyExportBtn = document.getElementById("copyExport");
   const copyExcelBtn = document.getElementById("copyExcel");
+  const resetAllBtn = document.getElementById("resetAll");
   const statusEl = document.getElementById("status");
 
   /* ================= STATE ================= */
@@ -978,7 +977,7 @@ footer{
       }
 
       if(d.viewport && typeof d.viewport === "object"){
-        if(typeof d.viewport.viewScale === "number") viewScale = d.viewport.viewScale;
+        if(typeof d.viewport.viewScale === "number") viewScale = clamp(d.viewport.viewScale, 1.0, 4.0);
         if(typeof d.viewport.viewPanX === "number") viewPanX = d.viewport.viewPanX;
         if(typeof d.viewport.viewPanY === "number") viewPanY = d.viewport.viewPanY;
       }
@@ -986,6 +985,42 @@ footer{
   }
 
   /* ================= INTERACTION ================= */
+
+    function resetAll(){
+    // Clear saved state
+    try{ localStorage.removeItem(STORAGE_KEY); }catch{}
+
+    // Reset top-level controls
+    formationSel.value = "4-3-3";
+    divisionSel.value = "National";
+
+    // Reset date to today
+    dateEl.value = "";
+    setDefaultDateIfBlank();
+
+    // Clear text areas
+    scoresEl.value = "";
+    exportOutEl.value = "";
+    excelOutEl.value = "";
+
+    // Clear lineup + manual offsets
+    for(const k of Object.keys(stateByPos)) delete stateByPos[k];
+    for(const f of Object.keys(offsetsByFormation)) delete offsetsByFormation[f];
+
+    // Reset viewport
+    viewScale = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+
+    // Division badge depends on division
+    divBadgeImg = null;
+
+    rebuildLineup();
+    autosave();
+    scheduleRender();
+    scheduleOutputs();
+    setStatus("Reset all");
+  }
 
   function resetViewport(){
     viewScale = 1;
@@ -1079,8 +1114,8 @@ footer{
     const worldBefore = canvasToWorld({x:cx, y:cy});
 
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    viewScale = clamp(viewScale * factor, 0.35, 4.0);
-
+    viewScale = clamp(viewScale * factor, 1.0, 4.0);
+    
     const canvasAfter = worldToCanvas(worldBefore);
     viewPanX += (cx - canvasAfter.x);
     viewPanY += (cy - canvasAfter.y);
@@ -1113,8 +1148,7 @@ footer{
         const worldBefore = canvasToWorld({x:cx, y:cy});
 
         const factor = d / lastPinchDist;
-        viewScale = clamp(viewScale * factor, 0.35, 4.0);
-
+        viewScale = clamp(viewScale * factor, 1.0, 4.0);
         const canvasAfter = worldToCanvas(worldBefore);
         viewPanX += (cx - canvasAfter.x);
         viewPanY += (cy - canvasAfter.y);
@@ -1180,13 +1214,9 @@ footer{
     });
 
     downloadBtn.addEventListener("click", downloadPNG);
-
-    buildExportBtn.addEventListener("click", ()=>{
-      buildExportText({ silent:false });
-      buildExcelTSV({ silent:false });
-    });
     copyExportBtn.addEventListener("click", copyExportText);
     copyExcelBtn.addEventListener("click", copyExcelTSV);
+    resetAllBtn.addEventListener("click", resetAll);
 
     // Preview interactions
     canvas.addEventListener("wheel", onWheel, {passive:false});
