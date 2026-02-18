@@ -1,1 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table Builder</title>
 
+<!-- Adobe Fonts (same kit approach as your other tools) -->
+<link rel="preconnect" href="https://use.typekit.net" crossorigin>
+<link rel="preconnect" href="https://p.typekit.net" crossorigin>
+<link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+<script src="https://use.typekit.net/gff4ipy.js"></script>
+<script>
+  try{ Typekit.load({ async:true }); }catch(e){}
+</script>
+
+<style>
+:root{
+  --border:#d0d7de;
+  --bg:#f6f8fa;
+  --fg:#24292f;
+  --muted:#57606a;
+  --brand:#9e0000;
+}
+
+*{ box-sizing:border-box; }
+
+body{
+  margin:0;
+  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-size:14px;
+  color:var(--fg);
+  background:#fff;
+}
+
+.page{
+  width:100%;
+  padding:24px 18px 28px;
+}
+
+.app-header{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin-bottom:18px;
+}
+
+.app-header h1{
+  margin:0;
+  font-size:24px;
+  font-weight:800;
+}
+
+.app{
+  display:grid;
+  grid-template-columns:minmax(520px, 980px) minmax(360px, 1fr);
+  gap:20px;
+  align-items:start;
+}
+
+@media (max-width: 980px){
+  .app{ grid-template-columns:1fr; }
+}
+
+.previewWrap{
+  position:sticky;
+  top:16px;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--bg);
+  padding:10px;
+}
+
+canvas{
+  display:block;
+  width:100%;
+  height:auto;
+}
+
+.panel{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  min-width:0;
+}
+
+.box{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:12px;
+  background:#fff;
+}
+
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.controls select,
+.controls input{
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+  font:inherit;
+}
+
+.controls button,
+.box button{
+  padding:8px 10px;
+  border:1px solid var(--brand);
+  border-radius:10px;
+  background:var(--brand);
+  color:#fff;
+  font:inherit;
+  cursor:pointer;
+}
+
+.controls button:hover,
+.box button:hover{ filter:brightness(.95); }
+
+.section{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+textarea{
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  font:inherit;
+  resize:vertical;
+}
+
+footer{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  justify-content:space-between;
+}
+</style>
+</head>
+
+<body>
+
+<!-- font warmup: forces real webfont request early -->
+<span id="fontWarmup" style="position:absolute;left:-9999px;top:-9999px;font-family:'carbona-extrabold','carbona-variable','din-next-lt-pro-condensed','DIN Next LT Pro Condensed','Arial Narrow',Arial,sans-serif;">
+  FONT-WARMUP-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+</span>
+
+<div class="page">
+
+<header class="app-header">
+  <h1>Table Builder</h1>
+</header>
+
+<div class="app">
+
+  <div class="previewWrap">
+    <canvas id="preview" width="1347" height="1347"></canvas>
+  </div>
+
+  <div class="panel">
+
+    <div class="box controls">
+      <select id="division" title="Division">
+        <option value="National">National</option>
+        <option value="North">North</option>
+        <option value="South">South</option>
+      </select>
+
+      <select id="matchday" title="Matchday">
+        <option value="">N/A</option>
+        <!-- JS will populate 1-46 -->
+      </select>
+
+      <button type="button" id="renderBtn" title="Rebuild from pasted table">Render</button>
+      <button type="button" id="download" title="Download PNG export">Download PNG</button>
+      <button type="button" id="resetAll" title="Reset everything">Reset all</button>
+    </div>
+
+    <div class="box section">
+      <label for="pasteIn">Paste league table (TSV/CSV)</label>
+      <textarea id="pasteIn" rows="14" placeholder="Paste your table here (with or without header row, with or without Pos column)."></textarea>
+    </div>
+
+    <footer>
+      <span id="status">Ready</span>
+      <span id="fontStatus" style="margin-left:auto;">Font: …</span>
+    </footer>
+
+  </div>
+</div>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ================= CONFIG ================= */
+
+  const VERSION = "v1.0";
+  const STORAGE_KEY = "table-builder-v1.0";
+
+  const EXPORT_SIZE = 1347;
+
+  // Background file in /league-tables folder
+  const BG_URL = "./League Table background.png";
+
+  // Division badges (reuse previous sources)
+  const DIV_BADGE = {
+    National: "https://images.gc.nationalleagueservices.co.uk/a95e6fe0-0b4a-11f1-81c5-055e14995095.png",
+    North:    "https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
+    South:    "https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
+  };
+
+  // Badge placement: top-left at x=180, y=120, scaled to 5% of native
+  const BADGE_POS = { x:180, y:120, scale:0.05 };
+
+  // Title placement + style
+  const TITLE_X = 450;
+  const TITLE_Y = 70;
+  const TITLE_COLOR = "#9e0000";
+  const TITLE_SIZE = 36;
+
+  // Matchday placement + style (under title)
+  const MATCHDAY_X = 450;
+  const MATCHDAY_Y = 115;
+  const MATCHDAY_COLOR = "#223b7c";
+  const MATCHDAY_SIZE = 28;
+
+  // Rows layout
+  const ROWS = 24;
+  const ROW_H = 42;
+  const ROW_GAP = 8;
+
+  const ROW_START_X = 450;
+  const ROW_START_Y = 145;
+
+  const BLUE_BOX_W = 42;
+  const BLUE_BOX_H = 42;
+  const BLUE_BOX_COLOR = "#223b7c";
+
+  const RED_BOX_W = 420;
+  const RED_BOX_H = 42;
+  const RED_BOX_COLOR = "#9e0000";
+
+  const BLUE_TO_RED_GAP = 0;    // abuts
+  const RED_TO_COLS_GAP = 8;    // gap between red rectangle and stat columns (visual spacing)
+
+  // Text inside row blocks
+  const POS_TEXT_COLOR = "#ffffff";
+  const POS_TEXT_SIZE = 24;
+
+  const TEAM_TEXT_COLOR = "#ffffff";
+  const TEAM_TEXT_SIZE = 24;
+  const TEAM_TEXT_LEFT_PAD = 30; // inside maroon box
+
+  // Stat columns
+  const COL_P_X   = 960;
+  const COL_GD_X  = 1010;
+  const COL_PTS_X = 1060;
+
+  const COL_HEADER_Y = 135;
+  const COL_HEADER_SIZE = 20;
+  const COL_HEADER_COLOR = "#000000";
+
+  const COL_VALUE_SIZE = 24;
+  const COL_VALUE_COLOR = "#223b7c";
+
+  // Fonts: title is Carbona ExtraBold as requested (fallbacks included)
+  const FONT_TITLE_STACK = `"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif`;
+  // Row text: keep it strong/condensed if available, otherwise Carbona/system
+  const FONT_ROW_STACK = `"din-next-lt-pro-condensed","DIN Next LT Pro Condensed","carbona-variable","Arial Narrow",Arial,sans-serif`;
+
+  // Canvas font readiness check (fallback comparison)
+  const CANVAS_FALLBACK_STACK = `"Arial Narrow",Arial,sans-serif`;
+
+  /* ================= ELEMENTS ================= */
+
+  const canvas = document.getElementById("preview");
+  const ctx = canvas.getContext("2d");
+
+  const divisionSel = document.getElementById("division");
+  const matchdaySel = document.getElementById("matchday");
+  const pasteEl = document.getElementById("pasteIn");
+  const renderBtn = document.getElementById("renderBtn");
+  const downloadBtn = document.getElementById("download");
+  const resetAllBtn = document.getElementById("resetAll");
+  const statusEl = document.getElementById("status");
+  const fontStatusEl = document.getElementById("fontStatus");
+
+  /* ================= STATE ================= */
+
+  // 24 rows: { team, p, gd, pts }
+  let rows = Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"" }));
+
+  let bgImg = null;
+  let badgeImg = null;
+
+  const imgCache = new Map(); // url -> Promise<HTMLImageElement>
+
+  /* ================= HELPERS ================= */
+
+  function setStatus(msg){
+    statusEl.textContent = msg;
+    window.clearTimeout(setStatus._t);
+    setStatus._t = window.setTimeout(()=> statusEl.textContent = "Ready", 900);
+  }
+
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+  function loadImage(url){
+    if(imgCache.has(url)) return imgCache.get(url);
+    const p = new Promise((resolve,reject)=>{
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = ()=> resolve(img);
+      img.onerror = ()=> reject(new Error("Failed to load: " + url));
+      img.src = url;
+    });
+    imgCache.set(url, p);
+    return p;
+  }
+
+  function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
+
+  function toAllCaps(s){ return safeText(s).toUpperCase(); }
+
+  function normalizeTeamName(team){
+    let t = safeText(team);
+
+    // If they accidentally include leading pos/rank, strip it
+    t = t.replace(/^\s*\d+\s+/, "");
+
+    // If there's trailing columns stuck on same token, do nothing here—our parser should separate columns.
+    // Special case shortening:
+    if(/^Hampton\s*&\s*Richmond\s*Borough$/i.test(t)) t = "Hampton & Richmond";
+
+    return t;
+  }
+
+  function normalizeGD(s){
+    const v = safeText(s);
+    if(!v) return "";
+    // Keep + / - as-is
+    return v.replace(/^(\+)?0$/, "0");
+  }
+
+  function isProbablyHeader(cells){
+    const joined = cells.map(c=>String(c||"")).join(" ").toLowerCase();
+    return joined.includes("team") && (joined.includes("pts") || joined.includes("points"));
+  }
+
+  function splitLine(line){
+    // Prefer tabs; fallback to multiple spaces; also handle CSV commas if someone pastes comma-delimited
+    if(line.includes("\t")) return line.split("\t").map(s=>s.trim()).filter(s=>s.length>0);
+    if(line.includes(",")) return line.split(",").map(s=>s.trim()).filter(s=>s.length>0);
+    return line.trim().split(/\s{2,}|\s+\|\s+|\s+/).map(s=>s.trim()).filter(s=>s.length>0);
+  }
+
+  function isIntLike(s){
+    return /^-?\d+$/.test(String(s||"").trim());
+  }
+
+  function isNumLike(s){
+    const v = String(s||"").trim();
+    return /^[-+]?(\d+)$/.test(v) || /^[-+]?(\d+)\.(\d+)$/.test(v);
+  }
+
+  function parsePastedTable(raw){
+    const text = (raw || "").replace(/\r/g, "\n");
+    const lines = text.split("\n").map(l=>l.trim()).filter(l=>l.length>0);
+    if(lines.length === 0) return Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"" }));
+
+    // Detect header
+    let startIdx = 0;
+    const firstCells = splitLine(lines[0]);
+    if(firstCells.length && isProbablyHeader(firstCells)){
+      startIdx = 1;
+    }
+
+    // For each row, determine where TEAM column is:
+    // - If first cell is integer, assume it is Pos and team is next.
+    // - Otherwise team is first column.
+    const out = [];
+    for(let i = startIdx; i < lines.length; i++){
+      const cells = splitLine(lines[i]);
+      if(cells.length === 0) continue;
+
+      // Skip stray header lines anywhere
+      if(isProbablyHeader(cells)) continue;
+
+      const hasPos = cells.length >= 2 && isIntLike(cells[0]) && !isIntLike(cells[1]);
+      const teamIdx = hasPos ? 1 : 0;
+
+      const teamRaw = cells[teamIdx] || "";
+      const team = normalizeTeamName(teamRaw);
+
+      // Numeric extraction:
+      // We only want: P (first numeric after team), GD (penultimate numeric), PTS (last numeric)
+      const rest = cells.slice(teamIdx + 1);
+
+      // Collect numeric-like tokens from rest, in order
+      const nums = rest.filter(isNumLike).map(s=>String(s).trim());
+
+      if(team){
+        const p = nums.length >= 1 ? nums[0] : "";
+        const pts = nums.length >= 1 ? nums[nums.length - 1] : "";
+        const gd = nums.length >= 2 ? nums[nums.length - 2] : "";
+
+        out.push({
+          team: toAllCaps(team),
+          p: safeText(p),
+          gd: normalizeGD(gd),
+          pts: safeText(pts)
+        });
+      }
+
+      if(out.length >= ROWS) break;
+    }
+
+    // Pad to 24 rows
+    while(out.length < ROWS){
+      out.push({ team:"", p:"", gd:"", pts:"" });
+    }
+
+    return out.slice(0, ROWS);
+  }
+
+  function titleForDivision(div){
+    if(div === "North") return "ENTERPRISE NATIONAL LEAGUE NORTH";
+    if(div === "South") return "ENTERPRISE NATIONAL LEAGUE SOUTH";
+    return "ENTERPRISE NATIONAL LEAGUE";
+  }
+
+  function refreshFontStatus(){
+    if(!fontStatusEl) return;
+
+    const t = document.createElement("canvas");
+    const c = t.getContext("2d");
+    const sample = "FONT-WARMUP-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    c.font = `800 ${TITLE_SIZE}px ${CANVAS_FALLBACK_STACK}`;
+    const wFallback = c.measureText(sample).width;
+
+    c.font = `800 ${TITLE_SIZE}px ${FONT_TITLE_STACK}`;
+    const wTest = c.measureText(sample).width;
+
+    const active = Math.abs(wFallback - wTest) >= 2;
+    fontStatusEl.textContent = "Font: " + (active ? "WEBFONTS ACTIVE" : "FALLBACK");
+  }
+
+  async function ensureFontsLoaded(){
+    try{
+      const warm = document.getElementById("fontWarmup");
+      if(warm){ void warm.offsetWidth; }
+
+      if(document.fonts && document.fonts.load){
+        await Promise.all([
+          document.fonts.load(`800 ${TITLE_SIZE}px "carbona-extrabold"`).catch(()=>[]),
+          document.fonts.load(`800 ${TITLE_SIZE}px "carbona-variable"`).catch(()=>[]),
+          document.fonts.load(`700 ${TEAM_TEXT_SIZE}px "din-next-lt-pro-condensed"`).catch(()=>[]),
+          document.fonts.load(`700 ${TEAM_TEXT_SIZE}px "DIN Next LT Pro Condensed"`).catch(()=>[]),
+          document.fonts.load(`700 ${TEAM_TEXT_SIZE}px "carbona-variable"`).catch(()=>[])
+        ]);
+        if(document.fonts.ready) await document.fonts.ready;
+      }
+
+      // Give mobile a beat
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise(r => setTimeout(r, 120));
+    }catch{}
+  }
+
+  /* ================= RENDER ================= */
+
+  async function ensureBaseImages(){
+    if(!bgImg) bgImg = await loadImage(BG_URL);
+    const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
+    badgeImg = await loadImage(divUrl);
+  }
+
+  function drawTitleAndMatchday(c){
+    const div = divisionSel.value || "National";
+    const title = titleForDivision(div);
+
+    c.save();
+    c.textAlign = "left";
+    c.textBaseline = "alphabetic";
+
+    // Title
+    c.fillStyle = TITLE_COLOR;
+    c.font = `800 ${TITLE_SIZE}px ${FONT_TITLE_STACK}`;
+    c.fillText(title, TITLE_X, TITLE_Y);
+
+    // Matchday (optional)
+    const md = matchdaySel.value;
+    if(md){
+      c.fillStyle = MATCHDAY_COLOR;
+      c.font = `800 ${MATCHDAY_SIZE}px ${FONT_TITLE_STACK}`;
+      c.fillText(`Matchday ${md}`, MATCHDAY_X, MATCHDAY_Y);
+    }
+
+    c.restore();
+  }
+
+  function drawBadge(c){
+    if(!badgeImg) return;
+
+    const iw = badgeImg.naturalWidth || badgeImg.width;
+    const ih = badgeImg.naturalHeight || badgeImg.height;
+    const dw = iw * BADGE_POS.scale;
+    const dh = ih * BADGE_POS.scale;
+
+    // Draw at top-left position (x,y) as requested
+    c.drawImage(badgeImg, BADGE_POS.x, BADGE_POS.y, dw, dh);
+  }
+
+  function drawColumnHeaders(c){
+    c.save();
+    c.textAlign = "center";
+    c.textBaseline = "alphabetic";
+    c.fillStyle = COL_HEADER_COLOR;
+    c.font = `800 ${COL_HEADER_SIZE}px ${FONT_TITLE_STACK}`;
+
+    c.fillText("P",   COL_P_X,   COL_HEADER_Y);
+    c.fillText("GD",  COL_GD_X,  COL_HEADER_Y);
+    c.fillText("PTS", COL_PTS_X, COL_HEADER_Y);
+
+    c.restore();
+  }
+
+  function drawRows(c){
+    for(let i=0; i<ROWS; i++){
+      const y = ROW_START_Y + i * (ROW_H + ROW_GAP);
+
+      // Blue box
+      c.fillStyle = BLUE_BOX_COLOR;
+      c.fillRect(ROW_START_X, y, BLUE_BOX_W, BLUE_BOX_H);
+
+      // Red box (abutting)
+      const redX = ROW_START_X + BLUE_BOX_W + BLUE_TO_RED_GAP;
+      c.fillStyle = RED_BOX_COLOR;
+      c.fillRect(redX, y, RED_BOX_W, RED_BOX_H);
+
+      // Position number (1-24)
+      const posNum = String(i+1);
+
+      c.save();
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+
+      // Pos number: 2px lower than middle
+      c.fillStyle = POS_TEXT_COLOR;
+      c.font = `800 ${POS_TEXT_SIZE}px ${FONT_ROW_STACK}`;
+      c.fillText(posNum, ROW_START_X + BLUE_BOX_W/2, y + BLUE_BOX_H/2 + 2);
+
+      // Team name: left aligned within red box, 30px in, 2px down
+      const r = rows[i] || {team:"", p:"", gd:"", pts:""};
+      const team = toAllCaps(r.team || "");
+      c.textAlign = "left";
+      c.fillStyle = TEAM_TEXT_COLOR;
+      c.font = `800 ${TEAM_TEXT_SIZE}px ${FONT_ROW_STACK}`;
+      c.fillText(team, redX + TEAM_TEXT_LEFT_PAD, y + RED_BOX_H/2 + 2);
+
+      // Stats: centered in their columns, 2px lower
+      c.textAlign = "center";
+      c.fillStyle = COL_VALUE_COLOR;
+      c.font = `800 ${COL_VALUE_SIZE}px ${FONT_ROW_STACK}`;
+      c.fillText(String(r.p || ""),   COL_P_X,   y + ROW_H/2 + 2);
+      c.fillText(String(r.gd || ""),  COL_GD_X,  y + ROW_H/2 + 2);
+      c.fillText(String(r.pts || ""), COL_PTS_X, y + ROW_H/2 + 2);
+
+      c.restore();
+    }
+  }
+
+  async function render(){
+    try{
+      await ensureBaseImages();
+
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+
+      // Background
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+      // Badge + titles + headers + rows
+      drawBadge(ctx);
+      drawTitleAndMatchday(ctx);
+      drawColumnHeaders(ctx);
+      drawRows(ctx);
+
+      refreshFontStatus();
+      setStatus("Rendered");
+    }catch(e){
+      console.error(e);
+      setStatus("Render error (check paths/CORS)");
+    }
+  }
+
+  function buildFilename(){
+    const div = divisionSel.value || "National";
+    const md = matchdaySel.value ? (" MD" + matchdaySel.value) : "";
+    return `League Table ${div}${md}.png`;
+  }
+
+  async function downloadPNG(){
+    const out = document.createElement("canvas");
+    out.width = EXPORT_SIZE;
+    out.height = EXPORT_SIZE;
+    const outCtx = out.getContext("2d");
+
+    try{
+      await ensureBaseImages();
+
+      outCtx.setTransform(1,0,0,1,0,0);
+      outCtx.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+
+      outCtx.imageSmoothingEnabled = true;
+      outCtx.imageSmoothingQuality = "high";
+      outCtx.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+      // Re-draw everything onto export canvas
+      drawBadge(outCtx);
+      drawTitleAndMatchday(outCtx);
+      drawColumnHeaders(outCtx);
+      drawRows(outCtx);
+
+      const blob = await new Promise(res => out.toBlob(res, "image/png"));
+      if(!blob){
+        setStatus("Export failed");
+        return;
+      }
+
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = buildFilename();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+
+      setStatus("Downloaded");
+    }catch(e){
+      console.error(e);
+      setStatus("Export error (check paths/CORS)");
+    }
+  }
+
+  /* ================= AUTOSAVE ================= */
+
+  function autosave(){
+    const payload = {
+      v: VERSION,
+      division: divisionSel.value,
+      matchday: matchdaySel.value,
+      pasteIn: pasteEl.value,
+      rows
+    };
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }catch{}
+  }
+
+  function autoload(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return;
+      const d = JSON.parse(raw);
+      if(!d || typeof d !== "object") return;
+
+      if(d.division && DIV_BADGE[d.division]) divisionSel.value = d.division;
+      if(typeof d.matchday === "string") matchdaySel.value = d.matchday;
+      if(typeof d.pasteIn === "string") pasteEl.value = d.pasteIn;
+
+      if(Array.isArray(d.rows) && d.rows.length){
+        rows = d.rows.slice(0, ROWS);
+        while(rows.length < ROWS) rows.push({ team:"", p:"", gd:"", pts:"" });
+      }
+    }catch{}
+  }
+
+  /* ================= UI ================= */
+
+  function populateMatchday(){
+    // Keep existing first option (N/A)
+    for(let i=1;i<=46;i++){
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = String(i);
+      matchdaySel.appendChild(o);
+    }
+  }
+
+  function rebuildFromPaste(){
+    rows = parsePastedTable(pasteEl.value);
+    autosave();
+    render();
+  }
+
+  function resetAll(){
+    try{ localStorage.removeItem(STORAGE_KEY); }catch{}
+
+    divisionSel.value = "National";
+    matchdaySel.value = "";
+    pasteEl.value = "";
+    rows = Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"" }));
+
+    bgImg = null;
+    badgeImg = null;
+
+    autosave();
+    render();
+    setStatus("Reset all");
+  }
+
+  function bindUI(){
+    divisionSel.addEventListener("change", ()=>{
+      badgeImg = null; // force reload new badge
+      autosave();
+      render();
+    });
+
+    matchdaySel.addEventListener("change", ()=>{
+      autosave();
+      render();
+    });
+
+    pasteEl.addEventListener("input", ()=>{
+      // lightweight autosave only; don’t parse on every keystroke
+      autosave();
+    });
+
+    pasteEl.addEventListener("paste", ()=>{
+      // Parse/render shortly after paste completes
+      window.clearTimeout(bindUI._pt);
+      bindUI._pt = window.setTimeout(()=> rebuildFromPaste(), 30);
+    });
+
+    renderBtn.addEventListener("click", rebuildFromPaste);
+    downloadBtn.addEventListener("click", downloadPNG);
+    resetAllBtn.addEventListener("click", resetAll);
+  }
+
+  /* ================= INIT ================= */
+
+  async function start(){
+    populateMatchday();
+    autoload();
+    bindUI();
+
+    await ensureFontsLoaded();
+
+    // If we already have pasted data saved, parse it once on load
+    if(safeText(pasteEl.value)){
+      rows = parsePastedTable(pasteEl.value);
+    }
+
+    await render();
+  }
+
+  start();
+
+})();
+</script>
+
+</body>
+</html>
