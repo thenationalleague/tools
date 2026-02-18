@@ -178,8 +178,8 @@ footer{
         <option value="">N/A</option>
       </select>
 
-      <button type="button" id="renderBtn" title="Rebuild from pasted table">Render</button>
-      <button type="button" id="download" title="Download PNG export">Download PNG</button>
+      <button type="button" id="download1x1" title="Download square export (1347 x 1347)">Download 1x1 PNG</button>
+      <button type="button" id="download4x5" title="Download 4x5 export (1080 x 1347)">Download 4x5 PNG</button>
       <button type="button" id="resetAll" title="Reset everything">Reset all</button>
     </div>
 
@@ -204,8 +204,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v1.5";
-  const STORAGE_KEY = "table-builder-v1.5";
+  const VERSION = "v1.7";
+  const STORAGE_KEY = "table-builder-v1.7";
 
   const EXPORT_SIZE = 1347;
 
@@ -410,8 +410,8 @@ footer{
   const divisionSel = document.getElementById("division");
   const matchdaySel = document.getElementById("matchday");
   const pasteEl = document.getElementById("pasteIn");
-  const renderBtn = document.getElementById("renderBtn");
-  const downloadBtn = document.getElementById("download");
+  const download1x1Btn = document.getElementById("download1x1");
+  const download4x5Btn = document.getElementById("download4x5");
   const resetAllBtn = document.getElementById("resetAll");
   const statusEl = document.getElementById("status");
   const fontStatusEl = document.getElementById("fontStatus");
@@ -805,13 +805,63 @@ footer{
     }
   }
 
-  function buildFilename(){
-    const div = divisionSel.value || "National";
-    const md = matchdaySel.value ? (" MD" + matchdaySel.value) : "";
-    return `League Table ${div}${md}.png`;
+  function formatDate_DDMMMyy(d){
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "2-digit"
+    }).formatToParts(d);
+
+    const dd = (parts.find(p => p.type === "day") || {value:""}).value;
+    const mmm = (parts.find(p => p.type === "month") || {value:""}).value;
+    const yy = (parts.find(p => p.type === "year") || {value:""}).value;
+
+    // en-GB month short usually already like "Feb" (capital F), but normalise just in case
+    const mmmNorm = mmm ? (mmm[0].toUpperCase() + mmm.slice(1).toLowerCase()) : "";
+    return `${dd}${mmmNorm}${yy}`;
   }
 
-  async function downloadPNG(){
+  function buildFilename(sizeTag){
+    const div = (divisionSel.value || "National").trim();
+    const dateStr = formatDate_DDMMMyy(new Date());
+    const sizeSuffix = sizeTag ? (` - ${sizeTag}`) : "";
+    return `Table ${div} ${dateStr}${sizeSuffix}.png`;
+  }
+
+  async function renderToCanvas(targetCtx, w, h){
+    targetCtx.setTransform(1,0,0,1,0,0);
+    targetCtx.clearRect(0,0,w,h);
+
+    targetCtx.imageSmoothingEnabled = true;
+    targetCtx.imageSmoothingQuality = "high";
+
+    // Always render the full square composition first (into a temp canvas), then optionally crop.
+    const full = document.createElement("canvas");
+    full.width = EXPORT_SIZE;
+    full.height = EXPORT_SIZE;
+    const fullCtx = full.getContext("2d");
+
+    fullCtx.setTransform(1,0,0,1,0,0);
+    fullCtx.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+
+    fullCtx.imageSmoothingEnabled = true;
+    fullCtx.imageSmoothingQuality = "high";
+    fullCtx.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+    await preloadCrests();
+
+    drawBadge(fullCtx);
+    drawTitleAndMatchday(fullCtx);
+    drawColumnHeaders(fullCtx);
+    drawRows(fullCtx);
+
+    // Overlay ON TOP of everything
+    drawTicHealth(fullCtx);
+
+    return full;
+  }
+
+  async function downloadPNG_1x1(){
     const out = document.createElement("canvas");
     out.width = EXPORT_SIZE;
     out.height = EXPORT_SIZE;
@@ -820,33 +870,11 @@ footer{
     try{
       await ensureBaseImages();
 
-      outCtx.setTransform(1,0,0,1,0,0);
-      outCtx.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+      const full = await renderToCanvas(outCtx, EXPORT_SIZE, EXPORT_SIZE);
+      // Copy full -> out (same size)
+      outCtx.drawImage(full, 0, 0);
 
-      outCtx.imageSmoothingEnabled = true;
-      outCtx.imageSmoothingQuality = "high";
-      outCtx.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
-
-      await preloadCrests();
-
-      drawBadge(outCtx);
-      drawTitleAndMatchday(outCtx);
-      drawColumnHeaders(outCtx);
-      drawRows(outCtx);
-
-      // Overlay ON TOP of everything
-      drawTicHealth(outCtx);
-
-      let blob = null;
-
-      try{
-        blob = await new Promise(res => out.toBlob(res, "image/png"));
-      }catch(err){
-        // Some browsers throw if canvas is tainted by cross-origin images without CORS headers
-        setStatus("EXPORT BLOCKED (CORS): a badge/crest image may not allow canvas export.");
-        return;
-      }
-
+      const blob = await new Promise(res => out.toBlob(res, "image/png"));
       if(!blob){
         setStatus("EXPORT BLOCKED (CORS): a badge/crest image may not allow canvas export.");
         return;
@@ -854,13 +882,68 @@ footer{
 
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = buildFilename();
+      a.download = buildFilename("1x1");
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(a.href);
 
-      setStatus("Downloaded");
+      setStatus("Downloaded 1x1");
+    }catch(e){
+      console.error(e);
+      setStatus(String(e && e.message ? e.message : e));
+    }
+  }
+
+  async function downloadPNG_4x5(){
+    const OUT_W = 1080;
+    const OUT_H = 1347;
+
+    // Crop window on the full 1347x1347 render:
+    // X from 54px to 1134px (width 1080), full height.
+    const CROP_X = 54;
+    const CROP_Y = 0;
+    const CROP_W = 1080;
+    const CROP_H = 1347;
+
+    const out = document.createElement("canvas");
+    out.width = OUT_W;
+    out.height = OUT_H;
+    const outCtx = out.getContext("2d");
+
+    try{
+      await ensureBaseImages();
+
+      const full = await renderToCanvas(outCtx, OUT_W, OUT_H);
+
+      outCtx.setTransform(1,0,0,1,0,0);
+      outCtx.clearRect(0,0,OUT_W,OUT_H);
+
+      outCtx.imageSmoothingEnabled = true;
+      outCtx.imageSmoothingQuality = "high";
+
+      // Draw cropped region from full into out
+      outCtx.drawImage(
+        full,
+        CROP_X, CROP_Y, CROP_W, CROP_H,
+        0, 0, OUT_W, OUT_H
+      );
+
+      const blob = await new Promise(res => out.toBlob(res, "image/png"));
+      if(!blob){
+        setStatus("EXPORT BLOCKED (CORS): a badge/crest image may not allow canvas export.");
+        return;
+      }
+
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = buildFilename("4x5");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+
+      setStatus("Downloaded 4x5");
     }catch(e){
       console.error(e);
       setStatus(String(e && e.message ? e.message : e));
@@ -953,8 +1036,8 @@ footer{
       bindUI._pt = window.setTimeout(()=> rebuildFromPaste(), 30);
     });
 
-    renderBtn.addEventListener("click", rebuildFromPaste);
-    downloadBtn.addEventListener("click", downloadPNG);
+    download1x1Btn.addEventListener("click", downloadPNG_1x1);
+    download4x5Btn.addEventListener("click", downloadPNG_4x5);
     resetAllBtn.addEventListener("click", resetAll);
   }
 
