@@ -281,7 +281,7 @@ footer{
   const NAME_OFFSET = 66;
 
   // Font stack
-  const NAME_FONT_STACK = `"DIN Next LT Pro Condensed","Arial Narrow",Arial,sans-serif`;
+  const NAME_FONT_STACK = `"din-next-lt-pro-condensed","DIN Next LT Pro Condensed","din-next-lt-pro","carbona-variable","Arial Narrow",Arial,sans-serif`;
   const NAME_FONT_SIZE = 25;
   const NAME_COLOR = "#ffffff";
 
@@ -662,6 +662,27 @@ footer{
   function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
 
   /* ================= RENDER ================= */
+  // Ensure the *canvas name font* is actually loaded before first render/export.
+  // On mobile, Adobe Fonts often uses a slug family name (e.g. "din-next-lt-pro-condensed"),
+  // and canvas will silently fall back if we render before it is ready.
+  const NAME_FONT_LOAD_FAMILIES = [
+    "din-next-lt-pro-condensed",
+    "DIN Next LT Pro Condensed",
+    "din-next-lt-pro"
+  ];
+
+  async function ensureNameFontLoaded(){
+    if(!document.fonts || !document.fonts.load) return;
+
+    // Try a few likely family names; whichever exists will resolve quickly.
+    const size = `${NAME_FONT_SIZE}px`;
+    const tasks = NAME_FONT_LOAD_FAMILIES.map(fam =>
+      document.fonts.load(`${size} "${fam}"`).catch(()=>[])
+    );
+
+    try{ await Promise.all(tasks); }catch{}
+    try{ if(document.fonts.ready) await document.fonts.ready; }catch{}
+  }
 
   let bgImg = null;
   let divBadgeImg = null;
@@ -744,6 +765,7 @@ footer{
     requestAnimationFrame(async ()=>{
       renderQueued = false;
       try{
+        await ensureNameFontLoaded();
         await renderTo(ctx, true);
       }catch(e){
         console.error(e);
@@ -903,6 +925,7 @@ footer{
     const outCtx = out.getContext("2d");
 
     try{
+      await ensureNameFontLoaded();
       await renderTo(outCtx, false);
     }catch(e){
       console.error(e);
@@ -1263,6 +1286,7 @@ footer{
 
     try{
       await ensureBaseImages();
+      await ensureNameFontLoaded();
       scheduleRender();
       setStatus("Loaded");
     }catch(e){
