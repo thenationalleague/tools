@@ -662,7 +662,38 @@ footer{
   function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
 
   /* ================= RENDER ================= */
-  // Ensure the *canvas name font* is actually loaded before first render/export.
+    function clampViewport(){
+    // Keep the transformed 1080x1080 world covering the 1080x1080 preview.
+    // When zoomed in (scale > 1), pan is limited to [min..max] so no empty space shows.
+    const scaled = EXPORT_SIZE * viewScale;
+
+    const minPanX = EXPORT_SIZE - scaled; // negative when scale > 1
+    const maxPanX = 0;
+
+    const minPanY = EXPORT_SIZE - scaled;
+    const maxPanY = 0;
+
+    viewPanX = clamp(viewPanX, minPanX, maxPanX);
+    viewPanY = clamp(viewPanY, minPanY, maxPanY);
+  }
+
+  function clampPlayerOffset(formation, posKey, dx, dy){
+    // Keep crest centre inside the export canvas (prevents dragging players off the graphic)
+    const slots = getFormationPositions(formation);
+    const base = slots.find(s => s.pos === posKey);
+    if(!base) return { dx, dy };
+
+    const half = CREST_MAX / 2;
+
+    const x = base.x + dx;
+    const y = base.y + dy;
+
+    const clampedX = clamp(x, half, EXPORT_SIZE - half);
+    const clampedY = clamp(y, half, EXPORT_SIZE - half);
+
+    return { dx: clampedX - base.x, dy: clampedY - base.y };
+  }
+// Ensure the *canvas name font* is actually loaded before first render/export.
   // On mobile, Adobe Fonts often uses a slug family name (e.g. "din-next-lt-pro-condensed"),
   // and canvas will silently fall back if we render before it is ready.
   const NAME_FONT_LOAD_FAMILIES = [
@@ -1004,6 +1035,8 @@ footer{
         if(typeof d.viewport.viewPanX === "number") viewPanX = d.viewport.viewPanX;
         if(typeof d.viewport.viewPanY === "number") viewPanY = d.viewport.viewPanY;
       }
+
+      clampViewport();
     }catch{}
   }
 
@@ -1049,6 +1082,7 @@ footer{
     viewScale = 1;
     viewPanX = 0;
     viewPanY = 0;
+    clampViewport();
     autosave();
     scheduleRender();
   }
@@ -1109,11 +1143,18 @@ footer{
     if(dragMode === "pan"){
       viewPanX = dragStartPan.x + dx * viewScale;
       viewPanY = dragStartPan.y + dy * viewScale;
+      clampViewport();
       autosave();
       scheduleRender();
     }else if(dragMode === "player" && dragPosKey){
       const formation = formationSel.value;
-      setOffset(formation, dragPosKey, dragStartOffset.dx + dx, dragStartOffset.dy + dy);
+      const next = clampPlayerOffset(
+        formation,
+        dragPosKey,
+        dragStartOffset.dx + dx,
+        dragStartOffset.dy + dy
+      );
+      setOffset(formation, dragPosKey, next.dx, next.dy);
       autosave();
       scheduleRender();
     }
@@ -1143,7 +1184,8 @@ footer{
     viewPanX += (cx - canvasAfter.x);
     viewPanY += (cy - canvasAfter.y);
 
-    autosave();
+      clampViewport();
+      autosave();
     scheduleRender();
   }
 
@@ -1176,7 +1218,8 @@ footer{
         viewPanX += (cx - canvasAfter.x);
         viewPanY += (cy - canvasAfter.y);
 
-        autosave();
+      clampViewport();
+      autosave();
         scheduleRender();
       }
       lastPinchDist = d;
