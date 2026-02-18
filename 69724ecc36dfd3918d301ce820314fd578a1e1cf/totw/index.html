@@ -280,8 +280,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v5.2";
-  const STORAGE_KEY = "totw-builder-v5.2";
+  const VERSION = "v5.8";
+  const STORAGE_KEY = "totw-builder-v5.8";
 
   const EXPORT_SIZE = 1080;
   const CREST_MAX = 100;
@@ -290,7 +290,8 @@ footer{
   const NAME_OFFSET = 66;
 
   // Font stack
-  const NAME_FONT_STACK = `"TOTWPlayerName","Arial Narrow",Arial,sans-serif`;
+  // Adobe Fonts family name (from Typekit) is typically this:
+  const NAME_FONT_STACK = `"din-next-lt-pro-condensed","DIN Next LT Pro Condensed","Arial Narrow",Arial,sans-serif`;
   const NAME_FONT_SIZE = 25;
   const NAME_COLOR = "#ffffff";
 
@@ -746,7 +747,23 @@ footer{
     const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
     divBadgeImg = await loadImage(divUrl);
   }
+  async function ensureNameFontLoaded(){
+    // Ensures DIN Next LT Pro Condensed (Adobe Fonts) is ready before canvas draws.
+    try{
+      if(!document.fonts || !document.fonts.load) return;
 
+      // Load a representative face; include weight for better reliability.
+      await document.fonts.load(`400 ${NAME_FONT_SIZE}px "din-next-lt-pro-condensed"`);
+
+      // Some mobile browsers need a second check/beat.
+      if(document.fonts.check && !document.fonts.check(`${NAME_FONT_SIZE}px "din-next-lt-pro-condensed"`)){
+        await new Promise(r => setTimeout(r, 120));
+        await document.fonts.load(`400 ${NAME_FONT_SIZE}px "din-next-lt-pro-condensed"`);
+      }
+    }catch{
+      // If blocked (domain mismatch / file://), canvas will fall back silently.
+    }
+  }
   async function renderTo(c, useViewport){
     await ensureBaseImages();
     await ensureNameFontLoaded();
@@ -1354,7 +1371,7 @@ footer{
     try{
       await ensureBaseImages();
       await ensureNameFontLoaded();
-      scheduleRender();
+      scheduleRender(); // render AFTER font is ready
       setStatus("Loaded");
     }catch(e){
       console.error(e);
