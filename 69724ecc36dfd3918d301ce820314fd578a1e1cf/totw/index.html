@@ -21,6 +21,15 @@
 body{
   margin:0;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  @font-face{
+  font-family: "TOTWPlayerName";
+  src:
+    url("fonts/PlayerNameFont.woff2") format("woff2"),
+    url("fonts/PlayerNameFont.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
   font-size:14px;
   color:var(--fg);
   background:#fff;
@@ -281,7 +290,7 @@ footer{
   const NAME_OFFSET = 66;
 
   // Font stack
-  const NAME_FONT_STACK = `"din-next-lt-pro-condensed","DIN Next LT Pro Condensed","din-next-lt-pro","carbona-variable","Arial Narrow",Arial,sans-serif`;
+  const NAME_FONT_STACK = `"TOTWPlayerName","Arial Narrow",Arial,sans-serif`;
   const NAME_FONT_SIZE = 25;
   const NAME_COLOR = "#ffffff";
 
@@ -630,6 +639,20 @@ footer{
     imgCache.set(url, p);
     return p;
   }
+  async function ensureNameFontLoaded(){
+    // Ensures canvas text uses the intended name font (especially on mobile).
+    try{
+      if(document.fonts && document.fonts.load){
+        // Load a representative size; browsers treat this as the "font is ready" signal.
+        await document.fonts.load(`25px "TOTWPlayerName"`);
+      }
+      if(document.fonts && document.fonts.ready){
+        await document.fonts.ready;
+      }
+    }catch{
+      // If blocked, canvas will fall back; no hard crash.
+    }
+  }
 
   function drawContainedImage(c, img, centerX, centerY, maxW, maxH){
     const iw = img.naturalWidth || img.width;
@@ -726,6 +749,7 @@ footer{
 
   async function renderTo(c, useViewport){
     await ensureBaseImages();
+    await ensureNameFontLoaded();
 
     c.setTransform(1,0,0,1,0,0);
     c.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
