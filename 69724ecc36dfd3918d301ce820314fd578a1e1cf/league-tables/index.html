@@ -376,6 +376,13 @@ footer{
   const RED_BOX_H = 42;
   const RED_BOX_COLOR = "#9e0000";
 
+  // Position-zone colours (numeric positions only).
+  // NOTE: Special tokens (C/P/PO/R) override these later.
+  const POS_CHAMP_COLOR = "#D4AF37";    // 1
+  const POS_SF_COLOR    = "#A7B0BA";    // 2-3
+  const POS_QF_COLOR    = "#CD7F32";    // 4-7
+  const POS_RELEG_COLOR = "#9E0000";    // 21-24
+
   const BLUE_TO_RED_GAP = 0;    // abuts
 
   // Text inside row blocks
@@ -787,43 +794,68 @@ footer{
         drawContainedImage(c, crestImg, crestX, y, CREST_BOX_W, CREST_BOX_H, CREST_MAX);
       }
 
-      // Existing "pos" square (default blue, but can change based on Pos token)
+            // Existing "pos" square (default blue, but can change based on Pos token)
       const posToken = safeText(r.pos || "").toUpperCase();
       const posIsNumber = /^\d+$/.test(posToken);
 
-      let posLabel = posIsNumber ? posToken : "";
+      // Default label is numeric position (from pasted pos if numeric, else row index)
+      const numericPos = posIsNumber ? parseInt(posToken, 10) : (i + 1);
+
+      let posLabel = posIsNumber ? posToken : String(i + 1);
       let posBoxColor = BLUE_BOX_COLOR;
+      let posTextColor = POS_TEXT_COLOR;
+
+      // Special token overrides (must win over zone colouring)
+      let specialOverride = false;
 
       // Rules:
       // C => label C, box gold, TEXT BLACK
       // P => label P, box gold, TEXT WHITE
       // QF or SF => label PO, box silver, TEXT WHITE
       // R => label R, box black, TEXT WHITE
-      let posTextColor = POS_TEXT_COLOR;
-
       if(posToken === "C"){
         posLabel = "C";
         posBoxColor = "gold";
         posTextColor = "#000000";
+        specialOverride = true;
       }else if(posToken === "P"){
         posLabel = "P";
         posBoxColor = "gold";
-        posTextColor = POS_TEXT_COLOR;
+        posTextColor = "#FFFFFF";
+        specialOverride = true;
       }else if(posToken === "QF" || posToken === "SF"){
         posLabel = "PO";
         posBoxColor = "silver";
-        posTextColor = POS_TEXT_COLOR;
+        posTextColor = "#FFFFFF";
+        specialOverride = true;
       }else if(posToken === "R"){
         posLabel = "R";
         posBoxColor = "#000000";
-        posTextColor = POS_TEXT_COLOR;
+        posTextColor = "#FFFFFF";
+        specialOverride = true;
       }
 
-      // If no pos token provided, fall back to 1..24
-      if(!posLabel){
-        posLabel = String(i + 1);
+      // Numeric zone colouring (only if NOT overridden by special tokens)
+      if(!specialOverride){
+        if(numericPos === 1){
+          posBoxColor = POS_CHAMP_COLOR;
+          posTextColor = "#000000";
+        }else if(numericPos >= 2 && numericPos <= 3){
+          posBoxColor = POS_SF_COLOR;
+          posTextColor = "#000000";
+        }else if(numericPos >= 4 && numericPos <= 7){
+          posBoxColor = POS_QF_COLOR;
+          posTextColor = "#000000";
+        }else if(numericPos >= 21 && numericPos <= 24){
+          posBoxColor = POS_RELEG_COLOR;
+          posTextColor = "#FFFFFF";
+        }else{
+          posBoxColor = BLUE_BOX_COLOR;
+          posTextColor = "#FFFFFF";
+        }
       }
 
+      // Draw pos square
       c.fillStyle = posBoxColor;
       c.fillRect(blueX, y, BLUE_BOX_W, BLUE_BOX_H);
 
@@ -835,7 +867,7 @@ footer{
       c.save();
       c.textBaseline = "middle";
 
-      // Position (2px lower than middle) — use special colour rules (C black on gold etc)
+      // Position label (2px lower than middle)
       c.textAlign = "center";
       c.fillStyle = posTextColor;
       c.font = `800 ${POS_TEXT_SIZE}px ${FONT_ALL_STACK}`;
