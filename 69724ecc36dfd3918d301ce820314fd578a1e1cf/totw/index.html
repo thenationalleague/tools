@@ -190,8 +190,8 @@ footer{
 
 <body>
 
-<span id="fontWarmup" style="position:absolute;left:-9999px;top:-9999px;font-family:'din-next-lt-pro-condensed','DIN Next LT Pro Condensed',Arial,sans-serif;">
-  .
+<span id="fontWarmup" style="position:absolute;left:-9999px;top:-9999px;font-family:Arial,sans-serif;">
+  DIN-WARMUP-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 </span>
 
 <div class="page">
@@ -279,8 +279,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v6.4";
-  const STORAGE_KEY = "totw-builder-v6.4";
+  const VERSION = "v6.5";
+  const STORAGE_KEY = "totw-builder-v6.5";
 
   const EXPORT_SIZE = 1080;
   const CREST_MAX = 100;
@@ -288,18 +288,40 @@ footer{
   // Names locked at 54px below crest centre
   const NAME_OFFSET = 66;
 
-  // Font stack (Adobe Fonts family name MUST be first for canvas)
-  const NAME_FONT_STACK = `"din-next-lt-pro-condensed","DIN Next LT Pro Condensed","Arial Narrow",Arial,sans-serif`;
+  // ===== NAME FONT (AUTO-DETECT FROM ADOBE KIT) =====
   const NAME_FONT_SIZE = 25;
   const NAME_COLOR = "#ffffff";
 
+  // Many Adobe kits do NOT expose "din-next-lt-pro-condensed" as the family name.
+  // We'll try a sensible candidate list and pick the first that actually exists.
+  const NAME_FONT_CANDIDATES = [
+    "din-next-lt-pro-condensed",
+    "DIN Next LT Pro Condensed",
+    "din-next-lt-pro",
+    "DIN Next LT Pro",
+    "din-2014",
+    "din-2014-narrow",
+    "din-2014-condensed",
+    "din-condensed",
+    "din",
+    "din-alternate"
+  ];
+
+  const NAME_FONT_FALLBACK_STACK = `"Arial Narrow",Arial,sans-serif`;
+  const CANVAS_FALLBACK_STACK = NAME_FONT_FALLBACK_STACK;
+
+  let nameFontFamily = ""; // set at runtime
+
+  function getNameFontStack(){
+    // If we haven't detected anything, we still return a valid stack.
+    const lead = nameFontFamily ? `"${nameFontFamily}",` : "";
+    return `${lead}${NAME_FONT_FALLBACK_STACK}`;
+  }
+
   // Background + division badges
   const BG_URL = "https://images.gc.nationalleagueservices.co.uk/86a76230-0b28-11f1-85c8-45bfeb09479e.jpg";
-  // Used for canvas font readiness checks (avoids DOM-only false positives on iOS)
-  const CANVAS_FALLBACK_STACK = `"Arial Narrow",Arial,sans-serif`;
 
-  function isDinActiveForCanvas(){
-    // If DIN is not active, measuring NAME_FONT_STACK will match the fallback width closely.
+  function isFontActiveForCanvas(fontStack){
     const t = document.createElement("canvas");
     const c = t.getContext("2d");
 
@@ -308,10 +330,17 @@ footer{
     c.font = `400 ${NAME_FONT_SIZE}px ${CANVAS_FALLBACK_STACK}`;
     const wFallback = c.measureText(sample).width;
 
-    c.font = `400 ${NAME_FONT_SIZE}px ${NAME_FONT_STACK}`;
-    const wDin = c.measureText(sample).width;
+    c.font = `400 ${NAME_FONT_SIZE}px ${fontStack}`;
+    const wTest = c.measureText(sample).width;
 
-    return Math.abs(wFallback - wDin) >= 2;
+    return Math.abs(wFallback - wTest) >= 2;
+  }
+
+  function applyWarmupFont(){
+    const warm = document.getElementById("fontWarmup");
+    if(!warm) return;
+    warm.style.fontFamily = getNameFontStack();
+    void warm.offsetWidth; // force layout
   }
 
   const DIV_BADGE = {
@@ -661,35 +690,40 @@ footer{
 
   async function ensureNameFontLoaded(){
     try{
-      // Touch a DOM node that uses the font (helps iOS actually fetch it)
-      const warm = document.getElementById("fontWarmup");
-      if(warm){
-        void warm.offsetWidth; // force layout
-      }
-
-      const familiesToTry = [
-        "din-next-lt-pro-condensed",
-        "DIN Next LT Pro Condensed",
-        "din-next-lt-pro"
-      ];
-
+      // Try to load a set of plausible family names from the Adobe kit.
       if(document.fonts && document.fonts.load){
-        const specList = familiesToTry.map(f => `400 ${NAME_FONT_SIZE}px "${f}"`);
-        await Promise.all(specList.map(spec => document.fonts.load(spec).catch(()=>[])));
-
-        // iOS sometimes needs a short delay even after load()
+        const specs = NAME_FONT_CANDIDATES.map(f => `400 ${NAME_FONT_SIZE}px "${f}"`);
+        await Promise.all(specs.map(spec => document.fonts.load(spec).catch(()=>[])));
         if(document.fonts.ready) await document.fonts.ready;
       }
 
-      // Final gate: wait until the font is actually active (or give up after ~3s)
-      const t0 = Date.now();
-      while(document.body && !isDinActiveForCanvas()){
-        if(Date.now() - t0 > 4000) break;
-        await new Promise(r => setTimeout(r, 100));
+      // Pick the first candidate that is actually present.
+      // Use BOTH: document.fonts.check (availability) + canvas width-difference (real rendering).
+      let picked = "";
+      for(const fam of NAME_FONT_CANDIDATES){
+        const ok = (document.fonts && document.fonts.check)
+          ? document.fonts.check(`400 ${NAME_FONT_SIZE}px "${fam}"`, "DINWARMUP")
+          : true;
+
+        const stack = `"${fam}",${NAME_FONT_FALLBACK_STACK}`;
+        const canvasOk = isFontActiveForCanvas(stack);
+
+        if(ok && canvasOk){
+          picked = fam;
+          break;
+        }
       }
 
+      nameFontFamily = picked; // can remain "" if nothing matches
+      applyWarmupFont();
+
+      // Give browsers a tick after applying the warmup stack (helps stubborn cases)
+      await new Promise(r => requestAnimationFrame(r));
+      await new Promise(r => setTimeout(r, 50));
+
     }catch{
-      // If blocked/failed, canvas will fall back silently.
+      nameFontFamily = "";
+      applyWarmupFont();
     }
   }
 
@@ -713,7 +747,7 @@ footer{
     const name = (text || "").trim();
     if(!name) return;
 
-    c.font = `${NAME_FONT_SIZE}px ${NAME_FONT_STACK}`;
+    c.font = `700 ${NAME_FONT_SIZE}px ${getNameFontStack()}`;
     c.fillStyle = NAME_COLOR;
     c.textAlign = "center";
     c.textBaseline = "middle";
@@ -725,7 +759,8 @@ footer{
 
   function refreshFontStatus(){
     if(!fontStatusEl) return;
-    fontStatusEl.textContent = "Font: " + (isDinActiveForCanvas() ? "DIN ACTIVE" : "FALLBACK");
+    const active = isFontActiveForCanvas(getNameFontStack());
+    fontStatusEl.textContent = "Font: " + (nameFontFamily ? nameFontFamily : "UNKNOWN") + " • " + (active ? "ACTIVE" : "FALLBACK");
   }
 
   /* ================= RENDER ================= */
@@ -1379,18 +1414,16 @@ footer{
 
       await ensureBaseImages();
 
-      // iOS Safari: sometimes first canvas paint uses fallback even after fonts report loaded.
-      // Prime the canvas text engine, then render twice.
-      ctx.save();
-      // iOS Safari: canvas text can still paint fallback for a tick even after fonts "load".
-      // Two animation frames + a tiny delay dramatically increases first-paint reliability.
+      // Prime canvas text engine AFTER we know which family we’re using
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 120));
 
-      refreshFontStatus();      
-      ctx.font = `${NAME_FONT_SIZE}px ${NAME_FONT_STACK}`;
+      ctx.save();
+      ctx.font = `700 ${NAME_FONT_SIZE}px ${getNameFontStack()}`;
       ctx.measureText("DIN-WARMUP");
       ctx.restore();
+
+      refreshFontStatus();
 
       await renderTo(ctx, true);
       await renderTo(ctx, true);
