@@ -204,8 +204,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v1.3";
-  const STORAGE_KEY = "table-builder-v1.3";
+  const VERSION = "v1.5";
+  const STORAGE_KEY = "table-builder-v1.5";
 
   const EXPORT_SIZE = 1347;
 
@@ -215,8 +215,13 @@ footer{
   const GLOBAL_DX = 0;
   const GLOBAL_DY = -10;
 
+  // Local assets (encode spaces safely)
+  function localAssetUrl(filename){
+    return encodeURI("./" + filename);
+  }
+
   // Background file in /league-tables folder
-  const BG_URL = "./League Table background.png";
+  const BG_URL = localAssetUrl("League Table background.png");
 
   // Division badges (reuse previous sources)
   const DIV_BADGE = {
@@ -224,8 +229,9 @@ footer{
     North:    "https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
     South:    "https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
   };
-  // Tic Health overlay (same folder as background)
-  const TIC_URL = "./Tic Health.png";
+
+    // Tic Health overlay (same folder as background)
+  const TIC_URL = localAssetUrl("TIC Health.png");
 
   // Tic Health: 30% scale, rotated -90 degrees, centred vertically,
   // and horizontally aligned to the SAME badge midpoint X distance from the left.
@@ -432,16 +438,29 @@ footer{
 
   function loadImage(url){
     if(imgCache.has(url)) return imgCache.get(url);
+
     const p = new Promise((resolve,reject)=>{
       const img = new Image();
+
+      // Only needed for cross-origin images (badges/crests).
+      // Safe to leave on, but the real requirement is: server must send CORS headers.
       img.crossOrigin = "anonymous";
+
       img.onload = ()=> {
         imgObjCache.set(url, img);
         resolve(img);
       };
-      img.onerror = ()=> reject(new Error("Failed to load: " + url));
+
+      img.onerror = ()=> {
+        reject(new Error(
+          "IMAGE LOAD FAILED: " + url +
+          " (Check filename/case, and that the file exists in /league-tables. On GitHub Pages, case matters.)"
+        ));
+      };
+
       img.src = url;
     });
+
     imgCache.set(url, p);
     return p;
   }
@@ -782,7 +801,7 @@ footer{
 
     }catch(e){
       console.error(e);
-      setStatus("Render error (check paths/CORS)");
+      setStatus(String(e && e.message ? e.message : e));
     }
   }
 
@@ -818,10 +837,18 @@ footer{
       // Overlay ON TOP of everything
       drawTicHealth(outCtx);
 
-      const blob = await new Promise(res => out.toBlob(res, "image/png"));
+      let blob = null;
+
+      try{
+        blob = await new Promise(res => out.toBlob(res, "image/png"));
+      }catch(err){
+        // Some browsers throw if canvas is tainted by cross-origin images without CORS headers
+        setStatus("EXPORT BLOCKED (CORS): a badge/crest image may not allow canvas export.");
+        return;
+      }
 
       if(!blob){
-        setStatus("Export failed");
+        setStatus("EXPORT BLOCKED (CORS): a badge/crest image may not allow canvas export.");
         return;
       }
 
@@ -836,7 +863,7 @@ footer{
       setStatus("Downloaded");
     }catch(e){
       console.error(e);
-      setStatus("Export error (check paths/CORS)");
+      setStatus(String(e && e.message ? e.message : e));
     }
   }
 
