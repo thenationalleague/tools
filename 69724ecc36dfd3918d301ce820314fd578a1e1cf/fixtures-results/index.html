@@ -538,8 +538,11 @@ footer{
       const row = rowsState[i];
       if(isRowHidden(row)) continue;
 
-      const h = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
-      const a = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
+      const homeCode = normalizeTeamCode(row.home);
+      const awayCode = normalizeTeamCode(row.away);
+
+      const h = homeCode ? (CODE_TO_CREST.get(homeCode) || "") : "";
+      const a = awayCode ? (CODE_TO_CREST.get(awayCode) || "") : "";
 
       if(h) urls.add(h);
       if(a) urls.add(a);
@@ -573,32 +576,7 @@ footer{
     const stamp = dateStamp(new Date());
     return `${status} ${div} ${stamp} - ${suffix}.png`.replace(/\s+/g, " ").trim();
   }
-  function shortClubName(full){
-    // Keep option VALUES as the FULL official name.
-    // Only shorten the option LABEL on small screens.
-    if(full === "Hampton & Richmond Borough") return "Hampton & Rich";
-    if(full === "Dagenham & Redbridge") return "Dag & Red";
-    if(full === "FC Halifax Town") return "Halifax";
-    if(full === "Forest Green Rovers") return "Forest Green";
-
-    let t = full;
-
-    // Remove common prefixes
-    t = t.replace(/^AFC\s+/i, "");
-    t = t.replace(/^FC\s+/i, "");
-
-    // Remove trailing "Town" where it helps
-    t = t.replace(/\s+Town$/i, "");
-
-    // Hard cap so dropdown stays usable
-    if(t.length > 18) t = t.slice(0, 18) + "…";
-    return t;
-  }
-
-  function clubLabel(name){
-    return MQ_COMPACT.matches ? shortClubName(name) : name;
-  }
-
+  
   function buildClubSelect(){
     const s = document.createElement("select");
 
@@ -686,8 +664,8 @@ footer{
       scoreInp.maxLength = 5;
       scoreInp.placeholder = "";
 
-      homeSel.value = rowsState[i].home || "";
-      awaySel.value = rowsState[i].away || "";
+      rowsState[i].home = (typeof r.home === "string") ? normalizeTeamCode(r.home) : "";
+      rowsState[i].away = (typeof r.away === "string") ? normalizeTeamCode(r.away) : "";
       scoreInp.value = rowsState[i].score || "";
       issueSel.value = rowsState[i].issue || "";
 
@@ -1019,8 +997,8 @@ footer{
     statusSel.value = "Fixtures";
 
     for(let i=0;i<ROWS_COUNT;i++){
-      rowsState[i].home = (typeof r.home === "string") ? normalizeTeamCode(r.home) : "";
-      rowsState[i].away = (typeof r.away === "string") ? normalizeTeamCode(r.away) : "";
+      rowsState[i].home = "";
+      rowsState[i].away = "";
       rowsState[i].score = "";
       rowsState[i].issue = "";
 
