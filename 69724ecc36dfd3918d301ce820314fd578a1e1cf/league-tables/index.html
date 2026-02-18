@@ -204,8 +204,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v1.8";
-  const STORAGE_KEY = "table-builder-v1.8";
+  const VERSION = "v2.0";
+  const STORAGE_KEY = "table-builder-v2.0";
 
   const EXPORT_SIZE = 1347;
 
@@ -397,24 +397,41 @@ footer{
 
   const COL_VALUE_SIZE = 24;
   const COL_VALUE_COLOR = "#223b7c";
-  // Dotted separator lines:
+  // Separator lines:
   // Between rows ONLY: 1-2, 3-4, 7-8, 20-21 (i.e. after row 1, 3, 7, 20)
   const DOTTED_AFTER_ROWS = [1, 3, 7, 20];
 
-  // Dots are 2x2, equally spaced on/off => 2px dot then 2px gap (step 4px)
-  const DOT_SIZE = 2;
-  const DOT_STEP = 4;
+  // "Organic" chunky dashes:
+  // Each dash is 12px wide x 3px tall, with a 4px gap.
+  // TWEAK THESE if you want a different feel.
+  const SEP_DASH_W = 12;   // <-- tweak: dash width
+  const SEP_DASH_H = 3;    // <-- tweak: dash height (taller = more presence)
+  const SEP_GAP    = 4;    // <-- tweak: gap between dashes
+  const SEP_Y_NUDGE = -2;  // <-- tweak: negative moves line UP (fixes "sitting too low")
+
+  // End earlier on the right:
+  const SEP_RIGHT_TRIM = 10; // <-- tweak: bigger trims MORE from the right
 
   function drawDottedSeparator(c, y){
-    // Align from left-most part of crest boxes to right-most alignment of PTS column
-    const x1 = (ROW_START_X + GLOBAL_DX) - CREST_BOX_W;         // crest left edge
-    const x2 = (COL_PTS_X + GLOBAL_DX) + 24;                    // a small right buffer past centre
+    // Align from left-most part of crest boxes to a point just past the PTS column,
+    // but trimmed shorter so it doesn't run too long.
+    const x1 = (ROW_START_X + GLOBAL_DX) - CREST_BOX_W; // crest left edge
+
+    // Previously you used +24. We'll keep that idea but trim it back.
+    const x2 = (COL_PTS_X + GLOBAL_DX) + 24 - SEP_RIGHT_TRIM;
+
+    const step = SEP_DASH_W + SEP_GAP;
 
     c.save();
     c.fillStyle = "#000000";
 
-    for(let x = x1; x <= x2; x += DOT_STEP){
-      c.fillRect(x, y, DOT_SIZE, DOT_SIZE);
+    const yTop = y + SEP_Y_NUDGE;
+
+    for(let x = x1; x <= x2; x += step){
+      const w = Math.min(SEP_DASH_W, (x2 - x));
+      if(w > 0){
+        c.fillRect(x, yTop, w, SEP_DASH_H);
+      }
     }
 
     c.restore();
@@ -778,18 +795,28 @@ footer{
       let posBoxColor = BLUE_BOX_COLOR;
 
       // Rules:
-      // C or P => label is C/P, box is gold
-      // QF or SF => label becomes PO, box is silver
-      // R => label is R, box is #000000
-      if(posToken === "C" || posToken === "P"){
-        posLabel = posToken;
+      // C => label C, box gold, TEXT BLACK
+      // P => label P, box gold, TEXT WHITE
+      // QF or SF => label PO, box silver, TEXT WHITE
+      // R => label R, box black, TEXT WHITE
+      let posTextColor = POS_TEXT_COLOR;
+
+      if(posToken === "C"){
+        posLabel = "C";
         posBoxColor = "gold";
+        posTextColor = "#000000";
+      }else if(posToken === "P"){
+        posLabel = "P";
+        posBoxColor = "gold";
+        posTextColor = POS_TEXT_COLOR;
       }else if(posToken === "QF" || posToken === "SF"){
         posLabel = "PO";
         posBoxColor = "silver";
+        posTextColor = POS_TEXT_COLOR;
       }else if(posToken === "R"){
         posLabel = "R";
         posBoxColor = "#000000";
+        posTextColor = POS_TEXT_COLOR;
       }
 
       // If no pos token provided, fall back to 1..24
@@ -815,10 +842,10 @@ footer{
       c.fillText(posLabel, blueX + BLUE_BOX_W/2, y + BLUE_BOX_H/2 + 2);
 
       // Team name (all caps, 2px lower than middle)
-      c.textAlign = "left";
-      c.fillStyle = TEAM_TEXT_COLOR;
-      c.font = `800 ${TEAM_TEXT_SIZE}px ${FONT_ALL_STACK}`;
-      c.fillText(team, redX + TEAM_TEXT_LEFT_PAD, y + RED_BOX_H/2 + 2);
+      c.textAlign = "center";
+      c.fillStyle = posTextColor;
+      c.font = `800 ${POS_TEXT_SIZE}px ${FONT_ALL_STACK}`;
+      c.fillText(posLabel, blueX + BLUE_BOX_W/2, y + BLUE_BOX_H/2 + 2);
 
       // Stats centered in columns (2px lower)
       c.textAlign = "center";
