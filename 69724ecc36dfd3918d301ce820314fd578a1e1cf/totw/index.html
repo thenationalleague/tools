@@ -637,40 +637,60 @@ footer{
     imgCache.set(url, p);
     return p;
   }
-  async function ensureNameFontLoaded(){
-    // Mobile Safari can “pretend” the kit is loaded but still render canvas with fallback
-    // unless the font is used in DOM + we wait for it explicitly.
-    try{
-      if(!document.fonts || !document.fonts.load) return;
+  function isAnyDinCondensedActive(){
+    // Width-compare trick: if the font is truly active, it will measure differently vs fallback.
+    // This catches iOS cases where document.fonts says "loaded" but text still paints fallback.
+    const sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const probeA = document.createElement("span");
+    const probeB = document.createElement("span");
 
+    probeA.textContent = sample;
+    probeB.textContent = sample;
+
+    probeA.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:nowrap;font-size:32px;font-family:Arial,sans-serif;";
+    probeB.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:nowrap;font-size:32px;font-family:'din-next-lt-pro-condensed','DIN Next LT Pro Condensed','din-next-lt-pro',Arial,sans-serif;";
+
+    document.body.appendChild(probeA);
+    document.body.appendChild(probeB);
+
+    const wA = probeA.offsetWidth;
+    const wB = probeB.offsetWidth;
+
+    probeA.remove();
+    probeB.remove();
+
+    // If widths differ, the custom font is active.
+    return Math.abs(wA - wB) >= 2;
+  }
+
+  async function ensureNameFontLoaded(){
+    try{
       // Touch a DOM node that uses the font (helps iOS actually fetch it)
       const warm = document.getElementById("fontWarmup");
       if(warm){
-        // force a layout read
-        void warm.offsetWidth;
+        void warm.offsetWidth; // force layout
       }
 
       const familiesToTry = [
-        "din-next-lt-pro-condensed",     // common Adobe slug
-        "DIN Next LT Pro Condensed",     // human name
-        "din-next-lt-pro"                // occasional alternate
+        "din-next-lt-pro-condensed",
+        "DIN Next LT Pro Condensed",
+        "din-next-lt-pro"
       ];
 
-      const specList = familiesToTry.map(f => `400 ${NAME_FONT_SIZE}px "${f}"`);
+      if(document.fonts && document.fonts.load){
+        const specList = familiesToTry.map(f => `400 ${NAME_FONT_SIZE}px "${f}"`);
+        await Promise.all(specList.map(spec => document.fonts.load(spec).catch(()=>[])));
 
-      // Try all candidates; whichever exists resolves fastest
-      await Promise.all(specList.map(spec => document.fonts.load(spec).catch(()=>[])));
-
-      // If still not check-passing, wait a beat and try again once (iOS/Safari)
-      if(document.fonts.check){
-        const ok = familiesToTry.some(f => document.fonts.check(`${NAME_FONT_SIZE}px "${f}"`));
-        if(!ok){
-          await new Promise(r => setTimeout(r, 200));
-          await Promise.all(specList.map(spec => document.fonts.load(spec).catch(()=>[])));
-        }
+        // iOS sometimes needs a short delay even after load()
+        if(document.fonts.ready) await document.fonts.ready;
       }
 
-      if(document.fonts.ready) await document.fonts.ready;
+      // Final gate: wait until the font is actually active (or give up after ~3s)
+      const t0 = Date.now();
+      while(document.body && !isAnyDinCondensedActive()){
+        if(Date.now() - t0 > 3000) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
     }catch{
       // If blocked/failed, canvas will fall back silently.
     }
@@ -1350,14 +1370,17 @@ footer{
     scheduleOutputs();
 
     try{
+      // Make sure the Adobe font is genuinely active before the very first canvas draw (mobile Safari fix)
+      await ensureNameFontLoaded();
+
       await ensureBaseImages();
-      scheduleRender(); // render AFTER font is ready
+
+      scheduleRender();
       setStatus("Loaded");
     }catch(e){
       console.error(e);
       setStatus("Image load error (CORS?)");
     }
-  }
 
   start();
 
