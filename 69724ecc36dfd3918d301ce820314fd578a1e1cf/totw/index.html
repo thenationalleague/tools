@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Team of the Week Builder</title>
 
+<link rel="preconnect" href="https://use.typekit.net" crossorigin>
+<link rel="preconnect" href="https://p.typekit.net" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 
 <style>
@@ -21,15 +23,7 @@
 body{
   margin:0;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  @font-face{
-  font-family: "TOTWPlayerName";
-  src:
-    url("fonts/PlayerNameFont.woff2") format("woff2"),
-    url("fonts/PlayerNameFont.woff") format("woff");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
+  /* (removed invalid @font-face block; player names use Adobe Fonts family via canvas) */
   font-size:14px;
   color:var(--fg);
   background:#fff;
@@ -196,6 +190,10 @@ footer{
 
 <body>
 
+<span id="fontWarmup" style="position:absolute;left:-9999px;top:-9999px;font-family:'din-next-lt-pro-condensed','DIN Next LT Pro Condensed',Arial,sans-serif;">
+  .
+</span>
+
 <div class="page">
 
 <header class="app-header">
@@ -280,8 +278,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v5.8";
-  const STORAGE_KEY = "totw-builder-v5.8";
+  const VERSION = "v5.9";
+  const STORAGE_KEY = "totw-builder-v5.9";
 
   const EXPORT_SIZE = 1080;
   const CREST_MAX = 100;
@@ -289,8 +287,7 @@ footer{
   // Names locked at 54px below crest centre
   const NAME_OFFSET = 66;
 
-  // Font stack
-  // Adobe Fonts family name (from Typekit) is typically this:
+  // Font stack (Adobe Fonts family name MUST be first for canvas)
   const NAME_FONT_STACK = `"din-next-lt-pro-condensed","DIN Next LT Pro Condensed","Arial Narrow",Arial,sans-serif`;
   const NAME_FONT_SIZE = 25;
   const NAME_COLOR = "#ffffff";
@@ -641,17 +638,41 @@ footer{
     return p;
   }
   async function ensureNameFontLoaded(){
-    // Ensures canvas text uses the intended name font (especially on mobile).
+    // Mobile Safari can “pretend” the kit is loaded but still render canvas with fallback
+    // unless the font is used in DOM + we wait for it explicitly.
     try{
-      if(document.fonts && document.fonts.load){
-        // Load a representative size; browsers treat this as the "font is ready" signal.
-        await document.fonts.load(`25px "TOTWPlayerName"`);
+      if(!document.fonts || !document.fonts.load) return;
+
+      // Touch a DOM node that uses the font (helps iOS actually fetch it)
+      const warm = document.getElementById("fontWarmup");
+      if(warm){
+        // force a layout read
+        void warm.offsetWidth;
       }
-      if(document.fonts && document.fonts.ready){
-        await document.fonts.ready;
+
+      const familiesToTry = [
+        "din-next-lt-pro-condensed",     // common Adobe slug
+        "DIN Next LT Pro Condensed",     // human name
+        "din-next-lt-pro"                // occasional alternate
+      ];
+
+      const specList = familiesToTry.map(f => `400 ${NAME_FONT_SIZE}px "${f}"`);
+
+      // Try all candidates; whichever exists resolves fastest
+      await Promise.all(specList.map(spec => document.fonts.load(spec).catch(()=>[])));
+
+      // If still not check-passing, wait a beat and try again once (iOS/Safari)
+      if(document.fonts.check){
+        const ok = familiesToTry.some(f => document.fonts.check(`${NAME_FONT_SIZE}px "${f}"`));
+        if(!ok){
+          await new Promise(r => setTimeout(r, 200));
+          await Promise.all(specList.map(spec => document.fonts.load(spec).catch(()=>[])));
+        }
       }
+
+      if(document.fonts.ready) await document.fonts.ready;
     }catch{
-      // If blocked, canvas will fall back; no hard crash.
+      // If blocked/failed, canvas will fall back silently.
     }
   }
 
@@ -717,27 +738,6 @@ footer{
 
     return { dx: clampedX - base.x, dy: clampedY - base.y };
   }
-// Ensure the *canvas name font* is actually loaded before first render/export.
-  // On mobile, Adobe Fonts often uses a slug family name (e.g. "din-next-lt-pro-condensed"),
-  // and canvas will silently fall back if we render before it is ready.
-  const NAME_FONT_LOAD_FAMILIES = [
-    "din-next-lt-pro-condensed",
-    "DIN Next LT Pro Condensed",
-    "din-next-lt-pro"
-  ];
-
-  async function ensureNameFontLoaded(){
-    if(!document.fonts || !document.fonts.load) return;
-
-    // Try a few likely family names; whichever exists will resolve quickly.
-    const size = `${NAME_FONT_SIZE}px`;
-    const tasks = NAME_FONT_LOAD_FAMILIES.map(fam =>
-      document.fonts.load(`${size} "${fam}"`).catch(()=>[])
-    );
-
-    try{ await Promise.all(tasks); }catch{}
-    try{ if(document.fonts.ready) await document.fonts.ready; }catch{}
-  }
 
   let bgImg = null;
   let divBadgeImg = null;
@@ -747,23 +747,7 @@ footer{
     const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
     divBadgeImg = await loadImage(divUrl);
   }
-  async function ensureNameFontLoaded(){
-    // Ensures DIN Next LT Pro Condensed (Adobe Fonts) is ready before canvas draws.
-    try{
-      if(!document.fonts || !document.fonts.load) return;
 
-      // Load a representative face; include weight for better reliability.
-      await document.fonts.load(`400 ${NAME_FONT_SIZE}px "din-next-lt-pro-condensed"`);
-
-      // Some mobile browsers need a second check/beat.
-      if(document.fonts.check && !document.fonts.check(`${NAME_FONT_SIZE}px "din-next-lt-pro-condensed"`)){
-        await new Promise(r => setTimeout(r, 120));
-        await document.fonts.load(`400 ${NAME_FONT_SIZE}px "din-next-lt-pro-condensed"`);
-      }
-    }catch{
-      // If blocked (domain mismatch / file://), canvas will fall back silently.
-    }
-  }
   async function renderTo(c, useViewport){
     await ensureBaseImages();
     await ensureNameFontLoaded();
@@ -837,7 +821,6 @@ footer{
     requestAnimationFrame(async ()=>{
       renderQueued = false;
       try{
-        await ensureNameFontLoaded();
         await renderTo(ctx, true);
       }catch(e){
         console.error(e);
@@ -997,7 +980,6 @@ footer{
     const outCtx = out.getContext("2d");
 
     try{
-      await ensureNameFontLoaded();
       await renderTo(outCtx, false);
     }catch(e){
       console.error(e);
