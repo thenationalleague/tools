@@ -392,12 +392,34 @@ footer{
     "https://images.gc.nationalleagueservices.co.uk/42c3c800-7c45-11f0-ad0b-c5a247b8c1be.png",
     "https://images.gc.nationalleagueservices.co.uk/429fec50-7c45-11f0-96e6-13bffcc7953b.png"
   ];
+  const TEAM_CODES = [
+    "ALD","ALT","BHW","BOS","BRK","BRA","CAR","EAS",
+    "HAL","FGR","GAT","HAR","MOR","ROC","SCU","SOL",
+    "SOU","SUT","TAM","TRU","WEA","WOK","YEO","YOR","FYL","TEL",
+    "ALF","BED","BUX","CHE","CHO","CUR","DAR","HER","KID","KLT",
+    "LEA","MAC","MAR","MER","OXC","PBS","RAD","SCA","SSH","SPT",
+    "SPE","WRK","TOT","BAT","CHC","CHU","CHI","DAG","DOR",
+    "DOV","EAB","EBB","ENF","FAB","HRB","HHT","HOR",
+    "HRS","MHU","MSU","SAL","SLO","TON","TOR","WSM","WOR"
+  ];
+  const CODE_TO_NAME = new Map();
+  const NAME_TO_CODE = new Map();
+  const CODE_TO_CREST = new Map();
+  const TEAM_CODE_SET = new Set(TEAM_CODES);
 
-  const TEAM_CREST_MAP = new Map();
   for(let i=0;i<TEAM_NAMES.length;i++){
-    TEAM_CREST_MAP.set(TEAM_NAMES[i], TEAM_CREST_URLS[i] || "");
-  }
+    const code = TEAM_CODES[i] || "";
+    const name = TEAM_NAMES[i] || "";
+    const crest = TEAM_CREST_URLS[i] || "";
 
+    if(code){
+      CODE_TO_NAME.set(code, name);
+      CODE_TO_CREST.set(code, crest);
+    }
+    if(name && code){
+      NAME_TO_CODE.set(name, code);
+    }
+  }
   /* ================= ELEMENTS ================= */
 
   const canvas = document.getElementById("preview");
@@ -478,11 +500,13 @@ footer{
     return (s || "").replace(/\s+/g," ").trim().toUpperCase();
   }
 
-  function displayClubName(clubName){
-    if(clubName === "Hampton & Richmond Borough") return "Hampton & Richmond";
-    return clubName || "";
+  function normalizeTeamCode(v){
+    const t = (v || "").trim();
+    if(!t) return "";
+    if(TEAM_CODE_SET.has(t)) return t;
+    if(NAME_TO_CODE.has(t)) return NAME_TO_CODE.get(t) || "";
+    return "";
   }
-
   function buildMatchdayText(){
     const v = matchdaySel.value;
     if(v === "NA") return "MATCHDAY";
@@ -549,8 +573,6 @@ footer{
     const stamp = dateStamp(new Date());
     return `${status} ${div} ${stamp} - ${suffix}.png`.replace(/\s+/g, " ").trim();
   }
-  const MQ_COMPACT = window.matchMedia("(max-width: 520px)");
-
   function shortClubName(full){
     // Keep option VALUES as the FULL official name.
     // Only shorten the option LABEL on small screens.
@@ -585,28 +607,15 @@ footer{
     none.textContent = "None";
     s.appendChild(none);
 
-    for(const name of TEAM_NAMES){
+    for(const code of TEAM_CODES){
       const o = document.createElement("option");
-      o.value = name;                 // IMPORTANT: full name retained
-      o.textContent = clubLabel(name); // label may be shortened on mobile
+      o.value = code;
+      o.textContent = code;
+      o.title = CODE_TO_NAME.get(code) || code;
       s.appendChild(o);
     }
 
     return s;
-  }
-
-  function refreshClubSelectLabels(){
-    const all = [];
-    for(const el of homeSelectEls) all.push(el);
-    for(const el of awaySelectEls) all.push(el);
-
-    for(const sel of all){
-      if(!sel) continue;
-      for(const opt of sel.options){
-        if(!opt.value) continue; // skip "None"
-        opt.textContent = clubLabel(opt.value);
-      }
-    }
   }
 
   function buildIssueSelect(){
@@ -841,8 +850,11 @@ footer{
       drawCenteredRect(c, HOME_ICON_X, cy, RED_BOX.w, RED_BOX.h, RED_BOX.color);
       drawCenteredRect(c, AWAY_ICON_X, cy, RED_BOX.w, RED_BOX.h, RED_BOX.color);
 
-      const homeCrestUrl = row.home ? (TEAM_CREST_MAP.get(row.home) || "") : "";
-      const awayCrestUrl = row.away ? (TEAM_CREST_MAP.get(row.away) || "") : "";
+      const homeCode = normalizeTeamCode(row.home);
+      const awayCode = normalizeTeamCode(row.away);
+
+      const homeCrestUrl = homeCode ? (CODE_TO_CREST.get(homeCode) || "") : "";
+      const awayCrestUrl = awayCode ? (CODE_TO_CREST.get(awayCode) || "") : "";
 
       if(homeCrestUrl){
         const img = await loadImage(homeCrestUrl).catch(()=>null);
@@ -854,8 +866,8 @@ footer{
         if(img) drawContainedImage(c, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
       }
 
-      const homeText = safeUpper(displayClubName(row.home));
-      const awayText = safeUpper(displayClubName(row.away));
+      const homeText = safeUpper(homeCode);
+      const awayText = safeUpper(awayCode);
 
       if(homeText){
         c.textAlign = HOME_COL.align;
@@ -1007,8 +1019,8 @@ footer{
     statusSel.value = "Fixtures";
 
     for(let i=0;i<ROWS_COUNT;i++){
-      rowsState[i].home = "";
-      rowsState[i].away = "";
+      rowsState[i].home = (typeof r.home === "string") ? normalizeTeamCode(r.home) : "";
+      rowsState[i].away = (typeof r.away === "string") ? normalizeTeamCode(r.away) : "";
       rowsState[i].score = "";
       rowsState[i].issue = "";
 
@@ -1071,10 +1083,6 @@ footer{
     buildMatchdayOptions();
     autoload();
     rebuildRowsUI();
-
-    MQ_COMPACT.addEventListener("change", ()=>{
-      refreshClubSelectLabels();
-    });
 
     bindUI();
 
