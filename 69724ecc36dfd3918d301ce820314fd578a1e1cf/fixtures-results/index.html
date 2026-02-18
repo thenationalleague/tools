@@ -506,6 +506,49 @@ footer{
     if(TEAM_CODE_SET.has(t)) return t;
     if(NAME_TO_CODE.has(t)) return NAME_TO_CODE.get(t) || "";
     return "";
+      // Narrow screens show 3-letter codes in dropdown; wide screens show full names
+  const MQ_COMPACT = window.matchMedia("(max-width: 640px)");
+
+  function displayClubNameFromCode(code){
+    const name = CODE_TO_NAME.get(code) || "";
+    if(!name) return "";
+    // Only contraction requested
+    if(name === "Hampton & Richmond Borough") return "Hampton & Rich";
+    return name;
+  }
+
+  function updateAllClubSelectLabels(){
+    // Update every Home/Away select option text based on screen width
+    const selects = [...homeSelectEls, ...awaySelectEls].filter(Boolean);
+
+    for(const sel of selects){
+      const opts = sel.options;
+      for(let i=0;i<opts.length;i++){
+        const opt = opts[i];
+        const code = opt.value || "";
+
+        // Keep "None" as-is
+        if(code === ""){
+          opt.textContent = "None";
+          continue;
+        }
+
+        opt.textContent = MQ_COMPACT.matches
+          ? code
+          : (CODE_TO_NAME.get(code) || code);
+      }
+    }
+  }
+
+  // React live if the viewport crosses the breakpoint
+  try{
+    MQ_COMPACT.addEventListener("change", ()=>{
+      updateAllClubSelectLabels();
+    });
+  }catch{
+    // Safari fallback
+    MQ_COMPACT.addListener(()=> updateAllClubSelectLabels());
+  }
   }
   function buildMatchdayText(){
     const v = matchdaySel.value;
@@ -588,7 +631,10 @@ footer{
     for(const code of TEAM_CODES){
       const o = document.createElement("option");
       o.value = code;
-      o.textContent = code;
+      // Label depends on screen width:
+      // - Wide: full name
+      // - Narrow: 3-letter code
+      o.textContent = MQ_COMPACT.matches ? code : (CODE_TO_NAME.get(code) || code);
       o.title = CODE_TO_NAME.get(code) || code;
       s.appendChild(o);
     }
@@ -691,6 +737,8 @@ footer{
       issueSel.addEventListener("change", ()=>{
         rowsState[i].issue = issueSel.value || "";
         syncScoreInputsEnabled();
+        // Ensure labels are correct for current screen width
+        updateAllClubSelectLabels();
         autosave();
         scheduleRender();
       });
@@ -845,8 +893,8 @@ footer{
         if(img) drawContainedImage(c, img, AWAY_ICON_X, cy, CREST_MAX, CREST_MAX);
       }
 
-      const homeText = safeUpper(homeCode);
-      const awayText = safeUpper(awayCode);
+      const homeText = safeUpper(displayClubNameFromCode(homeCode));
+      const awayText = safeUpper(displayClubNameFromCode(awayCode));
 
       if(homeText){
         c.textAlign = HOME_COL.align;
