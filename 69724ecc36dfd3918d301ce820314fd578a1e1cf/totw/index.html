@@ -279,8 +279,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v6.3";
-  const STORAGE_KEY = "totw-builder-v6.3";
+  const VERSION = "v6.4";
+  const STORAGE_KEY = "totw-builder-v6.4";
 
   const EXPORT_SIZE = 1080;
   const CREST_MAX = 100;
@@ -295,6 +295,24 @@ footer{
 
   // Background + division badges
   const BG_URL = "https://images.gc.nationalleagueservices.co.uk/86a76230-0b28-11f1-85c8-45bfeb09479e.jpg";
+  // Used for canvas font readiness checks (avoids DOM-only false positives on iOS)
+  const CANVAS_FALLBACK_STACK = `"Arial Narrow",Arial,sans-serif`;
+
+  function isDinActiveForCanvas(){
+    // If DIN is not active, measuring NAME_FONT_STACK will match the fallback width closely.
+    const t = document.createElement("canvas");
+    const c = t.getContext("2d");
+
+    const sample = "DIN-WARMUP-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    c.font = `400 ${NAME_FONT_SIZE}px ${CANVAS_FALLBACK_STACK}`;
+    const wFallback = c.measureText(sample).width;
+
+    c.font = `400 ${NAME_FONT_SIZE}px ${NAME_FONT_STACK}`;
+    const wDin = c.measureText(sample).width;
+
+    return Math.abs(wFallback - wDin) >= 2;
+  }
 
   const DIV_BADGE = {
     National: "https://images.gc.nationalleagueservices.co.uk/a95e6fe0-0b4a-11f1-81c5-055e14995095.png",
@@ -640,31 +658,6 @@ footer{
     imgCache.set(url, p);
     return p;
   }
-  function isAnyDinCondensedActive(){
-    // Width-compare trick: if the font is truly active, it will measure differently vs fallback.
-    // This catches iOS cases where document.fonts says "loaded" but text still paints fallback.
-    const sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    const probeA = document.createElement("span");
-    const probeB = document.createElement("span");
-
-    probeA.textContent = sample;
-    probeB.textContent = sample;
-
-    probeA.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:nowrap;font-size:32px;font-family:Arial,sans-serif;";
-    probeB.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:nowrap;font-size:32px;font-family:'din-next-lt-pro-condensed','DIN Next LT Pro Condensed','din-next-lt-pro',Arial,sans-serif;";
-
-    document.body.appendChild(probeA);
-    document.body.appendChild(probeB);
-
-    const wA = probeA.offsetWidth;
-    const wB = probeB.offsetWidth;
-
-    probeA.remove();
-    probeB.remove();
-
-    // If widths differ, the custom font is active.
-    return Math.abs(wA - wB) >= 2;
-  }
 
   async function ensureNameFontLoaded(){
     try{
@@ -690,8 +683,8 @@ footer{
 
       // Final gate: wait until the font is actually active (or give up after ~3s)
       const t0 = Date.now();
-      while(document.body && !isAnyDinCondensedActive()){
-        if(Date.now() - t0 > 3000) break;
+      while(document.body && !isDinActiveForCanvas()){
+        if(Date.now() - t0 > 4000) break;
         await new Promise(r => setTimeout(r, 100));
       }
 
@@ -732,7 +725,7 @@ footer{
 
   function refreshFontStatus(){
     if(!fontStatusEl) return;
-    fontStatusEl.textContent = "Font: " + (isAnyDinCondensedActive() ? "DIN ACTIVE" : "FALLBACK");
+    fontStatusEl.textContent = "Font: " + (isDinActiveForCanvas() ? "DIN ACTIVE" : "FALLBACK");
   }
 
   /* ================= RENDER ================= */
@@ -1389,6 +1382,12 @@ footer{
       // iOS Safari: sometimes first canvas paint uses fallback even after fonts report loaded.
       // Prime the canvas text engine, then render twice.
       ctx.save();
+      // iOS Safari: canvas text can still paint fallback for a tick even after fonts "load".
+      // Two animation frames + a tiny delay dramatically increases first-paint reliability.
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise(r => setTimeout(r, 150));
+
+      refreshFontStatus();      
       ctx.font = `${NAME_FONT_SIZE}px ${NAME_FONT_STACK}`;
       ctx.measureText("DIN-WARMUP");
       ctx.restore();
