@@ -224,6 +224,13 @@ footer{
     North:    "https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
     South:    "https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
   };
+  // Tic Health overlay (same folder as background)
+  const TIC_URL = "./Tic Health.png";
+
+  // Tic Health: 30% scale, rotated -90 degrees, centred vertically,
+  // and horizontally aligned to the SAME badge midpoint X distance from the left.
+  const TIC_SCALE = 0.30;
+  const TIC_ROT_DEG = -90;
 
   // Badge placement: midpoint at (180,120), scaled to 10% of native
   const BADGE_MID = { x:180, y:120, scale:0.08 };
@@ -412,6 +419,7 @@ footer{
 
   let bgImg = null;
   let badgeImg = null;
+  let ticImg = null;
 
   const imgCache = new Map();     // url -> Promise<HTMLImageElement>
   const imgObjCache = new Map();  // url -> HTMLImageElement (resolved)
@@ -605,8 +613,11 @@ footer{
 
   async function ensureBaseImages(){
     if(!bgImg) bgImg = await loadImage(BG_URL);
+
     const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
     badgeImg = await loadImage(divUrl);
+
+    if(!ticImg) ticImg = await loadImage(TIC_URL);
   }
 
   function drawTitleAndMatchday(c){
@@ -644,6 +655,27 @@ footer{
     const y = (BADGE_MID.y + GLOBAL_DY) - dh/2;
 
     c.drawImage(badgeImg, x, y, dw, dh);
+  }
+  function drawTicHealth(c){
+    if(!ticImg) return;
+
+    const iw = ticImg.naturalWidth || ticImg.width;
+    const ih = ticImg.naturalHeight || ticImg.height;
+    const dw = iw * TIC_SCALE;
+    const dh = ih * TIC_SCALE;
+
+    // Centre X matches badge midpoint X (same distance from left)
+    // Centre Y is vertically centred on the canvas
+    const cx = (BADGE_MID.x + GLOBAL_DX);
+    const cy = (EXPORT_SIZE / 2) + GLOBAL_DY;
+
+    const rad = (TIC_ROT_DEG * Math.PI) / 180;
+
+    c.save();
+    c.translate(cx, cy);
+    c.rotate(rad);
+    c.drawImage(ticImg, -dw/2, -dh/2, dw, dh);
+    c.restore();
   }
 
   function drawColumnHeaders(c){
@@ -740,8 +772,12 @@ footer{
       drawColumnHeaders(ctx);
       drawRows(ctx);
 
+      // Overlay ON TOP of everything
+      drawTicHealth(ctx);
+
       refreshFontStatus();
       setStatus("Rendered");
+
     }catch(e){
       console.error(e);
       setStatus("Render error (check paths/CORS)");
@@ -777,7 +813,11 @@ footer{
       drawColumnHeaders(outCtx);
       drawRows(outCtx);
 
+      // Overlay ON TOP of everything
+      drawTicHealth(outCtx);
+
       const blob = await new Promise(res => out.toBlob(res, "image/png"));
+
       if(!blob){
         setStatus("Export failed");
         return;
@@ -856,6 +896,7 @@ footer{
 
     bgImg = null;
     badgeImg = null;
+    ticImg = null;
 
     autosave();
     render();
