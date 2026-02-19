@@ -53,7 +53,7 @@ body{
 
 .app{
   display:grid;
-  grid-template-columns:minmax(520px, 980px) minmax(360px, 1fr);
+  grid-template-columns:minmax(520px, 980px) minmax(420px, 1fr);
   gap:20px;
   align-items:start;
 }
@@ -143,6 +143,99 @@ footer{
   display:flex;
   justify-content:space-between;
 }
+
+/* ===== grid editor ===== */
+.gridWrap{
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+}
+
+.gridTopBar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  border-bottom:1px solid var(--border);
+  background:var(--bg);
+}
+
+.gridTopBar .hint{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.gridScroller{
+  max-height:520px;
+  overflow:auto;
+  background:#fff;
+}
+
+table.grid{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  min-width:640px;
+}
+
+.grid thead th{
+  position:sticky;
+  top:0;
+  z-index:2;
+  background:#fff;
+  border-bottom:1px solid var(--border);
+  font-size:12px;
+  color:var(--muted);
+  text-align:left;
+  padding:10px 10px;
+  white-space:nowrap;
+}
+
+.grid tbody td{
+  border-bottom:1px solid #eef1f4;
+  padding:6px 8px;
+  vertical-align:middle;
+}
+
+.grid tbody tr:last-child td{
+  border-bottom:none;
+}
+
+.cell-pos{
+  width:54px;
+  text-align:center;
+  font-weight:800;
+  color:#111;
+}
+
+.grid select,
+.grid input{
+  width:100%;
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+  font:inherit;
+}
+
+.grid .small{
+  width:74px;
+  text-align:center;
+}
+
+.grid .override{
+  width:84px;
+  text-align:center;
+}
+
+.grid .team{
+  min-width:260px;
+}
+
+@media (max-width: 980px){
+  .gridScroller{ max-height:360px; }
+}
 </style>
 </head>
 
@@ -185,7 +278,32 @@ footer{
 
     <div class="box section">
       <label for="pasteIn">Paste league table (TSV/CSV)</label>
-      <textarea id="pasteIn" rows="14" placeholder="Paste your table here (with or without header row, with or without Pos column)."></textarea>
+      <textarea id="pasteIn" rows="10" placeholder="Paste your table here (with or without header row)."></textarea>
+    </div>
+
+    <div class="box section">
+      <div class="gridWrap">
+        <div class="gridTopBar">
+          <div style="font-weight:800;">Grid editor</div>
+          <div class="hint">Edits update the graphic instantly. Paste ↔ grid stays in sync.</div>
+        </div>
+
+        <div class="gridScroller">
+          <table class="grid" aria-label="Table grid editor">
+            <thead>
+              <tr>
+                <th style="width:54px;">Pos</th>
+                <th style="width:84px;">Flag</th>
+                <th>Team</th>
+                <th style="width:84px;">P</th>
+                <th style="width:84px;">GD</th>
+                <th style="width:84px;">Pts</th>
+              </tr>
+            </thead>
+            <tbody id="gridBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <footer>
@@ -204,53 +322,47 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v2.1";
-  const STORAGE_KEY = "table-builder-v2.1";
+  const VERSION = "v2.2";
+  const STORAGE_KEY = "table-builder-v2.2";
 
   const EXPORT_SIZE = 1347;
 
-  // Global offset: you wanted the artwork moved 10px up and 20px left earlier.
-  // Now you want everything (text + rectangles) 20px to the RIGHT from where it is now.
-  // That cancels the previous -20 X shift back to 0. Keep the -10 Y shift.
   const GLOBAL_DX = 0;
   const GLOBAL_DY = -10;
 
-  // Local assets (encode spaces safely)
   function localAssetUrl(filename){
     return encodeURI("./" + filename);
   }
 
-  // Background file in /league-tables folder
   const BG_URL = localAssetUrl("League Table background.png");
 
-  // Division badges (reuse previous sources)
   const DIV_BADGE = {
     National: "https://images.gc.nationalleagueservices.co.uk/a95e6fe0-0b4a-11f1-81c5-055e14995095.png",
     North:    "https://images.gc.nationalleagueservices.co.uk/b02360b0-0b4a-11f1-81c5-055e14995095.png",
     South:    "https://images.gc.nationalleagueservices.co.uk/b9b1f8d0-0b4a-11f1-81c5-055e14995095.png"
   };
 
-    // Tic Health overlay (same folder as background)
   const TIC_URL = localAssetUrl("TIC Health.png");
-
-  // Tic Health: 30% scale, rotated -90 degrees, centred vertically,
-  // and horizontally aligned to the SAME badge midpoint X distance from the left.
   const TIC_SCALE = 0.30;
   const TIC_ROT_DEG = -90;
 
-  // Badge placement: midpoint at (180,120), scaled to 10% of native
   const BADGE_MID = { x:180, y:120, scale:0.08 };
-  // ===== TEAM CRESTS (mapped in the same order) =====
-  const TEAM_NAMES = [
+
+  /* ===== TEAMS (dropdown list = official names) ===== */
+  const TEAMS_DROPDOWN = [
     "Aldershot Town","Altrincham","Boreham Wood","Boston United","Brackley Town","Braintree Town","Carlisle United","Eastleigh",
     "FC Halifax Town","Forest Green Rovers","Gateshead","Hartlepool United","Morecambe","Rochdale","Scunthorpe United","Solihull Moors",
-    "Southend United","Sutton United","Tamworth","Truro City","Wealdstone","Woking","Yeovil Town","York City","AFC Fylde","AFC Telford United",
-    "Alfreton Town","Bedford Town","Buxton","Chester","Chorley","Curzon Ashton","Darlington","Hereford","Kidderminster Harriers","King's Lynn Town",
-    "Leamington","Macclesfield","Marine","Merthyr Town","Oxford City","Peterborough Sports","Radcliffe","Scarborough Athletic","South Shields","Southport",
-    "Spennymoor Town","Worksop Town","AFC Totton","Bath City","Chelmsford City","Chesham United","Chippenham Town","Dagenham & Redbridge","Dorking Wanderers",
-    "Dover Athletic","Eastbourne Borough","Ebbsfleet United","Enfield Town","Farnborough","Hampton & Richmond Borough","Hemel Hempstead Town","Hornchurch",
-    "Horsham","Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
+    "Southend United","Sutton United","Tamworth","Truro City","Wealdstone","Woking","Yeovil Town","York City",
+    "AFC Fylde","AFC Telford United","Alfreton Town","Bedford Town","Buxton","Chester","Chorley","Curzon Ashton","Darlington","Hereford",
+    "Kidderminster Harriers","King's Lynn Town","Leamington","Macclesfield","Marine","Merthyr Town","Oxford City","Peterborough Sports",
+    "Radcliffe","Scarborough Athletic","South Shields","Southport","Spennymoor Town","Worksop Town",
+    "AFC Totton","Bath City","Chelmsford City","Chesham United","Chippenham Town","Dagenham & Redbridge","Dorking Wanderers","Dover Athletic",
+    "Eastbourne Borough","Ebbsfleet United","Enfield Town","Farnborough","Hampton & Richmond Borough","Hemel Hempstead Town","Hornchurch","Horsham",
+    "Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
   ];
+
+  /* ===== CRESTS MAP (must match your image URLs) ===== */
+  const TEAM_NAMES = TEAMS_DROPDOWN.slice();
 
   const TEAM_CREST_URLS = [
     "https://images.gc.nationalleagueservices.co.uk/a7c43c30-6bba-11f0-9fba-1febf6c72628.png",
@@ -331,31 +443,34 @@ footer{
     TEAM_NAMES.map((n, i) => [String(n).toLowerCase(), TEAM_CREST_URLS[i]])
   );
 
-  function crestKeyFromTeamCaps(teamCaps){
-    const t = safeText(teamCaps).toLowerCase();
-    if(t === "hampton & richmond") return "hampton & richmond borough";
-    return t;
-  }
+  function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
+  function toAllCaps(s){ return safeText(s).toUpperCase(); }
 
-  function getCrestUrlForTeamCaps(teamCaps){
-    const key = crestKeyFromTeamCaps(teamCaps);
+  function getCrestUrlForTeamExact(teamName){
+    const key = safeText(teamName).toLowerCase();
     return TEAM_CREST_MAP.get(key) || null;
   }
 
-  // Crest square (new)
+  /* ===== RENDERED TEAM TEXT (ONLY change is Hampton & Richmond Borough) ===== */
+  function teamTextForGraphic(teamName){
+    const t = safeText(teamName);
+    if(!t) return "";
+    if(t.toLowerCase() === "hampton & richmond borough") return "HAMPTON & RICHMOND";
+    return toAllCaps(t);
+  }
+
+  // Crest square
   const CREST_BOX_W = 42;
   const CREST_BOX_H = 42;
   const CREST_BOX_COLOR = "#9e0000";
-  const CREST_MAX = 36; // max rendered crest size inside the 42px square
+  const CREST_MAX = 36;
 
-  // Title placement + style (Carbona ExtraBold for ALL text)
-  // NOTE: X is computed at draw-time so it can align to the crest square without
-  // referencing ROW_START_X before it is declared.
+  // Title
   const TITLE_Y = 70;
   const TITLE_COLOR = "#9e0000";
   const TITLE_SIZE = 36;
 
-  // Matchday placement + style (under title)
+  // Matchday
   const MATCHDAY_Y = 115;
   const MATCHDAY_COLOR = "#223b7c";
   const MATCHDAY_SIZE = 28;
@@ -370,30 +485,47 @@ footer{
 
   const BLUE_BOX_W = 42;
   const BLUE_BOX_H = 42;
-  const BLUE_BOX_COLOR = "#223b7c";
+
+  const BASE_POS_COLOR = "#223b7c"; // must be your base
 
   const RED_BOX_W = 420;
   const RED_BOX_H = 42;
   const RED_BOX_COLOR = "#9e0000";
 
-  // Position-zone colours (numeric positions only).
-  // NOTE: Special tokens (C/P/PO/R) override these later.
-  const POS_CHAMP_COLOR = "#5B7DD2";    // 1
-  const POS_SF_COLOR    = "#3760C8";    // 2-3
-  const POS_QF_COLOR    = "#2D4FA4";    // 4-7
-  const POS_RELEG_COLOR = "#0F1B38";    // 21-24
+  // Numeric position zone colours (all numeric text stays WHITE)
+  // (dark → base → grey, no “lighter then darker” jump)
+  const POS_CHAMP_COLOR = "#162a59"; // 1 (darker than base)
+  const POS_SF_COLOR    = "#1b3167"; // 2-3 (slightly lighter than champ)
+  const POS_QF_COLOR    = "#1f3772"; // 4-7 (just a touch darker than base)
+  const POS_RELEG_COLOR = "#6A7085"; // 21-24 (grey you like)
 
-  const BLUE_TO_RED_GAP = 0;    // abuts
+  // Override tokens (grid flag)
+  const OVERRIDE_NONE = "-";
+  const OVERRIDE_C    = "C";
+  const OVERRIDE_SF   = "SF";
+  const OVERRIDE_QF   = "QF";
+  const OVERRIDE_R    = "R";
 
-  // Text inside row blocks
-  const POS_TEXT_COLOR = "#ffffff";
+  // Special visuals
+  const POS_C_BG = "gold";
+  const POS_C_FG = "#000000";
+
+  const POS_PO_QF_BG = "silver";
+  const POS_PO_SF_BG = "#9aa3ad";   // darker-than-silver for SF PO
+  const POS_PO_FG    = "#000000";   // both PO variants black text
+
+  const POS_R_BG = "#000000";
+  const POS_R_FG = "#ffffff";
+
+  // Text
   const POS_TEXT_SIZE = 24;
-
-  const TEAM_TEXT_COLOR = "#ffffff";
   const TEAM_TEXT_SIZE = 24;
-  const TEAM_TEXT_LEFT_PAD = 30; // inside maroon box
+  const TEAM_TEXT_LEFT_PAD = 30;
 
-  // Stat columns (headers at these x positions)
+  const POS_TEXT_COLOR_DEFAULT = "#ffffff";
+  const TEAM_TEXT_COLOR = "#ffffff";
+
+  // Stat columns
   const COL_P_X   = 960;
   const COL_GD_X  = 1010;
   const COL_PTS_X = 1060;
@@ -404,29 +536,24 @@ footer{
 
   const COL_VALUE_SIZE = 24;
   const COL_VALUE_COLOR = "#223b7c";
-  // Separator lines:
-  // Between rows ONLY: 1-2, 3-4, 7-8, 20-21 (i.e. after row 1, 3, 7, 20)
+
+  // Separator lines
   const DOTTED_AFTER_ROWS = [1, 3, 7, 20];
 
-  // "Organic" chunky dashes:
-  // Each dash is 12px wide x 3px tall, with a 4px gap.
-  // TWEAK THESE if you want a different feel.
-  const SEP_DASH_W = 12;   // <-- tweak: dash width
-  const SEP_DASH_H = 2;    // <-- tweak: dash height (taller = more presence)
-  const SEP_GAP    = 4;    // <-- tweak: gap between dashes
-  const SEP_Y_NUDGE = -1;  // <-- tweak: negative moves line UP (fixes "sitting too low")
+  // Chunky dashes (tweakable)
+  const SEP_DASH_W = 12;
+  const SEP_DASH_H = 2;
+  const SEP_GAP    = 4;
 
-  // End earlier on the right:
-  const SEP_RIGHT_TRIM = 10; // <-- tweak: bigger trims MORE from the right
+  // Move the separator UP/DOWN:
+  // - increase this number to move DOWN (e.g. from -1 to 0 moves down 1px)
+  const SEP_Y_NUDGE = -1;
+
+  const SEP_RIGHT_TRIM = 10;
 
   function drawDottedSeparator(c, y){
-    // Align from left-most part of crest boxes to a point just past the PTS column,
-    // but trimmed shorter so it doesn't run too long.
-    const x1 = (ROW_START_X + GLOBAL_DX) - CREST_BOX_W; // crest left edge
-
-    // Previously you used +24. We'll keep that idea but trim it back.
+    const x1 = (ROW_START_X + GLOBAL_DX) - CREST_BOX_W;
     const x2 = (COL_PTS_X + GLOBAL_DX) + 24 - SEP_RIGHT_TRIM;
-
     const step = SEP_DASH_W + SEP_GAP;
 
     c.save();
@@ -436,15 +563,13 @@ footer{
 
     for(let x = x1; x <= x2; x += step){
       const w = Math.min(SEP_DASH_W, (x2 - x));
-      if(w > 0){
-        c.fillRect(x, yTop, w, SEP_DASH_H);
-      }
+      if(w > 0) c.fillRect(x, yTop, w, SEP_DASH_H);
     }
 
     c.restore();
   }
 
-  // Carbona ExtraBold for all text (fallbacks included)
+  // Fonts
   const FONT_ALL_STACK = `"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif`;
   const CANVAS_FALLBACK_STACK = `Arial,sans-serif`;
 
@@ -456,6 +581,8 @@ footer{
   const divisionSel = document.getElementById("division");
   const matchdaySel = document.getElementById("matchday");
   const pasteEl = document.getElementById("pasteIn");
+  const gridBody = document.getElementById("gridBody");
+
   const download1x1Btn = document.getElementById("download1x1");
   const download4x5Btn = document.getElementById("download4x5");
   const resetAllBtn = document.getElementById("resetAll");
@@ -464,15 +591,20 @@ footer{
 
   /* ================= STATE ================= */
 
-  // 24 rows: { pos, team, p, gd, pts }
-  let rows = Array.from({length: ROWS}, () => ({ pos:"", team:"", p:"", gd:"", pts:"" }));
+  // 24 rows: { team, p, gd, pts, flag }
+  // flag: "-", "C", "SF", "QF", "R"
+  let rows = Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE }));
 
   let bgImg = null;
   let badgeImg = null;
   let ticImg = null;
 
-  const imgCache = new Map();     // url -> Promise<HTMLImageElement>
-  const imgObjCache = new Map();  // url -> HTMLImageElement (resolved)
+  const imgCache = new Map();
+  const imgObjCache = new Map();
+
+  // sync guards (paste <-> grid)
+  let isUpdatingFromGrid = false;
+  let isUpdatingFromPaste = false;
 
   /* ================= HELPERS ================= */
 
@@ -487,9 +619,6 @@ footer{
 
     const p = new Promise((resolve,reject)=>{
       const img = new Image();
-
-      // Only needed for cross-origin images (badges/crests).
-      // Safe to leave on, but the real requirement is: server must send CORS headers.
       img.crossOrigin = "anonymous";
 
       img.onload = ()=> {
@@ -500,7 +629,7 @@ footer{
       img.onerror = ()=> {
         reject(new Error(
           "IMAGE LOAD FAILED: " + url +
-          " (Check filename/case, and that the file exists in /league-tables. On GitHub Pages, case matters.)"
+          " (Check filename/case, and that the file exists. On GitHub Pages, case matters.)"
         ));
       };
 
@@ -511,59 +640,28 @@ footer{
     return p;
   }
 
-  function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
-
-  function toAllCaps(s){ return safeText(s).toUpperCase(); }
- 
-  function isPosToken(s){
-    const t = safeText(s).toUpperCase();
-    if(!t) return false;
-    if(/^\d+$/.test(t)) return true;
-    return t === "C" || t === "P" || t === "QF" || t === "SF" || t === "R";
+  function clamp3(s){
+    return String(s || "").slice(0, 3);
   }
 
-  function normalizeTeamName(team){
-    let t = safeText(team);
-    t = t.replace(/^\s*\d+\s+/, "");
-    if(/^Hampton\s*&\s*Richmond\s*Borough$/i.test(t)) t = "Hampton & Richmond";
-    return t;
-  }
-  
-  function drawContainedImage(c, img, x, y, w, h, maxSize){
-    const iw = img.naturalWidth || img.width;
-    const ih = img.naturalHeight || img.height;
-    if(!iw || !ih) return;
-
-    const s = Math.min(maxSize / iw, maxSize / ih);
-    const dw = iw * s;
-    const dh = ih * s;
-
-    const cx = x + w/2;
-    const cy = y + h/2;
-
-    const dx = cx - dw/2;
-    const dy = cy - dh/2;
-
-    c.imageSmoothingEnabled = true;
-    c.imageSmoothingQuality = "high";
-    c.drawImage(img, dx, dy, dw, dh);
+  function digitsOnly3(s){
+    const v = String(s || "").replace(/[^\d]/g, "");
+    return clamp3(v);
   }
 
-  async function preloadCrests(){
-    const urls = new Set();
-    for(const r of rows){
-      const teamCaps = safeText(r.team);
-      if(!teamCaps) continue;
-      const u = getCrestUrlForTeamCaps(teamCaps);
-      if(u) urls.add(u);
+  function gdOnly3(s){
+    // allow + or - then digits, max 3 chars total
+    let v = String(s || "").toUpperCase().replace(/[^0-9+\-]/g, "");
+    // collapse multiple signs to first char only
+    if(v.length >= 2){
+      const first = v[0];
+      if(first === "+" || first === "-"){
+        v = first + v.slice(1).replace(/[+\-]/g, "");
+      }else{
+        v = v.replace(/[+\-]/g, "");
+      }
     }
-    await Promise.all([...urls].map(u => loadImage(u).catch(()=>null)));
-  }
-
-  function normalizeGD(s){
-    const v = safeText(s);
-    if(!v) return "";
-    return v.replace(/^(\+)?0$/, "0");
+    return clamp3(v);
   }
 
   function isProbablyHeader(cells){
@@ -572,13 +670,9 @@ footer{
   }
 
   function splitLine(line){
-    if(line.includes("\t")) return line.split("\t").map(s=>s.trim()).filter(s=>s.length>0);
-    if(line.includes(",")) return line.split(",").map(s=>s.trim()).filter(s=>s.length>0);
-    return line.trim().split(/\s{2,}|\s+\|\s+|\s+/).map(s=>s.trim()).filter(s=>s.length>0);
-  }
-
-  function isIntLike(s){
-    return /^-?\d+$/.test(String(s||"").trim());
+    if(line.includes("\t")) return line.split("\t").map(s=>s.trim());
+    if(line.includes(",")) return line.split(",").map(s=>s.trim());
+    return line.trim().split(/\s{2,}|\s+\|\s+|\s+/).map(s=>s.trim());
   }
 
   function isNumLike(s){
@@ -586,57 +680,10 @@ footer{
     return /^[-+]?(\d+)$/.test(v) || /^[-+]?(\d+)\.(\d+)$/.test(v);
   }
 
-  function parsePastedTable(raw){
-    const text = (raw || "").replace(/\r/g, "\n");
-    const lines = text.split("\n").map(l=>l.trim()).filter(l=>l.length>0);
-    if(lines.length === 0) return Array.from({length: ROWS}, () => ({ pos:"", team:"", p:"", gd:"", pts:"" }));
-
-    let startIdx = 0;
-    const firstCells = splitLine(lines[0]);
-    if(firstCells.length && isProbablyHeader(firstCells)){
-      startIdx = 1;
-    }
-
-    const out = [];
-    for(let i = startIdx; i < lines.length; i++){
-      const cells = splitLine(lines[i]);
-      if(cells.length === 0) continue;
-      if(isProbablyHeader(cells)) continue;
-
-      // Pos can be a number OR special tokens (C, P, QF, SF, R)
-      const hasPos = cells.length >= 2 && isPosToken(cells[0]);
-      const posVal = hasPos ? safeText(cells[0]).toUpperCase() : "";
-
-      const teamIdx = hasPos ? 1 : 0;
-
-      const teamRaw = cells[teamIdx] || "";
-      const team = normalizeTeamName(teamRaw);
-
-      const rest = cells.slice(teamIdx + 1);
-      const nums = rest.filter(isNumLike).map(s=>String(s).trim());
-
-      if(team){
-        const p = nums.length >= 1 ? nums[0] : "";
-        const pts = nums.length >= 1 ? nums[nums.length - 1] : "";
-        const gd = nums.length >= 2 ? nums[nums.length - 2] : "";
-
-        out.push({
-          pos: posVal,
-          team: toAllCaps(team),
-          p: safeText(p),
-          gd: normalizeGD(gd),
-          pts: safeText(pts)
-        });
-      }
-
-      if(out.length >= ROWS) break;
-    }
-
-    while(out.length < ROWS){
-      out.push({ pos:"", team:"", p:"", gd:"", pts:"" });
-    }
-
-    return out.slice(0, ROWS);
+  function normalizeGD(s){
+    const v = safeText(s);
+    if(!v) return "";
+    return v.replace(/^(\+)?0$/, "0");
   }
 
   function titleForDivision(div){
@@ -683,6 +730,308 @@ footer{
     }catch{}
   }
 
+  function formatDate_DDMMMyy(d){
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "2-digit"
+    }).formatToParts(d);
+
+    const dd = (parts.find(p => p.type === "day") || {value:""}).value;
+    const mmm = (parts.find(p => p.type === "month") || {value:""}).value;
+    const yy = (parts.find(p => p.type === "year") || {value:""}).value;
+
+    const mmmNorm = mmm ? (mmm[0].toUpperCase() + mmm.slice(1).toLowerCase()) : "";
+    return `${dd}${mmmNorm}${yy}`;
+  }
+
+  function buildFilename(sizeTag){
+    const div = (divisionSel.value || "National").trim();
+    const dateStr = formatDate_DDMMMyy(new Date());
+    const sizeSuffix = sizeTag ? (` - ${sizeTag}`) : "";
+    return `Table ${div} ${dateStr}${sizeSuffix}.png`;
+  }
+
+  function drawContainedImage(c, img, x, y, w, h, maxSize){
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if(!iw || !ih) return;
+
+    const s = Math.min(maxSize / iw, maxSize / ih);
+    const dw = iw * s;
+    const dh = ih * s;
+
+    const cx = x + w/2;
+    const cy = y + h/2;
+
+    const dx = cx - dw/2;
+    const dy = cy - dh/2;
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(img, dx, dy, dw, dh);
+  }
+
+  async function preloadCrests(){
+    const urls = new Set();
+    for(const r of rows){
+      const teamName = safeText(r.team);
+      if(!teamName) continue;
+      const u = getCrestUrlForTeamExact(teamName);
+      if(u) urls.add(u);
+    }
+    await Promise.all([...urls].map(u => loadImage(u).catch(()=>null)));
+  }
+
+  /* ================= PARSING / SERIALISING ================= */
+
+  function parsePastedTable(raw){
+    const text = (raw || "").replace(/\r/g, "\n");
+    const lines = text.split("\n").map(l=>l.trim()).filter(l=>l.length>0);
+    if(lines.length === 0){
+      return Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE }));
+    }
+
+    let startIdx = 0;
+    const firstCells = splitLine(lines[0]);
+    if(firstCells.length && isProbablyHeader(firstCells)){
+      startIdx = 1;
+    }
+
+    const teamSet = new Set(TEAMS_DROPDOWN.map(t => t.toLowerCase()));
+    const out = [];
+
+    for(let i = startIdx; i < lines.length; i++){
+      const cells = splitLine(lines[i]).filter(s => String(s||"").trim().length > 0);
+      if(cells.length === 0) continue;
+      if(isProbablyHeader(cells)) continue;
+
+      // Expected: Pos Team ... GD Pts (we only take Team + P/GD/Pts)
+      // Team is assumed to be cells[1] if first cell is numeric; otherwise cells[0]
+      let teamIdx = 0;
+      if(/^\d+$/.test(String(cells[0]||"").trim())) teamIdx = 1;
+
+      const teamRaw = safeText(cells[teamIdx] || "");
+      const teamOk = teamSet.has(teamRaw.toLowerCase());
+      const team = teamOk ? teamRaw : "";
+
+      const rest = cells.slice(teamIdx + 1);
+      const nums = rest.filter(isNumLike).map(s=>String(s).trim());
+
+      const p = nums.length >= 1 ? nums[0] : "";
+      const pts = nums.length >= 1 ? nums[nums.length - 1] : "";
+      const gd = nums.length >= 2 ? nums[nums.length - 2] : "";
+
+      out.push({
+        team,
+        p: digitsOnly3(p),
+        gd: gdOnly3(normalizeGD(gd)),
+        pts: digitsOnly3(pts),
+        flag: OVERRIDE_NONE
+      });
+
+      if(out.length >= ROWS) break;
+    }
+
+    while(out.length < ROWS){
+      out.push({ team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE });
+    }
+
+    return out.slice(0, ROWS);
+  }
+
+  function rowsToTSV(){
+    const head = ["Pos","Team","P","GD","Pts"].join("\t");
+    const lines = [head];
+
+    for(let i=0;i<ROWS;i++){
+      const r = rows[i] || {};
+      const pos = String(i+1);
+      const team = safeText(r.team);
+      const p = safeText(r.p);
+      const gd = safeText(r.gd);
+      const pts = safeText(r.pts);
+      lines.push([pos, team, p, gd, pts].join("\t"));
+    }
+    return lines.join("\n");
+  }
+
+  /* ================= GRID UI ================= */
+
+  function buildTeamOptions(selectEl){
+    // First option blank
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "";
+    selectEl.appendChild(opt0);
+
+    for(const t of TEAMS_DROPDOWN){
+      const o = document.createElement("option");
+      o.value = t;
+      o.textContent = t;
+      selectEl.appendChild(o);
+    }
+  }
+
+  function buildFlagOptions(selectEl){
+    const opts = [
+      {v: OVERRIDE_NONE, t: "-"},
+      {v: OVERRIDE_C,    t: "C"},
+      {v: OVERRIDE_SF,   t: "SF"},
+      {v: OVERRIDE_QF,   t: "QF"},
+      {v: OVERRIDE_R,    t: "R"}
+    ];
+    for(const it of opts){
+      const o = document.createElement("option");
+      o.value = it.v;
+      o.textContent = it.t;
+      selectEl.appendChild(o);
+    }
+  }
+
+  function makeCellPos(i){
+    const td = document.createElement("td");
+    td.className = "cell-pos";
+    td.textContent = String(i + 1);
+    return td;
+  }
+
+  function makeFlagCell(i){
+    const td = document.createElement("td");
+    const sel = document.createElement("select");
+    sel.className = "override";
+    buildFlagOptions(sel);
+
+    sel.addEventListener("change", ()=>{
+      rows[i].flag = sel.value;
+      autosave();
+      syncPasteFromGrid();
+      render();
+    });
+
+    td.appendChild(sel);
+    return {td, el: sel};
+  }
+
+  function makeTeamCell(i){
+    const td = document.createElement("td");
+    const sel = document.createElement("select");
+    sel.className = "team";
+    buildTeamOptions(sel);
+
+    sel.addEventListener("change", ()=>{
+      rows[i].team = sel.value;
+      autosave();
+      syncPasteFromGrid();
+      render();
+    });
+
+    td.appendChild(sel);
+    return {td, el: sel};
+  }
+
+  function makeSmallInputCell(i, key, kind){
+    const td = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.className = "small";
+    inp.inputMode = "numeric";
+    inp.autocomplete = "off";
+    inp.spellcheck = false;
+    inp.maxLength = 3;
+
+    inp.addEventListener("input", ()=>{
+      let v = inp.value;
+      if(kind === "digits") v = digitsOnly3(v);
+      if(kind === "gd") v = gdOnly3(v);
+      inp.value = v;
+      rows[i][key] = v;
+
+      autosave();
+      syncPasteFromGrid();
+      render();
+    });
+
+    td.appendChild(inp);
+    return {td, el: inp};
+  }
+
+  const gridEls = []; // per row: { flagSel, teamSel, pInp, gdInp, ptsInp }
+
+  function buildGrid(){
+    gridBody.innerHTML = "";
+    gridEls.length = 0;
+
+    for(let i=0;i<ROWS;i++){
+      const tr = document.createElement("tr");
+
+      tr.appendChild(makeCellPos(i));
+
+      const f = makeFlagCell(i);
+      tr.appendChild(f.td);
+
+      const t = makeTeamCell(i);
+      tr.appendChild(t.td);
+
+      const p = makeSmallInputCell(i, "p", "digits");
+      tr.appendChild(p.td);
+
+      const gd = makeSmallInputCell(i, "gd", "gd");
+      tr.appendChild(gd.td);
+
+      const pts = makeSmallInputCell(i, "pts", "digits");
+      tr.appendChild(pts.td);
+
+      gridBody.appendChild(tr);
+
+      gridEls.push({
+        flagSel: f.el,
+        teamSel: t.el,
+        pInp: p.el,
+        gdInp: gd.el,
+        ptsInp: pts.el
+      });
+    }
+  }
+
+  function syncGridFromRows(){
+    for(let i=0;i<ROWS;i++){
+      const r = rows[i] || {team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE};
+      const els = gridEls[i];
+      if(!els) continue;
+
+      els.flagSel.value = r.flag || OVERRIDE_NONE;
+      els.teamSel.value = r.team || "";
+      els.pInp.value = safeText(r.p);
+      els.gdInp.value = safeText(r.gd);
+      els.ptsInp.value = safeText(r.pts);
+    }
+  }
+
+  function syncPasteFromGrid(){
+    if(isUpdatingFromPaste) return;
+    isUpdatingFromGrid = true;
+    try{
+      pasteEl.value = rowsToTSV();
+    }finally{
+      isUpdatingFromGrid = false;
+    }
+  }
+
+  function syncRowsFromPaste(){
+    if(isUpdatingFromGrid) return;
+    isUpdatingFromPaste = true;
+    try{
+      const parsed = parsePastedTable(pasteEl.value);
+      // keep existing flags if teams match row index? no — paste is the source: reset flags to "-"
+      rows = parsed;
+      syncGridFromRows();
+      autosave();
+      render();
+    }finally{
+      isUpdatingFromPaste = false;
+    }
+  }
+
   /* ================= RENDER ================= */
 
   async function ensureBaseImages(){
@@ -702,8 +1051,6 @@ footer{
     c.textAlign = "left";
     c.textBaseline = "alphabetic";
 
-    // Align titles to the left edge of the NEW crest squares
-    // crest square left edge = (ROW_START_X + GLOBAL_DX) - CREST_BOX_W
     const titleX = (ROW_START_X - CREST_BOX_W) + GLOBAL_DX;
 
     c.fillStyle = TITLE_COLOR;
@@ -728,12 +1075,12 @@ footer{
     const dw = iw * BADGE_MID.scale;
     const dh = ih * BADGE_MID.scale;
 
-    // Midpoint is (x,y), so draw top-left at (x - dw/2, y - dh/2)
     const x = (BADGE_MID.x + GLOBAL_DX) - dw/2;
     const y = (BADGE_MID.y + GLOBAL_DY) - dh/2;
 
     c.drawImage(badgeImg, x, y, dw, dh);
   }
+
   function drawTicHealth(c){
     if(!ticImg) return;
 
@@ -742,8 +1089,6 @@ footer{
     const dw = iw * TIC_SCALE;
     const dh = ih * TIC_SCALE;
 
-    // Centre X matches badge midpoint X (same distance from left)
-    // Centre Y is vertically centred on the canvas
     const cx = (BADGE_MID.x + GLOBAL_DX);
     const cy = (EXPORT_SIZE / 2) + GLOBAL_DY;
 
@@ -770,119 +1115,87 @@ footer{
     c.restore();
   }
 
+  function numericPosBoxColor(n){
+    if(n === 1) return POS_CHAMP_COLOR;
+    if(n >= 2 && n <= 3) return POS_SF_COLOR;
+    if(n >= 4 && n <= 7) return POS_QF_COLOR;
+    if(n >= 21 && n <= 24) return POS_RELEG_COLOR;
+    return BASE_POS_COLOR;
+  }
+
   function drawRows(c){
     for(let i=0; i<ROWS; i++){
       const y = (ROW_START_Y + i * (ROW_H + ROW_GAP)) + GLOBAL_DY;
-
       const blueX = ROW_START_X + GLOBAL_DX;
-
-      // NEW crest square sits immediately to the left of the blue number square
       const crestX = blueX - CREST_BOX_W;
 
-      const r = rows[i] || {team:"", p:"", gd:"", pts:""};
-      const teamCaps = safeText(r.team || "");
-      const team = toAllCaps(teamCaps);
+      const r = rows[i] || {team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE};
 
-      // Crest square (maroon)
+      // crest box
       c.fillStyle = CREST_BOX_COLOR;
       c.fillRect(crestX, y, CREST_BOX_W, CREST_BOX_H);
 
-      // Crest image (max 36px)
-      const crestUrl = teamCaps ? getCrestUrlForTeamCaps(teamCaps) : null;
+      // crest image (only if exact match is in map)
+      const crestUrl = safeText(r.team) ? getCrestUrlForTeamExact(r.team) : null;
       const crestImg = crestUrl ? imgObjCache.get(crestUrl) : null;
       if(crestImg){
         drawContainedImage(c, crestImg, crestX, y, CREST_BOX_W, CREST_BOX_H, CREST_MAX);
       }
 
-            // Existing "pos" square (default blue, but can change based on Pos token)
-      const posToken = safeText(r.pos || "").toUpperCase();
-      const posIsNumber = /^\d+$/.test(posToken);
+      const numericPos = i + 1;
 
-      // Default label is numeric position (from pasted pos if numeric, else row index)
-      const numericPos = posIsNumber ? parseInt(posToken, 10) : (i + 1);
+      // default numeric presentation
+      let posLabel = String(numericPos);
+      let posBoxColor = numericPosBoxColor(numericPos);
+      let posTextColor = POS_TEXT_COLOR_DEFAULT;
 
-      let posLabel = posIsNumber ? posToken : String(i + 1);
-      let posBoxColor = BLUE_BOX_COLOR;
-      let posTextColor = POS_TEXT_COLOR;
+      // overrides (flag wins)
+      const flag = safeText(r.flag || OVERRIDE_NONE).toUpperCase();
 
-      // Special token overrides (must win over zone colouring)
-      let specialOverride = false;
-
-      // Rules:
-      // C => label C, box gold, TEXT BLACK
-      // P => label P, box gold, TEXT WHITE
-      // QF or SF => label PO, box silver, TEXT WHITE
-      // R => label R, box black, TEXT WHITE
-      if(posToken === "C"){
+      if(flag === OVERRIDE_C){
         posLabel = "C";
-        posBoxColor = "gold";
-        posTextColor = "#000000";
-        specialOverride = true;
-      }else if(posToken === "P"){
-        posLabel = "P";
-        posBoxColor = "gold";
-        posTextColor = "#FFFFFF";
-        specialOverride = true;
-      }else if(posToken === "QF"){
+        posBoxColor = POS_C_BG;
+        posTextColor = POS_C_FG;
+      }else if(flag === OVERRIDE_SF){
         posLabel = "PO";
-        posBoxColor = "#C0C0C0";
-        posTextColor = "#000000";
-        specialOverride = true;
-      }else if(posToken === "SF"){
+        posBoxColor = POS_PO_SF_BG;
+        posTextColor = POS_PO_FG;
+      }else if(flag === OVERRIDE_QF){
         posLabel = "PO";
-        posBoxColor = "#8E949B";
-        posTextColor = "#000000";
-        specialOverride = true;
-      }else if(posToken === "R"){
+        posBoxColor = POS_PO_QF_BG;
+        posTextColor = POS_PO_FG;
+      }else if(flag === OVERRIDE_R){
         posLabel = "R";
-        posBoxColor = "#000000";
-        posTextColor = "#FFFFFF";
-        specialOverride = true;
+        posBoxColor = POS_R_BG;
+        posTextColor = POS_R_FG;
       }
 
-// Numeric zone colouring (only if NOT overridden by special tokens)
-// ALL numeric positions use WHITE text
-if(!specialOverride){
-  posTextColor = "#FFFFFF";
-
-  if(numericPos === 1){
-    posBoxColor = POS_CHAMP_COLOR;
-  }else if(numericPos >= 2 && numericPos <= 3){
-    posBoxColor = POS_SF_COLOR;
-  }else if(numericPos >= 4 && numericPos <= 7){
-    posBoxColor = POS_QF_COLOR;
-  }else if(numericPos >= 21 && numericPos <= 24){
-    posBoxColor = POS_RELEG_COLOR;
-  }else{
-    posBoxColor = BLUE_BOX_COLOR;
-  }
-}
-      
-      // Draw pos square
+      // pos box
       c.fillStyle = posBoxColor;
       c.fillRect(blueX, y, BLUE_BOX_W, BLUE_BOX_H);
 
-      // Existing team name square (red)
-      const redX = blueX + BLUE_BOX_W + 0;
+      // team box
+      const redX = blueX + BLUE_BOX_W;
       c.fillStyle = RED_BOX_COLOR;
       c.fillRect(redX, y, RED_BOX_W, RED_BOX_H);
 
       c.save();
       c.textBaseline = "middle";
 
-      // Position label (2px lower than middle)
+      // pos label
       c.textAlign = "center";
       c.fillStyle = posTextColor;
       c.font = `800 ${POS_TEXT_SIZE}px ${FONT_ALL_STACK}`;
       c.fillText(posLabel, blueX + BLUE_BOX_W/2, y + BLUE_BOX_H/2 + 2);
 
-      // Team name (all caps, 2px lower than middle)
+      // team text (blank if not matched)
+      const teamGraphic = safeText(r.team) ? teamTextForGraphic(r.team) : "";
       c.textAlign = "left";
       c.fillStyle = TEAM_TEXT_COLOR;
       c.font = `800 ${TEAM_TEXT_SIZE}px ${FONT_ALL_STACK}`;
-      c.fillText(team, redX + TEAM_TEXT_LEFT_PAD, y + RED_BOX_H/2 + 2);
+      c.fillText(teamGraphic, redX + TEAM_TEXT_LEFT_PAD, y + RED_BOX_H/2 + 2);
 
-      // Stats centered in columns (2px lower)
+      // stats
       c.textAlign = "center";
       c.fillStyle = COL_VALUE_COLOR;
       c.font = `800 ${COL_VALUE_SIZE}px ${FONT_ALL_STACK}`;
@@ -892,8 +1205,8 @@ if(!specialOverride){
 
       c.restore();
 
-      // Dotted line between specific rows, at midpoint of the 8px gap
-      const rowNumber = i + 1; // 1-based
+      // separators
+      const rowNumber = i + 1;
       if(DOTTED_AFTER_ROWS.includes(rowNumber)){
         const lineY = y + ROW_H + Math.floor(ROW_GAP / 2);
         drawDottedSeparator(c, lineY);
@@ -918,89 +1231,47 @@ if(!specialOverride){
       drawTitleAndMatchday(ctx);
       drawColumnHeaders(ctx);
       drawRows(ctx);
-
-      // Overlay ON TOP of everything
       drawTicHealth(ctx);
 
       refreshFontStatus();
       setStatus("Rendered");
-
     }catch(e){
       console.error(e);
       setStatus(String(e && e.message ? e.message : e));
     }
   }
 
-  function formatDate_DDMMMyy(d){
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "2-digit"
-    }).formatToParts(d);
+  async function renderToFullCanvas(){
+    await ensureBaseImages();
 
-    const dd = (parts.find(p => p.type === "day") || {value:""}).value;
-    const mmm = (parts.find(p => p.type === "month") || {value:""}).value;
-    const yy = (parts.find(p => p.type === "year") || {value:""}).value;
-
-    // en-GB month short usually already like "Feb" (capital F), but normalise just in case
-    const mmmNorm = mmm ? (mmm[0].toUpperCase() + mmm.slice(1).toLowerCase()) : "";
-    return `${dd}${mmmNorm}${yy}`;
-  }
-
-  function buildFilename(sizeTag){
-    const div = (divisionSel.value || "National").trim();
-    const dateStr = formatDate_DDMMMyy(new Date());
-    const sizeSuffix = sizeTag ? (` - ${sizeTag}`) : "";
-    return `Table ${div} ${dateStr}${sizeSuffix}.png`;
-  }
-
-  async function renderToCanvas(targetCtx, w, h){
-    targetCtx.setTransform(1,0,0,1,0,0);
-    targetCtx.clearRect(0,0,w,h);
-
-    targetCtx.imageSmoothingEnabled = true;
-    targetCtx.imageSmoothingQuality = "high";
-
-    // Always render the full square composition first (into a temp canvas), then optionally crop.
     const full = document.createElement("canvas");
     full.width = EXPORT_SIZE;
     full.height = EXPORT_SIZE;
-    const fullCtx = full.getContext("2d");
+    const c = full.getContext("2d");
 
-    fullCtx.setTransform(1,0,0,1,0,0);
-    fullCtx.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+    c.setTransform(1,0,0,1,0,0);
+    c.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
 
-    fullCtx.imageSmoothingEnabled = true;
-    fullCtx.imageSmoothingQuality = "high";
-    fullCtx.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
 
     await preloadCrests();
 
-    drawBadge(fullCtx);
-    drawTitleAndMatchday(fullCtx);
-    drawColumnHeaders(fullCtx);
-    drawRows(fullCtx);
-
-    // Overlay ON TOP of everything
-    drawTicHealth(fullCtx);
+    drawBadge(c);
+    drawTitleAndMatchday(c);
+    drawColumnHeaders(c);
+    drawRows(c);
+    drawTicHealth(c);
 
     return full;
   }
 
   async function downloadPNG_1x1(){
-    const out = document.createElement("canvas");
-    out.width = EXPORT_SIZE;
-    out.height = EXPORT_SIZE;
-    const outCtx = out.getContext("2d");
-
     try{
-      await ensureBaseImages();
+      const full = await renderToFullCanvas();
 
-      const full = await renderToCanvas(outCtx, EXPORT_SIZE, EXPORT_SIZE);
-      // Copy full -> out (same size)
-      outCtx.drawImage(full, 0, 0);
-
-      const blob = await new Promise(res => out.toBlob(res, "image/png"));
+      const blob = await new Promise(res => full.toBlob(res, "image/png"));
       if(!blob){
         setStatus("EXPORT BLOCKED (CORS): a badge/crest image may not allow canvas export.");
         return;
@@ -1025,31 +1296,26 @@ if(!specialOverride){
     const OUT_W = 1080;
     const OUT_H = 1347;
 
-    // Crop window on the full 1347x1347 render:
-    // X from 54px to 1134px (width 1080), full height.
     const CROP_X = 54;
     const CROP_Y = 0;
     const CROP_W = 1080;
     const CROP_H = 1347;
 
-    const out = document.createElement("canvas");
-    out.width = OUT_W;
-    out.height = OUT_H;
-    const outCtx = out.getContext("2d");
-
     try{
-      await ensureBaseImages();
+      const full = await renderToFullCanvas();
 
-      const full = await renderToCanvas(outCtx, OUT_W, OUT_H);
+      const out = document.createElement("canvas");
+      out.width = OUT_W;
+      out.height = OUT_H;
+      const c = out.getContext("2d");
 
-      outCtx.setTransform(1,0,0,1,0,0);
-      outCtx.clearRect(0,0,OUT_W,OUT_H);
+      c.setTransform(1,0,0,1,0,0);
+      c.clearRect(0,0,OUT_W,OUT_H);
 
-      outCtx.imageSmoothingEnabled = true;
-      outCtx.imageSmoothingQuality = "high";
+      c.imageSmoothingEnabled = true;
+      c.imageSmoothingQuality = "high";
 
-      // Draw cropped region from full into out
-      outCtx.drawImage(
+      c.drawImage(
         full,
         CROP_X, CROP_Y, CROP_W, CROP_H,
         0, 0, OUT_W, OUT_H
@@ -1102,7 +1368,7 @@ if(!specialOverride){
 
       if(Array.isArray(d.rows) && d.rows.length){
         rows = d.rows.slice(0, ROWS);
-        while(rows.length < ROWS) rows.push({ team:"", p:"", gd:"", pts:"" });
+        while(rows.length < ROWS) rows.push({ team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE });
       }
     }catch{}
   }
@@ -1118,19 +1384,16 @@ if(!specialOverride){
     }
   }
 
-  function rebuildFromPaste(){
-    rows = parsePastedTable(pasteEl.value);
-    autosave();
-    render();
-  }
-
   function resetAll(){
     try{ localStorage.removeItem(STORAGE_KEY); }catch{}
 
     divisionSel.value = "National";
     matchdaySel.value = "";
     pasteEl.value = "";
-    rows = Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"" }));
+
+    rows = Array.from({length: ROWS}, () => ({ team:"", p:"", gd:"", pts:"", flag: OVERRIDE_NONE }));
+    syncGridFromRows();
+    syncPasteFromGrid();
 
     bgImg = null;
     badgeImg = null;
@@ -1155,11 +1418,9 @@ if(!specialOverride){
 
     pasteEl.addEventListener("input", ()=>{
       autosave();
-    });
-
-    pasteEl.addEventListener("paste", ()=>{
+      // debounce parse
       window.clearTimeout(bindUI._pt);
-      bindUI._pt = window.setTimeout(()=> rebuildFromPaste(), 30);
+      bindUI._pt = window.setTimeout(()=> syncRowsFromPaste(), 80);
     });
 
     download1x1Btn.addEventListener("click", downloadPNG_1x1);
@@ -1171,13 +1432,19 @@ if(!specialOverride){
 
   async function start(){
     populateMatchday();
+    buildGrid();
     autoload();
     bindUI();
 
     await ensureFontsLoaded();
 
+    // initial sync direction:
+    // if paste has something, treat paste as source; otherwise create paste from rows
     if(safeText(pasteEl.value)){
-      rows = parsePastedTable(pasteEl.value);
+      syncRowsFromPaste();
+    }else{
+      syncGridFromRows();
+      syncPasteFromGrid();
     }
 
     await render();
