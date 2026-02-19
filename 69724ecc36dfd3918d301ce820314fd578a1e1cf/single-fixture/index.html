@@ -140,7 +140,8 @@ canvas{
   margin-bottom:-4px;
 }
 
-.pairGrid select{
+.pairGrid select,
+.pairGrid input{
   padding:10px 10px;
   border:1px solid var(--border);
   border-radius:10px;
@@ -149,6 +150,9 @@ canvas{
   width:100%;
   min-width:0;
   max-width:100%;
+}
+
+.pairGrid select{
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
@@ -205,6 +209,16 @@ footer{
         <select id="awayTeam" title="Away team"></select>
       </div>
     </div>
+    
+    <div class="box section">
+      <div class="pairGrid">
+        <div class="colHead">Date / time</div>
+        <div></div>
+
+        <input id="kickoff" type="datetime-local" title="Kick-off date and time" />
+        <div></div>
+      </div>
+    </div>
 
     <footer>
       <span id="statusText">Ready</span>
@@ -221,8 +235,8 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v1.0";
-  const STORAGE_KEY = "single-fixture-builder-v1.0";
+  const VERSION = "v1.1";
+  const STORAGE_KEY = "single-fixture-builder-v1.1";
 
   const CANVAS_SIZE = 1347;
 
@@ -248,7 +262,7 @@ footer{
     North:    assetUrl("divisions/North.png"),
     South:    assetUrl("divisions/South.png")
   };
-  const DIV_BADGE_POS = { x: 750, y: 1258, scale: 0.075 };
+  const DIV_BADGE_POS = { x: 750, y: 300, scale: 0.075 };
 
   // Crest placement (your requested midpoints)
   const CREST_HOME_POS = { x: 550, y: 600 };
@@ -265,6 +279,14 @@ footer{
     lineGap: 36,          // px (canvas doesn’t do pt; this matches your “36pt” intent visually)
     blue: "#223b7c",
     red:  "#9e0000"
+  };
+
+  const KICKOFF_TEXT = {
+    x: 750,
+    size: 24,
+    weight: 800,
+    color: "#9e0000",
+    offsetBelowAwayLine: 100
   };
 
   const TEAM_NAMES = [
@@ -315,6 +337,7 @@ footer{
   const homeSel = document.getElementById("homeTeam");
   const awaySel = document.getElementById("awayTeam");
   const downloadBtn = document.getElementById("download");
+  const kickoffEl = document.getElementById("kickoff");
   const download45Btn = document.getElementById("download45");
   const resetAllBtn = document.getElementById("resetAll");
 
@@ -326,7 +349,7 @@ footer{
   let bgImg = null;
   let divBadgeImg = null;
 
-  const state = { home:"", away:"" };
+  const state = { home:"", away:"", kickoff:"" }; // kickoff is datetime-local string "YYYY-MM-DDTHH:MM"
 
   /* ================= HELPERS ================= */
 
@@ -435,6 +458,36 @@ footer{
     return `${day}${mon}${yy}`;
   }
 
+  function formatKickoff(datetimeLocal){
+    // Input: "YYYY-MM-DDTHH:MM" (from <input type="datetime-local">)
+    // Output: "Fri 20 Feb 2026, 19:45"
+    if(!datetimeLocal) return "";
+
+    const d = new Date(datetimeLocal);
+    if(Number.isNaN(d.getTime())) return "";
+
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(d);
+
+    const get = (type) => (parts.find(p => p.type === type)?.value || "");
+
+    const weekday = get("weekday"); // e.g. "Fri"
+    const day = get("day");         // e.g. "20"
+    const month = get("month");     // e.g. "Feb"
+    const year = get("year");       // e.g. "2026"
+    const hour = get("hour");       // e.g. "19"
+    const minute = get("minute");   // e.g. "45"
+
+    return `${weekday} ${day} ${month} ${year}, ${hour}:${minute}`;
+  }
+
   function buildFilename(kind){
     const div = divisionSel.value;
     const suffix = (kind === "4x5") ? "4x5" : "1x1";
@@ -498,8 +551,10 @@ footer{
       v: VERSION,
       division: divisionSel.value,
       home: state.home,
-      away: state.away
+      away: state.away,
+      kickoff: state.kickoff
     };
+
     try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }catch{}
   }
 
@@ -514,6 +569,8 @@ footer{
 
       if(typeof d.home === "string") state.home = normalizeTeamCode(d.home);
       if(typeof d.away === "string") state.away = normalizeTeamCode(d.away);
+      if(typeof d.kickoff === "string") state.kickoff = d.kickoff.trim();
+
     }catch{}
   }
 
@@ -586,6 +643,14 @@ footer{
         FIXTURE_TEXT.x,
         FIXTURE_TEXT.y + FIXTURE_TEXT.lineGap
       );
+    }
+        // Kick-off (100px below the away line), sentence case, red
+    const koText = formatKickoff(state.kickoff);
+    if(koText){
+      const koY = (FIXTURE_TEXT.y + FIXTURE_TEXT.lineGap) + KICKOFF_TEXT.offsetBelowAwayLine;
+      c.textAlign = "center";
+      setTextStyle(c, KICKOFF_TEXT.size, KICKOFF_TEXT.color, KICKOFF_TEXT.weight);
+      c.fillText(koText, KICKOFF_TEXT.x, koY);
     }
   }
 
@@ -695,8 +760,10 @@ footer{
     divisionSel.value = "National";
     state.home = "";
     state.away = "";
+    state.kickoff = "";
     homeSel.value = "";
     awaySel.value = "";
+    kickoffEl.value = "";
     divBadgeImg = null;
     autosave();
     scheduleRender();
@@ -723,6 +790,12 @@ footer{
       autosave();
       scheduleRender();
     });
+    
+    kickoffEl.addEventListener("change", ()=>{
+      state.kickoff = (kickoffEl.value || "").trim();
+      autosave();
+      scheduleRender();
+    });
 
     downloadBtn.addEventListener("click", downloadPNG_1x1);
     download45Btn.addEventListener("click", downloadPNG_4x5);
@@ -737,6 +810,8 @@ footer{
 
     homeSel.value = normalizeTeamCode(state.home) || "";
     awaySel.value = normalizeTeamCode(state.away) || "";
+
+    kickoffEl.value = state.kickoff || "";
 
     updateAllSelectLabels();
     bindUI();
