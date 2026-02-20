@@ -814,34 +814,26 @@ function autosave(){
 
   setStoredPayload(payload);
 }
-function getStoredPayload(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return {};
-    const d = JSON.parse(raw);
-    return (d && typeof d === "object") ? d : {};
-  }catch{
-    return {};
+function autoload(){
+  const d = getStoredPayload();
+  if(!d || typeof d !== "object") return;
+
+  if(typeof d.matchday === "string") matchdaySel.value = d.matchday;
+
+  // Restore last selected division/status if present; otherwise defaults stay
+  if(typeof d.division === "string" && DIVISIONS.includes(d.division)) divisionSel.value = d.division;
+  if(typeof d.status === "string") statusSel.value = d.status;
+
+  // Load rows for the CURRENT division selection
+  loadDivisionStateOrBlank(divisionSel.value);
+
+  // Back-compat: if older save exists as d.rowsState, treat it as National
+  if((!d.byDivision || typeof d.byDivision !== "object") && Array.isArray(d.rowsState)){
+    const payload = d;
+    payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+    payload.byDivision.National = cloneRows(d.rowsState);
+    setStoredPayload(payload);
   }
-}
-
-function setStoredPayload(obj){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }catch{}
-}
-
-function autosave(){
-  const payload = getStoredPayload();
-
-  payload.v = VERSION;
-  payload.matchday = matchdaySel.value;
-  payload.division = divisionSel.value;
-  payload.status = statusSel.value;
-
-  // Save CURRENT division's rows into byDivision
-  payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
-  payload.byDivision[divisionSel.value] = cloneRows(rowsState);
-
-  setStoredPayload(payload);
 }
   /* ================= RENDER (shared) ================= */
 
