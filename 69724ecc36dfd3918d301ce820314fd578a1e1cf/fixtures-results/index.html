@@ -271,9 +271,9 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v1.8";
-  const STORAGE_KEY = "fixtures-results-builder-v1.8";
-
+  const VERSION = "v1.9";
+  const STORAGE_KEY = "fixtures-results-builder-v1.9";
+  
   const CANVAS_SIZE = 1347;
 
   // Absolute (works no matter where this HTML file sits)
@@ -384,7 +384,54 @@ footer{
 
   const ROWS_COUNT = 12;
   const rowsState = Array.from({length: ROWS_COUNT}, ()=> ({ home:"", away:"", score:"", issue:"" }));
+  // ===== Per-division saved states (National / North / South) =====
+  const DIVISIONS = ["National","North","South"];
 
+  function cloneRows(src){
+    if(!Array.isArray(src)) return Array.from({length: ROWS_COUNT}, ()=> ({ home:"", away:"", score:"", issue:"" }));
+    const out = [];
+    for(let i=0;i<ROWS_COUNT;i++){
+      const r = src[i] && typeof src[i] === "object" ? src[i] : {};
+      out.push({
+        home:  typeof r.home  === "string" ? normalizeTeamCode(r.home) : "",
+        away:  typeof r.away  === "string" ? normalizeTeamCode(r.away) : "",
+        score: typeof r.score === "string" ? r.score : "",
+        issue: typeof r.issue === "string" ? r.issue : ""
+      });
+    }
+    return out;
+  }
+
+  function applyRowsToUI(){
+    for(let i=0;i<ROWS_COUNT;i++){
+      if(homeSelectEls[i]) homeSelectEls[i].value = normalizeTeamCode(rowsState[i].home) || "";
+      if(awaySelectEls[i]) awaySelectEls[i].value = normalizeTeamCode(rowsState[i].away) || "";
+      if(scoreInputEls[i]) scoreInputEls[i].value = rowsState[i].score || "";
+      if(issueSelectEls[i]) issueSelectEls[i].value = rowsState[i].issue || "";
+    }
+    syncScoreInputsEnabled();
+    updateAllClubSelectLabels();
+  }
+
+  function saveActiveDivisionState(d){
+    const payload = getStoredPayload();
+    payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+    payload.byDivision[d] = cloneRows(rowsState);
+    setStoredPayload(payload);
+  }
+
+  function loadDivisionStateOrBlank(d){
+    const payload = getStoredPayload();
+    const by = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+    const found = by[d];
+    const loaded = cloneRows(found);
+    for(let i=0;i<ROWS_COUNT;i++){
+      rowsState[i].home  = loaded[i].home;
+      rowsState[i].away  = loaded[i].away;
+      rowsState[i].score = loaded[i].score;
+      rowsState[i].issue = loaded[i].issue;
+    }
+  }
   const homeSelectEls = [];
   const awaySelectEls = [];
   const scoreInputEls = [];
@@ -738,41 +785,64 @@ footer{
     syncScoreInputsEnabled();
   }
 
-  function autosave(){
-    const payload = {
-      v: VERSION,
-      matchday: matchdaySel.value,
-      division: divisionSel.value,
-      status: statusSel.value,
-      rowsState: rowsState
-    };
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }catch{}
+function getStoredPayload(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return {};
+    const d = JSON.parse(raw);
+    return (d && typeof d === "object") ? d : {};
+  }catch{
+    return {};
   }
+}
 
-  function autoload(){
-    try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(!raw) return;
-      const d = JSON.parse(raw);
-      if(!d || typeof d !== "object") return;
+function setStoredPayload(obj){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }catch{}
+}
 
-      if(typeof d.matchday === "string") matchdaySel.value = d.matchday;
-      if(typeof d.division === "string") divisionSel.value = d.division;
-      if(typeof d.status === "string") statusSel.value = d.status;
+function autosave(){
+  const payload = getStoredPayload();
 
-      if(Array.isArray(d.rowsState)){
-        for(let i=0;i<ROWS_COUNT;i++){
-          const r = d.rowsState[i];
-          if(!r || typeof r !== "object") continue;
-          rowsState[i].home = (typeof r.home === "string") ? normalizeTeamCode(r.home) : "";
-          rowsState[i].away = (typeof r.away === "string") ? normalizeTeamCode(r.away) : "";
-          rowsState[i].score = typeof r.score === "string" ? r.score : "";
-          rowsState[i].issue = typeof r.issue === "string" ? r.issue : "";
-        }
-      }
-    }catch{}
+  payload.v = VERSION;
+  payload.matchday = matchdaySel.value;
+  payload.division = divisionSel.value;
+  payload.status = statusSel.value;
+
+  // Save CURRENT division's rows into byDivision
+  payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+  payload.byDivision[divisionSel.value] = cloneRows(rowsState);
+
+  setStoredPayload(payload);
+}
+function getStoredPayload(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return {};
+    const d = JSON.parse(raw);
+    return (d && typeof d === "object") ? d : {};
+  }catch{
+    return {};
   }
+}
 
+function setStoredPayload(obj){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }catch{}
+}
+
+function autosave(){
+  const payload = getStoredPayload();
+
+  payload.v = VERSION;
+  payload.matchday = matchdaySel.value;
+  payload.division = divisionSel.value;
+  payload.status = statusSel.value;
+
+  // Save CURRENT division's rows into byDivision
+  payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+  payload.byDivision[divisionSel.value] = cloneRows(rowsState);
+
+  setStoredPayload(payload);
+}
   /* ================= RENDER (shared) ================= */
 
   async function renderToContext(c){
@@ -1032,12 +1102,25 @@ footer{
       scheduleRender();
     });
 
-    divisionSel.addEventListener("change", ()=>{
-      divBadgeImg = null;
-      autosave();
-      scheduleRender();
-    });
+divisionSel.addEventListener("change", ()=>{
+  // Save what you were editing for the previous division
+  // (divisionSel.value has already changed, so use the previous value we track)
+  divBadgeImg = null;
 
+  // We need the old division, so store it on the element the first time
+  const prev = divisionSel._prevDivision || "National";
+  saveActiveDivisionState(prev);
+
+  // Load the newly-selected division’s saved rows (or blank)
+  loadDivisionStateOrBlank(divisionSel.value);
+  applyRowsToUI();
+
+  // Track current for next switch
+  divisionSel._prevDivision = divisionSel.value;
+
+  autosave();
+  scheduleRender();
+});
     statusSel.addEventListener("change", ()=>{
       syncScoreInputsEnabled();
       autosave();
@@ -1053,9 +1136,15 @@ footer{
     buildMatchdayOptions();
     autoload();
     rebuildRowsUI();
-
+    
+    // Set the previous-division tracker AFTER autoload picked the current division
+    divisionSel._prevDivision = divisionSel.value;
+    
+    // Push loaded rowsState into the freshly-built UI
+    applyRowsToUI();
+    
     bindUI();
-
+    
     syncScoreInputsEnabled();
 
     try{
