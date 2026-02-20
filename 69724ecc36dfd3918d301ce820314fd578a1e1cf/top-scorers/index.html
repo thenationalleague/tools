@@ -1,1 +1,1043 @@
+<!-- top-scorers builder v1.0 -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Top Scorers Builder</title>
 
+  <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+
+  <style>
+    :root{
+      --border:#d0d7de;
+      --bg:#f6f8fa;
+      --fg:#24292f;
+      --muted:#57606a;
+      --brand:#9e0000;
+      --blue:#223b7c;
+    }
+
+    *{ box-sizing:border-box; }
+
+    body{
+      margin:0;
+      font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      font-size:14px;
+      color:var(--fg);
+      background:#fff;
+    }
+
+    .page{
+      width:100%;
+      padding:20px 18px 26px;
+    }
+
+    .app-header{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      margin-bottom:16px;
+    }
+
+    .app-header h1{
+      margin:0;
+      font-size:22px;
+      font-weight:800;
+    }
+
+    .app{
+      display:grid;
+      grid-template-columns:minmax(520px, 900px) minmax(360px, 1fr);
+      gap:18px;
+      align-items:start;
+    }
+
+    @media (max-width: 980px){
+      .app{ grid-template-columns:1fr; }
+    }
+
+    .previewWrap{
+      position:sticky;
+      top:14px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--bg);
+      padding:10px;
+    }
+
+    canvas{
+      display:block;
+      width:100%;
+      height:auto;
+      background:#fff;
+      border-radius:10px;
+    }
+
+    @media (max-width: 420px){
+      .page{ padding:14px 12px 18px; }
+      .box{ padding:10px; }
+    }
+
+    .panel{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      min-width:0;
+    }
+
+    .box{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+      background:#fff;
+    }
+
+    .controls{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+
+    .controls select,
+    .controls input,
+    .controls button{
+      padding:8px 10px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fff;
+      font:inherit;
+    }
+
+    .controls button{
+      border:1px solid var(--brand);
+      background:var(--brand);
+      color:#fff;
+      cursor:pointer;
+      font-weight:600;
+    }
+
+    .controls button:hover{ filter:brightness(.95); }
+
+    .controls .ghost{
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--fg);
+      font-weight:600;
+    }
+
+    .controls .ghost:hover{ background:#f3f4f6; }
+
+    .hint{
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+
+    .rows{
+      display:grid;
+      gap:10px;
+    }
+
+    .rowGrid{
+      display:grid;
+      grid-template-columns: 1fr 1.2fr 88px;
+      gap:8px;
+      align-items:center;
+    }
+
+    .rowGrid > *{ min-width:0; }
+
+    .rowGrid select,
+    .rowGrid input{
+      width:100%;
+      min-width:0;
+    }
+
+    .rowGrid input[type="text"]{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .rowGrid input.goals{
+      text-align:center;
+      letter-spacing:0.5px;
+    }
+
+    .colHeads{
+      display:grid;
+      grid-template-columns: 1fr 1.2fr 88px;
+      gap:8px;
+      align-items:end;
+      margin-bottom:8px;
+    }
+
+    .colHead{
+      font-size:12px;
+      color:var(--muted);
+      font-weight:800;
+      letter-spacing:0.3px;
+    }
+
+    footer{
+      margin-top:4px;
+      font-size:12px;
+      color:var(--muted);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .file{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    input[type="file"]{
+      padding:8px 10px;
+      border:1px dashed var(--border);
+      border-radius:10px;
+      background:#fff;
+      font:inherit;
+      max-width:100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+
+    <header class="app-header">
+      <img src="https://rckd-nl.github.io/nl-tools/assets/divisions/The%20National%20League.png" alt="The National League" style="height:42px;width:auto;border:none;border-radius:0;">
+      <h1>Top Scorers Builder</h1>
+    </header>
+
+    <div class="app">
+
+      <div class="previewWrap">
+        <canvas id="preview" width="1347" height="1347"></canvas>
+      </div>
+
+      <div class="panel">
+
+        <div class="box">
+          <div class="controls" style="margin-bottom:10px;">
+            <select id="division" title="Division">
+              <option value="National">National</option>
+              <option value="North">North</option>
+              <option value="South">South</option>
+            </select>
+
+            <button type="button" id="download">Download 1x1 PNG</button>
+            <button type="button" id="resetAll" class="ghost" title="Wipe all fields back to defaults">Reset all</button>
+          </div>
+
+          <div class="file" style="margin-bottom:8px;">
+            <input id="photo" type="file" accept="image/png,image/jpeg" />
+            <button type="button" id="resetPhoto" class="ghost">Reset photo</button>
+          </div>
+
+          <div class="hint">
+            Photo: click+drag to move inside the placeholder, mouse wheel to zoom (cursor-centred).
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="colHeads">
+            <div class="colHead">Team</div>
+            <div class="colHead">Name</div>
+            <div class="colHead">Goals</div>
+          </div>
+
+          <div class="rows" id="rows"></div>
+        </div>
+
+        <footer>
+          <span id="statusText">Ready</span>
+          <span>v1.0</span>
+        </footer>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ================= CONFIG ================= */
+
+  const VERSION = "v1.0";
+  const STORAGE_KEY = "top-scorers-builder-v1.0";
+
+  const CANVAS_SIZE = 1347;
+
+  // Assets (hard linked)
+  const ASSET_BASE = "https://rckd-nl.github.io/nl-tools/assets";
+  function assetUrl(relPath){
+    return encodeURI(`${ASSET_BASE}/${relPath}`);
+  }
+  function crestUrlForName(teamName){
+    return `${ASSET_BASE}/crests/${encodeURIComponent(teamName)}.png`;
+  }
+
+  // Background is LOCAL in /top-scorers/
+  const BG_URL = "Fixtures%20background%201x1.png";
+
+  const FONT_FAMILY = `"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif`;
+
+  const COLORS = {
+    red: "#9e0000",
+    blue: "#223b7c",
+    white: "#ffffff"
+  };
+
+  // Division badge (same placement pattern as the other tools)
+  const DIV_BADGE = {
+    National: assetUrl("divisions/National.png"),
+    North:    assetUrl("divisions/North.png"),
+    South:    assetUrl("divisions/South.png")
+  };
+  const DIV_BADGE_POS = { x: 750, y: 1258, scale: 0.075 };
+
+  // Headers
+  // "Top goalscorers" in all caps, red, 60pt, centre at x=774, top edge y=60
+  const TITLE = { x: 774, topY: 60, size: 60, color: COLORS.red, weight: 800, align: "center" };
+  // Subtitle in blue, 36pt, top edge y=120, centre at x=774
+  const SUBTITLE = { x: 774, topY: 120, size: 36, color: COLORS.blue, weight: 800, align: "center" };
+
+  // Photo placeholder rect (x1,y1) -> (x2,y2)
+  const PHOTO_RECT = { x: 280, y: 180, w: (1210 - 280), h: (500 - 180) };
+
+  // Row geometry
+  const ROWS_COUNT = 8;
+  const ROW_H = 60;
+  const ROW_GAP = 18;
+  const ROW_Y0 = 590;
+  const LEFT_X = 280;
+  const RIGHT_EDGE_X = 1210;
+
+  const LEFT_BOX = { w: 60, h: 60, color: COLORS.white };
+  const RIGHT_BOX = { w: 60, h: 60, color: COLORS.blue };
+  const MID_BAR = { color: COLORS.red }; // spans between
+
+  const CREST_MAX = 54;
+
+  // Text
+  const NAME_TEXT = { size: 36, color: COLORS.white, weight: 800, xPad: 40 }; // inside red bar from its left edge
+  const GOALS_TEXT = { size: 36, color: COLORS.white, weight: 800 };
+  const SUBTITLE_TEXT_CASE = {
+    National: "National League",
+    North: "National League North",
+    South: "National League South"
+  };
+
+  /* ================= TEAMS (same list) ================= */
+
+  const TEAM_NAMES = [
+    "Aldershot Town","Altrincham","Boreham Wood","Boston United","Brackley Town","Braintree Town","Carlisle United","Eastleigh",
+    "FC Halifax Town","Forest Green Rovers","Gateshead","Hartlepool United","Morecambe","Rochdale","Scunthorpe United","Solihull Moors",
+    "Southend United","Sutton United","Tamworth","Truro City","Wealdstone","Woking","Yeovil Town","York City","AFC Fylde","AFC Telford United",
+    "Alfreton Town","Bedford Town","Buxton","Chester","Chorley","Curzon Ashton","Darlington","Hereford","Kidderminster Harriers","King's Lynn Town",
+    "Leamington","Macclesfield","Marine","Merthyr Town","Oxford City","Peterborough Sports","Radcliffe","Scarborough Athletic","South Shields","Southport",
+    "Spennymoor Town","Worksop Town","AFC Totton","Bath City","Chelmsford City","Chesham United","Chippenham Town","Dagenham & Redbridge","Dorking Wanderers",
+    "Dover Athletic","Eastbourne Borough","Ebbsfleet United","Enfield Town","Farnborough","Hampton & Richmond Borough","Hemel Hempstead Town","Hornchurch",
+    "Horsham","Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
+  ];
+
+  // For dropdown value we’ll store NAME (since crest filenames are by name)
+  const TEAM_TO_CREST = new Map();
+  for(const name of TEAM_NAMES){
+    TEAM_TO_CREST.set(name, crestUrlForName(name));
+  }
+
+  /* ================= ELEMENTS ================= */
+
+  const canvas = document.getElementById("preview");
+  const ctx = canvas.getContext("2d");
+
+  const divisionSel = document.getElementById("division");
+  const downloadBtn = document.getElementById("download");
+  const resetAllBtn = document.getElementById("resetAll");
+  const statusTextEl = document.getElementById("statusText");
+
+  const photoInput = document.getElementById("photo");
+  const resetPhotoBtn = document.getElementById("resetPhoto");
+
+  const rowsEl = document.getElementById("rows");
+
+  /* ================= STATE ================= */
+
+  const imgCache = new Map();
+  let bgImg = null;
+  let divBadgeImg = null;
+
+  // Rows: { teamName, playerName, goals }
+  const rowsState = Array.from({length: ROWS_COUNT}, ()=>({ team:"", name:"", goals:"" }));
+
+  // Per-division rows
+  const DIVISIONS = ["National","North","South"];
+
+  // Photo image and transform (in canvas coords)
+  let photoImg = null;
+  let photo = {
+    scale: 1,
+    ox: 0,   // offset inside placeholder (px)
+    oy: 0,
+    dragging: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragStartOX: 0,
+    dragStartOY: 0
+  };
+
+  /* ================= HELPERS ================= */
+
+  function setStatus(msg){
+    statusTextEl.textContent = msg;
+    window.clearTimeout(setStatus._t);
+    setStatus._t = window.setTimeout(()=> statusTextEl.textContent = "Ready", 900);
+  }
+
+  function loadImage(url){
+    if(!url) return Promise.reject(new Error("Empty URL"));
+    if(imgCache.has(url)) return imgCache.get(url);
+
+    const p = new Promise((resolve,reject)=>{
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = ()=> resolve(img);
+      img.onerror = ()=> reject(new Error("Failed to load: " + url));
+      img.src = url;
+    });
+
+    imgCache.set(url, p);
+    return p;
+  }
+
+  function setTextStyle(c, sizePx, colorHex, weight){
+    c.fillStyle = colorHex;
+    c.font = `${weight} ${sizePx}px ${FONT_FAMILY}`;
+    c.textBaseline = "alphabetic";
+  }
+
+  function safeUpper(s){
+    return (s || "").replace(/\s+/g," ").trim().toUpperCase();
+  }
+
+  function clamp(n, a, b){
+    return Math.max(a, Math.min(b, n));
+  }
+
+  function drawContainedImage(c, img, centerX, centerY, maxW, maxH){
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if(!iw || !ih) return;
+
+    const s = Math.min(maxW / iw, maxH / ih);
+    const dw = iw * s;
+    const dh = ih * s;
+
+    const x = centerX - dw/2;
+    const y = centerY - dh/2;
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(img, x, y, dw, dh);
+  }
+
+  function fillRect(c, x, y, w, h, color){
+    c.fillStyle = color;
+    c.fillRect(x, y, w, h);
+  }
+
+  function getStoredPayload(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return {};
+      const d = JSON.parse(raw);
+      return (d && typeof d === "object") ? d : {};
+    }catch{
+      return {};
+    }
+  }
+
+  function setStoredPayload(obj){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }catch{}
+  }
+
+  function cloneRows(src){
+    const out = [];
+    for(let i=0;i<ROWS_COUNT;i++){
+      const r = (src && src[i] && typeof src[i] === "object") ? src[i] : {};
+      out.push({
+        team: (typeof r.team === "string") ? r.team : "",
+        name: (typeof r.name === "string") ? r.name : "",
+        goals: (typeof r.goals === "string") ? r.goals : ""
+      });
+    }
+    return out;
+  }
+
+  function saveActiveDivisionRows(div){
+    const payload = getStoredPayload();
+    payload.v = VERSION;
+    payload.division = divisionSel.value;
+
+    payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+    payload.byDivision[div] = cloneRows(rowsState);
+
+    setStoredPayload(payload);
+  }
+
+  function loadDivisionRowsOrBlank(div){
+    const payload = getStoredPayload();
+    const by = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+    const found = by[div];
+    const loaded = cloneRows(found);
+    for(let i=0;i<ROWS_COUNT;i++){
+      rowsState[i].team = loaded[i].team;
+      rowsState[i].name = loaded[i].name;
+      rowsState[i].goals = loaded[i].goals;
+    }
+  }
+
+  function autosave(){
+    // Save current division’s rows only
+    saveActiveDivisionRows(divisionSel.value);
+  }
+
+  function autoload(){
+    const d = getStoredPayload();
+    if(!d || typeof d !== "object") return;
+
+    if(typeof d.division === "string" && DIVISIONS.includes(d.division)){
+      divisionSel.value = d.division;
+    }
+
+    // Back-compat: if old single rows saved as rowsState, treat as National
+    if((!d.byDivision || typeof d.byDivision !== "object") && Array.isArray(d.rowsState)){
+      const payload = d;
+      payload.byDivision = payload.byDivision && typeof payload.byDivision === "object" ? payload.byDivision : {};
+      payload.byDivision.National = cloneRows(d.rowsState);
+      setStoredPayload(payload);
+    }
+
+    loadDivisionRowsOrBlank(divisionSel.value);
+  }
+
+  function applyRowsToUI(){
+    for(let i=0;i<ROWS_COUNT;i++){
+      const r = rowsState[i];
+
+      const teamSel = document.getElementById(`team_${i}`);
+      const nameInp = document.getElementById(`name_${i}`);
+      const goalsInp = document.getElementById(`goals_${i}`);
+
+      if(teamSel) teamSel.value = r.team || "";
+      if(nameInp) nameInp.value = r.name || "";
+      if(goalsInp) goalsInp.value = r.goals || "";
+    }
+  }
+
+  /* ================= UI BUILD ================= */
+
+  function buildTeamSelect(){
+    const s = document.createElement("select");
+
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Select team";
+    s.appendChild(none);
+
+    for(const name of TEAM_NAMES){
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      s.appendChild(o);
+    }
+
+    return s;
+  }
+
+  function buildRowsUI(){
+    rowsEl.innerHTML = "";
+
+    for(let i=0;i<ROWS_COUNT;i++){
+      const wrap = document.createElement("div");
+      wrap.className = "rowGrid";
+
+      const teamSel = buildTeamSelect();
+      teamSel.id = `team_${i}`;
+
+      const nameInp = document.createElement("input");
+      nameInp.id = `name_${i}`;
+      nameInp.type = "text";
+      nameInp.placeholder = "Player name";
+      nameInp.autocomplete = "off";
+      nameInp.maxLength = 40;
+
+      const goalsInp = document.createElement("input");
+      goalsInp.id = `goals_${i}`;
+      goalsInp.type = "text";
+      goalsInp.inputMode = "numeric";
+      goalsInp.placeholder = "0";
+      goalsInp.autocomplete = "off";
+      goalsInp.className = "goals";
+      goalsInp.maxLength = 2;
+
+      teamSel.addEventListener("change", ()=>{
+        rowsState[i].team = teamSel.value || "";
+        autosave();
+        scheduleRender();
+      });
+
+      nameInp.addEventListener("input", ()=>{
+        rowsState[i].name = (nameInp.value || "").replace(/\r?\n/g," ");
+        autosave();
+        scheduleRender();
+      });
+
+      goalsInp.addEventListener("input", ()=>{
+        // digits only, max 2
+        const v = (goalsInp.value || "").replace(/[^\d]/g,"").slice(0,2);
+        if(v !== goalsInp.value) goalsInp.value = v;
+        rowsState[i].goals = v;
+        autosave();
+        scheduleRender();
+      });
+
+      wrap.appendChild(teamSel);
+      wrap.appendChild(nameInp);
+      wrap.appendChild(goalsInp);
+
+      rowsEl.appendChild(wrap);
+    }
+  }
+
+  /* ================= PHOTO (PAN/ZOOM) ================= */
+
+  function resetPhotoTransform(){
+    photo.scale = 1;
+    photo.ox = 0;
+    photo.oy = 0;
+  }
+
+  function fitPhotoToRect(){
+    if(!photoImg) return;
+    const iw = photoImg.naturalWidth || photoImg.width;
+    const ih = photoImg.naturalHeight || photoImg.height;
+    if(!iw || !ih) return;
+
+    // cover rect by default (looks better for a banner area)
+    const sx = PHOTO_RECT.w / iw;
+    const sy = PHOTO_RECT.h / ih;
+    const s = Math.max(sx, sy);
+
+    photo.scale = s;
+    // center
+    const dw = iw * s;
+    const dh = ih * s;
+    photo.ox = (PHOTO_RECT.w - dw) / 2;
+    photo.oy = (PHOTO_RECT.h - dh) / 2;
+  }
+
+  function canvasPointFromEvent(e){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  }
+
+  function isPointInPhotoRect(px, py){
+    return (
+      px >= PHOTO_RECT.x &&
+      px <= PHOTO_RECT.x + PHOTO_RECT.w &&
+      py >= PHOTO_RECT.y &&
+      py <= PHOTO_RECT.y + PHOTO_RECT.h
+    );
+  }
+
+  function zoomPhotoAt(cursorX, cursorY, delta){
+    if(!photoImg) return;
+
+    // cursor relative to photo rect
+    const rx = cursorX - PHOTO_RECT.x;
+    const ry = cursorY - PHOTO_RECT.y;
+
+    const iw = photoImg.naturalWidth || photoImg.width;
+    const ih = photoImg.naturalHeight || photoImg.height;
+    if(!iw || !ih) return;
+
+    // current pixel under cursor in image space
+    const prevScale = photo.scale;
+    const imgX = (rx - photo.ox) / prevScale;
+    const imgY = (ry - photo.oy) / prevScale;
+
+    const zoomFactor = (delta < 0) ? 1.08 : 0.92;
+    let nextScale = prevScale * zoomFactor;
+
+    // clamp
+    nextScale = clamp(nextScale, 0.15, 12);
+
+    // keep cursor pinned
+    photo.scale = nextScale;
+    photo.ox = rx - imgX * nextScale;
+    photo.oy = ry - imgY * nextScale;
+  }
+
+  /* ================= RENDER ================= */
+
+  async function ensureBaseImages(){
+    if(!bgImg) bgImg = await loadImage(BG_URL);
+    const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
+    divBadgeImg = await loadImage(divUrl);
+  }
+
+  async function preloadRowCrests(){
+    const urls = new Set();
+    for(let i=0;i<ROWS_COUNT;i++){
+      const t = rowsState[i].team;
+      if(t && TEAM_TO_CREST.has(t)){
+        urls.add(TEAM_TO_CREST.get(t));
+      }
+    }
+    const tasks = [];
+    for(const u of urls){
+      tasks.push(loadImage(u).catch(()=>null));
+    }
+    await Promise.all(tasks);
+  }
+
+  function drawDivisionBadge(c){
+    if(!divBadgeImg) return;
+
+    const iw = divBadgeImg.naturalWidth || divBadgeImg.width;
+    const ih = divBadgeImg.naturalHeight || divBadgeImg.height;
+    const dw = iw * DIV_BADGE_POS.scale;
+    const dh = ih * DIV_BADGE_POS.scale;
+    const bx = DIV_BADGE_POS.x - dw/2;
+    const by = DIV_BADGE_POS.y - dh/2;
+    c.drawImage(divBadgeImg, bx, by, dw, dh);
+  }
+
+  function drawHeaders(c){
+    // Title top-aligned: canvas fillText uses alphabetic baseline, so push by size
+    c.textAlign = TITLE.align;
+    setTextStyle(c, TITLE.size, TITLE.color, TITLE.weight);
+    c.fillText("TOP GOALSCORERS", TITLE.x, TITLE.topY + TITLE.size);
+
+    const subtitle = SUBTITLE_TEXT_CASE[divisionSel.value] || "National League";
+    c.textAlign = SUBTITLE.align;
+    setTextStyle(c, SUBTITLE.size, SUBTITLE.color, SUBTITLE.weight);
+    c.fillText(subtitle, SUBTITLE.x, SUBTITLE.topY + SUBTITLE.size);
+  }
+
+  function drawPhoto(c){
+    // Outline is not requested; just draw background behind anyway.
+    // Clip to placeholder
+    c.save();
+    c.beginPath();
+    c.rect(PHOTO_RECT.x, PHOTO_RECT.y, PHOTO_RECT.w, PHOTO_RECT.h);
+    c.clip();
+
+    // optional: white base behind photo
+    fillRect(c, PHOTO_RECT.x, PHOTO_RECT.y, PHOTO_RECT.w, PHOTO_RECT.h, "#ffffff");
+
+    if(photoImg){
+      const iw = photoImg.naturalWidth || photoImg.width;
+      const ih = photoImg.naturalHeight || photoImg.height;
+
+      const dw = iw * photo.scale;
+      const dh = ih * photo.scale;
+
+      const dx = PHOTO_RECT.x + photo.ox;
+      const dy = PHOTO_RECT.y + photo.oy;
+
+      c.imageSmoothingEnabled = true;
+      c.imageSmoothingQuality = "high";
+      c.drawImage(photoImg, dx, dy, dw, dh);
+    }
+
+    c.restore();
+  }
+
+  async function drawRows(c){
+    for(let i=0;i<ROWS_COUNT;i++){
+      const y = ROW_Y0 + i*(ROW_H + ROW_GAP);
+
+      const leftX = LEFT_X;
+      const rightX = RIGHT_EDGE_X - RIGHT_BOX.w;
+      const redX = leftX + LEFT_BOX.w;
+      const redW = rightX - redX;
+
+      // Shapes
+      fillRect(c, leftX, y, LEFT_BOX.w, LEFT_BOX.h, LEFT_BOX.color);
+      fillRect(c, redX, y, redW, ROW_H, MID_BAR.color);
+      fillRect(c, rightX, y, RIGHT_BOX.w, RIGHT_BOX.h, RIGHT_BOX.color);
+
+      // Crest
+      const teamName = rowsState[i].team || "";
+      if(teamName && TEAM_TO_CREST.has(teamName)){
+        const url = TEAM_TO_CREST.get(teamName);
+        const img = await loadImage(url).catch(()=>null);
+        if(img){
+          const cx = leftX + LEFT_BOX.w/2;
+          const cy = y + LEFT_BOX.h/2;
+          drawContainedImage(c, img, cx, cy, CREST_MAX, CREST_MAX);
+        }
+      }
+
+      // Player name (all caps) on red bar, starts 40px from its left
+      const name = safeUpper(rowsState[i].name || "");
+      if(name){
+        c.textAlign = "left";
+        setTextStyle(c, NAME_TEXT.size, NAME_TEXT.color, NAME_TEXT.weight);
+        // Use alphabetic baseline; place in visual middle
+        const textY = y + (ROW_H/2) + (NAME_TEXT.size * 0.35);
+        c.fillText(name, redX + NAME_TEXT.xPad, textY);
+      }
+
+      // Goals (white, 36pt, centered on blue square)
+      const goals = (rowsState[i].goals || "").trim();
+      if(goals){
+        c.textAlign = "center";
+        setTextStyle(c, GOALS_TEXT.size, GOALS_TEXT.color, GOALS_TEXT.weight);
+        const gx = rightX + RIGHT_BOX.w/2;
+        const gy = y + (ROW_H/2) + (GOALS_TEXT.size * 0.35);
+        c.fillText(goals, gx, gy);
+      }
+    }
+  }
+
+  async function renderToContext(c){
+    await ensureBaseImages();
+    await preloadRowCrests();
+
+    c.setTransform(1,0,0,1,0,0);
+    c.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(bgImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    drawHeaders(c);
+    drawPhoto(c);
+    await drawRows(c);
+    drawDivisionBadge(c);
+  }
+
+  let renderQueued = false;
+  function scheduleRender(){
+    if(renderQueued) return;
+    renderQueued = true;
+
+    requestAnimationFrame(async ()=>{
+      renderQueued = false;
+      try{
+        if(document.fonts && document.fonts.ready) await document.fonts.ready;
+        await renderToContext(ctx);
+        autosave();
+      }catch(e){
+        console.error(e);
+        setStatus("Render error (CORS?)");
+      }
+    });
+  }
+
+  async function renderNow(){
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    await renderToContext(ctx);
+    autosave();
+  }
+
+  /* ================= DOWNLOAD ================= */
+
+  async function downloadPNG_1x1(){
+    try{
+      await ensureBaseImages();
+      if(document.fonts && document.fonts.ready) await document.fonts.ready;
+
+      const out = document.createElement("canvas");
+      out.width = CANVAS_SIZE;
+      out.height = CANVAS_SIZE;
+      const c = out.getContext("2d");
+
+      await renderToContext(c);
+
+      const blob = await new Promise(res => out.toBlob(res, "image/png"));
+      if(!blob){ setStatus("Export failed"); return; }
+
+      const div = divisionSel.value;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `Top goalscorers - ${div}.png`.replace(/\s+/g," ").trim();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+
+      setStatus("Downloaded");
+    }catch(e){
+      console.error(e);
+      setStatus("Export error (CORS?)");
+    }
+  }
+
+  /* ================= RESET ================= */
+
+  function resetAll(){
+    // reset rows for current division only
+    for(let i=0;i<ROWS_COUNT;i++){
+      rowsState[i].team = "";
+      rowsState[i].name = "";
+      rowsState[i].goals = "";
+    }
+    applyRowsToUI();
+    autosave();
+    scheduleRender();
+    setStatus("Reset");
+  }
+
+  function resetPhoto(){
+    photoImg = null;
+    resetPhotoTransform();
+    if(photoInput) photoInput.value = "";
+    scheduleRender();
+    setStatus("Photo reset");
+  }
+
+  /* ================= EVENTS ================= */
+
+  function bindUI(){
+    divisionSel.addEventListener("change", ()=>{
+      // Save previous division’s rows, then load new
+      const prev = divisionSel._prevDivision || "National";
+      saveActiveDivisionRows(prev);
+
+      divBadgeImg = null;
+
+      loadDivisionRowsOrBlank(divisionSel.value);
+      applyRowsToUI();
+
+      divisionSel._prevDivision = divisionSel.value;
+
+      autosave();
+      scheduleRender();
+    });
+
+    downloadBtn.addEventListener("click", downloadPNG_1x1);
+    resetAllBtn.addEventListener("click", resetAll);
+    resetPhotoBtn.addEventListener("click", resetPhoto);
+
+    photoInput.addEventListener("change", async (e)=>{
+      const f = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+      if(!f) return;
+
+      try{
+        const url = URL.createObjectURL(f);
+        const img = await new Promise((resolve,reject)=>{
+          const im = new Image();
+          im.onload = ()=> resolve(im);
+          im.onerror = ()=> reject(new Error("Failed to read image"));
+          im.src = url;
+        });
+        // release object URL after decode
+        try{ URL.revokeObjectURL(url); }catch{}
+
+        photoImg = img;
+        resetPhotoTransform();
+        fitPhotoToRect();
+        scheduleRender();
+        setStatus("Photo loaded");
+      }catch(err){
+        console.error(err);
+        setStatus("Photo load failed");
+      }
+    });
+
+    // Canvas interactions (drag/zoom only inside PHOTO_RECT)
+    canvas.addEventListener("wheel", (e)=>{
+      if(!photoImg) return;
+      const p = canvasPointFromEvent(e);
+      if(!isPointInPhotoRect(p.x, p.y)) return;
+
+      e.preventDefault();
+      zoomPhotoAt(p.x, p.y, e.deltaY);
+      scheduleRender();
+    }, { passive:false });
+
+    canvas.addEventListener("pointerdown", (e)=>{
+      if(!photoImg) return;
+
+      const p = canvasPointFromEvent(e);
+      if(!isPointInPhotoRect(p.x, p.y)) return;
+
+      canvas.setPointerCapture(e.pointerId);
+
+      photo.dragging = true;
+      photo.dragStartX = p.x;
+      photo.dragStartY = p.y;
+      photo.dragStartOX = photo.ox;
+      photo.dragStartOY = photo.oy;
+    });
+
+    canvas.addEventListener("pointermove", (e)=>{
+      if(!photoImg) return;
+      if(!photo.dragging) return;
+
+      const p = canvasPointFromEvent(e);
+      const dx = p.x - photo.dragStartX;
+      const dy = p.y - photo.dragStartY;
+
+      photo.ox = photo.dragStartOX + dx;
+      photo.oy = photo.dragStartOY + dy;
+
+      scheduleRender();
+    });
+
+    function endDrag(){
+      photo.dragging = false;
+    }
+
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+    canvas.addEventListener("lostpointercapture", endDrag);
+  }
+
+  /* ================= INIT ================= */
+
+  async function start(){
+    buildRowsUI();
+    autoload();
+    applyRowsToUI();
+
+    divisionSel._prevDivision = divisionSel.value;
+
+    bindUI();
+
+    try{
+      if(document.fonts && document.fonts.ready) await document.fonts.ready;
+      await ensureBaseImages();
+      await renderNow();
+      setStatus("Loaded");
+    }catch(e){
+      console.error(e);
+      setStatus("Image load error (CORS?)");
+    }
+  }
+
+  start();
+
+})();
+</script>
+</body>
+</html>
