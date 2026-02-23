@@ -279,9 +279,9 @@ footer{
 
   /* ================= CONFIG ================= */
 
-  const VERSION = "v6.7";
-  const STORAGE_KEY = "totw-builder-v6.7";
-
+  const VERSION = "v6.8";
+  const STORAGE_KEY = "totw-builder-v6.8";
+  
   // Absolute (works no matter where this HTML file sits)
   const ASSET_BASE = "https://rckd-nl.github.io/nl-tools/assets";
 
@@ -1000,64 +1000,138 @@ footer{
     setStatus("Downloaded");
   }
 
-  /* ================= AUTOSAVE ================= */
+    function getStoredPayload(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return {};
+      const d = JSON.parse(raw);
+      return (d && typeof d === "object") ? d : {};
+    }catch{
+      return {};
+    }
+  }
 
-  function autosave(){
-    const payload = {
-      v: VERSION,
+  function setStoredPayload(obj){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    }catch{}
+  }
+
+  function deepClone(obj){
+    try{ return JSON.parse(JSON.stringify(obj)); }catch{ return {}; }
+  }
+
+  function getCurrentDivisionSnapshot(){
+    return {
       formation: formationSel.value,
-      division: divisionSel.value,
       date: dateEl.value,
       scores: scoresEl.value,
       exportOut: exportOutEl.value,
       excelOut: excelOutEl.value,
-      stateByPos,
-      offsetsByFormation,
+      stateByPos: deepClone(stateByPos),
+      offsetsByFormation: deepClone(offsetsByFormation),
       viewport: { viewScale, viewPanX, viewPanY }
     };
-    try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    }catch{}
   }
 
+  function applyDivisionSnapshot(snap){
+    const s = (snap && typeof snap === "object") ? snap : {};
+
+    // Formation + basic fields
+    if(s.formation && FORMATIONS[s.formation]) formationSel.value = s.formation;
+
+    if(typeof s.date === "string") dateEl.value = s.date;
+    if(typeof s.scores === "string") scoresEl.value = s.scores;
+    if(typeof s.exportOut === "string") exportOutEl.value = s.exportOut;
+    if(typeof s.excelOut === "string") excelOutEl.value = s.excelOut;
+
+    // Clear + replace objects in-place
+    for(const k of Object.keys(stateByPos)) delete stateByPos[k];
+    if(s.stateByPos && typeof s.stateByPos === "object"){
+      for(const k of Object.keys(s.stateByPos)){
+        stateByPos[k] = s.stateByPos[k];
+      }
+    }
+
+    for(const f of Object.keys(offsetsByFormation)) delete offsetsByFormation[f];
+    if(s.offsetsByFormation && typeof s.offsetsByFormation === "object"){
+      for(const f of Object.keys(s.offsetsByFormation)){
+        offsetsByFormation[f] = s.offsetsByFormation[f];
+      }
+    }
+
+    // Viewport
+    if(s.viewport && typeof s.viewport === "object"){
+      if(typeof s.viewport.viewScale === "number") viewScale = clamp(s.viewport.viewScale, 1.0, 4.0);
+      if(typeof s.viewport.viewPanX === "number") viewPanX = s.viewport.viewPanX;
+      if(typeof s.viewport.viewPanY === "number") viewPanY = s.viewport.viewPanY;
+    }else{
+      viewScale = 1;
+      viewPanX = 0;
+      viewPanY = 0;
+    }
+
+    clampViewport();
+  }
+
+  function saveDivisionSnapshot(div){
+    const payload = getStoredPayload();
+    payload.v = VERSION;
+    payload.lastDivision = div;
+
+    payload.byDivision = (payload.byDivision && typeof payload.byDivision === "object") ? payload.byDivision : {};
+    payload.byDivision[div] = getCurrentDivisionSnapshot();
+
+    setStoredPayload(payload);
+  }
+
+  function loadDivisionSnapshotOrBlank(div){
+    const payload = getStoredPayload();
+    const by = (payload.byDivision && typeof payload.byDivision === "object") ? payload.byDivision : {};
+    const snap = by[div];
+
+    if(snap && typeof snap === "object"){
+      applyDivisionSnapshot(snap);
+      return;
+    }
+
+    // Blank defaults for a division with no saved state yet
+    formationSel.value = "4-3-3";
+    scoresEl.value = "";
+    exportOutEl.value = "";
+    excelOutEl.value = "";
+
+    for(const k of Object.keys(stateByPos)) delete stateByPos[k];
+    for(const f of Object.keys(offsetsByFormation)) delete offsetsByFormation[f];
+
+    viewScale = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+
+    clampViewport();
+  }
+  
+  /* ================= AUTOSAVE ================= */
+
+  function autosave(){
+    // Always save into the currently selected division bucket
+    saveDivisionSnapshot(divisionSel.value);
+  }
+  
   function autoload(){
     try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(!raw) return;
-
-      const d = JSON.parse(raw);
+      const d = getStoredPayload();
       if(!d || typeof d !== "object") return;
 
-      if(d.formation && FORMATIONS[d.formation]) formationSel.value = d.formation;
-      if(d.division && DIV_BADGE[d.division]) divisionSel.value = d.division;
-      if(typeof d.date === "string") dateEl.value = d.date;
+      // Restore last-used division if present
+      const lastDiv = (typeof d.lastDivision === "string" && DIV_BADGE[d.lastDivision]) ? d.lastDivision : "";
+      if(lastDiv) divisionSel.value = lastDiv;
 
-      if(typeof d.scores === "string") scoresEl.value = d.scores;
-      if(typeof d.exportOut === "string") exportOutEl.value = d.exportOut;
-      if(typeof d.excelOut === "string") excelOutEl.value = d.excelOut;
-
-      if(d.stateByPos && typeof d.stateByPos === "object"){
-        for(const k of Object.keys(d.stateByPos)){
-          stateByPos[k] = d.stateByPos[k];
-        }
-      }
-
-      if(d.offsetsByFormation && typeof d.offsetsByFormation === "object"){
-        for(const f of Object.keys(d.offsetsByFormation)){
-          offsetsByFormation[f] = d.offsetsByFormation[f];
-        }
-      }
-
-      if(d.viewport && typeof d.viewport === "object"){
-        if(typeof d.viewport.viewScale === "number") viewScale = clamp(d.viewport.viewScale, 1.0, 4.0);
-        if(typeof d.viewport.viewPanX === "number") viewPanX = d.viewport.viewPanX;
-        if(typeof d.viewport.viewPanY === "number") viewPanY = d.viewport.viewPanY;
-      }
-
-      clampViewport();
+      // Load the snapshot for the currently-selected division (or blank)
+      loadDivisionSnapshotOrBlank(divisionSel.value);
     }catch{}
   }
-
+  
   /* ================= INTERACTION ================= */
 
     function resetAll(){
@@ -1271,13 +1345,25 @@ footer{
     });
 
     divisionSel.addEventListener("change", async ()=>{
+      // Save what you were editing for the previous division
+      const prev = divisionSel._prevDivision || "National";
+      saveDivisionSnapshot(prev);
+
+      // Load the newly-selected division snapshot (or blank)
+      loadDivisionSnapshotOrBlank(divisionSel.value);
+
+      // Badge depends on division
       divBadgeImg = null;
-      autosave();
+
+      // Track current for next switch
+      divisionSel._prevDivision = divisionSel.value;
+
       rebuildLineup();
+      autosave();
       scheduleRender();
       scheduleOutputs();
     });
-
+    
     dateEl.addEventListener("input", ()=>{
       autosave();
       scheduleOutputs();
@@ -1341,10 +1427,11 @@ footer{
   async function start(){
     setDefaultDateIfBlank();
     autoload();
+    divisionSel._prevDivision = divisionSel.value;
     rebuildLineup();
     bindUI();
     scheduleOutputs();
-
+    
     try{
       // Make sure the Adobe font is genuinely active before the very first canvas draw (mobile Safari fix)
       await ensureNameFontLoaded();
