@@ -1,32 +1,29 @@
-/* News Ticker Widget (v1.4) — Shadow DOM isolated embed
-   Changes from v1.3:
-   - Slower default scroll (40% slower vs previous default)
-   - Vertical divider kept between team and headline
-   - National League rose separator moved BETWEEN items (headline -> next team)
-     with short “border” lines either side + a ring around the rose
+/* News Ticker Widget (v1.5) — Shadow DOM isolated embed
+   - JS-driven scroll (speed always applies, fixes “speed not changing” confusion)
+   - Mobile/desktop drag scrub (pointer events)
+   - Keep vertical divider between team and headline
+   - Rose separator BETWEEN items with clear space only (no ring/side lines)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.4";
+  const VERSION = "v1.5";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
     maxItems: 10,
     height: 64,              // px
-    speed: 48,               // px/sec (40% slower vs v1.3 default of 80)
+    speed: 48,               // px/sec (slow)
     refreshMs: 120000,       // 2 min
     start: "red",            // "red" or "blue" (team name colour for first item)
-    kitCss: "https://use.typekit.net/gff4ipy.css", // Adobe CSS (NOT the JS loader)
+    kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
     roseImg: "National League rose.png",
     bg: "#ffffff",
     red: "#9e0000",
     blue: "#223b7c",
     text: "#111111",
-    rule: "#000000",
-    roseRule: "#000000",
-    roseRing: "#000000"
+    rule: "#000000"
   };
 
   const TEAMS = [
@@ -128,13 +125,9 @@
   --bg:${opts.bg};
   --text:${opts.text};
   --rule:${opts.rule};
-  --rose-rule:${opts.roseRule};
-  --rose-ring:${opts.roseRing};
   --h:${opts.height}px;
-  --shift: 0px;
   --crest:34px;
   --gap:16px;
-  --dur:30s;
 }
 
 *{ box-sizing:border-box; }
@@ -147,6 +140,8 @@
   align-items:center;
   position:relative;
   border-radius:10px;
+  touch-action: pan-y; /* allow page vertical scroll; we handle horizontal scrubbing */
+  user-select:none;
 }
 
 /* subtle mask edges */
@@ -171,10 +166,8 @@
 .belt{
   display:flex;
   align-items:center;
-  gap:0;
   white-space:nowrap;
   will-change:transform;
-  animation: scroll var(--dur) linear infinite;
   transform:translateX(0);
 }
 
@@ -183,14 +176,6 @@
   align-items:center;
   gap:var(--gap);
 }
-
-/* animate exactly one lane-width left (seamless) */
-@keyframes scroll{
-  from{ transform:translateX(0); }
-  to{ transform:translateX(calc(-1 * var(--shift))); }
-}
-
-.wrap:hover .belt{ animation-play-state:paused; }
 
 .item{
   display:inline-flex;
@@ -216,7 +201,6 @@
   line-height:1;
 }
 
-/* KEEP the vertical divider between team and headline */
 .vrule{
   width:2px;
   height:26px;
@@ -235,48 +219,28 @@
 
 .headline:hover{ text-decoration:underline; }
 
-/* alternating colour scheme */
 .base .club{ color:var(--brand-red); }
 .base .headline{ color:var(--brand-blue); }
 
 .alt .club{ color:var(--brand-blue); }
 .alt .headline{ color:var(--brand-red); }
 
-/* Rose separator BETWEEN items */
+/* Rose separator BETWEEN items: just clear space + rose */
 .sep{
   display:inline-flex;
   align-items:center;
-  gap:10px;
-  padding:0 14px;
-}
-
-.sepLine{
-  width:24px;              /* “same width as the rose itself” vibe */
-  height:2px;
-  background:var(--rose-rule);
-  display:block;
-}
-
-.roseRing{
-  width:26px;
-  height:26px;
-  border:2px solid var(--rose-ring);
-  border-radius:999px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:var(--bg);
+  padding:0 18px; /* clear space either side */
 }
 
 .rose{
-  width:18px;
-  height:18px;
+  width:22px;
+  height:22px;
   object-fit:contain;
   display:block;
+  opacity:1;
 }
 
 @media (prefers-reduced-motion: reduce){
-  .belt{ animation:none; }
   .wrap{ overflow:auto; }
 }
 `;
@@ -286,7 +250,6 @@
     const opts = readOptions(hostEl);
     const root = hostEl.attachShadow({ mode:"open" });
 
-    // Load Adobe kit CSS inside the shadow root (isolated)
     if(opts.kitCss){
       const kit = document.createElement("link");
       kit.rel = "stylesheet";
@@ -308,7 +271,6 @@
 
     const laneA = document.createElement("div");
     laneA.className = "lane";
-
     const laneB = document.createElement("div");
     laneB.className = "lane";
 
@@ -317,66 +279,102 @@
     wrap.appendChild(belt);
     root.appendChild(wrap);
 
+    // Animation state
+    let shiftPx = 0;           // width of one lane
+    let offsetPx = 0;          // current translateX
+    let lastTs = 0;
+    let rafId = 0;
+    let running = true;
+
+    // Scrub state
+    let dragging = false;
+    let dragStartX = 0;
+    let dragStartOffset = 0;
+
     let refreshTimer = null;
+    let ro = null;
 
-    async function refresh(){
-      try{
-        const res = await fetch(opts.csv, { cache:"no-store" });
-        if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
-        const csvText = await res.text();
-
-        const rows = parseCSV(csvText).filter(r => r.some(c => safeText(c)));
-        let start = 0;
-        if(rows.length && isHeaderRow(rows[0])) start = 1;
-
-        const items = [];
-        for(let i=start;i<rows.length;i++){
-          items.push({ club: rows[i][0], headline: rows[i][1], hyperlink: rows[i][2] });
-        }
-
-        const data = normaliseItems(items, opts.maxItems);
-        render(data);
-      }catch(e){
-        console.error("[Ticker " + VERSION + "]", e);
-      }
+    function setTransform(){
+      belt.style.transform = "translateX(" + offsetPx + "px)";
     }
 
-    function render(items){
-      laneA.innerHTML = "";
-      laneB.innerHTML = "";
+    function normalizeOffset(){
+      if(!shiftPx) return;
+      while(offsetPx <= -shiftPx) offsetPx += shiftPx;
+      while(offsetPx > 0) offsetPx -= shiftPx;
+    }
 
-      const startRed = (opts.start || "red").toLowerCase() === "red";
-      const rUrl = roseUrl(opts);
-
-      // Build lane sequence: ITEM, SEP, ITEM, SEP, ... (no sep after last)
-      function fillLane(lane){
-        items.forEach((it, idx)=>{
-          const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
-          lane.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
-          if(idx !== items.length - 1){
-            lane.appendChild(buildSepEl(rUrl));
-          }
-        });
+    function tick(ts){
+      if(!running){
+        rafId = requestAnimationFrame(tick);
+        return;
       }
 
-      fillLane(laneA);
-      fillLane(laneB);
+      if(!lastTs) lastTs = ts;
+      const dt = (ts - lastTs) / 1000;
+      lastTs = ts;
 
-      requestAnimationFrame(()=>{
-        const w = laneA.scrollWidth || 1;
-        const dur = Math.max(12, Math.round(w / opts.speed));
+      if(!dragging && shiftPx > 0){
+        offsetPx -= (opts.speed * dt);
+        normalizeOffset();
+        setTransform();
+      }
 
-        // shift exactly one lane width (seamless)
-        hostEl.style.setProperty("--shift", w + "px");
-
-        // duration applies to belt animation
-        belt.style.setProperty("--dur", dur + "s");
-      });
+      rafId = requestAnimationFrame(tick);
     }
+
+    function startAnim(){
+      stopAnim();
+      running = true;
+      lastTs = 0;
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function stopAnim(){
+      if(rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+
+    function onPointerDown(e){
+      // only primary button/touch
+      if(e.pointerType === "mouse" && e.button !== 0) return;
+
+      dragging = true;
+      dragStartX = e.clientX;
+      dragStartOffset = offsetPx;
+
+      try{ wrap.setPointerCapture(e.pointerId); }catch{}
+    }
+
+    function onPointerMove(e){
+      if(!dragging) return;
+      if(!shiftPx) return;
+
+      const dx = e.clientX - dragStartX;
+      offsetPx = dragStartOffset + dx;
+
+      normalizeOffset();
+      setTransform();
+    }
+
+    function onPointerUp(e){
+      if(!dragging) return;
+      dragging = false;
+
+      try{ wrap.releasePointerCapture(e.pointerId); }catch{}
+
+      // reset timing so it doesn't “jump” when resuming
+      lastTs = performance.now();
+    }
+
+    wrap.addEventListener("pointerdown", onPointerDown);
+    wrap.addEventListener("pointermove", onPointerMove);
+    wrap.addEventListener("pointerup", onPointerUp);
+    wrap.addEventListener("pointercancel", onPointerUp);
 
     function buildItemEl(it, variantClass){
-      const wrap = document.createElement("span");
-      wrap.className = "item " + variantClass;
+      const el = document.createElement("span");
+      el.className = "item " + variantClass;
 
       const crest = document.createElement("img");
       crest.className = "crest";
@@ -405,24 +403,18 @@
       a.rel = "noopener noreferrer";
       a.textContent = it.headline;
 
-      wrap.appendChild(crest);
-      wrap.appendChild(club);
-      wrap.appendChild(vrule);
-      wrap.appendChild(a);
+      el.appendChild(crest);
+      el.appendChild(club);
+      el.appendChild(vrule);
+      el.appendChild(a);
 
-      return wrap;
+      return el;
     }
 
     function buildSepEl(rUrl){
       const sep = document.createElement("span");
       sep.className = "sep";
       sep.setAttribute("aria-hidden","true");
-
-      const l1 = document.createElement("span");
-      l1.className = "sepLine";
-
-      const ring = document.createElement("span");
-      ring.className = "roseRing";
 
       const img = document.createElement("img");
       img.className = "rose";
@@ -433,24 +425,84 @@
         img.style.display = "none";
       }
 
-      const l2 = document.createElement("span");
-      l2.className = "sepLine";
-
-      ring.appendChild(img);
-
-      sep.appendChild(l1);
-      sep.appendChild(ring);
-      sep.appendChild(l2);
-
+      sep.appendChild(img);
       return sep;
     }
 
+    function recomputeShift(){
+      // width of one lane controls seamless looping
+      shiftPx = laneA.scrollWidth || 0;
+
+      // keep offset in range and apply
+      normalizeOffset();
+      setTransform();
+    }
+
+    function render(items){
+      laneA.innerHTML = "";
+      laneB.innerHTML = "";
+
+      const startRed = (opts.start || "red").toLowerCase() === "red";
+      const rUrl = roseUrl(opts);
+
+      function fillLane(lane){
+        items.forEach((it, idx)=>{
+          const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
+          lane.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
+          if(idx !== items.length - 1){
+            lane.appendChild(buildSepEl(rUrl));
+          }
+        });
+      }
+
+      fillLane(laneA);
+      fillLane(laneB);
+
+      // reset to start after refresh (feels clean)
+      offsetPx = 0;
+      setTransform();
+
+      // allow layout/fonts to settle, then compute widths
+      requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
+    }
+
+    async function refresh(){
+      try{
+        const res = await fetch(opts.csv, { cache:"no-store" });
+        if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
+        const csvText = await res.text();
+
+        const rows = parseCSV(csvText).filter(r => r.some(c => safeText(c)));
+        let start = 0;
+        if(rows.length && isHeaderRow(rows[0])) start = 1;
+
+        const items = [];
+        for(let i=start;i<rows.length;i++){
+          items.push({ club: rows[i][0], headline: rows[i][1], hyperlink: rows[i][2] });
+        }
+
+        const data = normaliseItems(items, opts.maxItems);
+        render(data);
+      }catch(e){
+        console.error("[Ticker " + VERSION + "]", e);
+      }
+    }
+
+    // Resize observer keeps loop accurate if fonts load late or container resizes
+    try{
+      ro = new ResizeObserver(()=> recomputeShift());
+      ro.observe(wrap);
+    }catch{}
+
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
+    startAnim();
 
     return {
       destroy(){
+        stopAnim();
         if(refreshTimer) window.clearInterval(refreshTimer);
+        if(ro) ro.disconnect();
       }
     };
   }
@@ -459,16 +511,16 @@
     const d = el.dataset || {};
     const opts = Object.assign({}, DEFAULTS);
 
+    // NOTE: if you have data-speed on the div, it overrides DEFAULTS.speed
     if(d.csv) opts.csv = d.csv;
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 50, DEFAULTS.maxItems);
     if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
-    if(d.speed) opts.speed = clampInt(d.speed, 20, 500, DEFAULTS.speed);
+    if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
     if(d.start) opts.start = (d.start === "blue" ? "blue" : "red");
 
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
-
     if(d.roseImg) opts.roseImg = d.roseImg;
 
     if(d.bg) opts.bg = d.bg;
@@ -476,8 +528,6 @@
     if(d.blue) opts.blue = d.blue;
     if(d.text) opts.text = d.text;
     if(d.rule) opts.rule = d.rule;
-    if(d.roseRule) opts.roseRule = d.roseRule;
-    if(d.roseRing) opts.roseRing = d.roseRing;
 
     return opts;
   }
