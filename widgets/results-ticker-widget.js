@@ -10,7 +10,7 @@
   const VERSION = "v1.0";
 
   const DEFAULTS = {
-    pubhtml: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pubhtml",
+    pubhtml: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
     maxItems: 40,
     height: 64,              // px
     speed: 52,               // px/sec (tweak)
