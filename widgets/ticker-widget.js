@@ -1,9 +1,9 @@
-/* News Ticker Widget (v1.3) — Shadow DOM isolated embed
-   Changes from v1.2:
-   - Slower default scroll
-   - Seamless belt loop (no blank gap)
-   - Team name uses Carbona ExtraBold (explicit)
-   - Divider replaced with National League rose.png (same dir as crests)
+/* News Ticker Widget (v1.4) — Shadow DOM isolated embed
+   Changes from v1.3:
+   - Slower default scroll (40% slower vs previous default)
+   - Vertical divider kept between team and headline
+   - National League rose separator moved BETWEEN items (headline -> next team)
+     with short “border” lines either side + a ring around the rose
 */
 (function(){
   "use strict";
@@ -13,17 +13,20 @@
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
     maxItems: 10,
-    height: 64,             // px
-    speed: 80,              // px/sec (slower default)
-    refreshMs: 120000,      // 2 min
-    start: "red",           // "red" or "blue" (team name colour for first item)
+    height: 64,              // px
+    speed: 48,               // px/sec (40% slower vs v1.3 default of 80)
+    refreshMs: 120000,       // 2 min
+    start: "red",            // "red" or "blue" (team name colour for first item)
     kitCss: "https://use.typekit.net/gff4ipy.css", // Adobe CSS (NOT the JS loader)
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
-    dividerImg: "National League rose.png",
+    roseImg: "National League rose.png",
     bg: "#ffffff",
     red: "#9e0000",
     blue: "#223b7c",
-    text: "#111111"
+    text: "#111111",
+    rule: "#000000",
+    roseRule: "#000000",
+    roseRing: "#000000"
   };
 
   const TEAMS = [
@@ -56,8 +59,8 @@
     return encodeURI(opts.crestBase + t + ".png");
   }
 
-  function dividerUrl(opts){
-    const fn = safeText(opts.dividerImg || "");
+  function roseUrl(opts){
+    const fn = safeText(opts.roseImg || "");
     if(!fn) return null;
     return encodeURI(opts.crestBase + fn);
   }
@@ -124,11 +127,13 @@
   --brand-blue:${opts.blue};
   --bg:${opts.bg};
   --text:${opts.text};
+  --rule:${opts.rule};
+  --rose-rule:${opts.roseRule};
+  --rose-ring:${opts.roseRing};
   --h:${opts.height}px;
   --shift: 0px;
   --crest:34px;
   --gap:16px;
-  --pad:14px;
   --dur:30s;
 }
 
@@ -177,10 +182,9 @@
   display:flex;
   align-items:center;
   gap:var(--gap);
-  padding-left:100%;
 }
 
-/* animate exactly one lane-width left (seamless, no blank) */
+/* animate exactly one lane-width left (seamless) */
 @keyframes scroll{
   from{ transform:translateX(0); }
   to{ transform:translateX(calc(-1 * var(--shift))); }
@@ -192,7 +196,6 @@
   display:inline-flex;
   align-items:center;
   gap:12px;
-  padding-right:24px;
 }
 
 .crest{
@@ -213,10 +216,11 @@
   line-height:1;
 }
 
-.divider{
-  width:24px;
-  height:24px;
-  object-fit:contain;
+/* KEEP the vertical divider between team and headline */
+.vrule{
+  width:2px;
+  height:26px;
+  background:var(--rule);
   display:block;
 }
 
@@ -238,10 +242,42 @@
 .alt .club{ color:var(--brand-blue); }
 .alt .headline{ color:var(--brand-red); }
 
+/* Rose separator BETWEEN items */
+.sep{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  padding:0 14px;
+}
+
+.sepLine{
+  width:24px;              /* “same width as the rose itself” vibe */
+  height:2px;
+  background:var(--rose-rule);
+  display:block;
+}
+
+.roseRing{
+  width:26px;
+  height:26px;
+  border:2px solid var(--rose-ring);
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--bg);
+}
+
+.rose{
+  width:18px;
+  height:18px;
+  object-fit:contain;
+  display:block;
+}
+
 @media (prefers-reduced-motion: reduce){
   .belt{ animation:none; }
   .wrap{ overflow:auto; }
-  .lane{ padding-left:0; }
 }
 `;
   }
@@ -310,17 +346,21 @@
       laneB.innerHTML = "";
 
       const startRed = (opts.start || "red").toLowerCase() === "red";
+      const rUrl = roseUrl(opts);
 
-      items.forEach((it, idx)=>{
-        const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
-        laneA.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
-      });
+      // Build lane sequence: ITEM, SEP, ITEM, SEP, ... (no sep after last)
+      function fillLane(lane){
+        items.forEach((it, idx)=>{
+          const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
+          lane.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
+          if(idx !== items.length - 1){
+            lane.appendChild(buildSepEl(rUrl));
+          }
+        });
+      }
 
-      // duplicate lane for seamless loop
-      items.forEach((it, idx)=>{
-        const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
-        laneB.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
-      });
+      fillLane(laneA);
+      fillLane(laneB);
 
       requestAnimationFrame(()=>{
         const w = laneA.scrollWidth || 1;
@@ -331,10 +371,6 @@
 
         // duration applies to belt animation
         belt.style.setProperty("--dur", dur + "s");
-
-        // lane padding-left is only needed before first render; after render it creates a gap.
-        laneA.style.paddingLeft = "0px";
-        laneB.style.paddingLeft = "0px";
       });
     }
 
@@ -358,18 +394,9 @@
       club.className = "club";
       club.textContent = teamTextForGraphic(it.club) || toAllCaps(it.club);
 
-      const divider = document.createElement("img");
-      divider.className = "divider";
-      divider.alt = "";
-      divider.setAttribute("aria-hidden","true");
-      const dUrl = dividerUrl(opts);
-      if(dUrl){
-        divider.src = dUrl;
-      }else{
-        // if missing, hide divider without breaking layout
-        divider.style.width = "0px";
-        divider.style.height = "0px";
-      }
+      const vrule = document.createElement("span");
+      vrule.className = "vrule";
+      vrule.setAttribute("aria-hidden","true");
 
       const a = document.createElement("a");
       a.className = "headline";
@@ -380,10 +407,42 @@
 
       wrap.appendChild(crest);
       wrap.appendChild(club);
-      wrap.appendChild(divider);
+      wrap.appendChild(vrule);
       wrap.appendChild(a);
 
       return wrap;
+    }
+
+    function buildSepEl(rUrl){
+      const sep = document.createElement("span");
+      sep.className = "sep";
+      sep.setAttribute("aria-hidden","true");
+
+      const l1 = document.createElement("span");
+      l1.className = "sepLine";
+
+      const ring = document.createElement("span");
+      ring.className = "roseRing";
+
+      const img = document.createElement("img");
+      img.className = "rose";
+      img.alt = "";
+      if(rUrl){
+        img.src = rUrl;
+      }else{
+        img.style.display = "none";
+      }
+
+      const l2 = document.createElement("span");
+      l2.className = "sepLine";
+
+      ring.appendChild(img);
+
+      sep.appendChild(l1);
+      sep.appendChild(ring);
+      sep.appendChild(l2);
+
+      return sep;
     }
 
     refresh();
@@ -403,19 +462,22 @@
     if(d.csv) opts.csv = d.csv;
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 50, DEFAULTS.maxItems);
     if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
-    if(d.speed) opts.speed = clampInt(d.speed, 40, 500, DEFAULTS.speed);
+    if(d.speed) opts.speed = clampInt(d.speed, 20, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
     if(d.start) opts.start = (d.start === "blue" ? "blue" : "red");
 
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
 
-    if(d.dividerImg) opts.dividerImg = d.dividerImg;
+    if(d.roseImg) opts.roseImg = d.roseImg;
 
     if(d.bg) opts.bg = d.bg;
     if(d.red) opts.red = d.red;
     if(d.blue) opts.blue = d.blue;
     if(d.text) opts.text = d.text;
+    if(d.rule) opts.rule = d.rule;
+    if(d.roseRule) opts.roseRule = d.roseRule;
+    if(d.roseRing) opts.roseRing = d.roseRing;
 
     return opts;
   }
