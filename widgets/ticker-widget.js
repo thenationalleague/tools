@@ -1,20 +1,26 @@
-/* News Ticker Widget (v1.2) — Shadow DOM isolated embed */
+/* News Ticker Widget (v1.3) — Shadow DOM isolated embed
+   Changes from v1.2:
+   - Slower default scroll
+   - Seamless belt loop (no blank gap)
+   - Team name uses Carbona ExtraBold (explicit)
+   - Divider replaced with National League rose.png (same dir as crests)
+*/
 (function(){
   "use strict";
 
-  const VERSION = "v1.2";
+  const VERSION = "v1.3";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
     maxItems: 10,
     height: 64,             // px
-    speed: 110,             // px/sec
+    speed: 80,              // px/sec (slower default)
     refreshMs: 120000,      // 2 min
     start: "red",           // "red" or "blue" (team name colour for first item)
     kitCss: "https://use.typekit.net/gff4ipy.css", // Adobe CSS (NOT the JS loader)
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
+    dividerImg: "National League rose.png",
     bg: "#ffffff",
-    rule: "#000000",
     red: "#9e0000",
     blue: "#223b7c",
     text: "#111111"
@@ -48,6 +54,12 @@
     if(!t) return null;
     if(!TEAM_SET.has(t.toLowerCase())) return null;
     return encodeURI(opts.crestBase + t + ".png");
+  }
+
+  function dividerUrl(opts){
+    const fn = safeText(opts.dividerImg || "");
+    if(!fn) return null;
+    return encodeURI(opts.crestBase + fn);
   }
 
   // Robust CSV parser (handles quotes/commas reasonably)
@@ -111,13 +123,11 @@
   --brand-red:${opts.red};
   --brand-blue:${opts.blue};
   --bg:${opts.bg};
-  --rule:${opts.rule};
   --text:${opts.text};
   --h:${opts.height}px;
+  --shift: 0px;
   --crest:34px;
   --gap:16px;
-  --rule-w:2px;
-  --rule-h:26px;
   --pad:14px;
   --dur:30s;
 }
@@ -134,7 +144,7 @@
   border-radius:10px;
 }
 
-/* subtle mask edges (keeps it “newsy” and tidy) */
+/* subtle mask edges */
 .wrap:before,
 .wrap:after{
   content:"";
@@ -153,24 +163,30 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
-.track{
+.belt{
   display:flex;
   align-items:center;
-  gap:var(--gap);
+  gap:0;
   white-space:nowrap;
   will-change:transform;
   animation: scroll var(--dur) linear infinite;
+  transform:translateX(0);
+}
+
+.lane{
+  display:flex;
+  align-items:center;
+  gap:var(--gap);
   padding-left:100%;
 }
 
-.track.dupe{ padding-left:0; }
-
+/* animate exactly one lane-width left (seamless, no blank) */
 @keyframes scroll{
   from{ transform:translateX(0); }
-  to{ transform:translateX(-100%); }
+  to{ transform:translateX(calc(-1 * var(--shift))); }
 }
 
-.wrap:hover .track{ animation-play-state:paused; }
+.wrap:hover .belt{ animation-play-state:paused; }
 
 .item{
   display:inline-flex;
@@ -197,10 +213,11 @@
   line-height:1;
 }
 
-.rule{
-  width:var(--rule-w);
-  height:var(--rule-h);
-  background:var(--rule);
+.divider{
+  width:24px;
+  height:24px;
+  object-fit:contain;
+  display:block;
 }
 
 .headline{
@@ -222,15 +239,15 @@
 .alt .headline{ color:var(--brand-red); }
 
 @media (prefers-reduced-motion: reduce){
-  .track{ animation:none; padding-left:0; }
+  .belt{ animation:none; }
   .wrap{ overflow:auto; }
+  .lane{ padding-left:0; }
 }
 `;
   }
 
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
-
     const root = hostEl.attachShadow({ mode:"open" });
 
     // Load Adobe kit CSS inside the shadow root (isolated)
@@ -250,13 +267,18 @@
     wrap.setAttribute("role","region");
     wrap.setAttribute("aria-label","Club news ticker");
 
-    const trackA = document.createElement("div");
-    trackA.className = "track";
-    const trackB = document.createElement("div");
-    trackB.className = "track dupe";
+    const belt = document.createElement("div");
+    belt.className = "belt";
 
-    wrap.appendChild(trackA);
-    wrap.appendChild(trackB);
+    const laneA = document.createElement("div");
+    laneA.className = "lane";
+
+    const laneB = document.createElement("div");
+    laneB.className = "lane";
+
+    belt.appendChild(laneA);
+    belt.appendChild(laneB);
+    wrap.appendChild(belt);
     root.appendChild(wrap);
 
     let refreshTimer = null;
@@ -279,35 +301,40 @@
         const data = normaliseItems(items, opts.maxItems);
         render(data);
       }catch(e){
-        // keep silent on page, but log for debug
         console.error("[Ticker " + VERSION + "]", e);
       }
     }
 
     function render(items){
-      trackA.innerHTML = "";
-      trackB.innerHTML = "";
+      laneA.innerHTML = "";
+      laneB.innerHTML = "";
 
       const startRed = (opts.start || "red").toLowerCase() === "red";
 
       items.forEach((it, idx)=>{
         const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
-        const itemEl = buildItemEl(it, isBase ? "base" : "alt");
-        trackA.appendChild(itemEl);
+        laneA.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
       });
 
+      // duplicate lane for seamless loop
       items.forEach((it, idx)=>{
         const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
-        const itemEl = buildItemEl(it, isBase ? "base" : "alt");
-        trackB.appendChild(itemEl);
+        laneB.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
       });
 
-      // compute duration from content width
       requestAnimationFrame(()=>{
-        const w = trackA.scrollWidth || 1;
+        const w = laneA.scrollWidth || 1;
         const dur = Math.max(12, Math.round(w / opts.speed));
-        trackA.style.setProperty("--dur", dur + "s");
-        trackB.style.setProperty("--dur", dur + "s");
+
+        // shift exactly one lane width (seamless)
+        hostEl.style.setProperty("--shift", w + "px");
+
+        // duration applies to belt animation
+        belt.style.setProperty("--dur", dur + "s");
+
+        // lane padding-left is only needed before first render; after render it creates a gap.
+        laneA.style.paddingLeft = "0px";
+        laneB.style.paddingLeft = "0px";
       });
     }
 
@@ -331,9 +358,18 @@
       club.className = "club";
       club.textContent = teamTextForGraphic(it.club) || toAllCaps(it.club);
 
-      const rule = document.createElement("span");
-      rule.className = "rule";
-      rule.setAttribute("aria-hidden","true");
+      const divider = document.createElement("img");
+      divider.className = "divider";
+      divider.alt = "";
+      divider.setAttribute("aria-hidden","true");
+      const dUrl = dividerUrl(opts);
+      if(dUrl){
+        divider.src = dUrl;
+      }else{
+        // if missing, hide divider without breaking layout
+        divider.style.width = "0px";
+        divider.style.height = "0px";
+      }
 
       const a = document.createElement("a");
       a.className = "headline";
@@ -344,7 +380,7 @@
 
       wrap.appendChild(crest);
       wrap.appendChild(club);
-      wrap.appendChild(rule);
+      wrap.appendChild(divider);
       wrap.appendChild(a);
 
       return wrap;
@@ -374,8 +410,9 @@
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
 
+    if(d.dividerImg) opts.dividerImg = d.dividerImg;
+
     if(d.bg) opts.bg = d.bg;
-    if(d.rule) opts.rule = d.rule;
     if(d.red) opts.red = d.red;
     if(d.blue) opts.blue = d.blue;
     if(d.text) opts.text = d.text;
@@ -392,7 +429,6 @@
   function boot(){
     const nodes = document.querySelectorAll("[data-nl-news-ticker]");
     nodes.forEach(node => {
-      // prevent double-init
       if(node.__nlTicker) return;
       node.__nlTicker = makeWidget(node);
     });
