@@ -1,21 +1,20 @@
-/* Results Ticker Widget (v1.2) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.3) — Shadow DOM isolated embed
    - Feed: Google Sheets published CSV (CORS-friendly)
-   - Crests Home & Away (assets/crests/<Team Name>.png)
-   - NO vertical lines, NO rose separators
-   - Seamless loop (duplicate lane, wrap by lane width)
-   - JS-driven scroll + pointer drag scrub (mobile/desktop)
-   - Winner pulse: every 10s briefly highlights winning team(s)
+   - Crests Home & Away
+   - Divider BETWEEN fixtures (vertical line)
+   - Winner wave/jump effect (letters) every N ms
+   - Seamless loop + JS scroll + pointer drag scrub
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.2";
+  const VERSION = "v1.3";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
     maxItems: 60,
     height: 64,              // px
-    speed: 52,               // px/sec (lower = slower)
+    speed: 52,               // px/sec
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
@@ -25,7 +24,13 @@
     text: "#111111",
     pillBg: "#ffffff",
     pillBorder: "#000000",
-    flashEveryMs: 10000       // winner pulse interval
+    dividerColor: "#000000",
+    dividerH: 28,            // px height of divider line
+    dividerW: 2,             // px width of divider line
+    dividerPad: 18,          // px padding either side
+    waveEveryMs: 10000,      // trigger interval
+    waveStaggerMs: 35,       // per-letter delay
+    waveDurMs: 520           // per-letter animation duration
   };
 
   const TEAMS = [
@@ -67,9 +72,13 @@
   --text:${opts.text};
   --pill-bg:${opts.pillBg};
   --pill-border:${opts.pillBorder};
+  --divider:${opts.dividerColor};
   --h:${opts.height}px;
   --crest:30px;
-  --gap:22px;
+  --gap:0px; /* we control spacing via divider pads now */
+  --div-h:${opts.dividerH}px;
+  --div-w:${opts.dividerW}px;
+  --div-pad:${opts.dividerPad}px;
 }
 
 *{ box-sizing:border-box; }
@@ -124,6 +133,7 @@
   display:inline-flex;
   align-items:center;
   gap:14px;
+  padding:0 var(--div-pad);
 }
 
 .side{
@@ -148,15 +158,10 @@
   text-transform:uppercase;
   line-height:1;
   color:var(--brand-red);
+  display:inline-flex;
 }
 .team.alt{ color:var(--brand-blue); }
 
-/* W/L/D tagging (default has no extra styling) */
-.team.win{}
-.team.lose{}
-.team.draw{}
-
-/* Score pill */
 .scorePill{
   display:inline-flex;
   align-items:center;
@@ -174,15 +179,38 @@
   line-height:1;
 }
 
-/* Winner pulse: triggered by toggling .pulse on wrap */
-@keyframes winnerPulse{
-  0%   { filter:brightness(1); transform:translateY(0); }
-  25%  { filter:brightness(1.25); transform:translateY(-1px); }
-  55%  { filter:brightness(1.05); transform:translateY(0); }
-  100% { filter:brightness(1); transform:translateY(0); }
+/* Divider BETWEEN fixtures */
+.divider{
+  width:var(--div-w);
+  height:var(--div-h);
+  background:var(--divider);
+  display:block;
+  opacity:1;
 }
-.wrap.pulse .team.win{
-  animation: winnerPulse 800ms ease-in-out 1;
+
+/* ===== Winner wave letters ===== */
+.letter{
+  display:inline-block;
+  transform:translateY(0);
+  will-change:transform, filter;
+}
+
+@keyframes waveJump{
+  0%   { transform:translateY(0); filter:brightness(1); }
+  18%  { transform:translateY(-7px); filter:brightness(1.35); }
+  38%  { transform:translateY(2px); filter:brightness(1.15); }
+  60%  { transform:translateY(-3px); filter:brightness(1.22); }
+  100% { transform:translateY(0); filter:brightness(1); }
+}
+
+/* When .wave is on the wrap, animate only winning letters */
+.wrap.wave .team.win .letter{
+  animation-name: waveJump;
+  animation-duration: var(--wave-dur, 520ms);
+  animation-timing-function: cubic-bezier(.2,.9,.2,1);
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+  animation-delay: var(--d, 0ms);
 }
 
 /* Status/error text */
@@ -197,7 +225,7 @@
 `;
   }
 
-  // CSV parser (handles quotes/commas)
+  // CSV parser
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -250,6 +278,19 @@
     return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
   }
 
+  function makeLetters(text){
+    const frag = document.createDocumentFragment();
+    const str = String(text || "");
+    for(let i=0;i<str.length;i++){
+      const ch = str[i];
+      const span = document.createElement("span");
+      span.className = "letter";
+      span.textContent = ch;
+      frag.appendChild(span);
+    }
+    return frag;
+  }
+
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
     const root = hostEl.attachShadow({ mode:"open" });
@@ -284,26 +325,28 @@
     wrap.appendChild(belt);
     root.appendChild(wrap);
 
-    // Visible status/error message
     const msg = document.createElement("div");
     msg.className = "msg";
     msg.innerHTML = `<strong>Results:</strong> loading…`;
     wrap.appendChild(msg);
 
-    // Animation
+    // Animation state
     let shiftPx = 0;
     let offsetPx = 0;
     let lastTs = 0;
     let rafId = 0;
 
-    // Scrub
+    // Scrub state
     let dragging = false;
     let dragStartX = 0;
     let dragStartOffset = 0;
 
     let refreshTimer = null;
     let ro = null;
-    let flashTimer = null;
+    let waveTimer = null;
+
+    // expose CSS var for wave duration
+    wrap.style.setProperty("--wave-dur", opts.waveDurMs + "ms");
 
     function setTransform(){
       belt.style.transform = "translateX(" + offsetPx + "px)";
@@ -360,6 +403,13 @@
     wrap.addEventListener("pointerup", onPointerUp);
     wrap.addEventListener("pointercancel", onPointerUp);
 
+    function buildDividerEl(){
+      const d = document.createElement("span");
+      d.className = "divider";
+      d.setAttribute("aria-hidden","true");
+      return d;
+    }
+
     function buildFixtureEl(fx, idx){
       const alt = (idx % 2 === 1);
       const parsed = parseScore(fx.score);
@@ -391,7 +441,7 @@
 
       const hTeam = document.createElement("span");
       hTeam.className = "team" + (alt ? " alt" : "") + " " + homeRes;
-      hTeam.textContent = teamTextForGraphic(fx.home) || toAllCaps(fx.home);
+      hTeam.appendChild(makeLetters(teamTextForGraphic(fx.home) || toAllCaps(fx.home)));
 
       homeSide.appendChild(hCrest);
       homeSide.appendChild(hTeam);
@@ -406,7 +456,7 @@
 
       const aTeam = document.createElement("span");
       aTeam.className = "team" + (alt ? "" : " alt") + " " + awayRes;
-      aTeam.textContent = teamTextForGraphic(fx.away) || toAllCaps(fx.away);
+      aTeam.appendChild(makeLetters(teamTextForGraphic(fx.away) || toAllCaps(fx.away)));
 
       const aCrest = document.createElement("img");
       aCrest.className = "crest";
@@ -439,10 +489,17 @@
       laneA.innerHTML = "";
       laneB.innerHTML = "";
 
-      // Seamless loop WITHOUT separators:
-      // Just duplicate laneA into laneB; wrap uses laneA width.
-      fixtures.forEach((fx, idx)=> laneA.appendChild(buildFixtureEl(fx, idx)));
-      fixtures.forEach((fx, idx)=> laneB.appendChild(buildFixtureEl(fx, idx)));
+      // Lane A: fixture + divider + fixture + divider ... (include divider after last)
+      fixtures.forEach((fx, idx)=>{
+        laneA.appendChild(buildFixtureEl(fx, idx));
+        laneA.appendChild(buildDividerEl());
+      });
+
+      // Lane B: exact duplicate for seamless wrap
+      fixtures.forEach((fx, idx)=>{
+        laneB.appendChild(buildFixtureEl(fx, idx));
+        laneB.appendChild(buildDividerEl());
+      });
 
       msg.style.display = (fixtures.length ? "none" : "block");
 
@@ -451,14 +508,24 @@
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
-    function triggerPulse(){
-      // Restart the pulse animation by toggling a class
-      wrap.classList.remove("pulse");
-      // Force reflow to ensure animation restarts
+    function triggerWave(){
+      // assign per-letter delays for current DOM so it feels "rolling"
+      const winners = root.querySelectorAll(".team.win");
+      winners.forEach(teamEl => {
+        const letters = teamEl.querySelectorAll(".letter");
+        letters.forEach((l, i) => {
+          l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms");
+        });
+      });
+
+      wrap.classList.remove("wave");
       void wrap.offsetWidth;
-      wrap.classList.add("pulse");
-      // Remove class after animation completes so next toggle is clean
-      window.setTimeout(()=> wrap.classList.remove("pulse"), 900);
+      wrap.classList.add("wave");
+
+      // clear class after anim window
+      const maxLetters = Math.max(8, ...Array.from(winners).map(w => (w.querySelectorAll(".letter").length || 0)));
+      const totalMs = (maxLetters * opts.waveStaggerMs) + opts.waveDurMs + 120;
+      window.setTimeout(()=> wrap.classList.remove("wave"), totalMs);
     }
 
     async function refresh(){
@@ -511,8 +578,8 @@
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
 
-    // Winner pulse loop (only meaningful if content exists; safe regardless)
-    flashTimer = window.setInterval(triggerPulse, opts.flashEveryMs);
+    // Winner wave loop
+    waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
     startAnim();
 
@@ -520,7 +587,7 @@
       destroy(){
         if(rafId) cancelAnimationFrame(rafId);
         if(refreshTimer) window.clearInterval(refreshTimer);
-        if(flashTimer) window.clearInterval(flashTimer);
+        if(waveTimer) window.clearInterval(waveTimer);
         if(ro) ro.disconnect();
       }
     };
@@ -537,7 +604,14 @@
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
-    if(d.flashEveryMs) opts.flashEveryMs = clampInt(d.flashEveryMs, 2000, 600000, DEFAULTS.flashEveryMs);
+    if(d.dividerColor) opts.dividerColor = d.dividerColor;
+    if(d.dividerH) opts.dividerH = clampInt(d.dividerH, 10, 80, DEFAULTS.dividerH);
+    if(d.dividerW) opts.dividerW = clampInt(d.dividerW, 1, 12, DEFAULTS.dividerW);
+    if(d.dividerPad) opts.dividerPad = clampInt(d.dividerPad, 0, 60, DEFAULTS.dividerPad);
+
+    if(d.waveEveryMs) opts.waveEveryMs = clampInt(d.waveEveryMs, 2000, 600000, DEFAULTS.waveEveryMs);
+    if(d.waveStaggerMs) opts.waveStaggerMs = clampInt(d.waveStaggerMs, 10, 200, DEFAULTS.waveStaggerMs);
+    if(d.waveDurMs) opts.waveDurMs = clampInt(d.waveDurMs, 200, 2000, DEFAULTS.waveDurMs);
 
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
