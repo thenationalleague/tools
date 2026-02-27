@@ -1,13 +1,16 @@
-/* News Ticker Widget (v1.5) — Shadow DOM isolated embed
-   - JS-driven scroll (speed always applies, fixes “speed not changing” confusion)
-   - Mobile/desktop drag scrub (pointer events)
-   - Keep vertical divider between team and headline
-   - Rose separator BETWEEN items with clear space only (no ring/side lines)
+/* News Ticker Widget (v1.6) — Shadow DOM isolated embed
+   Fix from v1.5:
+   - TRUE seamless loop when using rose separators:
+     we ALWAYS include a separator AFTER the last item too, so the boundary
+     (end of laneA -> start of laneB, and wrap-around) has identical spacing.
+   - Keeps vertical divider between team and headline
+   - Rose separator BETWEEN items with clear space only
+   - JS-driven scroll + drag scrub
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.5";
+  const VERSION = "v1.6";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
@@ -140,7 +143,7 @@
   align-items:center;
   position:relative;
   border-radius:10px;
-  touch-action: pan-y; /* allow page vertical scroll; we handle horizontal scrubbing */
+  touch-action: pan-y;
   user-select:none;
 }
 
@@ -229,7 +232,7 @@
 .sep{
   display:inline-flex;
   align-items:center;
-  padding:0 18px; /* clear space either side */
+  padding:0 18px;
 }
 
 .rose{
@@ -237,7 +240,6 @@
   height:22px;
   object-fit:contain;
   display:block;
-  opacity:1;
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -284,7 +286,6 @@
     let offsetPx = 0;          // current translateX
     let lastTs = 0;
     let rafId = 0;
-    let running = true;
 
     // Scrub state
     let dragging = false;
@@ -305,11 +306,6 @@
     }
 
     function tick(ts){
-      if(!running){
-        rafId = requestAnimationFrame(tick);
-        return;
-      }
-
       if(!lastTs) lastTs = ts;
       const dt = (ts - lastTs) / 1000;
       lastTs = ts;
@@ -324,19 +320,12 @@
     }
 
     function startAnim(){
-      stopAnim();
-      running = true;
+      if(rafId) cancelAnimationFrame(rafId);
       lastTs = 0;
       rafId = requestAnimationFrame(tick);
     }
 
-    function stopAnim(){
-      if(rafId) cancelAnimationFrame(rafId);
-      rafId = 0;
-    }
-
     function onPointerDown(e){
-      // only primary button/touch
       if(e.pointerType === "mouse" && e.button !== 0) return;
 
       dragging = true;
@@ -362,8 +351,6 @@
       dragging = false;
 
       try{ wrap.releasePointerCapture(e.pointerId); }catch{}
-
-      // reset timing so it doesn't “jump” when resuming
       lastTs = performance.now();
     }
 
@@ -430,10 +417,8 @@
     }
 
     function recomputeShift(){
-      // width of one lane controls seamless looping
+      // shift equals laneA width exactly; MUST be stable for seamless wrap
       shiftPx = laneA.scrollWidth || 0;
-
-      // keep offset in range and apply
       normalizeOffset();
       setTransform();
     }
@@ -445,24 +430,28 @@
       const startRed = (opts.start || "red").toLowerCase() === "red";
       const rUrl = roseUrl(opts);
 
+      // IMPORTANT: include a separator AFTER the last item too
+      // so the boundary to the next lane begins with identical spacing/rose.
       function fillLane(lane){
+        if(items.length === 0) return;
+
         items.forEach((it, idx)=>{
           const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
           lane.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
-          if(idx !== items.length - 1){
-            lane.appendChild(buildSepEl(rUrl));
-          }
+
+          // separator after every item (including last) ensures seamless join
+          lane.appendChild(buildSepEl(rUrl));
         });
       }
 
       fillLane(laneA);
       fillLane(laneB);
 
-      // reset to start after refresh (feels clean)
+      // reset position on refresh
       offsetPx = 0;
       setTransform();
 
-      // allow layout/fonts to settle, then compute widths
+      // let layout settle (fonts/images), then measure precisely
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
@@ -500,7 +489,7 @@
 
     return {
       destroy(){
-        stopAnim();
+        if(rafId) cancelAnimationFrame(rafId);
         if(refreshTimer) window.clearInterval(refreshTimer);
         if(ro) ro.disconnect();
       }
@@ -511,7 +500,6 @@
     const d = el.dataset || {};
     const opts = Object.assign({}, DEFAULTS);
 
-    // NOTE: if you have data-speed on the div, it overrides DEFAULTS.speed
     if(d.csv) opts.csv = d.csv;
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 50, DEFAULTS.maxItems);
     if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
