@@ -1,19 +1,20 @@
-/* Results Ticker Widget (v1.0) — Shadow DOM isolated embed
-   - Feed: Google Sheets published "pubhtml" (scrapes the table)
-   - Crests Home & Away (uses your existing crest naming convention)
-   - Seamless loop with rose separators (separator after every item incl. last)
+/* Results Ticker Widget (v1.1) — Shadow DOM isolated embed
+   Feed: Google Sheets published CSV (CORS-friendly)
+   - Crests Home & Away (assets/crests/<Team Name>.png)
+   - Seamless loop with rose separators (separator after every fixture incl. last)
    - JS-driven scroll + pointer drag scrub (mobile/desktop)
+   - If feed fails, shows a visible error inside the widget
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.0";
+  const VERSION = "v1.1";
 
   const DEFAULTS = {
-    pubhtml: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
-    maxItems: 40,
+    csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
+    maxItems: 60,
     height: 64,              // px
-    speed: 52,               // px/sec (tweak)
+    speed: 52,               // px/sec (lower = slower)
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
@@ -77,7 +78,6 @@
   --crest:30px;
   --gap:16px;
 }
-
 *{ box-sizing:border-box; }
 
 .wrap{
@@ -90,6 +90,7 @@
   border-radius:10px;
   touch-action: pan-y;
   user-select:none;
+  border:1px solid rgba(0,0,0,0.06);
 }
 
 /* subtle mask edges */
@@ -143,7 +144,6 @@
   object-fit:contain;
   display:block;
 }
-
 .crest.missing{ width:0; height:0; }
 
 .team{
@@ -155,7 +155,6 @@
   line-height:1;
   color:var(--brand-red);
 }
-
 .team.alt{ color:var(--brand-blue); }
 
 .vrule{
@@ -187,14 +186,69 @@
   align-items:center;
   padding:0 18px;
 }
-
 .rose{
   width:22px;
   height:22px;
   object-fit:contain;
   display:block;
 }
+
+.msg{
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-size:14px;
+  color:#111;
+  padding:0 14px;
+  white-space:nowrap;
+}
+.msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
 `;
+  }
+
+  // CSV parser (handles quotes/commas)
+  function parseCSV(text){
+    const out = [];
+    let row = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for(let i=0;i<text.length;i++){
+      const ch = text[i];
+      const next = text[i+1];
+
+      if(ch === '"' && inQuotes && next === '"'){
+        cur += '"'; i++; continue;
+      }
+      if(ch === '"'){
+        inQuotes = !inQuotes; continue;
+      }
+      if(!inQuotes && ch === ","){
+        row.push(cur); cur = ""; continue;
+      }
+      if(!inQuotes && ch === "\n"){
+        row.push(cur);
+        out.push(row);
+        row = [];
+        cur = "";
+        continue;
+      }
+      if(ch !== "\r") cur += ch;
+    }
+    if(cur.length || row.length){
+      row.push(cur);
+      out.push(row);
+    }
+    return out.map(r => r.map(c => safeText(c)));
+  }
+
+  function looksLikeHeader(home, score, away){
+    const joined = (home + " " + score + " " + away).toLowerCase();
+    return joined.includes("home") && joined.includes("score") && joined.includes("away");
+  }
+
+  function normalizeScore(s){
+    const t = safeText(s);
+    if(!t) return "";
+    return t.replace(/[–—]/g, "-").replace(/\s+/g,"").replace(/^(\d+)-(\d+)$/, "$1-$2");
   }
 
   function makeWidget(hostEl){
@@ -231,6 +285,12 @@
     wrap.appendChild(belt);
     root.appendChild(wrap);
 
+    // Visible status/error message
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    msg.innerHTML = `<strong>Results:</strong> loading…`;
+    wrap.appendChild(msg);
+
     // Animation
     let shiftPx = 0;
     let offsetPx = 0;
@@ -248,7 +308,6 @@
     function setTransform(){
       belt.style.transform = "translateX(" + offsetPx + "px)";
     }
-
     function normalizeOffset(){
       if(!shiftPx) return;
       while(offsetPx <= -shiftPx) offsetPx += shiftPx;
@@ -277,13 +336,11 @@
 
     function onPointerDown(e){
       if(e.pointerType === "mouse" && e.button !== 0) return;
-
       dragging = true;
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
       try{ wrap.setPointerCapture(e.pointerId); }catch{}
     }
-
     function onPointerMove(e){
       if(!dragging || !shiftPx) return;
       const dx = e.clientX - dragStartX;
@@ -291,7 +348,6 @@
       normalizeOffset();
       setTransform();
     }
-
     function onPointerUp(e){
       if(!dragging) return;
       dragging = false;
@@ -323,7 +379,6 @@
     }
 
     function buildFixtureEl(fx, idx){
-      // Alternate colours per fixture to add rhythm
       const alt = (idx % 2 === 1);
 
       const wrapFx = document.createElement("span");
@@ -368,7 +423,7 @@
       awaySide.className = "side";
 
       const aTeam = document.createElement("span");
-      aTeam.className = "team" + (alt ? "" : " alt"); // flip to keep contrast
+      aTeam.className = "team" + (alt ? "" : " alt");
       aTeam.textContent = teamTextForGraphic(fx.away) || toAllCaps(fx.away);
 
       const aCrest = document.createElement("img");
@@ -408,10 +463,9 @@
 
       function fillLane(lane){
         if(fixtures.length === 0) return;
-        // IMPORTANT: add separator AFTER every fixture including last
-        // so lane boundary is identical => seamless.
         fixtures.forEach((fx, idx)=>{
           lane.appendChild(buildFixtureEl(fx, idx));
+          // critical: separator after every fixture, incl last, for seamless join
           lane.appendChild(buildSepEl(rUrl));
         });
       }
@@ -419,63 +473,53 @@
       fillLane(laneA);
       fillLane(laneB);
 
+      // hide message once we have content
+      msg.style.display = (fixtures.length ? "none" : "block");
+
       offsetPx = 0;
       setTransform();
-
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
-    }
-
-    function normalizeScore(s){
-      const t = safeText(s);
-      if(!t) return "";
-      // Normalise to "x-x" with optional spaces trimmed
-      return t.replace(/[–—]/g, "-").replace(/\s+/g,"").replace(/^(\d+)-(\d+)$/, "$1-$2");
-    }
-
-    function looksLikeHeader(home, score, away){
-      const joined = (home + " " + score + " " + away).toLowerCase();
-      return joined.includes("home") && joined.includes("score") && joined.includes("away");
-    }
-
-    async function fetchFromPubhtml(){
-      const res = await fetch(opts.pubhtml, { cache:"no-store" });
-      if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
-      const html = await res.text();
-
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const table = doc.querySelector("table.waffle") || doc.querySelector("table");
-      if(!table) return [];
-
-      const rows = Array.from(table.querySelectorAll("tbody tr"));
-      const out = [];
-
-      for(const tr of rows){
-        const tds = Array.from(tr.querySelectorAll("td")).map(td => safeText(td.textContent));
-        if(tds.length < 3) continue;
-
-        const home = tds[0] || "";
-        const scoreRaw = tds[1] || "";
-        const away = tds[2] || "";
-
-        if(!home && !scoreRaw && !away) continue;
-        if(looksLikeHeader(home, scoreRaw, away)) continue;
-
-        const score = normalizeScore(scoreRaw);
-        if(!home || !away || !score) continue;
-
-        out.push({ home, score, away });
-        if(out.length >= opts.maxItems) break;
-      }
-
-      return out;
     }
 
     async function refresh(){
       try{
-        const fixtures = await fetchFromPubhtml();
-        render(fixtures);
+        msg.style.display = "block";
+        msg.innerHTML = `<strong>Results:</strong> loading…`;
+
+        const res = await fetch(opts.csv, { cache:"no-store" });
+        if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
+        const csvText = await res.text();
+
+        const rows = parseCSV(csvText);
+        const out = [];
+
+        for(const r of rows){
+          if(r.length < 3) continue;
+
+          const home = safeText(r[0]);
+          const scoreRaw = safeText(r[1]);
+          const away = safeText(r[2]);
+
+          if(!home && !scoreRaw && !away) continue;
+          if(looksLikeHeader(home, scoreRaw, away)) continue;
+
+          const score = normalizeScore(scoreRaw);
+          if(!home || !away || !score) continue;
+
+          out.push({ home, score, away });
+          if(out.length >= opts.maxItems) break;
+        }
+
+        if(out.length === 0){
+          msg.style.display = "block";
+          msg.innerHTML = `<strong>Results:</strong> no rows found (check the CSV has Home, Score, Away columns).`;
+        }
+
+        render(out);
       }catch(e){
         console.error("[ResultsTicker " + VERSION + "]", e);
+        msg.style.display = "block";
+        msg.innerHTML = `<strong>Results:</strong> feed error (open console).`;
       }
     }
 
@@ -501,9 +545,9 @@
     const d = el.dataset || {};
     const opts = Object.assign({}, DEFAULTS);
 
-    if(d.pubhtml) opts.pubhtml = d.pubhtml;
+    if(d.csv) opts.csv = d.csv;
 
-    if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 200, DEFAULTS.maxItems);
+    if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
     if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
