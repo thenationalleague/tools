@@ -1,14 +1,15 @@
-/* Results Ticker Widget (v1.1) — Shadow DOM isolated embed
-   Feed: Google Sheets published CSV (CORS-friendly)
+/* Results Ticker Widget (v1.2) — Shadow DOM isolated embed
+   - Feed: Google Sheets published CSV (CORS-friendly)
    - Crests Home & Away (assets/crests/<Team Name>.png)
-   - Seamless loop with rose separators (separator after every fixture incl. last)
+   - NO vertical lines, NO rose separators
+   - Seamless loop (duplicate lane, wrap by lane width)
    - JS-driven scroll + pointer drag scrub (mobile/desktop)
-   - If feed fails, shows a visible error inside the widget
+   - Winner pulse: every 10s briefly highlights winning team(s)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.1";
+  const VERSION = "v1.2";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -18,14 +19,13 @@
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
-    roseImg: "National League rose.png",
     bg: "#ffffff",
     red: "#9e0000",
     blue: "#223b7c",
     text: "#111111",
-    rule: "#000000",
     pillBg: "#ffffff",
-    pillBorder: "#000000"
+    pillBorder: "#000000",
+    flashEveryMs: 10000       // winner pulse interval
   };
 
   const TEAMS = [
@@ -58,12 +58,6 @@
     return encodeURI(opts.crestBase + t + ".png");
   }
 
-  function roseUrl(opts){
-    const fn = safeText(opts.roseImg || "");
-    if(!fn) return null;
-    return encodeURI(opts.crestBase + fn);
-  }
-
   function cssFor(opts){
     return `
 :host{
@@ -71,13 +65,13 @@
   --brand-blue:${opts.blue};
   --bg:${opts.bg};
   --text:${opts.text};
-  --rule:${opts.rule};
   --pill-bg:${opts.pillBg};
   --pill-border:${opts.pillBorder};
   --h:${opts.height}px;
   --crest:30px;
-  --gap:16px;
+  --gap:22px;
 }
+
 *{ box-sizing:border-box; }
 
 .wrap{
@@ -129,7 +123,7 @@
 .fixture{
   display:inline-flex;
   align-items:center;
-  gap:10px;
+  gap:14px;
 }
 
 .side{
@@ -157,20 +151,19 @@
 }
 .team.alt{ color:var(--brand-blue); }
 
-.vrule{
-  width:2px;
-  height:26px;
-  background:var(--rule);
-  display:block;
-}
+/* W/L/D tagging (default has no extra styling) */
+.team.win{}
+.team.lose{}
+.team.draw{}
 
+/* Score pill */
 .scorePill{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width:62px;
+  min-width:66px;
   height:30px;
-  padding:0 10px;
+  padding:0 12px;
   border:2px solid var(--pill-border);
   border-radius:999px;
   background:var(--pill-bg);
@@ -181,18 +174,18 @@
   line-height:1;
 }
 
-.sep{
-  display:inline-flex;
-  align-items:center;
-  padding:0 18px;
+/* Winner pulse: triggered by toggling .pulse on wrap */
+@keyframes winnerPulse{
+  0%   { filter:brightness(1); transform:translateY(0); }
+  25%  { filter:brightness(1.25); transform:translateY(-1px); }
+  55%  { filter:brightness(1.05); transform:translateY(0); }
+  100% { filter:brightness(1); transform:translateY(0); }
 }
-.rose{
-  width:22px;
-  height:22px;
-  object-fit:contain;
-  display:block;
+.wrap.pulse .team.win{
+  animation: winnerPulse 800ms ease-in-out 1;
 }
 
+/* Status/error text */
 .msg{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
@@ -251,6 +244,12 @@
     return t.replace(/[–—]/g, "-").replace(/\s+/g,"").replace(/^(\d+)-(\d+)$/, "$1-$2");
   }
 
+  function parseScore(score){
+    const m = /^(\d+)-(\d+)$/.exec(score);
+    if(!m) return null;
+    return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
+  }
+
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
     const root = hostEl.attachShadow({ mode:"open" });
@@ -304,6 +303,7 @@
 
     let refreshTimer = null;
     let ro = null;
+    let flashTimer = null;
 
     function setTransform(){
       belt.style.transform = "translateX(" + offsetPx + "px)";
@@ -360,26 +360,16 @@
     wrap.addEventListener("pointerup", onPointerUp);
     wrap.addEventListener("pointercancel", onPointerUp);
 
-    function buildSepEl(rUrl){
-      const sep = document.createElement("span");
-      sep.className = "sep";
-      sep.setAttribute("aria-hidden","true");
-
-      const img = document.createElement("img");
-      img.className = "rose";
-      img.alt = "";
-      if(rUrl){
-        img.src = rUrl;
-      }else{
-        img.style.display = "none";
-      }
-
-      sep.appendChild(img);
-      return sep;
-    }
-
     function buildFixtureEl(fx, idx){
       const alt = (idx % 2 === 1);
+      const parsed = parseScore(fx.score);
+
+      let homeRes = "draw";
+      let awayRes = "draw";
+      if(parsed){
+        if(parsed.h > parsed.a){ homeRes = "win"; awayRes = "lose"; }
+        else if(parsed.h < parsed.a){ homeRes = "lose"; awayRes = "win"; }
+      }
 
       const wrapFx = document.createElement("span");
       wrapFx.className = "fixture";
@@ -400,30 +390,22 @@
       }
 
       const hTeam = document.createElement("span");
-      hTeam.className = "team" + (alt ? " alt" : "");
+      hTeam.className = "team" + (alt ? " alt" : "") + " " + homeRes;
       hTeam.textContent = teamTextForGraphic(fx.home) || toAllCaps(fx.home);
 
       homeSide.appendChild(hCrest);
       homeSide.appendChild(hTeam);
 
-      const vr1 = document.createElement("span");
-      vr1.className = "vrule";
-      vr1.setAttribute("aria-hidden","true");
-
       const score = document.createElement("span");
       score.className = "scorePill";
       score.textContent = fx.score;
-
-      const vr2 = document.createElement("span");
-      vr2.className = "vrule";
-      vr2.setAttribute("aria-hidden","true");
 
       // Away side (name then crest)
       const awaySide = document.createElement("span");
       awaySide.className = "side";
 
       const aTeam = document.createElement("span");
-      aTeam.className = "team" + (alt ? "" : " alt");
+      aTeam.className = "team" + (alt ? "" : " alt") + " " + awayRes;
       aTeam.textContent = teamTextForGraphic(fx.away) || toAllCaps(fx.away);
 
       const aCrest = document.createElement("img");
@@ -441,9 +423,7 @@
       awaySide.appendChild(aCrest);
 
       wrapFx.appendChild(homeSide);
-      wrapFx.appendChild(vr1);
       wrapFx.appendChild(score);
-      wrapFx.appendChild(vr2);
       wrapFx.appendChild(awaySide);
 
       return wrapFx;
@@ -459,26 +439,26 @@
       laneA.innerHTML = "";
       laneB.innerHTML = "";
 
-      const rUrl = roseUrl(opts);
+      // Seamless loop WITHOUT separators:
+      // Just duplicate laneA into laneB; wrap uses laneA width.
+      fixtures.forEach((fx, idx)=> laneA.appendChild(buildFixtureEl(fx, idx)));
+      fixtures.forEach((fx, idx)=> laneB.appendChild(buildFixtureEl(fx, idx)));
 
-      function fillLane(lane){
-        if(fixtures.length === 0) return;
-        fixtures.forEach((fx, idx)=>{
-          lane.appendChild(buildFixtureEl(fx, idx));
-          // critical: separator after every fixture, incl last, for seamless join
-          lane.appendChild(buildSepEl(rUrl));
-        });
-      }
-
-      fillLane(laneA);
-      fillLane(laneB);
-
-      // hide message once we have content
       msg.style.display = (fixtures.length ? "none" : "block");
 
       offsetPx = 0;
       setTransform();
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
+    }
+
+    function triggerPulse(){
+      // Restart the pulse animation by toggling a class
+      wrap.classList.remove("pulse");
+      // Force reflow to ensure animation restarts
+      void wrap.offsetWidth;
+      wrap.classList.add("pulse");
+      // Remove class after animation completes so next toggle is clean
+      window.setTimeout(()=> wrap.classList.remove("pulse"), 900);
     }
 
     async function refresh(){
@@ -512,7 +492,7 @@
 
         if(out.length === 0){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no rows found (check the CSV has Home, Score, Away columns).`;
+          msg.innerHTML = `<strong>Results:</strong> no rows found (needs Home, Score, Away).`;
         }
 
         render(out);
@@ -530,12 +510,17 @@
 
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
+
+    // Winner pulse loop (only meaningful if content exists; safe regardless)
+    flashTimer = window.setInterval(triggerPulse, opts.flashEveryMs);
+
     startAnim();
 
     return {
       destroy(){
         if(rafId) cancelAnimationFrame(rafId);
         if(refreshTimer) window.clearInterval(refreshTimer);
+        if(flashTimer) window.clearInterval(flashTimer);
         if(ro) ro.disconnect();
       }
     };
@@ -552,15 +537,15 @@
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
+    if(d.flashEveryMs) opts.flashEveryMs = clampInt(d.flashEveryMs, 2000, 600000, DEFAULTS.flashEveryMs);
+
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
-    if(d.roseImg) opts.roseImg = d.roseImg;
 
     if(d.bg) opts.bg = d.bg;
     if(d.red) opts.red = d.red;
     if(d.blue) opts.blue = d.blue;
     if(d.text) opts.text = d.text;
-    if(d.rule) opts.rule = d.rule;
     if(d.pillBg) opts.pillBg = d.pillBg;
     if(d.pillBorder) opts.pillBorder = d.pillBorder;
 
