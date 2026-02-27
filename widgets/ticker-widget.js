@@ -8,7 +8,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.3";
+  const VERSION = "v1.4";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
