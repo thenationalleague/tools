@@ -278,19 +278,28 @@
     return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
   }
 
-  function makeLetters(text){
-    const frag = document.createDocumentFragment();
-    const str = String(text || "");
-    for(let i=0;i<str.length;i++){
-      const ch = str[i];
-      const span = document.createElement("span");
-      span.className = "letter";
+function makeLetters(text){
+  const frag = document.createDocumentFragment();
+  const str = String(text || "");
+
+  for(let i=0;i<str.length;i++){
+    const ch = str[i];
+    const span = document.createElement("span");
+    span.className = "letter";
+
+    // Preserve visible spacing
+    if(ch === " "){
+      span.innerHTML = "&nbsp;";
+    }else{
       span.textContent = ch;
-      frag.appendChild(span);
     }
-    return frag;
+
+    frag.appendChild(span);
   }
 
+  return frag;
+}
+   
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
     const root = hostEl.attachShadow({ mode:"open" });
