@@ -1,25 +1,19 @@
-/* Results Ticker Widget (v1.36) — Shadow DOM isolated embed
-   - Feed: Google Sheets published CSV (CORS-friendly)
-   - Crests Home & Away
-   - Divider BETWEEN fixtures (vertical line)
-   - Winner wave/jump effect (letters) every N ms (results only)
-   - Seamless loop + JS scroll + pointer drag scrub
-   - Sticky top bar: (Competition + Date) + Fixtures/Results switcher
-   - Filters:
-     * Fixtures: next 7 days; include today only if no real score yet
-     * Results: past 7 days; include today if real score exists
-   - Persists mode + scroll position across reload
-   - Entire fixture clickable to Match Hub (new tab)
+/* Results/Fixtures Ticker Widget (v1.37) — Shadow DOM isolated embed
+   v1.37 changes:
+   - Date/time + competition now shown PER FIXTURE (small superscript line above each game)
+   - No longer pinned/locked on the left
+   - Fixtures/Results switcher fixed (buttons don’t get hijacked by drag/pointer scrub)
+   - Links open in new window (entire fixture is a link)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.36";
+  const VERSION = "v1.37";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
-    maxItems: 120,
-    height: 92,              // px (room for top bar)
+    maxItems: 140,
+    height: 106,             // px (room for per-fixture meta + switcher)
     speed: 80,               // px/sec
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
@@ -32,13 +26,12 @@
     pillBg: "#ffffff",
     pillBorder: "#000000",
     dividerColor: "#000000",
-    dividerH: 28,            // px height of divider line
+    dividerH: 34,            // px height of divider line (taller for new layout)
     dividerW: 2,             // px width of divider line
     dividerPad: 18,          // px padding either side
     waveEveryMs: 10000,      // trigger interval
     waveStaggerMs: 35,       // per-letter delay
     waveDurMs: 520,          // per-letter animation duration
-    stickyLabel: true,
     defaultMode: "results"   // "results" | "fixtures"
   };
 
@@ -111,34 +104,26 @@
     return new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
   }
 
-  function startOfDay(d){
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0);
-  }
-  function endOfDay(d){
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59,999);
-  }
-  function addDays(d, n){
-    const x = new Date(d);
-    x.setDate(x.getDate() + n);
-    return x;
-  }
+  function startOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0); }
+  function endOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59,999); }
+  function addDays(d, n){ const x = new Date(d); x.setDate(x.getDate()+n); return x; }
 
-  function formatLabelDate(d){
-    // ddd, d mmm yyyy (en-GB)
+  function formatMetaDateTime(d){
+    // "Sat, 9 Aug 2025 15:00"
     try{
-      const fmt = new Intl.DateTimeFormat("en-GB", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric"
-      });
-      // "Sat, 9 Aug 2025" already in desired shape
-      return fmt.format(d);
+      const df = new Intl.DateTimeFormat("en-GB", {
+        weekday:"short", day:"numeric", month:"short", year:"numeric"
+      }).format(d);
+      const tf = new Intl.DateTimeFormat("en-GB", {
+        hour:"2-digit", minute:"2-digit", hourCycle:"h23"
+      }).format(d);
+      return `${df} ${tf}`;
     }catch{
-      // fallback
       const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
       const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
-      return `${wd}, ${d.getDate()} ${mon} ${d.getFullYear()}`;
+      const hh = String(d.getHours()).padStart(2,"0");
+      const mm = String(d.getMinutes()).padStart(2,"0");
+      return `${wd}, ${d.getDate()} ${mon} ${d.getFullYear()} ${hh}:${mm}`;
     }
   }
 
@@ -173,7 +158,7 @@
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
 
-  --bar-h:${opts.stickyLabel ? 30 : 0}px;
+  --bar-h:32px;
   --bar-pad-x:10px;
   --bar-bg:rgba(255,255,255,.94);
   --bar-border:rgba(0,0,0,.10);
@@ -212,39 +197,18 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
-/* Top bar: label left, switcher right */
+/* Switcher bar (top-right) */
 .bar{
   position:absolute;
   left:0; right:0;
   top:0;
   height:var(--bar-h);
-  display:${opts.stickyLabel ? "flex" : "none"};
+  display:flex;
   align-items:center;
-  justify-content:space-between;
-  gap:10px;
+  justify-content:flex-end;
   padding:0 var(--bar-pad-x);
   z-index:6;
   pointer-events:auto;
-}
-
-.labelPill{
-  display:inline-flex;
-  align-items:center;
-  max-width: calc(100% - 170px);
-  height: calc(var(--bar-h) - 8px);
-  padding:0 10px;
-  border:1px solid var(--bar-border);
-  background:var(--bar-bg);
-  border-radius:999px;
-  box-shadow: var(--bar-shadow);
-  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:800;
-  font-size:12px;
-  color:#111;
-  letter-spacing:.02em;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
 }
 
 .switch{
@@ -302,19 +266,39 @@
   gap:var(--gap);
 }
 
-/* Entire fixture is a link */
+/* Whole fixture is a link, but content is column:
+   meta above + row below */
 .fxLink{
   display:inline-flex;
+  flex-direction:column;
   align-items:center;
-  gap:14px;
+  gap:8px;
   padding:0 var(--div-pad);
   text-decoration:none;
   color:inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 .fxLink:focus{
   outline:none;
   box-shadow:0 0 0 3px rgba(158,0,0,.16);
   border-radius:10px;
+}
+
+.fxMeta{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:800;
+  font-size:11px;
+  letter-spacing:.02em;
+  color:#111;
+  opacity:.88;
+  line-height:1;
+  white-space:nowrap;
+}
+
+.fxRow{
+  display:inline-flex;
+  align-items:center;
+  gap:14px;
 }
 
 .side{
@@ -464,9 +448,7 @@
   }
 
   function writeStoredState(key, state){
-    try{
-      localStorage.setItem(key, JSON.stringify(state));
-    }catch{}
+    try{ localStorage.setItem(key, JSON.stringify(state)); }catch{}
   }
 
   function makeWidget(hostEl){
@@ -493,11 +475,6 @@
     const bar = document.createElement("div");
     bar.className = "bar";
 
-    const labelPill = document.createElement("div");
-    labelPill.className = "labelPill";
-    labelPill.textContent = "";
-    bar.appendChild(labelPill);
-
     const sw = document.createElement("div");
     sw.className = "switch";
 
@@ -513,7 +490,6 @@
 
     sw.appendChild(btnFixtures);
     sw.appendChild(btnResults);
-
     bar.appendChild(sw);
 
     const beltArea = document.createElement("div");
@@ -541,8 +517,8 @@
     wrap.appendChild(msg);
     root.appendChild(wrap);
 
-    // State
-    let mode = opts.defaultMode === "fixtures" ? "fixtures" : "results";
+    // Mode + persistence
+    let mode = (opts.defaultMode === "fixtures") ? "fixtures" : "results";
 
     // Animation state
     let shiftPx = 0;
@@ -550,21 +526,17 @@
     let lastTs = 0;
     let rafId = 0;
 
-    // Scrub state
+    // Drag vs click threshold
     let dragging = false;
     let dragStartX = 0;
     let dragStartOffset = 0;
+    let movedPx = 0;
+    const CLICK_CANCEL_PX = 8;
 
     let refreshTimer = null;
     let ro = null;
     let waveTimer = null;
 
-    // Sticky label tracking
-    let fixtureOffsets = [];
-    let lastLabelMeta = "";
-    let labelThrottleTs = 0;
-
-    // Persistence
     const stKey = storageKey(opts, hostEl);
     const stored = readStoredState(stKey);
     if(stored){
@@ -576,17 +548,20 @@
       mode = (next === "fixtures") ? "fixtures" : "results";
       btnFixtures.setAttribute("aria-pressed", mode === "fixtures" ? "true" : "false");
       btnResults.setAttribute("aria-pressed", mode === "results" ? "true" : "false");
-      // wave only makes sense for results
-      if(mode === "fixtures"){
-        wrap.classList.remove("wave");
-      }
-      // Persist immediately
+      wrap.classList.remove("wave");
       writeStoredState(stKey, { mode, offsetPx });
       refresh();
     }
 
-    btnFixtures.addEventListener("click", ()=> setMode("fixtures"));
-    btnResults.addEventListener("click", ()=> setMode("results"));
+    // Switcher FIX: stop pointer/drag from hijacking button clicks
+    function switchClickGuard(e){
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    btnFixtures.addEventListener("pointerdown", switchClickGuard);
+    btnResults.addEventListener("pointerdown", switchClickGuard);
+    btnFixtures.addEventListener("click", (e)=>{ e.preventDefault(); e.stopPropagation(); setMode("fixtures"); });
+    btnResults.addEventListener("click", (e)=>{ e.preventDefault(); e.stopPropagation(); setMode("results"); });
 
     // Init button state
     btnFixtures.setAttribute("aria-pressed", mode === "fixtures" ? "true" : "false");
@@ -601,34 +576,6 @@
       while(offsetPx > 0) offsetPx -= shiftPx;
     }
 
-    function updateStickyLabel(ts){
-      if(!opts.stickyLabel) return;
-      if(!shiftPx || !fixtureOffsets.length) return;
-
-      if(ts && (ts - labelThrottleTs) < 180) return;
-      labelThrottleTs = ts || performance.now();
-
-      let pos = (-offsetPx) % shiftPx;
-      if(pos < 0) pos += shiftPx;
-
-      let lo = 0, hi = fixtureOffsets.length - 1, best = 0;
-      while(lo <= hi){
-        const mid = (lo + hi) >> 1;
-        if(fixtureOffsets[mid].left <= pos){
-          best = mid;
-          lo = mid + 1;
-        }else{
-          hi = mid - 1;
-        }
-      }
-
-      const meta = fixtureOffsets[best]?.meta || "";
-      if(meta && meta !== lastLabelMeta){
-        lastLabelMeta = meta;
-        labelPill.textContent = meta;
-      }
-    }
-
     function tick(ts){
       if(!lastTs) lastTs = ts;
       const dt = (ts - lastTs) / 1000;
@@ -638,7 +585,6 @@
         offsetPx -= (opts.speed * dt);
         normalizeOffset();
         setTransform();
-        updateStickyLabel(ts);
       }
 
       rafId = requestAnimationFrame(tick);
@@ -650,9 +596,16 @@
       rafId = requestAnimationFrame(tick);
     }
 
+    function isInBar(target){
+      return !!(target && bar.contains(target));
+    }
+
     function onPointerDown(e){
       if(e.pointerType === "mouse" && e.button !== 0) return;
+      if(isInBar(e.target)) return; // don't start dragging from the switcher bar
+
       dragging = true;
+      movedPx = 0;
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
       try{ wrap.setPointerCapture(e.pointerId); }catch{}
@@ -660,11 +613,10 @@
     function onPointerMove(e){
       if(!dragging || !shiftPx) return;
       const dx = e.clientX - dragStartX;
+      movedPx = Math.max(movedPx, Math.abs(dx));
       offsetPx = dragStartOffset + dx;
       normalizeOffset();
       setTransform();
-      updateStickyLabel(performance.now());
-      // Persist lightly during drag
       writeStoredState(stKey, { mode, offsetPx });
     }
     function onPointerUp(e){
@@ -679,6 +631,16 @@
     wrap.addEventListener("pointermove", onPointerMove);
     wrap.addEventListener("pointerup", onPointerUp);
     wrap.addEventListener("pointercancel", onPointerUp);
+
+    // If user dragged, prevent accidental link activation
+    root.addEventListener("click", (e)=>{
+      const a = e.target && e.target.closest ? e.target.closest("a.fxLink") : null;
+      if(!a) return;
+      if(movedPx >= CLICK_CANCEL_PX){
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
 
     function buildDividerEl(){
       const d = document.createElement("span");
@@ -701,14 +663,20 @@
         else if(parsed.h < parsed.a){ homeRes = "lose"; awayRes = "win"; }
       }
 
-      // Entire fixture is clickable to hub
       const link = document.createElement("a");
       link.className = "fxLink";
       link.href = opts.hubUrl;
       link.target = "_blank";
       link.rel = "noopener";
-      link.dataset.meta = fx.meta || "";
       link.setAttribute("aria-label", "Open Match Hub");
+
+      const meta = document.createElement("div");
+      meta.className = "fxMeta";
+      meta.textContent = fx.meta || "";
+      link.appendChild(meta);
+
+      const row = document.createElement("div");
+      row.className = "fxRow";
 
       const homeSide = document.createElement("span");
       homeSide.className = "side";
@@ -756,9 +724,11 @@
       awaySide.appendChild(aTeam);
       awaySide.appendChild(aCrest);
 
-      link.appendChild(homeSide);
-      link.appendChild(score);
-      link.appendChild(awaySide);
+      row.appendChild(homeSide);
+      row.appendChild(score);
+      row.appendChild(awaySide);
+
+      link.appendChild(row);
 
       return link;
     }
@@ -767,24 +737,6 @@
       shiftPx = laneA.scrollWidth || 0;
       normalizeOffset();
       setTransform();
-
-      fixtureOffsets = [];
-      const fxEls = laneA.querySelectorAll(".fxLink");
-      fxEls.forEach(el => {
-        fixtureOffsets.push({
-          left: el.offsetLeft || 0,
-          meta: el.dataset.meta || ""
-        });
-      });
-      fixtureOffsets.sort((a,b)=>a.left-b.left);
-
-      if(opts.stickyLabel && fixtureOffsets.length){
-        const m = fixtureOffsets[0].meta || "";
-        lastLabelMeta = m;
-        labelPill.textContent = m;
-      }
-
-      updateStickyLabel(performance.now());
       writeStoredState(stKey, { mode, offsetPx });
     }
 
@@ -810,7 +762,6 @@
     }
 
     function triggerWave(){
-      // Only on results mode
       if(mode !== "results") return;
 
       const winners = root.querySelectorAll(".team.win");
@@ -830,9 +781,7 @@
       window.setTimeout(()=> wrap.classList.remove("wave"), totalMs);
     }
 
-    function windowNow(){
-      return new Date();
-    }
+    function windowNow(){ return new Date(); }
 
     async function refresh(){
       try{
@@ -912,7 +861,6 @@
           });
         }
 
-        // Filter by mode window rules
         let filtered = [];
         if(mode === "fixtures"){
           filtered = candidates.filter(x => {
@@ -920,40 +868,36 @@
             const inNext7 = (t >= +todayStart && t <= +fixturesEnd);
             if(!inNext7) return false;
 
-            // include today only if no score yet; future always allowed even if score is blank
             const isToday = (t >= +todayStart && t <= +todayEnd);
             if(isToday){
+              // today fixtures only if NOT yet a score
               return !x.hasScore;
             }
-            // future dates:
-            return !x.hasScore; // fixtures view should stay "no score"
+            // future fixtures only if NOT a score
+            return !x.hasScore;
           });
         }else{
           filtered = candidates.filter(x => {
             const t = +x.dt;
             const inPast7 = (t >= +resultsStart && t <= +todayEnd);
             if(!inPast7) return false;
-            // results require real score
             return x.hasScore;
           });
         }
 
-        // Sort order:
-        // fixtures: soonest first; results: most recent first
         filtered.sort((a,b)=>{
           const ta = +a.dt, tb = +b.dt;
-          if(mode === "fixtures") return ta - tb;
-          return tb - ta;
+          return (mode === "fixtures") ? (ta - tb) : (tb - ta);
         });
 
         const out = [];
         for(const x of filtered){
-          const label = `${x.comp} • ${formatLabelDate(x.dt)}`;
+          const meta = `${x.comp} • ${formatMetaDateTime(x.dt)}`;
           out.push({
             home: x.home,
             score: x.score,
             away: x.away,
-            meta: label
+            meta
           });
           if(out.length >= opts.maxItems) break;
         }
@@ -978,10 +922,9 @@
 
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
-
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
-    // persist offset periodically
+    // Persist offset periodically
     const persistTimer = window.setInterval(()=> {
       writeStoredState(stKey, { mode, offsetPx });
     }, 2500);
@@ -1011,12 +954,12 @@
     if(d.hubUrl) opts.hubUrl = d.hubUrl;
 
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 30, 220, DEFAULTS.height);
+    if(d.height) opts.height = clampInt(d.height, 40, 240, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
     if(d.dividerColor) opts.dividerColor = d.dividerColor;
-    if(d.dividerH) opts.dividerH = clampInt(d.dividerH, 10, 80, DEFAULTS.dividerH);
+    if(d.dividerH) opts.dividerH = clampInt(d.dividerH, 10, 90, DEFAULTS.dividerH);
     if(d.dividerW) opts.dividerW = clampInt(d.dividerW, 1, 12, DEFAULTS.dividerW);
     if(d.dividerPad) opts.dividerPad = clampInt(d.dividerPad, 0, 60, DEFAULTS.dividerPad);
 
@@ -1033,11 +976,6 @@
     if(d.text) opts.text = d.text;
     if(d.pillBg) opts.pillBg = d.pillBg;
     if(d.pillBorder) opts.pillBorder = d.pillBorder;
-
-    if(typeof d.stickyLabel !== "undefined"){
-      const v = String(d.stickyLabel).trim().toLowerCase();
-      opts.stickyLabel = !(v === "0" || v === "false" || v === "no");
-    }
 
     if(d.defaultMode){
       const m = String(d.defaultMode).trim().toLowerCase();
