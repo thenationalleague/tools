@@ -1,16 +1,17 @@
-/* results-ticker-widget.js (v1.40)
-   - Google Sheets CSV (NEW columns): Date & Time | MD | Competition | Home team | Score | Away team
-   - Modes: Fixtures (next 7 days) / Results (past 7 days)
-   - Per-game meta (date + competition) as “superscript” ABOVE each game (left-aligned)
-   - Club colour pills from clubs-meta.json (primary bg, secondary text)
-   - All interactive elements link to Match Hub (new window)
-   - Smooth scroll improvements + drag scrub without breaking clicks
-   - Remembers mode + scroll position across reloads (localStorage)
+/* results-ticker-widget.js (v1.41)
+   Fixes in v1.41:
+   - Club colour pills are now applied to TEAM NAME pills (home + away), NOT the score.
+   - Score pill stays neutral (white/black).
+   - Smoother scrolling: reduce layout shifts + fewer expensive recalcs
+     • crests always reserve space (no width=0 “missing”)
+     • debounce recomputeShift and re-run after images load
+     • contain/translate3d optimisations
+   - Clicks still work; drag scrub still works; remembers mode + position.
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.40";
+  const VERSION = "v1.41";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -20,9 +21,9 @@
     kitCss: "https://use.typekit.net/gff4ipy.css",
 
     maxItems: 80,
-    height: 74,              // px (a bit taller to fit meta above)
-    speed: 80,               // px/sec
-    refreshMs: 120000,       // 2 min
+    height: 74,
+    speed: 80,
+    refreshMs: 120000,
 
     dividerColor: "#000000",
     dividerH: 34,
@@ -38,7 +39,7 @@
     waveDurMs: 520,
 
     windowDays: 7,
-    persistKey: "nl_results_ticker_state_v140"
+    persistKey: "nl_results_ticker_state_v141"
   };
 
   const COMP_MAP = {
@@ -67,7 +68,6 @@
     return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
   }
 
-  // CSV parser (handles quoted fields)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -95,18 +95,15 @@
     return out.map(r => r.map(c => safeText(c)));
   }
 
-  // Date parsing: "DD/MM/YYYY HH:MM" (UK, 24h)
   function parseUKDateTime(s){
     const t = safeText(s);
     const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(t);
     if(!m) return null;
     const dd = +m[1], mm = +m[2], yyyy = +m[3], hh = +m[4], mi = +m[5];
-    // local time
     const d = new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
     return Number.isFinite(+d) ? d : null;
   }
 
-  // "Sat, 9 Aug 2025" (ddd, d mmm yyyy)
   function fmtDateLong(d){
     const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
     const mons = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -185,6 +182,9 @@
   touch-action: pan-y;
   user-select:none;
   border:1px solid var(--border);
+
+  /* help smoothness */
+  contain: layout paint;
 }
 
 /* subtle mask edges */
@@ -238,6 +238,7 @@
   white-space:nowrap;
   will-change:transform;
   transform:translate3d(0,0,0);
+  backface-visibility:hidden;
 }
 
 .lane{
@@ -246,11 +247,10 @@
   gap:0px;
 }
 
-/* clickable fixture column: meta above + row below */
 .fxLink{
   display:inline-flex;
   flex-direction:column;
-  align-items:flex-start;          /* FIX: left aligned meta + row */
+  align-items:flex-start;
   gap:6px;
   padding:0 var(--div-pad);
   text-decoration:none;
@@ -266,7 +266,7 @@
   color:var(--muted);
   line-height:1;
   white-space:nowrap;
-  text-align:left;                 /* ensure left alignment */
+  text-align:left;
 }
 
 .fxRow{
@@ -288,21 +288,36 @@
   height:var(--crest);
   object-fit:contain;
   display:block;
+  flex:0 0 var(--crest);
 }
-.crest.missing{ width:0; height:0; }
+.crest.missing{
+  opacity:0;               /* reserve space but hide */
+}
 
-.team{
+/* TEAM NAME PILL (club colours) */
+.teamPill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height:30px;
+  padding:0 10px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.12);
+  background:#111;
+  color:#fff;
+
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:900;
   letter-spacing:0.04em;
-  font-size:16px;
+  font-size:15px;
   text-transform:uppercase;
   line-height:1;
-  display:inline-flex;
-  color:#111;
+
+  white-space:nowrap;
 }
 
-.pill{
+/* Neutral score pill */
+.scorePill{
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -319,16 +334,13 @@
   color:#111;
   white-space:nowrap;
 }
-.pill.club{
-  border-color: rgba(0,0,0,.14);
-}
 
 .vSep{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width: 24px;
-  height: 30px;
+  min-width:24px;
+  height:30px;
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:900;
   font-size:14px;
@@ -354,7 +366,7 @@
   60%  { transform:translateY(-3px); filter:brightness(1.22); }
   100% { transform:translateY(0); filter:brightness(1); }
 }
-.wrap.wave .team.win .letter{
+.wrap.wave .teamPill.win .letter{
   animation-name: waveJump;
   animation-duration: var(--wave-dur, 520ms);
   animation-timing-function: cubic-bezier(.2,.9,.2,1);
@@ -374,8 +386,8 @@
 
 @media (max-width: 520px){
   :host{ --crest:26px; }
-  .team{ font-size:15px; }
-  .pill{ height:28px; font-size:15px; min-width:58px; }
+  .teamPill{ height:28px; font-size:14px; padding:0 9px; }
+  .scorePill{ height:28px; font-size:15px; min-width:58px; }
   .fxMeta{ font-size:10.5px; }
 }
 `;
@@ -395,12 +407,8 @@
     return frag;
   }
 
-  function normalizeClubNameForCrest(club){
-    return safeText(club);
-  }
-
   function crestUrlForTeam(opts, club){
-    const t = normalizeClubNameForCrest(club);
+    const t = safeText(club);
     if(!t) return null;
     return encodeURI(opts.crestBase + t + ".png");
   }
@@ -488,13 +496,13 @@
 
     root.appendChild(wrap);
 
-    // Data + meta
-    /** clubsMetaMap: lower(name) -> {primary, secondary} */
+    // Meta map: lower(name) -> {primary, secondary}
     let clubsMetaMap = new Map();
 
     // State
-    let mode = "results"; // "fixtures" | "results"
-    let items = [];       // rendered items
+    let mode = "results";
+    let items = [];
+
     let shiftPx = 0;
     let offsetPx = 0;
     let lastTs = 0;
@@ -515,6 +523,13 @@
     let saveTimer = null;
     let ro = null;
 
+    // recompute debounce
+    let recomputeT = 0;
+    function scheduleRecompute(){
+      window.clearTimeout(recomputeT);
+      recomputeT = window.setTimeout(()=> recomputeShift(), 80);
+    }
+
     // restore persisted state
     const saved = stateLoad(opts.persistKey);
     if(saved){
@@ -527,20 +542,18 @@
       btnFixtures.setAttribute("aria-pressed", mode==="fixtures" ? "true" : "false");
       btnResults.setAttribute("aria-pressed", mode==="results" ? "true" : "false");
       stateSave(opts.persistKey, { mode, offsetPx });
-      refresh(); // rebuild list immediately
+      refresh();
     }
 
     btnFixtures.addEventListener("click", ()=> setMode("fixtures"));
     btnResults.addEventListener("click", ()=> setMode("results"));
 
     function setTransform(){
-      // translate3d for smoother compositing
       belt.style.transform = "translate3d(" + offsetPx + "px,0,0)";
     }
 
     function normalizeOffset(){
       if(!shiftPx) return;
-      // keep offset in (-shiftPx..0]
       while(offsetPx <= -shiftPx) offsetPx += shiftPx;
       while(offsetPx > 0) offsetPx -= shiftPx;
     }
@@ -550,7 +563,7 @@
       let dt = (ts - lastTs) / 1000;
       lastTs = ts;
 
-      // clamp dt to avoid big jumps after tab switch
+      // prevent “jump” after tab is inactive
       if(dt > 0.06) dt = 0.06;
 
       if(!dragging && shiftPx > 0){
@@ -568,9 +581,7 @@
       rafId = requestAnimationFrame(tick);
     }
 
-    // ---- click-safe drag scrub: only becomes "dragging" after threshold.
     function onPointerDown(e){
-      // don’t start a drag if user is pressing a button in the switcher
       if(e.target && e.target.closest && e.target.closest(".switcher")) return;
 
       pointerDown = true;
@@ -580,7 +591,6 @@
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
 
-      // capture for consistent move/up
       try{ wrap.setPointerCapture(e.pointerId); }catch{}
     }
     function onPointerMove(e){
@@ -603,7 +613,6 @@
       pointerDown = false;
 
       if(dragging){
-        // suppress clicks immediately after drag release
         suppressClickUntil = Date.now() + 350;
       }
       dragging = false;
@@ -618,7 +627,6 @@
     wrap.addEventListener("pointerup", onPointerUp, { passive:true });
     wrap.addEventListener("pointercancel", onPointerUp, { passive:true });
 
-    // prevent accidental navigation ONLY if we just dragged
     wrap.addEventListener("click", (e)=>{
       if(Date.now() < suppressClickUntil){
         e.preventDefault();
@@ -633,16 +641,30 @@
       return d;
     }
 
-    function pillStylesForClub(clubName){
-      const key = safeText(clubName).toLowerCase();
+    function clubColors(name){
+      const key = safeText(name).toLowerCase();
       const rec = clubsMetaMap.get(key);
       if(!rec) return null;
-      const bg = rec.primary || "#ffffff";
-      const fg = rec.secondary || "#111111";
+      const bg = rec.primary || null;
+      const fg = rec.secondary || null;
+      if(!bg || !fg) return null;
       return { bg, fg };
     }
 
-    function buildFixtureEl(fx, idx){
+    function buildTeamPill(teamName, resClass){
+      const pill = document.createElement("span");
+      pill.className = "teamPill " + (resClass || "");
+      pill.appendChild(makeLetters(toAllCaps(teamName)));
+
+      const col = clubColors(teamName);
+      if(col){
+        pill.style.background = col.bg;
+        pill.style.color = col.fg;
+      }
+      return pill;
+    }
+
+    function buildFixtureEl(fx){
       const parsed = parseScore(fx.score || "");
       let homeRes = "draw";
       let awayRes = "draw";
@@ -678,31 +700,22 @@
         hCrest.loading = "lazy";
         hCrest.decoding = "async";
         hCrest.onerror = ()=> hCrest.classList.add("missing");
+        hCrest.onload = scheduleRecompute;
       }else{
         hCrest.classList.add("missing");
       }
 
-      const hTeam = document.createElement("span");
-      hTeam.className = "team " + homeRes;
-      hTeam.appendChild(makeLetters(toAllCaps(fx.home)));
+      const hTeamPill = buildTeamPill(fx.home, homeRes);
 
       homeSide.appendChild(hCrest);
-      homeSide.appendChild(hTeam);
+      homeSide.appendChild(hTeamPill);
 
-      // Middle: score pill OR "V"
+      // Middle: score OR "V"
       let mid;
       if(isNumericScore(fx.score)){
         mid = document.createElement("span");
-        mid.className = "pill";
+        mid.className = "scorePill";
         mid.textContent = normalizeScore(fx.score);
-
-        // apply club colours if we have them (use home primary/secondary)
-        const st = pillStylesForClub(fx.home);
-        if(st){
-          mid.classList.add("club");
-          mid.style.background = st.bg;
-          mid.style.color = st.fg;
-        }
       }else{
         mid = document.createElement("span");
         mid.className = "vSep";
@@ -713,9 +726,7 @@
       const awaySide = document.createElement("span");
       awaySide.className = "side";
 
-      const aTeam = document.createElement("span");
-      aTeam.className = "team " + awayRes;
-      aTeam.appendChild(makeLetters(toAllCaps(fx.away)));
+      const aTeamPill = buildTeamPill(fx.away, awayRes);
 
       const aCrest = document.createElement("img");
       aCrest.className = "crest";
@@ -726,11 +737,12 @@
         aCrest.loading = "lazy";
         aCrest.decoding = "async";
         aCrest.onerror = ()=> aCrest.classList.add("missing");
+        aCrest.onload = scheduleRecompute;
       }else{
         aCrest.classList.add("missing");
       }
 
-      awaySide.appendChild(aTeam);
+      awaySide.appendChild(aTeamPill);
       awaySide.appendChild(aCrest);
 
       row.appendChild(homeSide);
@@ -756,23 +768,26 @@
       laneB.innerHTML = "";
 
       for(let i=0;i<items.length;i++){
-        laneA.appendChild(buildFixtureEl(items[i], i));
+        laneA.appendChild(buildFixtureEl(items[i]));
         laneA.appendChild(buildDividerEl());
       }
       for(let i=0;i<items.length;i++){
-        laneB.appendChild(buildFixtureEl(items[i], i));
+        laneB.appendChild(buildFixtureEl(items[i]));
         laneB.appendChild(buildDividerEl());
       }
 
       msg.style.display = items.length ? "none" : "block";
 
-      // keep previous offset if we have one; but ensure normalized once we know shift
-      requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
+      // recompute after paint + (likely) image decode/lazy loads
+      requestAnimationFrame(()=> requestAnimationFrame(()=> {
+        recomputeShift();
+        // one more delayed recompute to catch late image decode without thrash
+        scheduleRecompute();
+      }));
     }
 
     function triggerWave(){
-      // avoid costly queries if nothing to animate
-      const winners = root.querySelectorAll(".team.win");
+      const winners = root.querySelectorAll(".teamPill.win");
       if(!winners.length) return;
 
       winners.forEach(teamEl => {
@@ -781,7 +796,7 @@
       });
 
       wrap.classList.remove("wave");
-      void wrap.offsetWidth; // reflow once per wave
+      void wrap.offsetWidth;
       wrap.classList.add("wave");
 
       const maxLetters = Math.max(8, ...Array.from(winners).map(w => (w.querySelectorAll(".letter").length || 0)));
@@ -794,39 +809,26 @@
       return t >= +start && t <= +end;
     }
 
-    function nowFloor(){
-      const d = new Date();
-      return d;
-    }
-
     function buildWindow(){
-      const now = nowFloor();
+      const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0,0);
       const end = new Date(start);
       end.setDate(end.getDate() + opts.windowDays);
       const pastStart = new Date(start);
       pastStart.setDate(pastStart.getDate() - opts.windowDays);
-      return { now, start, end, pastStart };
-    }
-
-    function normalizeHeaders(row0){
-      return row0.map(h => safeText(h).toLowerCase());
-    }
-
-    function headerIndex(header, name){
-      return header.indexOf(name.toLowerCase());
+      return { start, end, pastStart };
     }
 
     function rowsFromCsv(csvText){
       const rows = parseCSV(csvText);
       if(!rows.length) return { error:"no rows" };
 
-      const header = normalizeHeaders(rows[0]);
-      const idxDT = headerIndex(header, "date & time");
-      const idxComp = headerIndex(header, "competition");
-      const idxHome = headerIndex(header, "home team");
-      const idxScore = headerIndex(header, "score");
-      const idxAway = headerIndex(header, "away team");
+      const header = rows[0].map(h => safeText(h).toLowerCase());
+      const idxDT = header.indexOf("date & time");
+      const idxComp = header.indexOf("competition");
+      const idxHome = header.indexOf("home team");
+      const idxScore = header.indexOf("score");
+      const idxAway = header.indexOf("away team");
 
       const missing = [];
       if(idxDT === -1) missing.push("Date & Time");
@@ -834,10 +836,7 @@
       if(idxHome === -1) missing.push("Home team");
       if(idxScore === -1) missing.push("Score");
       if(idxAway === -1) missing.push("Away team");
-
-      if(missing.length){
-        return { error:"missing columns: " + missing.join(", ") };
-      }
+      if(missing.length) return { error:"missing columns: " + missing.join(", ") };
 
       const out = [];
       for(let i=1;i<rows.length;i++){
@@ -859,12 +858,10 @@
           compRaw,
           home,
           away,
-          score: normalizeScore(scoreRaw),
-          scoreRaw: scoreRaw
+          score: normalizeScore(scoreRaw)
         });
       }
 
-      // stable sort by datetime then comp then home
       out.sort((a,b)=>{
         const ta = +a.dt, tb = +b.dt;
         if(ta !== tb) return ta - tb;
@@ -878,36 +875,23 @@
 
     function selectItems(all){
       const { start, end, pastStart } = buildWindow();
-
       const isRes = (r)=> isNumericScore(r.score);
       const isFix = (r)=> !isNumericScore(r.score);
 
       let picked;
-
       if(mode === "fixtures"){
-        // next 7 days incl today: only fixtures (no numeric score)
         picked = all.filter(r => withinDays(r.dt, start, end) && isFix(r));
       }else{
-        // past 7 days incl today: only results (numeric score)
         picked = all.filter(r => withinDays(r.dt, pastStart, end) && isRes(r));
       }
 
-      // cap
       if(picked.length > opts.maxItems) picked = picked.slice(0, opts.maxItems);
 
-      // decorate meta text
-      const decorated = picked.map(r=>{
+      return picked.map(r=>{
         const label = compLabel(r.compRaw);
         const metaText = `${fmtDateLong(r.dt)} • ${label} • ${fmtTime(r.dt)}`;
-        return {
-          metaText,
-          home: r.home,
-          away: r.away,
-          score: r.score
-        };
+        return { metaText, home:r.home, away:r.away, score:r.score };
       });
-
-      return decorated;
     }
 
     async function loadClubsMeta(){
@@ -924,7 +908,6 @@
         }
         clubsMetaMap = map;
       }catch(e){
-        // ok to fail; we just fall back to default pill styling
         console.warn("[ResultsTicker " + VERSION + "] clubs-meta load failed", e);
         clubsMetaMap = new Map();
       }
@@ -935,9 +918,7 @@
         msg.style.display = "block";
         msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> loading…`;
 
-        // fetch both concurrently on first refresh
         if(!clubsMetaMap || clubsMetaMap.size === 0){
-          // fire-and-forget but await once so first render can use colours
           await loadClubsMeta();
         }
 
@@ -954,7 +935,6 @@
         }
 
         const list = selectItems(parsed.rows);
-
         if(!list.length){
           msg.style.display = "block";
           msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> no matches in the last/next ${opts.windowDays} days.`;
@@ -969,29 +949,29 @@
       }
     }
 
-    // Resize observer for recompute
+    // Resize observer
     try{
-      ro = new ResizeObserver(()=> recomputeShift());
+      ro = new ResizeObserver(()=> scheduleRecompute());
       ro.observe(wrap);
     }catch{}
 
-    // persist offset periodically (so “begin where left off” even if no pointer up)
+    // Persist offset periodically
     saveTimer = window.setInterval(()=>{
       stateSave(opts.persistKey, { mode, offsetPx });
     }, 1200);
 
-    // wave loop
+    // Wave loop
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
-    // refresh loop
+    // Refresh loop
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
 
-    // initial mode reflect UI
+    // initial UI
     btnFixtures.setAttribute("aria-pressed", mode==="fixtures" ? "true" : "false");
     btnResults.setAttribute("aria-pressed", mode==="results" ? "true" : "false");
 
-    // apply initial transform (before first recompute)
+    // initial transform + go
     setTransform();
     startAnim();
 
@@ -1004,6 +984,11 @@
         if(ro) ro.disconnect();
       }
     };
+  }
+
+  function compLabel(raw){
+    const t = safeText(raw);
+    return COMP_MAP[t] || t || "—";
   }
 
   function boot(){
