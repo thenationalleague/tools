@@ -1,22 +1,25 @@
-/* Results Ticker Widget (v1.34) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.35) — Shadow DOM isolated embed
    - Feed: Google Sheets published CSV (CORS-friendly)
-   - NEW SHEET COLS: Date & Time | MD | Competition | Home team | Score | Away team
-   - ONLY MOST RECENT SET: filters to latest Date & Time in feed
-   - Sticky label (top-left): Competition + date, updates as belt scrolls
    - Crests Home & Away
    - Divider BETWEEN fixtures (vertical line)
    - Winner wave/jump effect (letters) every N ms
    - Seamless loop + JS scroll + pointer drag scrub
+   - v1.35 changes:
+     * NEW sheet columns (header-based): Date & Time | MD | Competition | Home team | Score | Away team
+     * Only renders MOST RECENT DATE (latest day in sheet)
+     * Sticky top-left label (Competition + Date) that updates as items scroll
+     * If Score is not a real score (e.g. no "3-2"), render "v" instead
+     * Fix layout so sticky label does NOT overlap ticker content
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.34";
+  const VERSION = "v1.35";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
     maxItems: 60,
-    height: 64,              // px
+    height: 86,              // px (bumped default to accommodate sticky label nicely)
     speed: 80,               // px/sec
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
@@ -34,7 +37,7 @@
     waveEveryMs: 10000,      // trigger interval
     waveStaggerMs: 35,       // per-letter delay
     waveDurMs: 520,          // per-letter animation duration
-    stickyLabel: true        // show top-left label
+    stickyLabel: true        // show comp/date label locked top-left
   };
 
   const TEAMS = [
@@ -83,6 +86,14 @@
   --div-h:${opts.dividerH}px;
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
+
+  /* Sticky label bar */
+  --label-h:${opts.stickyLabel ? 22 : 0}px;
+  --label-pad-x:10px;
+  --label-pad-y:8px;
+  --label-bg:rgba(255,255,255,.92);
+  --label-border:rgba(0,0,0,.10);
+  --label-shadow:0 1px 0 rgba(0,0,0,.03);
 }
 
 *{ box-sizing:border-box; }
@@ -91,8 +102,6 @@
   height:var(--h);
   background:var(--bg);
   overflow:hidden;
-  display:flex;
-  align-items:center;
   position:relative;
   border-radius:10px;
   touch-action: pan-y;
@@ -119,41 +128,47 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
-/* Sticky label (top-left) */
-.sticky{
+/* Sticky label bar (does not overlap belt area) */
+.labelBar{
   position:absolute;
-  top:8px;
-  left:10px;
-  z-index:4;
-  display:flex;
-  gap:8px;
+  left:0;
+  top:0;
+  height:var(--label-h);
+  display:${opts.stickyLabel ? "flex" : "none"};
   align-items:center;
-  pointer-events:none;
+  z-index:4;
+  padding:0 var(--label-pad-x);
+  gap:8px;
 }
-.badge{
+.labelPill{
   display:inline-flex;
   align-items:center;
-  gap:8px;
-  padding:6px 10px;
+  max-width: calc(100vw - 40px);
+  height: calc(var(--label-h) - 6px);
+  padding:0 10px;
+  border:1px solid var(--label-border);
+  background:var(--label-bg);
   border-radius:999px;
-  border:1px solid rgba(0,0,0,0.12);
-  background:rgba(255,255,255,0.92);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  box-shadow:0 1px 0 rgba(0,0,0,0.03);
+  box-shadow: var(--label-shadow);
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:800;
   font-size:12px;
-  letter-spacing:.02em;
-  text-transform:uppercase;
   color:#111;
+  letter-spacing:.02em;
   white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
-.badge .dot{
-  width:6px; height:6px;
-  border-radius:999px;
-  background:var(--brand-red);
-  display:inline-block;
+
+/* belt area sits below label bar */
+.beltArea{
+  position:absolute;
+  left:0; right:0;
+  top:var(--label-h);
+  bottom:0;
+  display:flex;
+  align-items:center;
+  overflow:hidden;
 }
 
 .belt{
@@ -219,6 +234,9 @@
   color:var(--text);
   line-height:1;
 }
+.scorePill.vs{
+  min-width:40px;
+}
 
 /* Divider BETWEEN fixtures */
 .divider{
@@ -256,11 +274,16 @@
 
 /* Status/error text */
 .msg{
+  position:absolute;
+  left:0;
+  top:50%;
+  transform:translateY(-50%);
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
   color:#111;
   padding:0 14px;
   white-space:nowrap;
+  z-index:5;
 }
 .msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
 `;
@@ -308,6 +331,10 @@
     return t.replace(/[–—]/g, "-").replace(/\s+/g,"").replace(/^(\d+)-(\d+)$/, "$1-$2");
   }
 
+  function isRealScore(score){
+    return /^(\d+)-(\d+)$/.test(score || "");
+  }
+
   function parseScore(score){
     const m = /^(\d+)-(\d+)$/.exec(score);
     if(!m) return null;
@@ -333,25 +360,33 @@
     return frag;
   }
 
-  function parseUKDateTimeToMs(dtStr){
-    // Expected: DD/MM/YYYY HH:MM (as in your sheet sample)
+  function parseUKDateTime(dtStr){
+    // Expected: DD/MM/YYYY HH:MM (24h)
     const s = safeText(dtStr);
     const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
-    if(!m) return NaN;
+    if(!m) return null;
     const dd = parseInt(m[1],10);
     const mm = parseInt(m[2],10);
     const yyyy = parseInt(m[3],10);
     const hh = parseInt(m[4],10);
     const mi = parseInt(m[5],10);
-    // Use UTC to avoid client TZ shifting
-    return Date.UTC(yyyy, mm-1, dd, hh, mi, 0, 0);
+    // Use local time to match UK expectations (not UTC)
+    return new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
   }
 
-  function formatUKDateOnlyFromMs(ms){
-    if(!Number.isFinite(ms)) return "";
-    const d = new Date(ms);
-    const pad2 = (n)=>String(n).padStart(2,"0");
-    return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
+  function dateKeyLocal(d){
+    if(!(d instanceof Date) || !Number.isFinite(+d)) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,"0");
+    const day = String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function dateDisplayFromKey(key){
+    // key: YYYY-MM-DD -> DD/MM/YYYY
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || "");
+    if(!m) return "";
+    return `${m[3]}/${m[2]}/${m[1]}`;
   }
 
   function makeWidget(hostEl){
@@ -373,6 +408,18 @@
     wrap.className = "wrap";
     wrap.setAttribute("role","region");
     wrap.setAttribute("aria-label","Results ticker");
+    wrap.style.setProperty("--wave-dur", opts.waveDurMs + "ms");
+
+    const labelBar = document.createElement("div");
+    labelBar.className = "labelBar";
+
+    const labelPill = document.createElement("div");
+    labelPill.className = "labelPill";
+    labelPill.textContent = "";
+    labelBar.appendChild(labelPill);
+
+    const beltArea = document.createElement("div");
+    beltArea.className = "beltArea";
 
     const belt = document.createElement("div");
     belt.className = "belt";
@@ -385,25 +432,17 @@
 
     belt.appendChild(laneA);
     belt.appendChild(laneB);
-    wrap.appendChild(belt);
+    beltArea.appendChild(belt);
 
-    // Sticky label
-    const sticky = document.createElement("div");
-    sticky.className = "sticky";
-    sticky.style.display = opts.stickyLabel ? "flex" : "none";
-
-    const badge = document.createElement("div");
-    badge.className = "badge";
-    badge.innerHTML = `<span class="dot" aria-hidden="true"></span><span class="txt">—</span>`;
-    sticky.appendChild(badge);
-    wrap.appendChild(sticky);
-
-    root.appendChild(wrap);
+    wrap.appendChild(labelBar);
+    wrap.appendChild(beltArea);
 
     const msg = document.createElement("div");
     msg.className = "msg";
     msg.innerHTML = `<strong>Results:</strong> loading…`;
     wrap.appendChild(msg);
+
+    root.appendChild(wrap);
 
     // Animation state
     let shiftPx = 0;
@@ -420,12 +459,11 @@
     let ro = null;
     let waveTimer = null;
 
-    // Sticky label update throttle
-    let lastStickyKey = "";
-    let lastStickyCheck = 0;
-
-    // expose CSS var for wave duration
-    wrap.style.setProperty("--wave-dur", opts.waveDurMs + "ms");
+    // Sticky label tracking
+    /** @type {{left:number, meta:string}[]} */
+    let fixtureOffsets = [];
+    let lastLabelMeta = "";
+    let labelThrottleTs = 0;
 
     function setTransform(){
       belt.style.transform = "translateX(" + offsetPx + "px)";
@@ -436,48 +474,34 @@
       while(offsetPx > 0) offsetPx -= shiftPx;
     }
 
-    function setStickyLabel(comp, ms){
-      const dateOnly = formatUKDateOnlyFromMs(ms);
-      const txt = safeText(comp) ? `${safeText(comp)} • ${dateOnly}` : (dateOnly || "—");
-      const el = badge.querySelector(".txt");
-      if(el) el.textContent = txt;
-    }
-
-    function updateStickyLabel(){
+    function updateStickyLabel(ts){
       if(!opts.stickyLabel) return;
-      const now = performance.now();
-      if(now - lastStickyCheck < 120) return; // throttle
-      lastStickyCheck = now;
+      if(!shiftPx || !fixtureOffsets.length) return;
 
-      const fixtures = root.querySelectorAll(".fixture");
-      if(!fixtures.length) return;
+      if(ts && (ts - labelThrottleTs) < 180) return;
+      labelThrottleTs = ts || performance.now();
 
-      const wrapRect = wrap.getBoundingClientRect();
-      let best = null;
-      let bestLeft = Infinity;
+      // Current position within laneA
+      let pos = (-offsetPx) % shiftPx;
+      if(pos < 0) pos += shiftPx;
 
-      for(const fx of fixtures){
-        const r = fx.getBoundingClientRect();
-        // we want the fixture whose left edge is closest to the wrap's left, but still visible
-        if(r.right <= wrapRect.left + 2) continue;  // fully left/out
-        if(r.left >= wrapRect.right) continue;      // fully right/out
-        const dist = Math.abs(r.left - wrapRect.left);
-        if(dist < bestLeft){
-          bestLeft = dist;
-          best = fx;
+      // Find last fixture whose left <= pos (binary search)
+      let lo = 0, hi = fixtureOffsets.length - 1, best = 0;
+      while(lo <= hi){
+        const mid = (lo + hi) >> 1;
+        if(fixtureOffsets[mid].left <= pos){
+          best = mid;
+          lo = mid + 1;
+        }else{
+          hi = mid - 1;
         }
       }
 
-      if(!best) return;
-      const key = best.getAttribute("data-groupkey") || "";
-      if(!key || key === lastStickyKey) return;
-
-      lastStickyKey = key;
-
-      const comp = best.getAttribute("data-comp") || "";
-      const msStr = best.getAttribute("data-ms") || "";
-      const ms = Number(msStr);
-      setStickyLabel(comp, ms);
+      const meta = fixtureOffsets[best]?.meta || "";
+      if(meta && meta !== lastLabelMeta){
+        lastLabelMeta = meta;
+        labelPill.textContent = meta;
+      }
     }
 
     function tick(ts){
@@ -489,9 +513,9 @@
         offsetPx -= (opts.speed * dt);
         normalizeOffset();
         setTransform();
+        updateStickyLabel(ts);
       }
 
-      updateStickyLabel();
       rafId = requestAnimationFrame(tick);
     }
 
@@ -514,7 +538,7 @@
       offsetPx = dragStartOffset + dx;
       normalizeOffset();
       setTransform();
-      updateStickyLabel();
+      updateStickyLabel(performance.now());
     }
     function onPointerUp(e){
       if(!dragging) return;
@@ -537,7 +561,10 @@
 
     function buildFixtureEl(fx, idx){
       const alt = (idx % 2 === 1);
-      const parsed = parseScore(fx.score);
+
+      const scoreNorm = normalizeScore(fx.score || "");
+      const hasScore = isRealScore(scoreNorm);
+      const parsed = hasScore ? parseScore(scoreNorm) : null;
 
       let homeRes = "draw";
       let awayRes = "draw";
@@ -548,11 +575,7 @@
 
       const wrapFx = document.createElement("span");
       wrapFx.className = "fixture";
-
-      // data for sticky label
-      wrapFx.setAttribute("data-comp", safeText(fx.comp));
-      wrapFx.setAttribute("data-ms", String(fx.ms));
-      wrapFx.setAttribute("data-groupkey", fx.groupKey);
+      wrapFx.dataset.meta = fx.meta || "";
 
       // Home side (crest then name)
       const homeSide = document.createElement("span");
@@ -577,8 +600,8 @@
       homeSide.appendChild(hTeam);
 
       const score = document.createElement("span");
-      score.className = "scorePill";
-      score.textContent = fx.score;
+      score.className = "scorePill" + (hasScore ? "" : " vs");
+      score.textContent = hasScore ? scoreNorm : "v";
 
       // Away side (name then crest)
       const awaySide = document.createElement("span");
@@ -613,7 +636,26 @@
       shiftPx = laneA.scrollWidth || 0;
       normalizeOffset();
       setTransform();
-      updateStickyLabel();
+
+      // recompute offsets for sticky label (laneA only)
+      fixtureOffsets = [];
+      const fxEls = laneA.querySelectorAll(".fixture");
+      fxEls.forEach(el => {
+        fixtureOffsets.push({
+          left: el.offsetLeft || 0,
+          meta: el.dataset.meta || ""
+        });
+      });
+      fixtureOffsets.sort((a,b)=>a.left-b.left);
+
+      // set initial label
+      if(opts.stickyLabel && fixtureOffsets.length){
+        const m = fixtureOffsets[0].meta || "";
+        lastLabelMeta = m;
+        labelPill.textContent = m;
+      }
+
+      updateStickyLabel(performance.now());
     }
 
     function render(fixtures){
@@ -631,13 +673,6 @@
       });
 
       msg.style.display = (fixtures.length ? "none" : "block");
-
-      // set initial sticky label from first fixture
-      lastStickyKey = "";
-      if(fixtures.length && opts.stickyLabel){
-        setStickyLabel(fixtures[0].comp, fixtures[0].ms);
-        lastStickyKey = fixtures[0].groupKey;
-      }
 
       offsetPx = 0;
       setTransform();
@@ -696,7 +731,6 @@
           ["Score", idxScore],
           ["Away team", idxAway]
         ];
-
         const missing = needed.filter(([,i]) => i === -1).map(([n]) => n);
         if(missing.length){
           msg.style.display = "block";
@@ -705,75 +739,74 @@
           return;
         }
 
-        // First pass: find latest ms among valid rows
-        let latestMs = NaN;
+        // collect candidates + compute most recent DATE (day)
+        const candidates = [];
+        let latestKey = "";
+
         for(let i=1; i<rows.length; i++){
           const r = rows[i];
           if(!r || !r.length) continue;
 
           const dtRaw = safeText(r[idxDateTime]);
-          const home = safeText(r[idxHome]);
-          const away = safeText(r[idxAway]);
+          const comp  = safeText(r[idxComp]);
+          const home  = safeText(r[idxHome]);
           const scoreRaw = safeText(r[idxScore]);
-          const score = normalizeScore(scoreRaw);
+          const away  = safeText(r[idxAway]);
 
-          if(!dtRaw || !home || !away || !score) continue;
-          const ms = parseUKDateTimeToMs(dtRaw);
-          if(!Number.isFinite(ms)) continue;
+          if(!dtRaw && !home && !away) continue;
+          if(!home || !away) continue;
 
-          if(!Number.isFinite(latestMs) || ms > latestMs) latestMs = ms;
+          const dt = parseUKDateTime(dtRaw);
+          const key = dt ? dateKeyLocal(dt) : "";
+          if(key && (!latestKey || key > latestKey)) latestKey = key;
+
+          candidates.push({
+            dtRaw,
+            dt,
+            key,
+            md: safeText(r[idxMD]),
+            comp,
+            home,
+            score: scoreRaw,
+            away
+          });
         }
 
-        if(!Number.isFinite(latestMs)){
+        if(!latestKey){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no valid rows found.`;
+          msg.innerHTML = `<strong>Results:</strong> no valid Date & Time values found.`;
           render([]);
           return;
         }
 
-        // Second pass: collect only rows with latestMs
+        // filter to most recent date (day)
+        const latestDayRows = candidates.filter(x => x.key === latestKey);
+
+        // Sort within the latest day so it’s stable/nice
+        latestDayRows.sort((a,b)=>{
+          const ca = a.comp || "", cb = b.comp || "";
+          if(ca !== cb) return ca.localeCompare(cb);
+          const ha = a.home || "", hb = b.home || "";
+          return ha.localeCompare(hb);
+        });
+
+        const dateDisp = dateDisplayFromKey(latestKey);
+
         const out = [];
-        for(let i=1; i<rows.length; i++){
-          const r = rows[i];
-          if(!r || !r.length) continue;
-
-          const dtRaw = safeText(r[idxDateTime]);
-          const ms = parseUKDateTimeToMs(dtRaw);
-          if(ms !== latestMs) continue;
-
-          const comp = safeText(r[idxComp]);
-          const home = safeText(r[idxHome]);
-          const away = safeText(r[idxAway]);
-
-          const scoreRaw = safeText(r[idxScore]);
-          const score = normalizeScore(scoreRaw);
-
-          if(!home || !away || !score) continue;
-
-          const groupKey = `${safeText(comp).toLowerCase()}|${String(latestMs)}`;
-          out.push({ home, away, score, comp, ms: latestMs, groupKey });
+        for(const x of latestDayRows){
+          const meta = (x.comp ? x.comp : "—") + " • " + (dateDisp || "—");
+          out.push({
+            home: x.home,
+            score: x.score,
+            away: x.away,
+            meta
+          });
           if(out.length >= opts.maxItems) break;
         }
 
         if(out.length === 0){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no rows matched the latest set.`;
-          render([]);
-          return;
-        }
-
-        // Sort within the latest set: comp then home
-        out.sort((a,b)=>{
-          const ca = safeText(a.comp).toLowerCase();
-          const cb = safeText(b.comp).toLowerCase();
-          if(ca !== cb) return ca.localeCompare(cb);
-          return safeText(a.home).toLowerCase().localeCompare(safeText(b.home).toLowerCase());
-        });
-
-        // Prime sticky label to that latest set (competition may vary within set)
-        if(opts.stickyLabel){
-          setStickyLabel(out[0].comp, out[0].ms);
-          lastStickyKey = out[0].groupKey;
+          msg.innerHTML = `<strong>Results:</strong> no valid rows found for latest date.`;
         }
 
         render(out);
@@ -793,6 +826,7 @@
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
 
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
+
     startAnim();
 
     return {
@@ -812,7 +846,7 @@
     if(d.csv) opts.csv = d.csv;
 
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
+    if(d.height) opts.height = clampInt(d.height, 30, 200, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
@@ -835,8 +869,9 @@
     if(d.pillBg) opts.pillBg = d.pillBg;
     if(d.pillBorder) opts.pillBorder = d.pillBorder;
 
+    // sticky label toggle
     if(typeof d.stickyLabel !== "undefined"){
-      const v = String(d.stickyLabel).toLowerCase();
+      const v = String(d.stickyLabel).trim().toLowerCase();
       opts.stickyLabel = !(v === "0" || v === "false" || v === "no");
     }
 
