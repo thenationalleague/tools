@@ -1,29 +1,30 @@
-/* Results Ticker Widget (v1.35) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.36) — Shadow DOM isolated embed
    - Feed: Google Sheets published CSV (CORS-friendly)
    - Crests Home & Away
    - Divider BETWEEN fixtures (vertical line)
-   - Winner wave/jump effect (letters) every N ms
+   - Winner wave/jump effect (letters) every N ms (results only)
    - Seamless loop + JS scroll + pointer drag scrub
-   - v1.35 changes:
-     * NEW sheet columns (header-based): Date & Time | MD | Competition | Home team | Score | Away team
-     * Only renders MOST RECENT DATE (latest day in sheet)
-     * Sticky top-left label (Competition + Date) that updates as items scroll
-     * If Score is not a real score (e.g. no "3-2"), render "v" instead
-     * Fix layout so sticky label does NOT overlap ticker content
+   - Sticky top bar: (Competition + Date) + Fixtures/Results switcher
+   - Filters:
+     * Fixtures: next 7 days; include today only if no real score yet
+     * Results: past 7 days; include today if real score exists
+   - Persists mode + scroll position across reload
+   - Entire fixture clickable to Match Hub (new tab)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.35";
+  const VERSION = "v1.36";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
-    maxItems: 60,
-    height: 86,              // px (bumped default to accommodate sticky label nicely)
+    maxItems: 120,
+    height: 92,              // px (room for top bar)
     speed: 80,               // px/sec
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
+    hubUrl: "https://www.thenationalleague.org.uk/match-hub/",
     bg: "#ffffff",
     red: "#9e0000",
     blue: "#223b7c",
@@ -37,7 +38,15 @@
     waveEveryMs: 10000,      // trigger interval
     waveStaggerMs: 35,       // per-letter delay
     waveDurMs: 520,          // per-letter animation duration
-    stickyLabel: true        // show comp/date label locked top-left
+    stickyLabel: true,
+    defaultMode: "results"   // "results" | "fixtures"
+  };
+
+  const COMP_MAP = {
+    "national": "Enterprise National League",
+    "north": "Enterprise National League North",
+    "south": "Enterprise National League South",
+    "nl cup": "National League Cup"
   };
 
   const TEAMS = [
@@ -70,6 +79,83 @@
     return encodeURI(opts.crestBase + t + ".png");
   }
 
+  function displayCompetition(raw){
+    const key = safeText(raw).toLowerCase();
+    return COMP_MAP[key] || safeText(raw) || "—";
+  }
+
+  function normalizeScore(s){
+    const t = safeText(s);
+    if(!t) return "";
+    return t.replace(/[–—]/g, "-").replace(/\s+/g,"").replace(/^(\d+)-(\d+)$/, "$1-$2");
+  }
+  function isRealScore(score){
+    return /^(\d+)-(\d+)$/.test(score || "");
+  }
+  function parseScore(score){
+    const m = /^(\d+)-(\d+)$/.exec(score);
+    if(!m) return null;
+    return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
+  }
+
+  function parseUKDateTime(dtStr){
+    // Expected: DD/MM/YYYY HH:MM (24h)
+    const s = safeText(dtStr);
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
+    if(!m) return null;
+    const dd = parseInt(m[1],10);
+    const mm = parseInt(m[2],10);
+    const yyyy = parseInt(m[3],10);
+    const hh = parseInt(m[4],10);
+    const mi = parseInt(m[5],10);
+    return new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
+  }
+
+  function startOfDay(d){
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0);
+  }
+  function endOfDay(d){
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59,999);
+  }
+  function addDays(d, n){
+    const x = new Date(d);
+    x.setDate(x.getDate() + n);
+    return x;
+  }
+
+  function formatLabelDate(d){
+    // ddd, d mmm yyyy (en-GB)
+    try{
+      const fmt = new Intl.DateTimeFormat("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+      });
+      // "Sat, 9 Aug 2025" already in desired shape
+      return fmt.format(d);
+    }catch{
+      // fallback
+      const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+      const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
+      return `${wd}, ${d.getDate()} ${mon} ${d.getFullYear()}`;
+    }
+  }
+
+  function makeLetters(text){
+    const frag = document.createDocumentFragment();
+    const str = String(text || "");
+    for(let i=0;i<str.length;i++){
+      const ch = str[i];
+      const span = document.createElement("span");
+      span.className = "letter";
+      if(ch === " ") span.innerHTML = "&nbsp;";
+      else span.textContent = ch;
+      frag.appendChild(span);
+    }
+    return frag;
+  }
+
   function cssFor(opts){
     return `
 :host{
@@ -82,18 +168,16 @@
   --divider:${opts.dividerColor};
   --h:${opts.height}px;
   --crest:30px;
-  --gap:0px; /* we control spacing via divider pads now */
+  --gap:0px;
   --div-h:${opts.dividerH}px;
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
 
-  /* Sticky label bar */
-  --label-h:${opts.stickyLabel ? 22 : 0}px;
-  --label-pad-x:10px;
-  --label-pad-y:8px;
-  --label-bg:rgba(255,255,255,.92);
-  --label-border:rgba(0,0,0,.10);
-  --label-shadow:0 1px 0 rgba(0,0,0,.03);
+  --bar-h:${opts.stickyLabel ? 30 : 0}px;
+  --bar-pad-x:10px;
+  --bar-bg:rgba(255,255,255,.94);
+  --bar-border:rgba(0,0,0,.10);
+  --bar-shadow:0 1px 0 rgba(0,0,0,.03);
 }
 
 *{ box-sizing:border-box; }
@@ -128,28 +212,31 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
-/* Sticky label bar (does not overlap belt area) */
-.labelBar{
+/* Top bar: label left, switcher right */
+.bar{
   position:absolute;
-  left:0;
+  left:0; right:0;
   top:0;
-  height:var(--label-h);
+  height:var(--bar-h);
   display:${opts.stickyLabel ? "flex" : "none"};
   align-items:center;
-  z-index:4;
-  padding:0 var(--label-pad-x);
-  gap:8px;
+  justify-content:space-between;
+  gap:10px;
+  padding:0 var(--bar-pad-x);
+  z-index:6;
+  pointer-events:auto;
 }
+
 .labelPill{
   display:inline-flex;
   align-items:center;
-  max-width: calc(100vw - 40px);
-  height: calc(var(--label-h) - 6px);
+  max-width: calc(100% - 170px);
+  height: calc(var(--bar-h) - 8px);
   padding:0 10px;
-  border:1px solid var(--label-border);
-  background:var(--label-bg);
+  border:1px solid var(--bar-border);
+  background:var(--bar-bg);
   border-radius:999px;
-  box-shadow: var(--label-shadow);
+  box-shadow: var(--bar-shadow);
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:800;
   font-size:12px;
@@ -160,11 +247,41 @@
   text-overflow:ellipsis;
 }
 
-/* belt area sits below label bar */
+.switch{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid var(--bar-border);
+  background:var(--bar-bg);
+  border-radius:999px;
+  overflow:hidden;
+  box-shadow: var(--bar-shadow);
+}
+.switch button{
+  appearance:none;
+  border:0;
+  background:transparent;
+  padding:6px 10px;
+  cursor:pointer;
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:800;
+  font-size:12px;
+  color:#111;
+  letter-spacing:.02em;
+}
+.switch button[aria-pressed="true"]{
+  background:#111;
+  color:#fff;
+}
+.switch button:focus{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(158,0,0,.16);
+}
+
+/* belt area sits below bar */
 .beltArea{
   position:absolute;
   left:0; right:0;
-  top:var(--label-h);
+  top:var(--bar-h);
   bottom:0;
   display:flex;
   align-items:center;
@@ -185,11 +302,19 @@
   gap:var(--gap);
 }
 
-.fixture{
+/* Entire fixture is a link */
+.fxLink{
   display:inline-flex;
   align-items:center;
   gap:14px;
   padding:0 var(--div-pad);
+  text-decoration:none;
+  color:inherit;
+}
+.fxLink:focus{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(158,0,0,.16);
+  border-radius:10px;
 }
 
 .side{
@@ -234,9 +359,7 @@
   color:var(--text);
   line-height:1;
 }
-.scorePill.vs{
-  min-width:40px;
-}
+.scorePill.vs{ min-width:40px; }
 
 /* Divider BETWEEN fixtures */
 .divider{
@@ -247,13 +370,12 @@
   opacity:1;
 }
 
-/* ===== Winner wave letters ===== */
+/* Winner wave letters */
 .letter{
   display:inline-block;
   transform:translateY(0);
   will-change:transform, filter;
 }
-
 @keyframes waveJump{
   0%   { transform:translateY(0); filter:brightness(1); }
   18%  { transform:translateY(-7px); filter:brightness(1.35); }
@@ -261,8 +383,6 @@
   60%  { transform:translateY(-3px); filter:brightness(1.22); }
   100% { transform:translateY(0); filter:brightness(1); }
 }
-
-/* When .wave is on the wrap, animate only winning letters */
 .wrap.wave .team.win .letter{
   animation-name: waveJump;
   animation-duration: var(--wave-dur, 520ms);
@@ -283,7 +403,7 @@
   color:#111;
   padding:0 14px;
   white-space:nowrap;
-  z-index:5;
+  z-index:7;
 }
 .msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
 `;
@@ -325,68 +445,28 @@
     return out.map(r => r.map(c => safeText(c)));
   }
 
-  function normalizeScore(s){
-    const t = safeText(s);
-    if(!t) return "";
-    return t.replace(/[–—]/g, "-").replace(/\s+/g,"").replace(/^(\d+)-(\d+)$/, "$1-$2");
+  function storageKey(opts, hostEl){
+    const id = (hostEl && hostEl.id) ? hostEl.id : "";
+    const base = safeText(opts.csv) || "csv";
+    return "nl_results_ticker_state::" + base + "::" + id;
   }
 
-  function isRealScore(score){
-    return /^(\d+)-(\d+)$/.test(score || "");
-  }
-
-  function parseScore(score){
-    const m = /^(\d+)-(\d+)$/.exec(score);
-    if(!m) return null;
-    return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
-  }
-
-  function makeLetters(text){
-    const frag = document.createDocumentFragment();
-    const str = String(text || "");
-
-    for(let i=0;i<str.length;i++){
-      const ch = str[i];
-      const span = document.createElement("span");
-      span.className = "letter";
-
-      if(ch === " "){
-        span.innerHTML = "&nbsp;";
-      }else{
-        span.textContent = ch;
-      }
-      frag.appendChild(span);
+  function readStoredState(key){
+    try{
+      const raw = localStorage.getItem(key);
+      if(!raw) return null;
+      const obj = JSON.parse(raw);
+      if(!obj || typeof obj !== "object") return null;
+      return obj;
+    }catch{
+      return null;
     }
-    return frag;
   }
 
-  function parseUKDateTime(dtStr){
-    // Expected: DD/MM/YYYY HH:MM (24h)
-    const s = safeText(dtStr);
-    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
-    if(!m) return null;
-    const dd = parseInt(m[1],10);
-    const mm = parseInt(m[2],10);
-    const yyyy = parseInt(m[3],10);
-    const hh = parseInt(m[4],10);
-    const mi = parseInt(m[5],10);
-    // Use local time to match UK expectations (not UTC)
-    return new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
-  }
-
-  function dateKeyLocal(d){
-    if(!(d instanceof Date) || !Number.isFinite(+d)) return "";
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,"0");
-    const day = String(d.getDate()).padStart(2,"0");
-    return `${y}-${m}-${day}`;
-  }
-
-  function dateDisplayFromKey(key){
-    // key: YYYY-MM-DD -> DD/MM/YYYY
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || "");
-    if(!m) return "";
-    return `${m[3]}/${m[2]}/${m[1]}`;
+  function writeStoredState(key, state){
+    try{
+      localStorage.setItem(key, JSON.stringify(state));
+    }catch{}
   }
 
   function makeWidget(hostEl){
@@ -410,13 +490,31 @@
     wrap.setAttribute("aria-label","Results ticker");
     wrap.style.setProperty("--wave-dur", opts.waveDurMs + "ms");
 
-    const labelBar = document.createElement("div");
-    labelBar.className = "labelBar";
+    const bar = document.createElement("div");
+    bar.className = "bar";
 
     const labelPill = document.createElement("div");
     labelPill.className = "labelPill";
     labelPill.textContent = "";
-    labelBar.appendChild(labelPill);
+    bar.appendChild(labelPill);
+
+    const sw = document.createElement("div");
+    sw.className = "switch";
+
+    const btnFixtures = document.createElement("button");
+    btnFixtures.type = "button";
+    btnFixtures.textContent = "Fixtures";
+    btnFixtures.setAttribute("aria-pressed", "false");
+
+    const btnResults = document.createElement("button");
+    btnResults.type = "button";
+    btnResults.textContent = "Results";
+    btnResults.setAttribute("aria-pressed", "true");
+
+    sw.appendChild(btnFixtures);
+    sw.appendChild(btnResults);
+
+    bar.appendChild(sw);
 
     const beltArea = document.createElement("div");
     beltArea.className = "beltArea";
@@ -434,15 +532,17 @@
     belt.appendChild(laneB);
     beltArea.appendChild(belt);
 
-    wrap.appendChild(labelBar);
-    wrap.appendChild(beltArea);
-
     const msg = document.createElement("div");
     msg.className = "msg";
-    msg.innerHTML = `<strong>Results:</strong> loading…`;
-    wrap.appendChild(msg);
+    msg.innerHTML = `<strong>Loading…</strong>`;
 
+    wrap.appendChild(bar);
+    wrap.appendChild(beltArea);
+    wrap.appendChild(msg);
     root.appendChild(wrap);
+
+    // State
+    let mode = opts.defaultMode === "fixtures" ? "fixtures" : "results";
 
     // Animation state
     let shiftPx = 0;
@@ -460,10 +560,37 @@
     let waveTimer = null;
 
     // Sticky label tracking
-    /** @type {{left:number, meta:string}[]} */
     let fixtureOffsets = [];
     let lastLabelMeta = "";
     let labelThrottleTs = 0;
+
+    // Persistence
+    const stKey = storageKey(opts, hostEl);
+    const stored = readStoredState(stKey);
+    if(stored){
+      if(stored.mode === "fixtures" || stored.mode === "results") mode = stored.mode;
+      if(Number.isFinite(stored.offsetPx)) offsetPx = stored.offsetPx;
+    }
+
+    function setMode(next){
+      mode = (next === "fixtures") ? "fixtures" : "results";
+      btnFixtures.setAttribute("aria-pressed", mode === "fixtures" ? "true" : "false");
+      btnResults.setAttribute("aria-pressed", mode === "results" ? "true" : "false");
+      // wave only makes sense for results
+      if(mode === "fixtures"){
+        wrap.classList.remove("wave");
+      }
+      // Persist immediately
+      writeStoredState(stKey, { mode, offsetPx });
+      refresh();
+    }
+
+    btnFixtures.addEventListener("click", ()=> setMode("fixtures"));
+    btnResults.addEventListener("click", ()=> setMode("results"));
+
+    // Init button state
+    btnFixtures.setAttribute("aria-pressed", mode === "fixtures" ? "true" : "false");
+    btnResults.setAttribute("aria-pressed", mode === "results" ? "true" : "false");
 
     function setTransform(){
       belt.style.transform = "translateX(" + offsetPx + "px)";
@@ -481,11 +608,9 @@
       if(ts && (ts - labelThrottleTs) < 180) return;
       labelThrottleTs = ts || performance.now();
 
-      // Current position within laneA
       let pos = (-offsetPx) % shiftPx;
       if(pos < 0) pos += shiftPx;
 
-      // Find last fixture whose left <= pos (binary search)
       let lo = 0, hi = fixtureOffsets.length - 1, best = 0;
       while(lo <= hi){
         const mid = (lo + hi) >> 1;
@@ -539,12 +664,15 @@
       normalizeOffset();
       setTransform();
       updateStickyLabel(performance.now());
+      // Persist lightly during drag
+      writeStoredState(stKey, { mode, offsetPx });
     }
     function onPointerUp(e){
       if(!dragging) return;
       dragging = false;
       try{ wrap.releasePointerCapture(e.pointerId); }catch{}
       lastTs = performance.now();
+      writeStoredState(stKey, { mode, offsetPx });
     }
 
     wrap.addEventListener("pointerdown", onPointerDown);
@@ -573,11 +701,15 @@
         else if(parsed.h < parsed.a){ homeRes = "lose"; awayRes = "win"; }
       }
 
-      const wrapFx = document.createElement("span");
-      wrapFx.className = "fixture";
-      wrapFx.dataset.meta = fx.meta || "";
+      // Entire fixture is clickable to hub
+      const link = document.createElement("a");
+      link.className = "fxLink";
+      link.href = opts.hubUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.dataset.meta = fx.meta || "";
+      link.setAttribute("aria-label", "Open Match Hub");
 
-      // Home side (crest then name)
       const homeSide = document.createElement("span");
       homeSide.className = "side";
 
@@ -593,7 +725,7 @@
       }
 
       const hTeam = document.createElement("span");
-      hTeam.className = "team" + (alt ? " alt" : "") + " " + homeRes;
+      hTeam.className = "team" + (alt ? " alt" : "") + " " + (hasScore ? homeRes : "draw");
       hTeam.appendChild(makeLetters(teamTextForGraphic(fx.home) || toAllCaps(fx.home)));
 
       homeSide.appendChild(hCrest);
@@ -603,12 +735,11 @@
       score.className = "scorePill" + (hasScore ? "" : " vs");
       score.textContent = hasScore ? scoreNorm : "v";
 
-      // Away side (name then crest)
       const awaySide = document.createElement("span");
       awaySide.className = "side";
 
       const aTeam = document.createElement("span");
-      aTeam.className = "team" + (alt ? "" : " alt") + " " + awayRes;
+      aTeam.className = "team" + (alt ? "" : " alt") + " " + (hasScore ? awayRes : "draw");
       aTeam.appendChild(makeLetters(teamTextForGraphic(fx.away) || toAllCaps(fx.away)));
 
       const aCrest = document.createElement("img");
@@ -625,11 +756,11 @@
       awaySide.appendChild(aTeam);
       awaySide.appendChild(aCrest);
 
-      wrapFx.appendChild(homeSide);
-      wrapFx.appendChild(score);
-      wrapFx.appendChild(awaySide);
+      link.appendChild(homeSide);
+      link.appendChild(score);
+      link.appendChild(awaySide);
 
-      return wrapFx;
+      return link;
     }
 
     function recomputeShift(){
@@ -637,9 +768,8 @@
       normalizeOffset();
       setTransform();
 
-      // recompute offsets for sticky label (laneA only)
       fixtureOffsets = [];
-      const fxEls = laneA.querySelectorAll(".fixture");
+      const fxEls = laneA.querySelectorAll(".fxLink");
       fxEls.forEach(el => {
         fixtureOffsets.push({
           left: el.offsetLeft || 0,
@@ -648,7 +778,6 @@
       });
       fixtureOffsets.sort((a,b)=>a.left-b.left);
 
-      // set initial label
       if(opts.stickyLabel && fixtureOffsets.length){
         const m = fixtureOffsets[0].meta || "";
         lastLabelMeta = m;
@@ -656,6 +785,7 @@
       }
 
       updateStickyLabel(performance.now());
+      writeStoredState(stKey, { mode, offsetPx });
     }
 
     function render(fixtures){
@@ -674,12 +804,15 @@
 
       msg.style.display = (fixtures.length ? "none" : "block");
 
-      offsetPx = 0;
+      normalizeOffset();
       setTransform();
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
     function triggerWave(){
+      // Only on results mode
+      if(mode !== "results") return;
+
       const winners = root.querySelectorAll(".team.win");
       winners.forEach(teamEl => {
         const letters = teamEl.querySelectorAll(".letter");
@@ -697,10 +830,14 @@
       window.setTimeout(()=> wrap.classList.remove("wave"), totalMs);
     }
 
+    function windowNow(){
+      return new Date();
+    }
+
     async function refresh(){
       try{
         msg.style.display = "block";
-        msg.innerHTML = `<strong>Results:</strong> loading…`;
+        msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> loading…`;
 
         const res = await fetch(opts.csv, { cache:"no-store" });
         if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
@@ -709,7 +846,7 @@
         const rows = parseCSV(csvText);
         if(!rows.length){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no rows found.`;
+          msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> no rows found.`;
           render([]);
           return;
         }
@@ -717,7 +854,6 @@
         const header = rows[0].map(h => safeText(h).toLowerCase());
 
         const idxDateTime = header.indexOf("date & time");
-        const idxMD       = header.indexOf("md");
         const idxComp     = header.indexOf("competition");
         const idxHome     = header.indexOf("home team");
         const idxScore    = header.indexOf("score");
@@ -725,7 +861,6 @@
 
         const needed = [
           ["Date & Time", idxDateTime],
-          ["MD", idxMD],
           ["Competition", idxComp],
           ["Home team", idxHome],
           ["Score", idxScore],
@@ -734,86 +869,105 @@
         const missing = needed.filter(([,i]) => i === -1).map(([n]) => n);
         if(missing.length){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> missing columns: ${missing.join(", ")}.`;
+          msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> missing columns: ${missing.join(", ")}.`;
           render([]);
           return;
         }
 
-        // collect candidates + compute most recent DATE (day)
+        const now = windowNow();
+        const todayStart = startOfDay(now);
+        const todayEnd = endOfDay(now);
+
+        const fixturesEnd = endOfDay(addDays(now, 7));
+        const resultsStart = startOfDay(addDays(now, -7));
+
         const candidates = [];
-        let latestKey = "";
 
         for(let i=1; i<rows.length; i++){
           const r = rows[i];
           if(!r || !r.length) continue;
 
           const dtRaw = safeText(r[idxDateTime]);
-          const comp  = safeText(r[idxComp]);
-          const home  = safeText(r[idxHome]);
+          const compRaw = safeText(r[idxComp]);
+          const home = safeText(r[idxHome]);
           const scoreRaw = safeText(r[idxScore]);
-          const away  = safeText(r[idxAway]);
+          const away = safeText(r[idxAway]);
 
-          if(!dtRaw && !home && !away) continue;
           if(!home || !away) continue;
 
           const dt = parseUKDateTime(dtRaw);
-          const key = dt ? dateKeyLocal(dt) : "";
-          if(key && (!latestKey || key > latestKey)) latestKey = key;
+          if(!dt || !Number.isFinite(+dt)) continue;
+
+          const scoreNorm = normalizeScore(scoreRaw);
+          const hasScore = isRealScore(scoreNorm);
 
           candidates.push({
-            dtRaw,
             dt,
-            key,
-            md: safeText(r[idxMD]),
-            comp,
+            comp: displayCompetition(compRaw),
             home,
+            away,
             score: scoreRaw,
-            away
+            scoreNorm,
+            hasScore
           });
         }
 
-        if(!latestKey){
-          msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no valid Date & Time values found.`;
-          render([]);
-          return;
+        // Filter by mode window rules
+        let filtered = [];
+        if(mode === "fixtures"){
+          filtered = candidates.filter(x => {
+            const t = +x.dt;
+            const inNext7 = (t >= +todayStart && t <= +fixturesEnd);
+            if(!inNext7) return false;
+
+            // include today only if no score yet; future always allowed even if score is blank
+            const isToday = (t >= +todayStart && t <= +todayEnd);
+            if(isToday){
+              return !x.hasScore;
+            }
+            // future dates:
+            return !x.hasScore; // fixtures view should stay "no score"
+          });
+        }else{
+          filtered = candidates.filter(x => {
+            const t = +x.dt;
+            const inPast7 = (t >= +resultsStart && t <= +todayEnd);
+            if(!inPast7) return false;
+            // results require real score
+            return x.hasScore;
+          });
         }
 
-        // filter to most recent date (day)
-        const latestDayRows = candidates.filter(x => x.key === latestKey);
-
-        // Sort within the latest day so it’s stable/nice
-        latestDayRows.sort((a,b)=>{
-          const ca = a.comp || "", cb = b.comp || "";
-          if(ca !== cb) return ca.localeCompare(cb);
-          const ha = a.home || "", hb = b.home || "";
-          return ha.localeCompare(hb);
+        // Sort order:
+        // fixtures: soonest first; results: most recent first
+        filtered.sort((a,b)=>{
+          const ta = +a.dt, tb = +b.dt;
+          if(mode === "fixtures") return ta - tb;
+          return tb - ta;
         });
 
-        const dateDisp = dateDisplayFromKey(latestKey);
-
         const out = [];
-        for(const x of latestDayRows){
-          const meta = (x.comp ? x.comp : "—") + " • " + (dateDisp || "—");
+        for(const x of filtered){
+          const label = `${x.comp} • ${formatLabelDate(x.dt)}`;
           out.push({
             home: x.home,
             score: x.score,
             away: x.away,
-            meta
+            meta: label
           });
           if(out.length >= opts.maxItems) break;
         }
 
         if(out.length === 0){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no valid rows found for latest date.`;
+          msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> no matches in the last/next 7 days.`;
         }
 
         render(out);
       }catch(e){
         console.error("[ResultsTicker " + VERSION + "]", e);
         msg.style.display = "block";
-        msg.innerHTML = `<strong>Results:</strong> feed error (open console).`;
+        msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> feed error (open console).`;
       }
     }
 
@@ -827,6 +981,15 @@
 
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
+    // persist offset periodically
+    const persistTimer = window.setInterval(()=> {
+      writeStoredState(stKey, { mode, offsetPx });
+    }, 2500);
+
+    window.addEventListener("beforeunload", ()=> {
+      writeStoredState(stKey, { mode, offsetPx });
+    });
+
     startAnim();
 
     return {
@@ -834,6 +997,7 @@
         if(rafId) cancelAnimationFrame(rafId);
         if(refreshTimer) window.clearInterval(refreshTimer);
         if(waveTimer) window.clearInterval(waveTimer);
+        if(persistTimer) window.clearInterval(persistTimer);
         if(ro) ro.disconnect();
       }
     };
@@ -844,9 +1008,10 @@
     const opts = Object.assign({}, DEFAULTS);
 
     if(d.csv) opts.csv = d.csv;
+    if(d.hubUrl) opts.hubUrl = d.hubUrl;
 
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 30, 200, DEFAULTS.height);
+    if(d.height) opts.height = clampInt(d.height, 30, 220, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
@@ -869,10 +1034,14 @@
     if(d.pillBg) opts.pillBg = d.pillBg;
     if(d.pillBorder) opts.pillBorder = d.pillBorder;
 
-    // sticky label toggle
     if(typeof d.stickyLabel !== "undefined"){
       const v = String(d.stickyLabel).trim().toLowerCase();
       opts.stickyLabel = !(v === "0" || v === "false" || v === "no");
+    }
+
+    if(d.defaultMode){
+      const m = String(d.defaultMode).trim().toLowerCase();
+      opts.defaultMode = (m === "fixtures") ? "fixtures" : "results";
     }
 
     return opts;
