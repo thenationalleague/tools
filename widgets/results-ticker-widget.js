@@ -1,37 +1,39 @@
-/* Results/Fixtures Ticker Widget (v1.37) — Shadow DOM isolated embed
-   v1.37 changes:
-   - Date/time + competition now shown PER FIXTURE (small superscript line above each game)
-   - No longer pinned/locked on the left
-   - Fixtures/Results switcher fixed (buttons don’t get hijacked by drag/pointer scrub)
-   - Links open in new window (entire fixture is a link)
+/* Results/Fixtures Ticker Widget (v1.38) — Shadow DOM isolated embed
+   v1.38 changes:
+   - Derive club colours from clubs-meta.json (primary bg, secondary text) for team pills
+   - Fetch & cache clubs meta alongside results CSV
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.37";
+  const VERSION = "v1.38";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
+    clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
     maxItems: 140,
-    height: 106,             // px (room for per-fixture meta + switcher)
+    height: 106,             // px
     speed: 80,               // px/sec
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
     hubUrl: "https://www.thenationalleague.org.uk/match-hub/",
     bg: "#ffffff",
+
+    // fallback colours (if club not found)
     red: "#9e0000",
     blue: "#223b7c",
+
     text: "#111111",
     pillBg: "#ffffff",
     pillBorder: "#000000",
     dividerColor: "#000000",
-    dividerH: 34,            // px height of divider line (taller for new layout)
-    dividerW: 2,             // px width of divider line
-    dividerPad: 18,          // px padding either side
-    waveEveryMs: 10000,      // trigger interval
-    waveStaggerMs: 35,       // per-letter delay
-    waveDurMs: 520,          // per-letter animation duration
+    dividerH: 34,
+    dividerW: 2,
+    dividerPad: 18,
+    waveEveryMs: 10000,
+    waveStaggerMs: 35,
+    waveDurMs: 520,
     defaultMode: "results"   // "results" | "fixtures"
   };
 
@@ -92,7 +94,6 @@
   }
 
   function parseUKDateTime(dtStr){
-    // Expected: DD/MM/YYYY HH:MM (24h)
     const s = safeText(dtStr);
     const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
     if(!m) return null;
@@ -144,10 +145,12 @@
   function cssFor(opts){
     return `
 :host{
-  --brand-red:${opts.red};
-  --brand-blue:${opts.blue};
   --bg:${opts.bg};
   --text:${opts.text};
+
+  --fallback-red:${opts.red};
+  --fallback-blue:${opts.blue};
+
   --pill-bg:${opts.pillBg};
   --pill-border:${opts.pillBorder};
   --divider:${opts.dividerColor};
@@ -266,8 +269,7 @@
   gap:var(--gap);
 }
 
-/* Whole fixture is a link, but content is column:
-   meta above + row below */
+/* Whole fixture is a link (column: meta above + row below) */
 .fxLink{
   display:inline-flex;
   flex-direction:column;
@@ -315,6 +317,7 @@
 }
 .crest.missing{ width:0; height:0; }
 
+/* TEAM pill now uses per-team CSS variables (set inline) */
 .team{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:800;
@@ -322,10 +325,23 @@
   font-size:16px;
   text-transform:uppercase;
   line-height:1;
-  color:var(--brand-red);
   display:inline-flex;
+
+  padding:6px 10px;
+  border-radius:999px;
+  border:2px solid rgba(0,0,0,.10);
+
+  background: var(--team-bg, transparent);
+  color: var(--team-fg, #111);
 }
-.team.alt{ color:var(--brand-blue); }
+
+/* fallback look when no colours provided */
+.team.fallback{
+  background:transparent;
+  border-color:transparent;
+  color: var(--fallback-red);
+}
+.team.fallback.alt{ color: var(--fallback-blue); }
 
 .scorePill{
   display:inline-flex;
@@ -434,7 +450,6 @@
     const base = safeText(opts.csv) || "csv";
     return "nl_results_ticker_state::" + base + "::" + id;
   }
-
   function readStoredState(key){
     try{
       const raw = localStorage.getItem(key);
@@ -446,9 +461,23 @@
       return null;
     }
   }
-
   function writeStoredState(key, state){
     try{ localStorage.setItem(key, JSON.stringify(state)); }catch{}
+  }
+
+  function buildClubColorIndex(metaJson){
+    const idx = new Map();
+    const clubs = metaJson && metaJson.clubs ? metaJson.clubs : [];
+    for(const c of clubs){
+      const name = safeText(c && c.name);
+      const p = c && c.colors ? safeText(c.colors.primary) : "";
+      const s = c && c.colors ? safeText(c.colors.secondary) : "";
+      if(!name) continue;
+      if(!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(p)) continue;
+      if(!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)) continue;
+      idx.set(name.toLowerCase(), { bg: p, fg: s });
+    }
+    return idx;
   }
 
   function makeWidget(hostEl){
@@ -544,6 +573,29 @@
       if(Number.isFinite(stored.offsetPx)) offsetPx = stored.offsetPx;
     }
 
+    // Clubs colour index (loaded async)
+    let clubColors = new Map();
+    let clubsLoaded = false;
+
+    async function loadClubsMeta(){
+      if(clubsLoaded) return;
+      clubsLoaded = true;
+      try{
+        const res = await fetch(opts.clubsMeta, { cache:"no-store" });
+        if(!res.ok) throw new Error("clubs meta fetch failed: " + res.status);
+        const json = await res.json();
+        clubColors = buildClubColorIndex(json);
+      }catch(e){
+        console.warn("[ResultsTicker " + VERSION + "] clubs-meta load failed", e);
+        clubColors = new Map();
+      }
+    }
+
+    function teamStyleVars(teamName){
+      const key = safeText(teamName).toLowerCase();
+      return clubColors.get(key) || null;
+    }
+
     function setMode(next){
       mode = (next === "fixtures") ? "fixtures" : "results";
       btnFixtures.setAttribute("aria-pressed", mode === "fixtures" ? "true" : "false");
@@ -553,7 +605,7 @@
       refresh();
     }
 
-    // Switcher FIX: stop pointer/drag from hijacking button clicks
+    // Switcher: prevent drag hijack
     function switchClickGuard(e){
       e.preventDefault();
       e.stopPropagation();
@@ -602,7 +654,7 @@
 
     function onPointerDown(e){
       if(e.pointerType === "mouse" && e.button !== 0) return;
-      if(isInBar(e.target)) return; // don't start dragging from the switcher bar
+      if(isInBar(e.target)) return;
 
       dragging = true;
       movedPx = 0;
@@ -650,8 +702,6 @@
     }
 
     function buildFixtureEl(fx, idx){
-      const alt = (idx % 2 === 1);
-
       const scoreNorm = normalizeScore(fx.score || "");
       const hasScore = isRealScore(scoreNorm);
       const parsed = hasScore ? parseScore(scoreNorm) : null;
@@ -693,7 +743,15 @@
       }
 
       const hTeam = document.createElement("span");
-      hTeam.className = "team" + (alt ? " alt" : "") + " " + (hasScore ? homeRes : "draw");
+      // apply colours if present
+      const hCol = teamStyleVars(fx.home);
+      if(hCol){
+        hTeam.style.setProperty("--team-bg", hCol.bg);
+        hTeam.style.setProperty("--team-fg", hCol.fg);
+      }else{
+        hTeam.classList.add("fallback");
+      }
+      hTeam.classList.add("team", hasScore ? homeRes : "draw");
       hTeam.appendChild(makeLetters(teamTextForGraphic(fx.home) || toAllCaps(fx.home)));
 
       homeSide.appendChild(hCrest);
@@ -707,7 +765,14 @@
       awaySide.className = "side";
 
       const aTeam = document.createElement("span");
-      aTeam.className = "team" + (alt ? "" : " alt") + " " + (hasScore ? awayRes : "draw");
+      const aCol = teamStyleVars(fx.away);
+      if(aCol){
+        aTeam.style.setProperty("--team-bg", aCol.bg);
+        aTeam.style.setProperty("--team-fg", aCol.fg);
+      }else{
+        aTeam.classList.add("fallback","alt");
+      }
+      aTeam.classList.add("team", hasScore ? awayRes : "draw");
       aTeam.appendChild(makeLetters(teamTextForGraphic(fx.away) || toAllCaps(fx.away)));
 
       const aCrest = document.createElement("img");
@@ -787,6 +852,9 @@
       try{
         msg.style.display = "block";
         msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> loading…`;
+
+        // ensure clubs meta loaded (non-blocking if it fails)
+        await loadClubsMeta();
 
         const res = await fetch(opts.csv, { cache:"no-store" });
         if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
@@ -870,10 +938,8 @@
 
             const isToday = (t >= +todayStart && t <= +todayEnd);
             if(isToday){
-              // today fixtures only if NOT yet a score
               return !x.hasScore;
             }
-            // future fixtures only if NOT a score
             return !x.hasScore;
           });
         }else{
@@ -924,7 +990,6 @@
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
-    // Persist offset periodically
     const persistTimer = window.setInterval(()=> {
       writeStoredState(stKey, { mode, offsetPx });
     }, 2500);
@@ -951,10 +1016,11 @@
     const opts = Object.assign({}, DEFAULTS);
 
     if(d.csv) opts.csv = d.csv;
+    if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
     if(d.hubUrl) opts.hubUrl = d.hubUrl;
 
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 40, 240, DEFAULTS.height);
+    if(d.height) opts.height = clampInt(d.height, 40, 260, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
