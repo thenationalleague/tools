@@ -1,3 +1,21 @@
+<!-- Results Ticker Widget (v1.3) — Shadow DOM isolated embed
+     v1.33: updated to NEW Google Sheet columns:
+     Date & Time | MD | Competition | Home team | Score | Away team
+     (Only change is the CSV column mapping + version bump)
+-->
+<div
+  data-nl-results-ticker
+  data-csv="https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv"
+  data-max-items="60"
+  data-height="64"
+  data-speed="80"
+  data-refresh-ms="120000"
+  data-wave-every-ms="10000"
+  data-wave-stagger-ms="35"
+  data-wave-dur-ms="520"
+></div>
+
+<script>
 /* Results Ticker Widget (v1.3) — Shadow DOM isolated embed
    - Feed: Google Sheets published CSV (CORS-friendly)
    - Crests Home & Away
@@ -8,7 +26,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.32";
+  const VERSION = "v1.33";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -261,11 +279,6 @@
     return out.map(r => r.map(c => safeText(c)));
   }
 
-  function looksLikeHeader(home, score, away){
-    const joined = (home + " " + score + " " + away).toLowerCase();
-    return joined.includes("home") && joined.includes("score") && joined.includes("away");
-  }
-
   function normalizeScore(s){
     const t = safeText(s);
     if(!t) return "";
@@ -278,28 +291,28 @@
     return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
   }
 
-function makeLetters(text){
-  const frag = document.createDocumentFragment();
-  const str = String(text || "");
+  function makeLetters(text){
+    const frag = document.createDocumentFragment();
+    const str = String(text || "");
 
-  for(let i=0;i<str.length;i++){
-    const ch = str[i];
-    const span = document.createElement("span");
-    span.className = "letter";
+    for(let i=0;i<str.length;i++){
+      const ch = str[i];
+      const span = document.createElement("span");
+      span.className = "letter";
 
-    // Preserve visible spacing
-    if(ch === " "){
-      span.innerHTML = "&nbsp;";
-    }else{
-      span.textContent = ch;
+      // Preserve visible spacing
+      if(ch === " "){
+        span.innerHTML = "&nbsp;";
+      }else{
+        span.textContent = ch;
+      }
+
+      frag.appendChild(span);
     }
 
-    frag.appendChild(span);
+    return frag;
   }
 
-  return frag;
-}
-   
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
     const root = hostEl.attachShadow({ mode:"open" });
@@ -549,15 +562,51 @@ function makeLetters(text){
         const rows = parseCSV(csvText);
         const out = [];
 
-        for(const r of rows){
-          if(r.length < 3) continue;
+        if(!rows.length){
+          msg.style.display = "block";
+          msg.innerHTML = `<strong>Results:</strong> no rows found.`;
+          render([]);
+          return;
+        }
 
-          const home = safeText(r[0]);
-          const scoreRaw = safeText(r[1]);
-          const away = safeText(r[2]);
+        // New sheet headers:
+        // Date & Time | MD | Competition | Home team | Score | Away team
+        const header = rows[0].map(h => safeText(h).toLowerCase());
+
+        const idxDateTime = header.indexOf("date & time");
+        const idxMD       = header.indexOf("md");
+        const idxComp     = header.indexOf("competition");
+        const idxHome     = header.indexOf("home team");
+        const idxScore    = header.indexOf("score");
+        const idxAway     = header.indexOf("away team");
+
+        const needed = [
+          ["Date & Time", idxDateTime],
+          ["MD", idxMD],
+          ["Competition", idxComp],
+          ["Home team", idxHome],
+          ["Score", idxScore],
+          ["Away team", idxAway]
+        ];
+
+        const missing = needed.filter(([,i]) => i === -1).map(([n]) => n);
+        if(missing.length){
+          msg.style.display = "block";
+          msg.innerHTML = `<strong>Results:</strong> missing columns: ${missing.join(", ")}.`;
+          render([]);
+          return;
+        }
+
+        // Start at row 1 (skip header)
+        for(let i=1; i<rows.length; i++){
+          const r = rows[i];
+          if(!r || !r.length) continue;
+
+          const home = safeText(r[idxHome]);
+          const scoreRaw = safeText(r[idxScore]);
+          const away = safeText(r[idxAway]);
 
           if(!home && !scoreRaw && !away) continue;
-          if(looksLikeHeader(home, scoreRaw, away)) continue;
 
           const score = normalizeScore(scoreRaw);
           if(!home || !away || !score) continue;
@@ -568,7 +617,7 @@ function makeLetters(text){
 
         if(out.length === 0){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no rows found (needs Home, Score, Away).`;
+          msg.innerHTML = `<strong>Results:</strong> no valid rows found (needs Home team, Score, Away team).`;
         }
 
         render(out);
@@ -655,3 +704,4 @@ function makeLetters(text){
     boot();
   }
 })();
+</script>
