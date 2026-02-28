@@ -1,23 +1,8 @@
-<!-- Results Ticker Widget (v1.3) — Shadow DOM isolated embed
-     v1.33: updated to NEW Google Sheet columns:
-     Date & Time | MD | Competition | Home team | Score | Away team
-     (Only change is the CSV column mapping + version bump)
--->
-<div
-  data-nl-results-ticker
-  data-csv="https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv"
-  data-max-items="60"
-  data-height="64"
-  data-speed="80"
-  data-refresh-ms="120000"
-  data-wave-every-ms="10000"
-  data-wave-stagger-ms="35"
-  data-wave-dur-ms="520"
-></div>
-
-<script>
-/* Results Ticker Widget (v1.3) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.34) — Shadow DOM isolated embed
    - Feed: Google Sheets published CSV (CORS-friendly)
+   - NEW SHEET COLS: Date & Time | MD | Competition | Home team | Score | Away team
+   - ONLY MOST RECENT SET: filters to latest Date & Time in feed
+   - Sticky label (top-left): Competition + date, updates as belt scrolls
    - Crests Home & Away
    - Divider BETWEEN fixtures (vertical line)
    - Winner wave/jump effect (letters) every N ms
@@ -26,7 +11,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.33";
+  const VERSION = "v1.34";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -48,7 +33,8 @@
     dividerPad: 18,          // px padding either side
     waveEveryMs: 10000,      // trigger interval
     waveStaggerMs: 35,       // per-letter delay
-    waveDurMs: 520           // per-letter animation duration
+    waveDurMs: 520,          // per-letter animation duration
+    stickyLabel: true        // show top-left label
   };
 
   const TEAMS = [
@@ -131,6 +117,43 @@
 .wrap:after{
   right:0;
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
+}
+
+/* Sticky label (top-left) */
+.sticky{
+  position:absolute;
+  top:8px;
+  left:10px;
+  z-index:4;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  pointer-events:none;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,0.12);
+  background:rgba(255,255,255,0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow:0 1px 0 rgba(0,0,0,0.03);
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:800;
+  font-size:12px;
+  letter-spacing:.02em;
+  text-transform:uppercase;
+  color:#111;
+  white-space:nowrap;
+}
+.badge .dot{
+  width:6px; height:6px;
+  border-radius:999px;
+  background:var(--brand-red);
+  display:inline-block;
 }
 
 .belt{
@@ -300,17 +323,35 @@
       const span = document.createElement("span");
       span.className = "letter";
 
-      // Preserve visible spacing
       if(ch === " "){
         span.innerHTML = "&nbsp;";
       }else{
         span.textContent = ch;
       }
-
       frag.appendChild(span);
     }
-
     return frag;
+  }
+
+  function parseUKDateTimeToMs(dtStr){
+    // Expected: DD/MM/YYYY HH:MM (as in your sheet sample)
+    const s = safeText(dtStr);
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
+    if(!m) return NaN;
+    const dd = parseInt(m[1],10);
+    const mm = parseInt(m[2],10);
+    const yyyy = parseInt(m[3],10);
+    const hh = parseInt(m[4],10);
+    const mi = parseInt(m[5],10);
+    // Use UTC to avoid client TZ shifting
+    return Date.UTC(yyyy, mm-1, dd, hh, mi, 0, 0);
+  }
+
+  function formatUKDateOnlyFromMs(ms){
+    if(!Number.isFinite(ms)) return "";
+    const d = new Date(ms);
+    const pad2 = (n)=>String(n).padStart(2,"0");
+    return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
   }
 
   function makeWidget(hostEl){
@@ -345,6 +386,18 @@
     belt.appendChild(laneA);
     belt.appendChild(laneB);
     wrap.appendChild(belt);
+
+    // Sticky label
+    const sticky = document.createElement("div");
+    sticky.className = "sticky";
+    sticky.style.display = opts.stickyLabel ? "flex" : "none";
+
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.innerHTML = `<span class="dot" aria-hidden="true"></span><span class="txt">—</span>`;
+    sticky.appendChild(badge);
+    wrap.appendChild(sticky);
+
     root.appendChild(wrap);
 
     const msg = document.createElement("div");
@@ -367,6 +420,10 @@
     let ro = null;
     let waveTimer = null;
 
+    // Sticky label update throttle
+    let lastStickyKey = "";
+    let lastStickyCheck = 0;
+
     // expose CSS var for wave duration
     wrap.style.setProperty("--wave-dur", opts.waveDurMs + "ms");
 
@@ -377,6 +434,50 @@
       if(!shiftPx) return;
       while(offsetPx <= -shiftPx) offsetPx += shiftPx;
       while(offsetPx > 0) offsetPx -= shiftPx;
+    }
+
+    function setStickyLabel(comp, ms){
+      const dateOnly = formatUKDateOnlyFromMs(ms);
+      const txt = safeText(comp) ? `${safeText(comp)} • ${dateOnly}` : (dateOnly || "—");
+      const el = badge.querySelector(".txt");
+      if(el) el.textContent = txt;
+    }
+
+    function updateStickyLabel(){
+      if(!opts.stickyLabel) return;
+      const now = performance.now();
+      if(now - lastStickyCheck < 120) return; // throttle
+      lastStickyCheck = now;
+
+      const fixtures = root.querySelectorAll(".fixture");
+      if(!fixtures.length) return;
+
+      const wrapRect = wrap.getBoundingClientRect();
+      let best = null;
+      let bestLeft = Infinity;
+
+      for(const fx of fixtures){
+        const r = fx.getBoundingClientRect();
+        // we want the fixture whose left edge is closest to the wrap's left, but still visible
+        if(r.right <= wrapRect.left + 2) continue;  // fully left/out
+        if(r.left >= wrapRect.right) continue;      // fully right/out
+        const dist = Math.abs(r.left - wrapRect.left);
+        if(dist < bestLeft){
+          bestLeft = dist;
+          best = fx;
+        }
+      }
+
+      if(!best) return;
+      const key = best.getAttribute("data-groupkey") || "";
+      if(!key || key === lastStickyKey) return;
+
+      lastStickyKey = key;
+
+      const comp = best.getAttribute("data-comp") || "";
+      const msStr = best.getAttribute("data-ms") || "";
+      const ms = Number(msStr);
+      setStickyLabel(comp, ms);
     }
 
     function tick(ts){
@@ -390,6 +491,7 @@
         setTransform();
       }
 
+      updateStickyLabel();
       rafId = requestAnimationFrame(tick);
     }
 
@@ -412,6 +514,7 @@
       offsetPx = dragStartOffset + dx;
       normalizeOffset();
       setTransform();
+      updateStickyLabel();
     }
     function onPointerUp(e){
       if(!dragging) return;
@@ -445,6 +548,11 @@
 
       const wrapFx = document.createElement("span");
       wrapFx.className = "fixture";
+
+      // data for sticky label
+      wrapFx.setAttribute("data-comp", safeText(fx.comp));
+      wrapFx.setAttribute("data-ms", String(fx.ms));
+      wrapFx.setAttribute("data-groupkey", fx.groupKey);
 
       // Home side (crest then name)
       const homeSide = document.createElement("span");
@@ -505,19 +613,18 @@
       shiftPx = laneA.scrollWidth || 0;
       normalizeOffset();
       setTransform();
+      updateStickyLabel();
     }
 
     function render(fixtures){
       laneA.innerHTML = "";
       laneB.innerHTML = "";
 
-      // Lane A: fixture + divider + fixture + divider ... (include divider after last)
       fixtures.forEach((fx, idx)=>{
         laneA.appendChild(buildFixtureEl(fx, idx));
         laneA.appendChild(buildDividerEl());
       });
 
-      // Lane B: exact duplicate for seamless wrap
       fixtures.forEach((fx, idx)=>{
         laneB.appendChild(buildFixtureEl(fx, idx));
         laneB.appendChild(buildDividerEl());
@@ -525,13 +632,19 @@
 
       msg.style.display = (fixtures.length ? "none" : "block");
 
+      // set initial sticky label from first fixture
+      lastStickyKey = "";
+      if(fixtures.length && opts.stickyLabel){
+        setStickyLabel(fixtures[0].comp, fixtures[0].ms);
+        lastStickyKey = fixtures[0].groupKey;
+      }
+
       offsetPx = 0;
       setTransform();
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
     function triggerWave(){
-      // assign per-letter delays for current DOM so it feels "rolling"
       const winners = root.querySelectorAll(".team.win");
       winners.forEach(teamEl => {
         const letters = teamEl.querySelectorAll(".letter");
@@ -544,7 +657,6 @@
       void wrap.offsetWidth;
       wrap.classList.add("wave");
 
-      // clear class after anim window
       const maxLetters = Math.max(8, ...Array.from(winners).map(w => (w.querySelectorAll(".letter").length || 0)));
       const totalMs = (maxLetters * opts.waveStaggerMs) + opts.waveDurMs + 120;
       window.setTimeout(()=> wrap.classList.remove("wave"), totalMs);
@@ -560,8 +672,6 @@
         const csvText = await res.text();
 
         const rows = parseCSV(csvText);
-        const out = [];
-
         if(!rows.length){
           msg.style.display = "block";
           msg.innerHTML = `<strong>Results:</strong> no rows found.`;
@@ -569,8 +679,6 @@
           return;
         }
 
-        // New sheet headers:
-        // Date & Time | MD | Competition | Home team | Score | Away team
         const header = rows[0].map(h => safeText(h).toLowerCase());
 
         const idxDateTime = header.indexOf("date & time");
@@ -597,27 +705,75 @@
           return;
         }
 
-        // Start at row 1 (skip header)
+        // First pass: find latest ms among valid rows
+        let latestMs = NaN;
         for(let i=1; i<rows.length; i++){
           const r = rows[i];
           if(!r || !r.length) continue;
 
+          const dtRaw = safeText(r[idxDateTime]);
           const home = safeText(r[idxHome]);
+          const away = safeText(r[idxAway]);
           const scoreRaw = safeText(r[idxScore]);
+          const score = normalizeScore(scoreRaw);
+
+          if(!dtRaw || !home || !away || !score) continue;
+          const ms = parseUKDateTimeToMs(dtRaw);
+          if(!Number.isFinite(ms)) continue;
+
+          if(!Number.isFinite(latestMs) || ms > latestMs) latestMs = ms;
+        }
+
+        if(!Number.isFinite(latestMs)){
+          msg.style.display = "block";
+          msg.innerHTML = `<strong>Results:</strong> no valid rows found.`;
+          render([]);
+          return;
+        }
+
+        // Second pass: collect only rows with latestMs
+        const out = [];
+        for(let i=1; i<rows.length; i++){
+          const r = rows[i];
+          if(!r || !r.length) continue;
+
+          const dtRaw = safeText(r[idxDateTime]);
+          const ms = parseUKDateTimeToMs(dtRaw);
+          if(ms !== latestMs) continue;
+
+          const comp = safeText(r[idxComp]);
+          const home = safeText(r[idxHome]);
           const away = safeText(r[idxAway]);
 
-          if(!home && !scoreRaw && !away) continue;
-
+          const scoreRaw = safeText(r[idxScore]);
           const score = normalizeScore(scoreRaw);
+
           if(!home || !away || !score) continue;
 
-          out.push({ home, score, away });
+          const groupKey = `${safeText(comp).toLowerCase()}|${String(latestMs)}`;
+          out.push({ home, away, score, comp, ms: latestMs, groupKey });
           if(out.length >= opts.maxItems) break;
         }
 
         if(out.length === 0){
           msg.style.display = "block";
-          msg.innerHTML = `<strong>Results:</strong> no valid rows found (needs Home team, Score, Away team).`;
+          msg.innerHTML = `<strong>Results:</strong> no rows matched the latest set.`;
+          render([]);
+          return;
+        }
+
+        // Sort within the latest set: comp then home
+        out.sort((a,b)=>{
+          const ca = safeText(a.comp).toLowerCase();
+          const cb = safeText(b.comp).toLowerCase();
+          if(ca !== cb) return ca.localeCompare(cb);
+          return safeText(a.home).toLowerCase().localeCompare(safeText(b.home).toLowerCase());
+        });
+
+        // Prime sticky label to that latest set (competition may vary within set)
+        if(opts.stickyLabel){
+          setStickyLabel(out[0].comp, out[0].ms);
+          lastStickyKey = out[0].groupKey;
         }
 
         render(out);
@@ -636,9 +792,7 @@
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
 
-    // Winner wave loop
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
-
     startAnim();
 
     return {
@@ -681,6 +835,11 @@
     if(d.pillBg) opts.pillBg = d.pillBg;
     if(d.pillBorder) opts.pillBorder = d.pillBorder;
 
+    if(typeof d.stickyLabel !== "undefined"){
+      const v = String(d.stickyLabel).toLowerCase();
+      opts.stickyLabel = !(v === "0" || v === "false" || v === "no");
+    }
+
     return opts;
   }
 
@@ -704,4 +863,3 @@
     boot();
   }
 })();
-</script>
