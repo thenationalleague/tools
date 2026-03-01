@@ -1,18 +1,19 @@
-/* Results Ticker Widget (v1.64) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.65) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.64:
-   - Removed winner text wave animation entirely (for smoothness)
-   - Simplified F/R switcher: single clean pill, no "box-in-box", sits flush visually
-   - Reduced repaint pressure: fewer heavy effects, no backdrop-filter
-   - Keeps: club primary/secondary/tertiary pills, drag scrub, link click, 3-day window, persistence
+   v1.65:
+   - Switcher back to STACKED (FIXTURES / RESULTS)
+   - Cleaner, more defined controls: single unified panel (no nested rounded boxes)
+   - Controls panel runs full ticker height + has hard right-edge divider so ticker feels "separated"
+   - Winner text animation remains REMOVED (smoothness)
+   - Keeps: club primary/secondary/tertiary pills (tertiary = pill border), drag scrub, link click, 3-day window, persistence
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.64";
+  const VERSION = "v1.65";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -43,9 +44,12 @@
 
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
-    // Switcher design
-    switcher: "pill",         // "pill" (simple) | "segmented" (kept for compatibility)
-    switcherSep: false,       // retained (no longer used visually by default)
+    // Switcher
+    switcher: "stacked",      // "stacked" | "segmented" (segmented kept for compatibility)
+
+    // Controls panel sizing
+    controlsPad: 8,           // px padding inside wrap at top/left/bottom
+    controlsWidth: 116,       // px (min width of controls panel)
 
     // Network hardening
     fetchTimeoutMs: 12000
@@ -98,12 +102,13 @@
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
-    // Switcher option (accept old values)
     if(d.switcher){
       const s = safeText(d.switcher).toLowerCase();
-      if(s === "segmented" || s === "stacked") opts.switcher = "segmented";
-      if(s === "pill") opts.switcher = "pill";
+      if(s === "segmented" || s === "stacked") opts.switcher = s;
     }
+
+    if(d.controlsPad) opts.controlsPad = clampInt(d.controlsPad, 0, 18, DEFAULTS.controlsPad);
+    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 84, 180, DEFAULTS.controlsWidth);
 
     if(d.fetchTimeoutMs) opts.fetchTimeoutMs = clampInt(d.fetchTimeoutMs, 2000, 60000, DEFAULTS.fetchTimeoutMs);
 
@@ -128,6 +133,9 @@
   --div-h:${opts.dividerH}px;
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
+
+  --controls-pad:${opts.controlsPad}px;
+  --controls-w:${opts.controlsWidth}px;
 }
 
 *{ box-sizing:border-box; }
@@ -164,55 +172,86 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
-/* ===== Controls block ===== */
+/* ===== Controls: unified full-height panel ===== */
 .controls{
   position:absolute;
-  top:6px;
-  left:8px;
+  top:0;
+  left:0;
+  bottom:0;
   z-index:10;
-  display:flex;
-  align-items:center;
+  padding:var(--controls-pad);
   pointer-events:auto;
+  display:flex;
+  align-items:stretch;
 }
 
-/* Single clean pill switcher */
-.switchPill{
-  display:inline-flex;
-  align-items:center;
-  border-radius:999px;
+/* This is the single panel (no nested rounded boxes) */
+.controlsPanel{
+  position:relative;
+  width:var(--controls-w);
+  height:100%;
+  border-radius:10px;
   border:2px solid rgba(0,0,0,0.14);
-  background:rgba(255,255,255,0.94);
+  background:rgba(255,255,255,0.96);
   overflow:hidden;
   box-shadow:0 1px 0 rgba(0,0,0,.04);
+  display:flex;
+  flex-direction:column;
 }
 
-/* Buttons */
+/* Hard divider at right edge to "separate" controls from ticker */
+.controlsPanel:after{
+  content:"";
+  position:absolute;
+  top:0;
+  right:-2px;
+  bottom:0;
+  width:2px;
+  background:rgba(0,0,0,0.20);
+}
+
+/* Switcher STACKED */
+.switcher.stacked{
+  display:flex;
+  flex-direction:column;
+  height:100%;
+}
+
 .tbtn{
   appearance:none;
   border:0;
   background:transparent;
-  padding:7px 12px;
+  padding:10px 12px;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
   font-size:13px;
-  letter-spacing:.08em;
+  letter-spacing:.10em;
   text-transform:uppercase;
   color:var(--text);
   cursor:pointer;
   line-height:1;
+  text-align:left;
+  flex:1 1 50%;
+  display:flex;
+  align-items:center;
 }
+
+.tbtn + .tbtn{
+  border-top:2px solid rgba(0,0,0,0.14);
+}
+
 .tbtn.active{
   background:#0b0f19;
   color:#fff;
 }
-.tbtn:focus{
-  outline:none;
-}
+
+/* Accessibility focus */
+.tbtn:focus{ outline:none; }
 .tbtn:focus-visible{
   box-shadow:0 0 0 3px rgba(11,15,25,0.18) inset;
 }
 
-/* Belt */
+/* ===== Belt ===== */
 .belt{
   display:flex;
   align-items:center;
@@ -220,6 +259,7 @@
   will-change:transform;
   transform:translate3d(0,0,0);
 }
+
 .lane{
   display:flex;
   align-items:center;
@@ -258,6 +298,7 @@
   align-items:center;
   gap:12px;
 }
+
 .side{
   display:inline-flex;
   align-items:center;
@@ -313,6 +354,7 @@
   opacity:1;
 }
 
+/* Message */
 .msg{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
@@ -493,8 +535,11 @@
     const controls = document.createElement("div");
     controls.className = "controls";
 
-    const switchPill = document.createElement("div");
-    switchPill.className = "switchPill";
+    const controlsPanel = document.createElement("div");
+    controlsPanel.className = "controlsPanel";
+
+    const switcher = document.createElement("div");
+    switcher.className = "switcher stacked";
 
     const btnFixtures = document.createElement("button");
     btnFixtures.className = "tbtn";
@@ -506,9 +551,10 @@
     btnResults.type = "button";
     btnResults.textContent = "RESULTS";
 
-    switchPill.appendChild(btnFixtures);
-    switchPill.appendChild(btnResults);
-    controls.appendChild(switchPill);
+    switcher.appendChild(btnFixtures);
+    switcher.appendChild(btnResults);
+    controlsPanel.appendChild(switcher);
+    controls.appendChild(controlsPanel);
     wrap.appendChild(controls);
 
     // Belt
