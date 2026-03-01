@@ -1,46 +1,35 @@
-/* News Ticker Widget (v1.6) — Shadow DOM isolated embed
-   Fix from v1.5:
-   - TRUE seamless loop when using rose separators:
-     we ALWAYS include a separator AFTER the last item too, so the boundary
-     (end of laneA -> start of laneB, and wrap-around) has identical spacing.
+/* News Ticker Widget (v1.7) — Shadow DOM isolated embed
+   Changes from v1.6:
+   - Loads assets/data/clubs-meta.json to resolve club IDs + colours
+   - Team name becomes a colour pill:
+       background = colors.primary
+       text = colors.secondary (assumed #FFFFFF or #000000)
+       border = colors.tertiary (fallback to primary)
+   - Headline colour is black (configurable via data-headline, default #000000)
+   - Removes red/blue alternation logic and hardcoded team list
+   - Keeps TRUE seamless loop: separator after last item too
    - Keeps vertical divider between team and headline
-   - Rose separator BETWEEN items with clear space only
    - JS-driven scroll + drag scrub
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.6";
+  const VERSION = "v1.7";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
+    clubsMeta: "assets/data/clubs-meta.json",
     maxItems: 10,
     height: 64,              // px
     speed: 48,               // px/sec (slow)
     refreshMs: 120000,       // 2 min
-    start: "red",            // "red" or "blue" (team name colour for first item)
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
     roseImg: "National League rose.png",
     bg: "#ffffff",
-    red: "#9e0000",
-    blue: "#223b7c",
-    text: "#111111",
+    headline: "#000000",
     rule: "#000000"
   };
-
-  const TEAMS = [
-    "Aldershot Town","Altrincham","Boreham Wood","Boston United","Brackley Town","Braintree Town","Carlisle United","Eastleigh",
-    "FC Halifax Town","Forest Green Rovers","Gateshead","Hartlepool United","Morecambe","Rochdale","Scunthorpe United","Solihull Moors",
-    "Southend United","Sutton United","Tamworth","Truro City","Wealdstone","Woking","Yeovil Town","York City",
-    "AFC Fylde","AFC Telford United","Alfreton Town","Bedford Town","Buxton","Chester","Chorley","Curzon Ashton","Darlington","Hereford",
-    "Kidderminster Harriers","King's Lynn Town","Leamington","Macclesfield","Marine","Merthyr Town","Oxford City","Peterborough Sports",
-    "Radcliffe","Scarborough Athletic","South Shields","Southport","Spennymoor Town","Worksop Town",
-    "AFC Totton","Bath City","Chelmsford City","Chesham United","Chippenham Town","Dagenham & Redbridge","Dorking Wanderers","Dover Athletic",
-    "Eastbourne Borough","Ebbsfleet United","Enfield Town","Farnborough","Hampton & Richmond Borough","Hemel Hempstead Town","Hornchurch","Horsham",
-    "Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
-  ];
-  const TEAM_SET = new Set(TEAMS.map(t => t.toLowerCase()));
 
   function safeText(s){ return (s || "").toString().replace(/\s+/g," ").trim(); }
   function toAllCaps(s){ return safeText(s).toUpperCase(); }
@@ -52,11 +41,96 @@
     return toAllCaps(t);
   }
 
+  // ===== Clubs meta cache (loaded from DEFAULTS.clubsMeta) =====
+  let CLUBS_BY_KEY = new Map();     // key -> club object
+  let CLUBS_LOADED = false;
+  let CLUBS_LOADING = null;
+
+  function normKey(s){
+    return safeText(s).toLowerCase();
+  }
+
+  function addClubKey(map, key, clubObj){
+    const k = normKey(key);
+    if(!k) return;
+    if(!map.has(k)) map.set(k, clubObj);
+  }
+
+  async function ensureClubsMeta(opts){
+    if(CLUBS_LOADED) return;
+    if(CLUBS_LOADING) return CLUBS_LOADING;
+
+    CLUBS_LOADING = (async ()=>{
+      try{
+        const res = await fetch(opts.clubsMeta, { cache:"no-store" });
+        if(!res.ok) throw new Error("clubs-meta fetch failed: " + res.status);
+        const json = await res.json();
+        const clubs = Array.isArray(json && json.clubs) ? json.clubs : [];
+
+        const map = new Map();
+        for(const c of clubs){
+          if(!c) continue;
+          addClubKey(map, c.name, c);
+          addClubKey(map, c.short, c);
+          addClubKey(map, c.code, c);
+        }
+
+        if(map.size){
+          CLUBS_BY_KEY = map;
+          CLUBS_LOADED = true;
+        }else{
+          throw new Error("clubs-meta contained no clubs");
+        }
+      }catch(e){
+        console.error("[Ticker " + VERSION + "] clubs-meta load error:", e);
+        CLUBS_LOADED = false;
+      }finally{
+        CLUBS_LOADING = null;
+      }
+    })();
+
+    return CLUBS_LOADING;
+  }
+
+  function clubMetaForName(clubName){
+    const k = normKey(clubName);
+    if(!k) return null;
+    return CLUBS_BY_KEY.get(k) || null;
+  }
+
+  function normalizeHexColor(s){
+    const v = safeText(s);
+    if(!v) return "";
+    const x = v.startsWith("#") ? v : ("#" + v);
+    return x.toUpperCase();
+  }
+
+  function normalizeBW(s, fallback){
+    const v = normalizeHexColor(s);
+    if(v === "#FFFFFF" || v === "#000000") return v;
+    return fallback;
+  }
+
+  function clubPillColors(clubName){
+    const meta = clubMetaForName(clubName);
+    const colors = meta && meta.colors ? meta.colors : null;
+
+    const primary = normalizeHexColor(colors && colors.primary) || "#E6E6E6";
+    const secondary = normalizeBW(colors && colors.secondary, "#000000");
+    const tertiary = normalizeHexColor(colors && colors.tertiary) || primary;
+
+    return { primary, secondary, tertiary };
+  }
+
   function crestUrlForTeam(opts, club){
     const t = safeText(club);
     if(!t) return null;
-    if(!TEAM_SET.has(t.toLowerCase())) return null;
-    return encodeURI(opts.crestBase + t + ".png");
+
+    const meta = clubMetaForName(t);
+    if(!meta) return null;
+
+    const crestName = safeText(meta.name) || t;
+    return encodeURI(opts.crestBase + crestName + ".png");
   }
 
   function roseUrl(opts){
@@ -65,7 +139,7 @@
     return encodeURI(opts.crestBase + fn);
   }
 
-  // Robust CSV parser (handles quotes/commas reasonably)
+  // Robust-ish CSV parser (handles quotes/commas reasonably)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -123,10 +197,8 @@
   function cssFor(opts){
     return `
 :host{
-  --brand-red:${opts.red};
-  --brand-blue:${opts.blue};
   --bg:${opts.bg};
-  --text:${opts.text};
+  --headline:${opts.headline};
   --rule:${opts.rule};
   --h:${opts.height}px;
   --crest:34px;
@@ -195,12 +267,23 @@
 
 .crest.missing{ width:0; height:0; }
 
+.clubpill{
+  display:inline-flex;
+  align-items:center;
+  padding:7px 12px;
+  border-radius:999px;
+  border:2px solid var(--pill-border, #000000);
+  background:var(--pill-bg, #E6E6E6);
+  line-height:1;
+}
+
 .club{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:800;
   letter-spacing:0.04em;
-  font-size:16px;
+  font-size:15px;
   text-transform:uppercase;
+  color:var(--pill-fg, #000000);
   line-height:1;
 }
 
@@ -215,18 +298,12 @@
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:450;
   font-size:16px;
-  color:var(--text);
+  color:var(--headline);
   text-decoration:none;
   line-height:1.1;
 }
 
 .headline:hover{ text-decoration:underline; }
-
-.base .club{ color:var(--brand-red); }
-.base .headline{ color:var(--brand-blue); }
-
-.alt .club{ color:var(--brand-blue); }
-.alt .headline{ color:var(--brand-red); }
 
 /* Rose separator BETWEEN items: just clear space + rose */
 .sep{
@@ -332,7 +409,7 @@
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
 
-      try{ wrap.setPointerCapture(e.pointerId); }catch{}
+      try{ wrap.setPointerCapture(e.pointerId); }catch(_e){}
     }
 
     function onPointerMove(e){
@@ -350,7 +427,7 @@
       if(!dragging) return;
       dragging = false;
 
-      try{ wrap.releasePointerCapture(e.pointerId); }catch{}
+      try{ wrap.releasePointerCapture(e.pointerId); }catch(_e){}
       lastTs = performance.now();
     }
 
@@ -359,25 +436,35 @@
     wrap.addEventListener("pointerup", onPointerUp);
     wrap.addEventListener("pointercancel", onPointerUp);
 
-    function buildItemEl(it, variantClass){
+    function buildItemEl(it){
       const el = document.createElement("span");
-      el.className = "item " + variantClass;
+      el.className = "item";
 
       const crest = document.createElement("img");
       crest.className = "crest";
       crest.alt = safeText(it.club) ? (safeText(it.club) + " crest") : "";
 
-      const crestUrl = crestUrlForTeam(opts, it.club);
-      if(crestUrl){
-        crest.src = crestUrl;
+      const cUrl = crestUrlForTeam(opts, it.club);
+      if(cUrl){
+        crest.src = cUrl;
         crest.onerror = ()=> crest.classList.add("missing");
       }else{
         crest.classList.add("missing");
       }
 
+      const pill = document.createElement("span");
+      pill.className = "clubpill";
+
+      const pillColors = clubPillColors(it.club);
+      pill.style.setProperty("--pill-bg", pillColors.primary);
+      pill.style.setProperty("--pill-fg", pillColors.secondary);
+      pill.style.setProperty("--pill-border", pillColors.tertiary);
+
       const club = document.createElement("span");
       club.className = "club";
       club.textContent = teamTextForGraphic(it.club) || toAllCaps(it.club);
+
+      pill.appendChild(club);
 
       const vrule = document.createElement("span");
       vrule.className = "vrule";
@@ -391,7 +478,7 @@
       a.textContent = it.headline;
 
       el.appendChild(crest);
-      el.appendChild(club);
+      el.appendChild(pill);
       el.appendChild(vrule);
       el.appendChild(a);
 
@@ -427,7 +514,6 @@
       laneA.innerHTML = "";
       laneB.innerHTML = "";
 
-      const startRed = (opts.start || "red").toLowerCase() === "red";
       const rUrl = roseUrl(opts);
 
       // IMPORTANT: include a separator AFTER the last item too
@@ -435,11 +521,8 @@
       function fillLane(lane){
         if(items.length === 0) return;
 
-        items.forEach((it, idx)=>{
-          const isBase = startRed ? (idx % 2 === 0) : (idx % 2 === 1);
-          lane.appendChild(buildItemEl(it, isBase ? "base" : "alt"));
-
-          // separator after every item (including last) ensures seamless join
+        items.forEach((it)=>{
+          lane.appendChild(buildItemEl(it));
           lane.appendChild(buildSepEl(rUrl));
         });
       }
@@ -457,16 +540,18 @@
 
     async function refresh(){
       try{
+        await ensureClubsMeta(opts);
+
         const res = await fetch(opts.csv, { cache:"no-store" });
         if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
         const csvText = await res.text();
 
         const rows = parseCSV(csvText).filter(r => r.some(c => safeText(c)));
-        let start = 0;
-        if(rows.length && isHeaderRow(rows[0])) start = 1;
+        let startRow = 0;
+        if(rows.length && isHeaderRow(rows[0])) startRow = 1;
 
         const items = [];
-        for(let i=start;i<rows.length;i++){
+        for(let i=startRow;i<rows.length;i++){
           items.push({ club: rows[i][0], headline: rows[i][1], hyperlink: rows[i][2] });
         }
 
@@ -481,7 +566,7 @@
     try{
       ro = new ResizeObserver(()=> recomputeShift());
       ro.observe(wrap);
-    }catch{}
+    }catch(_e){}
 
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
@@ -501,20 +586,19 @@
     const opts = Object.assign({}, DEFAULTS);
 
     if(d.csv) opts.csv = d.csv;
+    if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
+
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 50, DEFAULTS.maxItems);
     if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
-    if(d.start) opts.start = (d.start === "blue" ? "blue" : "red");
 
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
     if(d.roseImg) opts.roseImg = d.roseImg;
 
     if(d.bg) opts.bg = d.bg;
-    if(d.red) opts.red = d.red;
-    if(d.blue) opts.blue = d.blue;
-    if(d.text) opts.text = d.text;
+    if(d.headline) opts.headline = d.headline;
     if(d.rule) opts.rule = d.rule;
 
     return opts;
