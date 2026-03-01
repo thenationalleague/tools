@@ -1,17 +1,18 @@
-/* Results Ticker Widget (v1.62) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.63) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.62:
-   - New switcher designs: stacked (default) or segmented
-   - Optional hard separator line between controls and ticker lane
-   - Keeps v1.61 fixes: switcher click, drag scrub, link click, clubs meta pills, v vs score, 3 day window
+   v1.63:
+   - Switcher text: FIXTURES / RESULTS (ALL CAPS), larger + more blatant
+   - Switcher border weight matches team pill borders (2px)
+   - Add an "occluder panel" behind controls so ticker disappears behind it
+   - Keeps: switcher click, drag scrub, link click, clubs meta pills, v vs score, 3 day window
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.62";
+  const VERSION = "v1.63";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -44,7 +45,6 @@
 
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
-    // NEW (v1.62)
     switcher: "stacked",      // "stacked" | "segmented"
     switcherSep: false        // true adds hard separator line
   };
@@ -100,7 +100,6 @@
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
-    // NEW (v1.62)
     if(d.switcher){
       const s = safeText(d.switcher).toLowerCase();
       if(s === "segmented" || s === "stacked") opts.switcher = s;
@@ -177,53 +176,68 @@
   pointer-events:auto;
 }
 
+/* Occluder panel: sits behind the controls and hides ticker content */
+.occluder{
+  position:absolute;
+  top:6px;
+  left:6px;
+  height: calc(var(--h) - 12px);
+  border-radius:12px;
+  background: var(--bg);
+  z-index:8;
+  pointer-events:none;
+  /* width is set dynamically from JS so it covers controls + separator comfortably */
+}
+
 .sep{
   width:2px;
   align-self:stretch;
-  background:rgba(0,0,0,0.12);
+  background:rgba(0,0,0,0.22);
   border-radius:2px;
 }
 
 /* ===== Switcher styles ===== */
 
-/* Stacked: two rows, sharp + broadcasty */
+/* Stacked: two rows */
 .switcher.stacked{
   display:flex;
   flex-direction:column;
-  border:1px solid rgba(0,0,0,0.14);
-  background:rgba(255,255,255,0.92);
+  border:2px solid var(--pill-border);  /* match pill border weight */
+  background:rgba(255,255,255,0.94);
   backdrop-filter:saturate(1.2) blur(6px);
-  border-radius:10px;
+  border-radius:12px;
   overflow:hidden;
   box-shadow:0 1px 0 rgba(0,0,0,.04);
-  min-width:96px;
+  min-width:114px;
 }
 .switcher.stacked .tbtn{
   appearance:none;
   border:0;
   background:transparent;
-  padding:7px 10px;
-  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  padding:9px 12px;
+  font-family:"carbona-extrabold","carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:900;
-  font-size:12px;
+  font-size:13px;            /* slightly larger */
+  letter-spacing:.08em;      /* more “blatant” */
   color:var(--text);
   cursor:pointer;
   line-height:1;
   text-align:left;
+  text-transform:uppercase;
 }
 .switcher.stacked .tbtn + .tbtn{
-  border-top:1px solid rgba(0,0,0,0.12);
+  border-top:2px solid rgba(0,0,0,0.12);
 }
 .switcher.stacked .tbtn.active{
   background:#0b0f19;
   color:#fff;
 }
 
-/* Segmented: pill (cleaner than previous) */
+/* Segmented: pill */
 .switcher.segmented{
   display:inline-flex;
-  border:1px solid rgba(0,0,0,0.14);
-  background:rgba(255,255,255,0.92);
+  border:2px solid var(--pill-border);  /* match pill border weight */
+  background:rgba(255,255,255,0.94);
   backdrop-filter:saturate(1.2) blur(6px);
   border-radius:999px;
   overflow:hidden;
@@ -233,13 +247,15 @@
   appearance:none;
   border:0;
   background:transparent;
-  padding:7px 12px;
-  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  padding:9px 14px;
+  font-family:"carbona-extrabold","carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:900;
-  font-size:12px;
+  font-size:13px;            /* slightly larger */
+  letter-spacing:.08em;
   color:var(--text);
   cursor:pointer;
   line-height:1;
+  text-transform:uppercase;
 }
 .switcher.segmented .tbtn.active{
   background:#0b0f19;
@@ -549,6 +565,11 @@
     wrap.setAttribute("aria-label","Fixtures and results ticker");
     root.appendChild(wrap);
 
+    // Occluder (behind controls, above belt)
+    const occluder = document.createElement("div");
+    occluder.className = "occluder";
+    wrap.appendChild(occluder);
+
     // Controls
     const controls = document.createElement("div");
     controls.className = "controls";
@@ -559,22 +580,23 @@
     const btnFixtures = document.createElement("button");
     btnFixtures.className = "tbtn";
     btnFixtures.type = "button";
-    btnFixtures.textContent = "Fixtures";
+    btnFixtures.textContent = "FIXTURES";
 
     const btnResults = document.createElement("button");
     btnResults.className = "tbtn";
     btnResults.type = "button";
-    btnResults.textContent = "Results";
+    btnResults.textContent = "RESULTS";
 
     switcher.appendChild(btnFixtures);
     switcher.appendChild(btnResults);
 
     controls.appendChild(switcher);
 
+    let sepEl = null;
     if(opts.switcherSep){
-      const sep = document.createElement("div");
-      sep.className = "sep";
-      controls.appendChild(sep);
+      sepEl = document.createElement("div");
+      sepEl.className = "sep";
+      controls.appendChild(sepEl);
     }
 
     wrap.appendChild(controls);
@@ -870,6 +892,13 @@
       window.setTimeout(()=> wrap.classList.remove("wave"), (opts.waveDurMs + (24 * opts.waveStaggerMs) + 160));
     }
 
+    function sizeOccluder(){
+      // Cover the whole controls block width (switcher + optional separator + a bit of padding)
+      const r = controls.getBoundingClientRect();
+      const w = Math.ceil(r.width + 14); // extra so divider/ticker never peeks
+      occluder.style.width = w + "px";
+    }
+
     function render(){
       const now = new Date();
       const start = new Date(now);
@@ -901,6 +930,7 @@
         offsetPx = 0;
         setTransform();
         shiftPx = 0;
+        sizeOccluder();
         return;
       }
 
@@ -921,7 +951,12 @@
       laneA.appendChild(fragA);
       laneB.appendChild(fragB);
 
-      requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          recomputeShift();
+          sizeOccluder();
+        });
+      });
     }
 
     async function refresh(){
@@ -1003,8 +1038,12 @@
     }
 
     try{
-      ro = new ResizeObserver(()=> recomputeShift());
+      ro = new ResizeObserver(()=>{
+        recomputeShift();
+        sizeOccluder();
+      });
       ro.observe(wrap);
+      ro.observe(controls);
     }catch{}
 
     refresh();
@@ -1015,6 +1054,9 @@
     normalizeOffset();
     setTransform();
     startAnim();
+
+    // Initial occluder sizing
+    requestAnimationFrame(()=> requestAnimationFrame(sizeOccluder));
 
     return {
       destroy(){
