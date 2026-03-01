@@ -1,19 +1,17 @@
-/* Results Ticker Widget (v1.61) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.62) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.61 fixes:
-   - FIX: F/R switcher click works (controls pointer-events & no click-capture suppression)
-   - FIX: Drag scrub works reliably (no global click prevent; proper drag threshold)
-   - FIX: Link click works (only blocked when a drag truly happened)
-   - Keeps: parse ALL rows; 3 days back/forward; per-game meta line; v when not n-n;
-            clubs-meta pill colors; all elements link to match hub; smoother animation
+   v1.62:
+   - New switcher designs: stacked (default) or segmented
+   - Optional hard separator line between controls and ticker lane
+   - Keeps v1.61 fixes: switcher click, drag scrub, link click, clubs meta pills, v vs score, 3 day window
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.61";
+  const VERSION = "v1.62";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -44,7 +42,11 @@
     daysBack: 3,
     daysForward: 3,
 
-    matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/"
+    matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
+
+    // NEW (v1.62)
+    switcher: "stacked",      // "stacked" | "segmented"
+    switcherSep: false        // true adds hard separator line
   };
 
   const COMP_DISPLAY = {
@@ -97,6 +99,16 @@
     if(d.daysForward) opts.daysForward = clampInt(d.daysForward, 0, 30, DEFAULTS.daysForward);
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
+
+    // NEW (v1.62)
+    if(d.switcher){
+      const s = safeText(d.switcher).toLowerCase();
+      if(s === "segmented" || s === "stacked") opts.switcher = s;
+    }
+    if(d.switcherSep){
+      const v = safeText(d.switcherSep).toLowerCase();
+      opts.switcherSep = (v === "1" || v === "true" || v === "yes");
+    }
 
     return opts;
   }
@@ -153,41 +165,83 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
-/* Controls: allow clicks */
+/* ===== Controls block ===== */
 .controls{
   position:absolute;
   top:8px;
   left:10px;
   z-index:10;
   display:flex;
-  gap:8px;
-  align-items:center;
+  gap:10px;
+  align-items:stretch;
   pointer-events:auto;
 }
 
-.toggle{
+.sep{
+  width:2px;
+  align-self:stretch;
+  background:rgba(0,0,0,0.12);
+  border-radius:2px;
+}
+
+/* ===== Switcher styles ===== */
+
+/* Stacked: two rows, sharp + broadcasty */
+.switcher.stacked{
+  display:flex;
+  flex-direction:column;
+  border:1px solid rgba(0,0,0,0.14);
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:saturate(1.2) blur(6px);
+  border-radius:10px;
+  overflow:hidden;
+  box-shadow:0 1px 0 rgba(0,0,0,.04);
+  min-width:96px;
+}
+.switcher.stacked .tbtn{
+  appearance:none;
+  border:0;
+  background:transparent;
+  padding:7px 10px;
+  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:900;
+  font-size:12px;
+  color:var(--text);
+  cursor:pointer;
+  line-height:1;
+  text-align:left;
+}
+.switcher.stacked .tbtn + .tbtn{
+  border-top:1px solid rgba(0,0,0,0.12);
+}
+.switcher.stacked .tbtn.active{
+  background:#0b0f19;
+  color:#fff;
+}
+
+/* Segmented: pill (cleaner than previous) */
+.switcher.segmented{
   display:inline-flex;
-  border:1px solid rgba(0,0,0,0.12);
-  background:rgba(255,255,255,0.9);
+  border:1px solid rgba(0,0,0,0.14);
+  background:rgba(255,255,255,0.92);
   backdrop-filter:saturate(1.2) blur(6px);
   border-radius:999px;
   overflow:hidden;
   box-shadow:0 1px 0 rgba(0,0,0,.04);
 }
-
-.tbtn{
+.switcher.segmented .tbtn{
   appearance:none;
   border:0;
   background:transparent;
-  padding:6px 10px;
+  padding:7px 12px;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:800;
+  font-weight:900;
   font-size:12px;
   color:var(--text);
   cursor:pointer;
   line-height:1;
 }
-.tbtn.active{
+.switcher.segmented .tbtn.active{
   background:#0b0f19;
   color:#fff;
 }
@@ -260,7 +314,7 @@
   border-radius:999px;
   border:2px solid var(--pill-border);
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:800;
+  font-weight:900;
   font-size:14px;
   letter-spacing:0.03em;
   text-transform:uppercase;
@@ -294,7 +348,6 @@
   opacity:1;
 }
 
-/* Winner wave letters */
 .letter{
   display:inline-block;
   transform:translateY(0);
@@ -329,7 +382,6 @@
 `;
   }
 
-  // Robust CSV parser (handles quoted fields + commas)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -501,8 +553,8 @@
     const controls = document.createElement("div");
     controls.className = "controls";
 
-    const toggle = document.createElement("div");
-    toggle.className = "toggle";
+    const switcher = document.createElement("div");
+    switcher.className = "switcher " + (opts.switcher === "segmented" ? "segmented" : "stacked");
 
     const btnFixtures = document.createElement("button");
     btnFixtures.className = "tbtn";
@@ -514,9 +566,17 @@
     btnResults.type = "button";
     btnResults.textContent = "Results";
 
-    toggle.appendChild(btnFixtures);
-    toggle.appendChild(btnResults);
-    controls.appendChild(toggle);
+    switcher.appendChild(btnFixtures);
+    switcher.appendChild(btnResults);
+
+    controls.appendChild(switcher);
+
+    if(opts.switcherSep){
+      const sep = document.createElement("div");
+      sep.className = "sep";
+      controls.appendChild(sep);
+    }
+
     wrap.appendChild(controls);
 
     // Belt
@@ -553,7 +613,7 @@
     let dragging = false;
     let dragStartX = 0;
     let dragStartOffset = 0;
-    let didDrag = false; // true only if exceeded threshold during this pointer session
+    let didDrag = false;
 
     let refreshTimer = null;
     let waveTimer = null;
@@ -626,7 +686,7 @@
 
     applyModeUI();
 
-    // Drag scrub on wrap, but DON'T start drag when user clicks controls
+    // Drag scrub on wrap, but don't start drag if user pressed controls
     wrap.addEventListener("pointerdown", (e)=>{
       const path = e.composedPath ? e.composedPath() : [];
       if(path.some(el => el && el.classList && el.classList.contains("controls"))) return;
@@ -664,7 +724,7 @@
       didDrag = false;
     });
 
-    // Only block link navigation if a drag truly occurred
+    // Only cancel navigation if a drag truly happened
     wrap.addEventListener("click", (e)=>{
       if(!didDrag) return;
       const a = e.target && e.target.closest ? e.target.closest("a") : null;
@@ -781,15 +841,16 @@
       box.appendChild(row);
       link.appendChild(box);
 
-      // Set wave delays once per render
       if(parsed){
         if(homeRes === "win"){
           const letters = hPill.querySelectorAll(".letter");
           letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
+          hPill.classList.add("win");
         }
         if(awayRes === "win"){
           const letters = aPill.querySelectorAll(".letter");
           letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
+          aPill.classList.add("win");
         }
       }
 
