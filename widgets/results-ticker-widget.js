@@ -1,20 +1,24 @@
-/* Results Ticker Widget (v1.66) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.68) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.66:
-   - Controls are now a real LEFT COLUMN (not overlay)
-     -> ticker can never render underneath
-     -> switcher is full-height, clearer divider, no "nested box" look
-   - Fix "RESULTS" cropping by proper vertical centering + safe line-height
-   - Keeps: club primary/secondary/tertiary pills (tertiary = pill border), drag scrub, link click, 3-day window, persistence
-   - Winner animation remains REMOVED for smoothness
+   v1.68:
+   - Switcher ALWAYS uses brand red #9E0000
+   - Stacked switcher on desktop (left column)
+   - Mobile (≤768px): switcher moves to top as horizontal bar
+   - Removes winner text animation entirely (performance)
+   - Integrates clubs-meta.json with PRIMARY/SECONDARY/TERTIARY
+     * pill BG = primary, text = secondary, border = tertiary
+   - Score shows "v" when Score isn't a final n-n
+   - Window filtering: daysBack/daysForward (default 3/3)
+   - Drag scrub works; link click works; drag prevents click only when actual drag happened
+   - All fixture elements link to Match Hub (new tab)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.66";
+  const VERSION = "v1.68";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -32,8 +36,7 @@
     text: "#111111",
     muted: "#6b7280",
 
-    // fallback border if club has no meta
-    pillBorder: "#000000",
+    brand: "#9E0000",
 
     dividerColor: "#000000",
     dividerH: 30,
@@ -45,13 +48,8 @@
 
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
-    // Controls sizing
-    controlsWidth: 128,       // px
-    controlsBorder: "rgba(0,0,0,0.16)",
-    controlsDivider: "rgba(0,0,0,0.20)",
-
-    // Network hardening
-    fetchTimeoutMs: 12000
+    // layout
+    controlsWidth: 130
   };
 
   const COMP_DISPLAY = {
@@ -79,30 +77,30 @@
     if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
 
     if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 46, 140, DEFAULTS.height);
+    if(d.height) opts.height = clampInt(d.height, 52, 140, DEFAULTS.height);
     if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
+
+    if(d.bg) opts.bg = d.bg;
+    if(d.text) opts.text = d.text;
+    if(d.muted) opts.muted = d.muted;
+
+    if(d.brand) opts.brand = d.brand;
 
     if(d.dividerColor) opts.dividerColor = d.dividerColor;
     if(d.dividerH) opts.dividerH = clampInt(d.dividerH, 10, 80, DEFAULTS.dividerH);
     if(d.dividerW) opts.dividerW = clampInt(d.dividerW, 1, 12, DEFAULTS.dividerW);
     if(d.dividerPad) opts.dividerPad = clampInt(d.dividerPad, 0, 60, DEFAULTS.dividerPad);
 
-    if(d.kitCss) opts.kitCss = d.kitCss;
-    if(d.crestBase) opts.crestBase = d.crestBase;
-
-    if(d.bg) opts.bg = d.bg;
-    if(d.text) opts.text = d.text;
-    if(d.muted) opts.muted = d.muted;
-    if(d.pillBorder) opts.pillBorder = d.pillBorder;
-
     if(d.daysBack) opts.daysBack = clampInt(d.daysBack, 0, 30, DEFAULTS.daysBack);
     if(d.daysForward) opts.daysForward = clampInt(d.daysForward, 0, 30, DEFAULTS.daysForward);
 
+    if(d.kitCss) opts.kitCss = d.kitCss;
+    if(d.crestBase) opts.crestBase = d.crestBase;
+
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
-    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 96, 200, DEFAULTS.controlsWidth);
-    if(d.fetchTimeoutMs) opts.fetchTimeoutMs = clampInt(d.fetchTimeoutMs, 2000, 60000, DEFAULTS.fetchTimeoutMs);
+    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 100, 200, DEFAULTS.controlsWidth);
 
     return opts;
   }
@@ -112,48 +110,42 @@
 :host{
   display:block;
   width:100%;
-
   --bg:${opts.bg};
   --text:${opts.text};
   --muted:${opts.muted};
+  --brand:${opts.brand};
+
   --h:${opts.height}px;
+  --controls-w:${opts.controlsWidth}px;
 
   --crest:30px;
 
-  --pill-border:${opts.pillBorder};
   --divider:${opts.dividerColor};
   --div-h:${opts.dividerH}px;
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
-
-  --controls-w:${opts.controlsWidth}px;
-  --controls-border:${opts.controlsBorder};
-  --controls-divider:${opts.controlsDivider};
 }
 
 *{ box-sizing:border-box; }
 
 .wrap{
-  height:var(--h);
-  background:var(--bg);
-  overflow:hidden;
+  width:100%;
   display:flex;
-  align-items:stretch;
-  position:relative;
-  border-radius:10px;
-  touch-action: pan-y;
-  user-select:none;
+  background:var(--bg);
+  border-radius:12px;
+  overflow:hidden;
   border:1px solid rgba(0,0,0,0.08);
+  position:relative;
 }
 
-/* ===== Left column controls (real layout, not overlay) ===== */
+/* ===== Controls (desktop left) ===== */
 .controlsCol{
   width:var(--controls-w);
   flex:0 0 var(--controls-w);
   display:flex;
   flex-direction:column;
-  background:rgba(255,255,255,0.96);
-  border-right:2px solid var(--controls-divider);
+  background:rgba(255,255,255,0.98);
+  border-right:2px solid var(--brand);
 }
 
 .switcher{
@@ -167,56 +159,52 @@
   border:0;
   background:transparent;
   padding:0 14px;
-  flex:1 1 50%;
+  height:calc(var(--h) / 2);
   display:flex;
-  align-items:center;          /* vertical center */
-  justify-content:flex-start;  /* left align */
-  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  align-items:center;
+  justify-content:flex-start;
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
   font-size:13px;
-  letter-spacing:.10em;
+  letter-spacing:.12em;
   text-transform:uppercase;
-  line-height:1.1;             /* avoids glyph cropping */
-  color:var(--text);
+  color:var(--brand);
   cursor:pointer;
+  user-select:none;
 }
 
 .tbtn + .tbtn{
-  border-top:2px solid var(--controls-border);
+  border-top:2px solid var(--brand);
 }
 
 .tbtn.active{
-  background:#0b0f19;
+  background:var(--brand);
   color:#fff;
 }
 
-.tbtn:focus{ outline:none; }
-.tbtn:focus-visible{
-  box-shadow:0 0 0 3px rgba(11,15,25,0.18) inset;
-}
-
-/* ===== Right column ticker lane ===== */
+/* ===== Ticker area ===== */
 .tickerCol{
-  position:relative;
   flex:1 1 auto;
+  min-width:0;
+  height:var(--h);
   overflow:hidden;
+  position:relative;
 }
 
-/* mask edges inside ticker only (not over controls) */
-.tickerCol:before,
-.tickerCol:after{
+.edgeMask:before,
+.edgeMask:after{
   content:"";
   position:absolute;
   top:0; bottom:0;
-  width:46px;
+  width:40px;
   pointer-events:none;
   z-index:6;
 }
-.tickerCol:before{
+.edgeMask:before{
   left:0;
   background:linear-gradient(to right, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
-.tickerCol:after{
+.edgeMask:after{
   right:0;
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
@@ -224,10 +212,10 @@
 .belt{
   display:flex;
   align-items:center;
+  height:100%;
   white-space:nowrap;
   will-change:transform;
   transform:translate3d(0,0,0);
-  height:100%;
 }
 
 .lane{
@@ -249,18 +237,16 @@
   flex-direction:column;
   justify-content:center;
   gap:6px;
-  min-height: calc(var(--h) - 12px);
-  padding:6px 0;
+  min-height:var(--h);
+  padding:8px 0;
 }
 
 .meta{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:11px;
   color:var(--muted);
-  letter-spacing:.2px;
   white-space:nowrap;
-  line-height:1;
-  text-align:left;
+  line-height:1.1;
 }
 
 .row{
@@ -288,9 +274,9 @@
   align-items:center;
   padding:6px 10px;
   border-radius:999px;
-  border:2px solid var(--pill-border);
+  border:2px solid rgba(0,0,0,0.18);
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:900;
+  font-weight:950;
   font-size:14px;
   letter-spacing:0.03em;
   text-transform:uppercase;
@@ -302,14 +288,14 @@
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width:60px;
+  min-width:56px;
   height:30px;
   padding:0 12px;
-  border:2px solid rgba(0,0,0,0.14);
+  border:2px solid rgba(0,0,0,0.18);
   border-radius:999px;
   background:#fff;
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:900;
+  font-weight:950;
   font-size:15px;
   color:var(--text);
   line-height:1;
@@ -324,22 +310,55 @@
   opacity:1;
 }
 
-/* Message */
+/* Status/error */
 .msg{
   position:absolute;
-  left:14px;
-  top:50%;
-  transform:translateY(-50%);
+  inset:0;
+  display:flex;
+  align-items:center;
+  padding:0 14px;
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
   color:#111;
-  white-space:nowrap;
-  z-index:7;
+  background:var(--bg);
+  z-index:8;
 }
 .msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+
+/* ===== Mobile: switcher goes on top ===== */
+@media (max-width: 768px){
+  .wrap{
+    flex-direction:column;
+  }
+  .controlsCol{
+    width:100%;
+    flex:0 0 auto;
+    border-right:0;
+    border-bottom:2px solid var(--brand);
+  }
+  .switcher{
+    flex-direction:row;
+    height:auto;
+  }
+  .tbtn{
+    height:auto;
+    padding:12px 0;
+    justify-content:center;
+    flex:1;
+    font-size:12px;
+  }
+  .tbtn + .tbtn{
+    border-top:0;
+    border-left:2px solid var(--brand);
+  }
+  .tickerCol{
+    height:var(--h);
+  }
+}
 `;
   }
 
+  // Robust CSV parser (handles quoted commas)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -436,23 +455,12 @@
 
   function safeHexColor(x, fallback){
     const s = safeText(x);
-    if(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) return s.toUpperCase();
+    if(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i.test(s)) return s.toUpperCase();
     return fallback;
   }
 
-  async function fetchWithTimeout(url, timeoutMs){
-    const controller = new AbortController();
-    const id = window.setTimeout(()=> controller.abort(), timeoutMs);
-    try{
-      const res = await fetch(url, { cache:"no-store", signal: controller.signal });
-      return res;
-    } finally {
-      window.clearTimeout(id);
-    }
-  }
-
-  async function fetchJson(url, timeoutMs){
-    const res = await fetchWithTimeout(url, timeoutMs);
+  async function fetchJson(url){
+    const res = await fetch(url, { cache:"no-store" });
     if(!res.ok) throw new Error("JSON fetch failed: " + res.status);
     return await res.json();
   }
@@ -467,6 +475,8 @@
 
       const primary = safeHexColor(c?.colors?.primary, "#111111");
       const secondary = safeHexColor(c?.colors?.secondary, "#FFFFFF");
+
+      // tertiary: use provided if present, else repeat secondary
       const tertiary = safeHexColor(c?.colors?.tertiary, secondary);
 
       map.set(name.toLowerCase(), { primary, secondary, tertiary });
@@ -482,10 +492,6 @@
 
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
-
-    if(!hostEl.style.display) hostEl.style.display = "block";
-    if(!hostEl.style.width) hostEl.style.width = "100%";
-
     const root = hostEl.attachShadow({ mode:"open" });
 
     if(opts.kitCss){
@@ -505,12 +511,14 @@
     wrap.setAttribute("aria-label","Fixtures and results ticker");
     root.appendChild(wrap);
 
-    // Left controls column
+    // Controls column
     const controlsCol = document.createElement("div");
     controlsCol.className = "controlsCol";
+    wrap.appendChild(controlsCol);
 
     const switcher = document.createElement("div");
     switcher.className = "switcher";
+    controlsCol.appendChild(switcher);
 
     const btnFixtures = document.createElement("button");
     btnFixtures.className = "tbtn";
@@ -524,32 +532,29 @@
 
     switcher.appendChild(btnFixtures);
     switcher.appendChild(btnResults);
-    controlsCol.appendChild(switcher);
-    wrap.appendChild(controlsCol);
 
-    // Right ticker column
+    // Ticker column
     const tickerCol = document.createElement("div");
-    tickerCol.className = "tickerCol";
+    tickerCol.className = "tickerCol edgeMask";
     wrap.appendChild(tickerCol);
 
     const belt = document.createElement("div");
     belt.className = "belt";
+    tickerCol.appendChild(belt);
 
     const laneA = document.createElement("div");
     laneA.className = "lane";
     const laneB = document.createElement("div");
     laneB.className = "lane";
-
     belt.appendChild(laneA);
     belt.appendChild(laneB);
-    tickerCol.appendChild(belt);
 
     const msg = document.createElement("div");
     msg.className = "msg";
     msg.innerHTML = `<strong>Loading…</strong>`;
     tickerCol.appendChild(msg);
 
-    // Data / rendering state
+    // State
     let clubColors = new Map();
     let allItems = [];
     let mode = "results";
@@ -560,7 +565,7 @@
     let lastTs = 0;
     let rafId = 0;
 
-    // Drag state (drag should be on tickerCol, not whole wrap)
+    // Drag state
     const DRAG_THRESHOLD_PX = 6;
     let dragging = false;
     let dragStartX = 0;
@@ -570,7 +575,7 @@
     let refreshTimer = null;
     let ro = null;
 
-    // Persisted state
+    // Restore persisted state
     const persisted = loadState(opts);
     if(persisted && (persisted.mode === "fixtures" || persisted.mode === "results")){
       mode = persisted.mode;
@@ -629,32 +634,26 @@
       e.stopPropagation();
       setMode("fixtures");
     });
-
     btnResults.addEventListener("click", (e)=>{
       e.stopPropagation();
       setMode("results");
     });
-
     applyModeUI();
 
-    // Drag scrub ONLY on tickerCol (so clicking switcher never triggers drag)
+    // Drag scrub on ticker area only
     tickerCol.addEventListener("pointerdown", (e)=>{
       if(e.pointerType === "mouse" && e.button !== 0) return;
-
       dragging = true;
       didDrag = false;
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
-
       try{ tickerCol.setPointerCapture(e.pointerId); }catch{}
     });
 
     tickerCol.addEventListener("pointermove", (e)=>{
       if(!dragging || !shiftPx) return;
-
       const dx = e.clientX - dragStartX;
       if(Math.abs(dx) > DRAG_THRESHOLD_PX) didDrag = true;
-
       offsetPx = dragStartOffset + dx;
       normalizeOffset();
       setTransform();
@@ -673,7 +672,7 @@
       didDrag = false;
     });
 
-    // Only cancel navigation if a drag truly happened
+    // Cancel navigation only if actual drag happened
     tickerCol.addEventListener("click", (e)=>{
       if(!didDrag) return;
       const a = e.target && e.target.closest ? e.target.closest("a") : null;
@@ -683,17 +682,6 @@
       }
       didDrag = false;
     }, false);
-
-    // Pause animation when tab hidden
-    document.addEventListener("visibilitychange", ()=>{
-      if(document.hidden){
-        if(rafId) cancelAnimationFrame(rafId);
-        rafId = 0;
-      }else{
-        lastTs = 0;
-        startAnim();
-      }
-    });
 
     function buildDividerEl(){
       const d = document.createElement("span");
@@ -713,9 +701,9 @@
         pill.style.color = colors.secondary;
         pill.style.borderColor = colors.tertiary;
       }else{
-        pill.style.background = "#111";
-        pill.style.color = "#fff";
-        pill.style.borderColor = opts.pillBorder;
+        pill.style.background = "#111111";
+        pill.style.color = "#FFFFFF";
+        pill.style.borderColor = "rgba(0,0,0,0.18)";
       }
 
       pill.textContent = name.toUpperCase();
@@ -728,7 +716,6 @@
       link.href = opts.matchHubUrl;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.setAttribute("aria-label", "Open Match Hub");
 
       const box = document.createElement("span");
       box.className = "fixture";
@@ -756,8 +743,7 @@
         hCrest.classList.add("missing");
       }
 
-      homeSide.appendChild(hCrest);
-      homeSide.appendChild(teamPillEl(fx.home));
+      const hPill = teamPillEl(fx.home);
 
       const score = document.createElement("span");
       score.className = "scorePill";
@@ -766,7 +752,7 @@
       const awaySide = document.createElement("span");
       awaySide.className = "side";
 
-      awaySide.appendChild(teamPillEl(fx.away));
+      const aPill = teamPillEl(fx.away);
 
       const aCrest = document.createElement("img");
       aCrest.className = "crest";
@@ -781,6 +767,10 @@
         aCrest.classList.add("missing");
       }
 
+      homeSide.appendChild(hCrest);
+      homeSide.appendChild(hPill);
+
+      awaySide.appendChild(aPill);
       awaySide.appendChild(aCrest);
 
       row.appendChild(homeSide);
@@ -826,8 +816,8 @@
       laneB.innerHTML = "";
 
       if(!items.length){
-        msg.style.display = "block";
-        msg.innerHTML = `<strong>${mode === "fixtures" ? "FIXTURES" : "RESULTS"}:</strong> none in ±${Math.max(opts.daysBack, opts.daysForward)} days.`;
+        msg.style.display = "flex";
+        msg.innerHTML = `<strong>${mode === "fixtures" ? "FIXTURES" : "RESULTS"}:</strong>&nbsp;none in ±${Math.max(opts.daysBack, opts.daysForward)} days.`;
         offsetPx = 0;
         setTransform();
         shiftPx = 0;
@@ -839,14 +829,14 @@
       const fragA = document.createDocumentFragment();
       const fragB = document.createDocumentFragment();
 
-      items.forEach((fx)=>{
+      for(const fx of items){
         fragA.appendChild(buildFixtureEl(fx));
         fragA.appendChild(buildDividerEl());
-      });
-      items.forEach((fx)=>{
+      }
+      for(const fx of items){
         fragB.appendChild(buildFixtureEl(fx));
         fragB.appendChild(buildDividerEl());
-      });
+      }
 
       laneA.appendChild(fragA);
       laneB.appendChild(fragB);
@@ -856,32 +846,22 @@
 
     async function refresh(){
       try{
-        msg.style.display = "block";
+        msg.style.display = "flex";
         msg.innerHTML = `<strong>Loading…</strong>`;
 
-        const timeoutMs = opts.fetchTimeoutMs;
-
-        const csvPromise = (async ()=>{
-          const r = await fetchWithTimeout(opts.csv, timeoutMs);
-          if(!r.ok) throw new Error("CSV fetch failed: " + r.status);
-          return await r.text();
-        })();
-
-        const metaPromise = (async ()=>{
-          try{
-            return await fetchJson(opts.clubsMeta, timeoutMs);
-          }catch{
-            return null;
-          }
-        })();
-
-        const [csvText, clubsMeta] = await Promise.all([csvPromise, metaPromise]);
+        const [csvText, clubsMeta] = await Promise.all([
+          fetch(opts.csv, { cache:"no-store" }).then(r=>{
+            if(!r.ok) throw new Error("Feed fetch failed: " + r.status);
+            return r.text();
+          }),
+          fetchJson(opts.clubsMeta).catch(()=> null)
+        ]);
 
         clubColors = buildClubColorMap(clubsMeta);
 
         const rows = parseCSV(csvText);
         if(!rows.length){
-          msg.style.display = "block";
+          msg.style.display = "flex";
           msg.innerHTML = `<strong>Error:</strong> CSV has no rows.`;
           return;
         }
@@ -902,7 +882,7 @@
         if(idxAway === -1) missing.push("Away team");
 
         if(missing.length){
-          msg.style.display = "block";
+          msg.style.display = "flex";
           msg.innerHTML = `<strong>Error:</strong> Missing columns: ${missing.join(", ")}.`;
           return;
         }
@@ -937,10 +917,8 @@
         render();
       }catch(e){
         console.error("[ResultsTicker " + VERSION + "] refresh error", e);
-        msg.style.display = "block";
-        msg.innerHTML =
-          `<strong>Error:</strong> Feed/parse failed. ` +
-          `<span style="font-size:12px;color:#444">(${safeText(e && e.message) || "see console"})</span>`;
+        msg.style.display = "flex";
+        msg.innerHTML = `<strong>Error:</strong> Feed/parse failed.`;
       }
     }
 
@@ -980,10 +958,7 @@
 
   function boot(){
     bootOnce();
-
-    const mo = new MutationObserver(()=>{
-      bootOnce();
-    });
+    const mo = new MutationObserver(()=>{ bootOnce(); });
     mo.observe(document.documentElement, { childList:true, subtree:true });
   }
 
