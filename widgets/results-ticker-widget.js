@@ -1,19 +1,20 @@
-/* Results Ticker Widget (v1.65) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.66) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.65:
-   - Switcher back to STACKED (FIXTURES / RESULTS)
-   - Cleaner, more defined controls: single unified panel (no nested rounded boxes)
-   - Controls panel runs full ticker height + has hard right-edge divider so ticker feels "separated"
-   - Winner text animation remains REMOVED (smoothness)
+   v1.66:
+   - Controls are now a real LEFT COLUMN (not overlay)
+     -> ticker can never render underneath
+     -> switcher is full-height, clearer divider, no "nested box" look
+   - Fix "RESULTS" cropping by proper vertical centering + safe line-height
    - Keeps: club primary/secondary/tertiary pills (tertiary = pill border), drag scrub, link click, 3-day window, persistence
+   - Winner animation remains REMOVED for smoothness
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.65";
+  const VERSION = "v1.66";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -44,12 +45,10 @@
 
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
-    // Switcher
-    switcher: "stacked",      // "stacked" | "segmented" (segmented kept for compatibility)
-
-    // Controls panel sizing
-    controlsPad: 8,           // px padding inside wrap at top/left/bottom
-    controlsWidth: 116,       // px (min width of controls panel)
+    // Controls sizing
+    controlsWidth: 128,       // px
+    controlsBorder: "rgba(0,0,0,0.16)",
+    controlsDivider: "rgba(0,0,0,0.20)",
 
     // Network hardening
     fetchTimeoutMs: 12000
@@ -102,14 +101,7 @@
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
-    if(d.switcher){
-      const s = safeText(d.switcher).toLowerCase();
-      if(s === "segmented" || s === "stacked") opts.switcher = s;
-    }
-
-    if(d.controlsPad) opts.controlsPad = clampInt(d.controlsPad, 0, 18, DEFAULTS.controlsPad);
-    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 84, 180, DEFAULTS.controlsWidth);
-
+    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 96, 200, DEFAULTS.controlsWidth);
     if(d.fetchTimeoutMs) opts.fetchTimeoutMs = clampInt(d.fetchTimeoutMs, 2000, 60000, DEFAULTS.fetchTimeoutMs);
 
     return opts;
@@ -134,8 +126,9 @@
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
 
-  --controls-pad:${opts.controlsPad}px;
   --controls-w:${opts.controlsWidth}px;
+  --controls-border:${opts.controlsBorder};
+  --controls-divider:${opts.controlsDivider};
 }
 
 *{ box-sizing:border-box; }
@@ -145,7 +138,7 @@
   background:var(--bg);
   overflow:hidden;
   display:flex;
-  align-items:center;
+  align-items:stretch;
   position:relative;
   border-radius:10px;
   touch-action: pan-y;
@@ -153,65 +146,17 @@
   border:1px solid rgba(0,0,0,0.08);
 }
 
-/* mask edges */
-.wrap:before,
-.wrap:after{
-  content:"";
-  position:absolute;
-  top:0; bottom:0;
-  width:46px;
-  pointer-events:none;
-  z-index:6;
-}
-.wrap:before{
-  left:0;
-  background:linear-gradient(to right, var(--bg) 0%, rgba(255,255,255,0) 100%);
-}
-.wrap:after{
-  right:0;
-  background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
-}
-
-/* ===== Controls: unified full-height panel ===== */
-.controls{
-  position:absolute;
-  top:0;
-  left:0;
-  bottom:0;
-  z-index:10;
-  padding:var(--controls-pad);
-  pointer-events:auto;
-  display:flex;
-  align-items:stretch;
-}
-
-/* This is the single panel (no nested rounded boxes) */
-.controlsPanel{
-  position:relative;
+/* ===== Left column controls (real layout, not overlay) ===== */
+.controlsCol{
   width:var(--controls-w);
-  height:100%;
-  border-radius:10px;
-  border:2px solid rgba(0,0,0,0.14);
-  background:rgba(255,255,255,0.96);
-  overflow:hidden;
-  box-shadow:0 1px 0 rgba(0,0,0,.04);
+  flex:0 0 var(--controls-w);
   display:flex;
   flex-direction:column;
+  background:rgba(255,255,255,0.96);
+  border-right:2px solid var(--controls-divider);
 }
 
-/* Hard divider at right edge to "separate" controls from ticker */
-.controlsPanel:after{
-  content:"";
-  position:absolute;
-  top:0;
-  right:-2px;
-  bottom:0;
-  width:2px;
-  background:rgba(0,0,0,0.20);
-}
-
-/* Switcher STACKED */
-.switcher.stacked{
+.switcher{
   display:flex;
   flex-direction:column;
   height:100%;
@@ -221,23 +166,23 @@
   appearance:none;
   border:0;
   background:transparent;
-  padding:10px 12px;
+  padding:0 14px;
+  flex:1 1 50%;
+  display:flex;
+  align-items:center;          /* vertical center */
+  justify-content:flex-start;  /* left align */
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
   font-size:13px;
   letter-spacing:.10em;
   text-transform:uppercase;
+  line-height:1.1;             /* avoids glyph cropping */
   color:var(--text);
   cursor:pointer;
-  line-height:1;
-  text-align:left;
-  flex:1 1 50%;
-  display:flex;
-  align-items:center;
 }
 
 .tbtn + .tbtn{
-  border-top:2px solid rgba(0,0,0,0.14);
+  border-top:2px solid var(--controls-border);
 }
 
 .tbtn.active{
@@ -245,19 +190,44 @@
   color:#fff;
 }
 
-/* Accessibility focus */
 .tbtn:focus{ outline:none; }
 .tbtn:focus-visible{
   box-shadow:0 0 0 3px rgba(11,15,25,0.18) inset;
 }
 
-/* ===== Belt ===== */
+/* ===== Right column ticker lane ===== */
+.tickerCol{
+  position:relative;
+  flex:1 1 auto;
+  overflow:hidden;
+}
+
+/* mask edges inside ticker only (not over controls) */
+.tickerCol:before,
+.tickerCol:after{
+  content:"";
+  position:absolute;
+  top:0; bottom:0;
+  width:46px;
+  pointer-events:none;
+  z-index:6;
+}
+.tickerCol:before{
+  left:0;
+  background:linear-gradient(to right, var(--bg) 0%, rgba(255,255,255,0) 100%);
+}
+.tickerCol:after{
+  right:0;
+  background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
+}
+
 .belt{
   display:flex;
   align-items:center;
   white-space:nowrap;
   will-change:transform;
   transform:translate3d(0,0,0);
+  height:100%;
 }
 
 .lane{
@@ -356,11 +326,15 @@
 
 /* Message */
 .msg{
+  position:absolute;
+  left:14px;
+  top:50%;
+  transform:translateY(-50%);
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
   color:#111;
-  padding:0 14px;
   white-space:nowrap;
+  z-index:7;
 }
 .msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
 `;
@@ -531,15 +505,12 @@
     wrap.setAttribute("aria-label","Fixtures and results ticker");
     root.appendChild(wrap);
 
-    // Controls
-    const controls = document.createElement("div");
-    controls.className = "controls";
-
-    const controlsPanel = document.createElement("div");
-    controlsPanel.className = "controlsPanel";
+    // Left controls column
+    const controlsCol = document.createElement("div");
+    controlsCol.className = "controlsCol";
 
     const switcher = document.createElement("div");
-    switcher.className = "switcher stacked";
+    switcher.className = "switcher";
 
     const btnFixtures = document.createElement("button");
     btnFixtures.className = "tbtn";
@@ -553,11 +524,14 @@
 
     switcher.appendChild(btnFixtures);
     switcher.appendChild(btnResults);
-    controlsPanel.appendChild(switcher);
-    controls.appendChild(controlsPanel);
-    wrap.appendChild(controls);
+    controlsCol.appendChild(switcher);
+    wrap.appendChild(controlsCol);
 
-    // Belt
+    // Right ticker column
+    const tickerCol = document.createElement("div");
+    tickerCol.className = "tickerCol";
+    wrap.appendChild(tickerCol);
+
     const belt = document.createElement("div");
     belt.className = "belt";
 
@@ -568,12 +542,12 @@
 
     belt.appendChild(laneA);
     belt.appendChild(laneB);
-    wrap.appendChild(belt);
+    tickerCol.appendChild(belt);
 
     const msg = document.createElement("div");
     msg.className = "msg";
     msg.innerHTML = `<strong>Loading…</strong>`;
-    wrap.appendChild(msg);
+    tickerCol.appendChild(msg);
 
     // Data / rendering state
     let clubColors = new Map();
@@ -586,7 +560,7 @@
     let lastTs = 0;
     let rafId = 0;
 
-    // Drag state
+    // Drag state (drag should be on tickerCol, not whole wrap)
     const DRAG_THRESHOLD_PX = 6;
     let dragging = false;
     let dragStartX = 0;
@@ -663,11 +637,8 @@
 
     applyModeUI();
 
-    // Drag scrub on wrap, but don't start drag if user pressed controls
-    wrap.addEventListener("pointerdown", (e)=>{
-      const path = e.composedPath ? e.composedPath() : [];
-      if(path.some(el => el && el.classList && el.classList.contains("controls"))) return;
-
+    // Drag scrub ONLY on tickerCol (so clicking switcher never triggers drag)
+    tickerCol.addEventListener("pointerdown", (e)=>{
       if(e.pointerType === "mouse" && e.button !== 0) return;
 
       dragging = true;
@@ -675,11 +646,12 @@
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
 
-      try{ wrap.setPointerCapture(e.pointerId); }catch{}
+      try{ tickerCol.setPointerCapture(e.pointerId); }catch{}
     });
 
-    wrap.addEventListener("pointermove", (e)=>{
+    tickerCol.addEventListener("pointermove", (e)=>{
       if(!dragging || !shiftPx) return;
+
       const dx = e.clientX - dragStartX;
       if(Math.abs(dx) > DRAG_THRESHOLD_PX) didDrag = true;
 
@@ -688,21 +660,21 @@
       setTransform();
     });
 
-    wrap.addEventListener("pointerup", (e)=>{
+    tickerCol.addEventListener("pointerup", (e)=>{
       if(!dragging) return;
       dragging = false;
-      try{ wrap.releasePointerCapture(e.pointerId); }catch{}
+      try{ tickerCol.releasePointerCapture(e.pointerId); }catch{}
       lastTs = performance.now();
       persist();
     });
 
-    wrap.addEventListener("pointercancel", ()=>{
+    tickerCol.addEventListener("pointercancel", ()=>{
       dragging = false;
       didDrag = false;
     });
 
     // Only cancel navigation if a drag truly happened
-    wrap.addEventListener("click", (e)=>{
+    tickerCol.addEventListener("click", (e)=>{
       if(!didDrag) return;
       const a = e.target && e.target.closest ? e.target.closest("a") : null;
       if(a){
@@ -974,7 +946,7 @@
 
     try{
       ro = new ResizeObserver(()=> recomputeShift());
-      ro.observe(wrap);
+      ro.observe(tickerCol);
     }catch{}
 
     refresh();
