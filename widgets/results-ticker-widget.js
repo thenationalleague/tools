@@ -1,19 +1,26 @@
-/* Results Ticker Widget (v1.64) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.63) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.64:
-   - Uses clubs-meta.json tertiary colour for TEAM pill border (fallback: secondary)
-   - Normalises hex colours to UPPERCASE
-   - Hardening: host element gets a minimum height to avoid "nothing shows"
-   - Hardening: clearer on-widget error messages when fetch/parse fails
-   - Keeps v1.62 features (switcher designs, optional separator, drag scrub, link click, v vs score, 3-day window, persisted mode/offset)
+   v1.63:
+   - Team pills use clubs-meta.json:
+       primary = pill background
+       secondary = pill text
+       tertiary = pill border (NEW)
+     (If tertiary missing, uses secondary)
+   - Hardening so widget always renders:
+       :host display:block + host width
+       fetch timeouts (AbortController)
+       better error surfacing (no infinite "Loading…")
+   - Keeps v1.62 features:
+       stacked/segmented F&R switcher, optional separator line, drag scrub,
+       link clicks, score->"v" when not final, 3-day window ±, state persistence
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.64";
+  const VERSION = "v1.63";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -27,11 +34,13 @@
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
 
-    bg: "#FFFFFF",
+    bg: "#ffffff",
     text: "#111111",
-    muted: "#6B7280",
+    muted: "#6b7280",
 
-    pillBorder: "#000000",      // fallback border if club meta missing
+    // fallback border if club has no meta
+    pillBorder: "#000000",
+
     dividerColor: "#000000",
     dividerH: 30,
     dividerW: 2,
@@ -46,9 +55,12 @@
 
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
-    // Switcher design (v1.62)
+    // Switcher design
     switcher: "stacked",      // "stacked" | "segmented"
-    switcherSep: false        // true adds hard separator line
+    switcherSep: false,       // true adds hard separator line
+
+    // Network hardening
+    fetchTimeoutMs: 12000
   };
 
   const COMP_DISPLAY = {
@@ -102,7 +114,6 @@
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
-    // Switcher (v1.62)
     if(d.switcher){
       const s = safeText(d.switcher).toLowerCase();
       if(s === "segmented" || s === "stacked") opts.switcher = s;
@@ -112,12 +123,7 @@
       opts.switcherSep = (v === "1" || v === "true" || v === "yes");
     }
 
-    // Normalise default hexes to uppercase
-    opts.bg = safeHexColor(opts.bg, "#FFFFFF");
-    opts.text = safeHexColor(opts.text, "#111111");
-    opts.muted = safeHexColor(opts.muted, "#6B7280");
-    opts.pillBorder = safeHexColor(opts.pillBorder, "#000000");
-    opts.dividerColor = safeHexColor(opts.dividerColor, "#000000");
+    if(d.fetchTimeoutMs) opts.fetchTimeoutMs = clampInt(d.fetchTimeoutMs, 2000, 60000, DEFAULTS.fetchTimeoutMs);
 
     return opts;
   }
@@ -126,7 +132,7 @@
     return `
 :host{
   display:block;
-  min-height:${opts.height}px;
+  width:100%;
 
   --bg:${opts.bg};
   --text:${opts.text};
@@ -189,6 +195,21 @@
   pointer-events:auto;
 }
 
+/* Helps prevent ticker content visually “floating” behind controls */
+.controls{
+  padding:0;
+}
+.controls::before{
+  content:"";
+  position:absolute;
+  inset:-6px -10px -6px -10px;
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:saturate(1.2) blur(6px);
+  border-radius:12px;
+  border:1px solid rgba(0,0,0,0.10);
+  z-index:-1;
+}
+
 .sep{
   width:2px;
   align-self:stretch;
@@ -197,44 +218,46 @@
 }
 
 /* ===== Switcher styles ===== */
+
+/* Stacked */
 .switcher.stacked{
   display:flex;
   flex-direction:column;
   border:2px solid rgba(0,0,0,0.14);
-  background:rgba(255,255,255,0.92);
-  backdrop-filter:saturate(1.2) blur(6px);
+  background:transparent;
   border-radius:10px;
   overflow:hidden;
   box-shadow:0 1px 0 rgba(0,0,0,.04);
-  min-width:96px;
+  min-width:104px;
 }
 .switcher.stacked .tbtn{
   appearance:none;
   border:0;
   background:transparent;
-  padding:7px 10px;
+  padding:8px 10px;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:900;
-  font-size:12px;
+  font-weight:950;
+  font-size:13px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
   color:var(--text);
   cursor:pointer;
   line-height:1;
   text-align:left;
-  text-transform:uppercase;
 }
 .switcher.stacked .tbtn + .tbtn{
-  border-top:1px solid rgba(0,0,0,0.12);
+  border-top:2px solid rgba(0,0,0,0.12);
 }
 .switcher.stacked .tbtn.active{
-  background:#0B0F19;
-  color:#FFFFFF;
+  background:#0b0f19;
+  color:#fff;
 }
 
+/* Segmented */
 .switcher.segmented{
   display:inline-flex;
   border:2px solid rgba(0,0,0,0.14);
-  background:rgba(255,255,255,0.92);
-  backdrop-filter:saturate(1.2) blur(6px);
+  background:transparent;
   border-radius:999px;
   overflow:hidden;
   box-shadow:0 1px 0 rgba(0,0,0,.04);
@@ -243,18 +266,19 @@
   appearance:none;
   border:0;
   background:transparent;
-  padding:7px 12px;
+  padding:8px 12px;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:900;
-  font-size:12px;
+  font-weight:950;
+  font-size:13px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
   color:var(--text);
   cursor:pointer;
   line-height:1;
-  text-transform:uppercase;
 }
 .switcher.segmented .tbtn.active{
-  background:#0B0F19;
-  color:#FFFFFF;
+  background:#0b0f19;
+  color:#fff;
 }
 
 .belt{
@@ -340,9 +364,9 @@
   min-width:60px;
   height:30px;
   padding:0 12px;
-  border:2px solid var(--pill-border);
+  border:2px solid rgba(0,0,0,0.14);
   border-radius:999px;
-  background:#FFFFFF;
+  background:#fff;
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:900;
   font-size:15px;
@@ -385,7 +409,7 @@
 .msg{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
-  color:#111111;
+  color:#111;
   padding:0 14px;
   white-space:nowrap;
 }
@@ -510,11 +534,22 @@
   function safeHexColor(x, fallback){
     const s = safeText(x);
     if(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) return s.toUpperCase();
-    return fallback.toUpperCase();
+    return fallback;
   }
 
-  async function fetchJson(url){
-    const res = await fetch(url, { cache:"no-store" });
+  async function fetchWithTimeout(url, timeoutMs){
+    const controller = new AbortController();
+    const id = window.setTimeout(()=> controller.abort(), timeoutMs);
+    try{
+      const res = await fetch(url, { cache:"no-store", signal: controller.signal });
+      return res;
+    } finally {
+      window.clearTimeout(id);
+    }
+  }
+
+  async function fetchJson(url, timeoutMs){
+    const res = await fetchWithTimeout(url, timeoutMs);
     if(!res.ok) throw new Error("JSON fetch failed: " + res.status);
     return await res.json();
   }
@@ -529,7 +564,10 @@
 
       const primary = safeHexColor(c?.colors?.primary, "#111111");
       const secondary = safeHexColor(c?.colors?.secondary, "#FFFFFF");
-      const tertiary = safeHexColor(c?.colors?.tertiary, secondary);
+
+      // NEW: tertiary (border colour). If missing, repeat secondary.
+      const tertiaryRaw = c?.colors?.tertiary;
+      const tertiary = safeHexColor(tertiaryRaw, secondary);
 
       map.set(name.toLowerCase(), { primary, secondary, tertiary });
     }
@@ -545,11 +583,9 @@
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
 
-    // Hardening: if host is inline or collapsed, force it to behave
-    try{
-      hostEl.style.display = hostEl.style.display || "block";
-      hostEl.style.minHeight = hostEl.style.minHeight || (opts.height + "px");
-    }catch{}
+    // Ensure host has a box in layouts that treat empty divs oddly
+    if(!hostEl.style.display) hostEl.style.display = "block";
+    if(!hostEl.style.width) hostEl.style.width = "100%";
 
     const root = hostEl.attachShadow({ mode:"open" });
 
@@ -589,6 +625,7 @@
 
     switcher.appendChild(btnFixtures);
     switcher.appendChild(btnResults);
+
     controls.appendChild(switcher);
 
     if(opts.switcherSep){
@@ -755,6 +792,17 @@
       didDrag = false;
     }, false);
 
+    // Pause animation when tab hidden (reduces jank on return)
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.hidden){
+        if(rafId) cancelAnimationFrame(rafId);
+        rafId = 0;
+      }else{
+        lastTs = 0;
+        startAnim();
+      }
+    });
+
     function buildDividerEl(){
       const d = document.createElement("span");
       d.className = "divider";
@@ -771,10 +819,12 @@
       if(colors){
         pill.style.background = colors.primary;
         pill.style.color = colors.secondary;
-        pill.style.borderColor = colors.tertiary || colors.secondary; // v1.64
+
+        // NEW: tertiary controls border colour
+        pill.style.borderColor = colors.tertiary;
       }else{
-        pill.style.background = "#111111";
-        pill.style.color = "#FFFFFF";
+        pill.style.background = "#111";
+        pill.style.color = "#fff";
         pill.style.borderColor = opts.pillBorder;
       }
 
@@ -863,6 +913,7 @@
       box.appendChild(row);
       link.appendChild(box);
 
+      // winner wave setup (delays + .win)
       if(parsed){
         if(homeRes === "win"){
           const letters = hPill.querySelectorAll(".letter");
@@ -951,13 +1002,23 @@
         msg.style.display = "block";
         msg.innerHTML = `<strong>Loading…</strong>`;
 
-        const [csvText, clubsMeta] = await Promise.all([
-          fetch(opts.csv, { cache:"no-store" }).then(r=>{
-            if(!r.ok) throw new Error("Feed fetch failed: " + r.status);
-            return r.text();
-          }),
-          fetchJson(opts.clubsMeta).catch(()=> null)
-        ]);
+        const timeoutMs = opts.fetchTimeoutMs;
+
+        const csvPromise = (async ()=>{
+          const r = await fetchWithTimeout(opts.csv, timeoutMs);
+          if(!r.ok) throw new Error("CSV fetch failed: " + r.status);
+          return await r.text();
+        })();
+
+        const metaPromise = (async ()=>{
+          try{
+            return await fetchJson(opts.clubsMeta, timeoutMs);
+          }catch{
+            return null;
+          }
+        })();
+
+        const [csvText, clubsMeta] = await Promise.all([csvPromise, metaPromise]);
 
         clubColors = buildClubColorMap(clubsMeta);
 
@@ -1016,11 +1077,16 @@
         }
 
         allItems = parsed;
+
+        // If we were stuck on Loading due to previous failures, render now
         render();
       }catch(e){
         console.error("[ResultsTicker " + VERSION + "] refresh error", e);
+
         msg.style.display = "block";
-        msg.innerHTML = `<strong>Error:</strong> Feed/parse failed (check console).`;
+        msg.innerHTML =
+          `<strong>Error:</strong> Feed/parse failed. ` +
+          `<span style="font-size:12px;color:#444">(${safeText(e && e.message) || "see console"})</span>`;
       }
     }
 
@@ -1055,6 +1121,7 @@
       try{
         node.__nlResultsTicker = makeWidget(node);
       }catch(e){
+        // If Shadow DOM attach fails for any reason
         console.error("[ResultsTicker " + VERSION + "] boot error", e);
       }
     });
