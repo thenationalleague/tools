@@ -1,31 +1,28 @@
-/* Results Ticker Widget (v1.60) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.61) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.60 changes:
-   - Never misses fixtures/results in long sheets: parse ALL rows, then filter
-   - Fixtures/Results switcher (persisted)
-   - 3 days forwards/backwards window
-   - Per-game date/time + division shown as a small superscript line above each fixture
-   - If Score is not n-n => show "v"
-   - Team name pills use clubs-meta.json (primary bg, secondary text)
-   - Everything links to Match Hub (new window)
-   - Smoother belt animation + reduced stutter (fewer DOM scans / layout reads)
+   v1.61 fixes:
+   - FIX: F/R switcher click works (controls pointer-events & no click-capture suppression)
+   - FIX: Drag scrub works reliably (no global click prevent; proper drag threshold)
+   - FIX: Link click works (only blocked when a drag truly happened)
+   - Keeps: parse ALL rows; 3 days back/forward; per-game meta line; v when not n-n;
+            clubs-meta pill colors; all elements link to match hub; smoother animation
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.60";
+  const VERSION = "v1.61";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
     clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
 
     maxItems: 60,
-    height: 74,              // px (slightly taller to accommodate superscript line)
-    speed: 80,               // px/sec
-    refreshMs: 120000,       // 2 min
+    height: 74,
+    speed: 80,
+    refreshMs: 120000,
 
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
@@ -156,6 +153,7 @@
   background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
 }
 
+/* Controls: allow clicks */
 .controls{
   position:absolute;
   top:8px;
@@ -213,6 +211,7 @@
   text-decoration:none;
   color:inherit;
   padding:0 var(--div-pad);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .fixture{
@@ -231,6 +230,7 @@
   letter-spacing:.2px;
   white-space:nowrap;
   line-height:1;
+  text-align:left;
 }
 
 .row{
@@ -362,14 +362,10 @@
       row.push(cur);
       out.push(row);
     }
-
-    // trim cells
     return out.map(r => r.map(c => safeText(c)));
   }
 
-  function normalizeHeader(h){
-    return safeText(h).toLowerCase();
-  }
+  function normalizeHeader(h){ return safeText(h).toLowerCase(); }
 
   function normalizeScoreCell(s){
     const t = safeText(s);
@@ -388,12 +384,10 @@
   }
 
   function parseUKDateTimeToLocal(dtStr){
-    // Expected: DD/MM/YYYY HH:MM
     const s = safeText(dtStr);
     const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
     if(!m) return null;
     const dd = +m[1], mm = +m[2], yyyy = +m[3], hh = +m[4], mi = +m[5];
-    // local time
     const d = new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
     if(!Number.isFinite(+d)) return null;
     return d;
@@ -463,7 +457,6 @@
   }
 
   function buildClubColorMap(meta){
-    // meta: { version, clubs:[{name, colors:{primary,secondary}}] }
     const map = new Map();
     if(!meta || !Array.isArray(meta.clubs)) return map;
 
@@ -504,7 +497,7 @@
     wrap.setAttribute("aria-label","Fixtures and results ticker");
     root.appendChild(wrap);
 
-    // Controls (top-left)
+    // Controls
     const controls = document.createElement("div");
     controls.className = "controls";
 
@@ -544,52 +537,36 @@
     msg.innerHTML = `<strong>Loading…</strong>`;
     wrap.appendChild(msg);
 
-    // State
+    // Data / rendering state
     let clubColors = new Map();
-    let lastFixtures = [];
-    let lastMode = "results"; // default
-    let shiftPx = 0;
+    let allItems = [];
+    let mode = "results";
 
-    // Animation
+    // Animation state
+    let shiftPx = 0;
     let offsetPx = 0;
     let lastTs = 0;
     let rafId = 0;
 
-    // Drag scrub
+    // Drag state
+    const DRAG_THRESHOLD_PX = 6;
     let dragging = false;
     let dragStartX = 0;
     let dragStartOffset = 0;
-    let dragMoved = 0;
+    let didDrag = false; // true only if exceeded threshold during this pointer session
 
     let refreshTimer = null;
     let waveTimer = null;
     let ro = null;
 
-    // Load persisted state
+    // Persisted state
     const persisted = loadState(opts);
     if(persisted && (persisted.mode === "fixtures" || persisted.mode === "results")){
-      lastMode = persisted.mode;
+      mode = persisted.mode;
     }
     if(persisted && typeof persisted.offsetPx === "number" && Number.isFinite(persisted.offsetPx)){
       offsetPx = persisted.offsetPx;
     }
-
-    function setMode(mode){
-      lastMode = mode;
-      btnFixtures.classList.toggle("active", mode === "fixtures");
-      btnResults.classList.toggle("active", mode === "results");
-      saveState(opts, { mode:lastMode, offsetPx, savedAt: Date.now() });
-      // re-render from last loaded dataset if available
-      if(lastFixtures && lastFixtures.length){
-        render(lastFixtures);
-      }
-    }
-
-    btnFixtures.addEventListener("click", ()=> setMode("fixtures"));
-    btnResults.addEventListener("click", ()=> setMode("results"));
-
-    // Init toggle UI
-    setMode(lastMode);
 
     function setTransform(){
       belt.style.transform = "translate3d(" + offsetPx + "px,0,0)";
@@ -621,45 +598,82 @@
       rafId = requestAnimationFrame(tick);
     }
 
-    function onPointerDown(e){
-      if(e.pointerType === "mouse" && e.button !== 0) return;
-      dragging = true;
-      dragMoved = 0;
-      dragStartX = e.clientX;
-      dragStartOffset = offsetPx;
-      try{ wrap.setPointerCapture(e.pointerId); }catch{}
+    function persist(){
+      saveState(opts, { mode, offsetPx, savedAt: Date.now() });
     }
 
-    function onPointerMove(e){
+    function applyModeUI(){
+      btnFixtures.classList.toggle("active", mode === "fixtures");
+      btnResults.classList.toggle("active", mode === "results");
+    }
+
+    function setMode(newMode){
+      mode = newMode;
+      applyModeUI();
+      persist();
+      render();
+    }
+
+    btnFixtures.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      setMode("fixtures");
+    });
+
+    btnResults.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      setMode("results");
+    });
+
+    applyModeUI();
+
+    // Drag scrub on wrap, but DON'T start drag when user clicks controls
+    wrap.addEventListener("pointerdown", (e)=>{
+      const path = e.composedPath ? e.composedPath() : [];
+      if(path.some(el => el && el.classList && el.classList.contains("controls"))) return;
+
+      if(e.pointerType === "mouse" && e.button !== 0) return;
+
+      dragging = true;
+      didDrag = false;
+      dragStartX = e.clientX;
+      dragStartOffset = offsetPx;
+
+      try{ wrap.setPointerCapture(e.pointerId); }catch{}
+    });
+
+    wrap.addEventListener("pointermove", (e)=>{
       if(!dragging || !shiftPx) return;
       const dx = e.clientX - dragStartX;
-      dragMoved = Math.max(dragMoved, Math.abs(dx));
+      if(Math.abs(dx) > DRAG_THRESHOLD_PX) didDrag = true;
+
       offsetPx = dragStartOffset + dx;
       normalizeOffset();
       setTransform();
-    }
+    });
 
-    function onPointerUp(e){
+    wrap.addEventListener("pointerup", (e)=>{
       if(!dragging) return;
       dragging = false;
       try{ wrap.releasePointerCapture(e.pointerId); }catch{}
       lastTs = performance.now();
-      // persist offset (so it resumes near where left off)
-      saveState(opts, { mode:lastMode, offsetPx, savedAt: Date.now() });
-    }
+      persist();
+    });
 
-    wrap.addEventListener("pointerdown", onPointerDown);
-    wrap.addEventListener("pointermove", onPointerMove);
-    wrap.addEventListener("pointerup", onPointerUp);
-    wrap.addEventListener("pointercancel", onPointerUp);
+    wrap.addEventListener("pointercancel", ()=>{
+      dragging = false;
+      didDrag = false;
+    });
 
-    // Prevent click-through when user dragged
+    // Only block link navigation if a drag truly occurred
     wrap.addEventListener("click", (e)=>{
-      if(dragMoved > 6){
+      if(!didDrag) return;
+      const a = e.target && e.target.closest ? e.target.closest("a") : null;
+      if(a){
         e.preventDefault();
         e.stopPropagation();
       }
-    }, true);
+      didDrag = false;
+    }, false);
 
     function buildDividerEl(){
       const d = document.createElement("span");
@@ -678,7 +692,6 @@
         pill.style.background = colors.primary;
         pill.style.color = colors.secondary;
       }else{
-        // sensible fallback
         pill.style.background = "#111";
         pill.style.color = "#fff";
       }
@@ -698,7 +711,6 @@
       const box = document.createElement("span");
       box.className = "fixture";
 
-      // superscript/meta line
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = fx.dt ? (formatDddDMmmYYYYHHMM(fx.dt) + " • " + compDisplay(fx.comp)) : compDisplay(fx.comp);
@@ -711,7 +723,7 @@
 
       const hCrest = document.createElement("img");
       hCrest.className = "crest";
-      hCrest.alt = nameOrBlank(fx.home) ? (nameOrBlank(fx.home) + " crest") : "";
+      hCrest.alt = safeText(fx.home) ? (safeText(fx.home) + " crest") : "";
       const hUrl = crestUrlForTeam(opts, fx.home);
       if(hUrl){
         hCrest.src = hUrl;
@@ -722,8 +734,7 @@
         hCrest.classList.add("missing");
       }
 
-      const scoreIsFinal = fx.isFinal;
-      const parsed = scoreIsFinal ? parseScore(fx.scoreRaw) : null;
+      const parsed = fx.isFinal ? parseScore(fx.scoreRaw) : null;
 
       let homeRes = "";
       let awayRes = "";
@@ -734,11 +745,12 @@
       }
 
       homeSide.appendChild(hCrest);
-      homeSide.appendChild(teamPillEl(fx.home, homeRes));
+      const hPill = teamPillEl(fx.home, homeRes);
+      homeSide.appendChild(hPill);
 
       const score = document.createElement("span");
       score.className = "scorePill";
-      score.textContent = scoreIsFinal ? normalizeScoreCell(fx.scoreRaw) : "v";
+      score.textContent = fx.isFinal ? normalizeScoreCell(fx.scoreRaw) : "v";
 
       const awaySide = document.createElement("span");
       awaySide.className = "side";
@@ -747,7 +759,7 @@
 
       const aCrest = document.createElement("img");
       aCrest.className = "crest";
-      aCrest.alt = nameOrBlank(fx.away) ? (nameOrBlank(fx.away) + " crest") : "";
+      aCrest.alt = safeText(fx.away) ? (safeText(fx.away) + " crest") : "";
       const aUrl = crestUrlForTeam(opts, fx.away);
       if(aUrl){
         aCrest.src = aUrl;
@@ -769,25 +781,22 @@
       box.appendChild(row);
       link.appendChild(box);
 
-      // per-letter wave delays set once here (no repeated scans later)
+      // Set wave delays once per render
       if(parsed){
-        const homeLetters = link.querySelectorAll(".teamPill.win .letter");
-        if(homeLetters && homeLetters.length){
-          homeLetters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
+        if(homeRes === "win"){
+          const letters = hPill.querySelectorAll(".letter");
+          letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
         }
-        const awayLetters = link.querySelectorAll(".teamPill.win .letter");
-        if(awayLetters && awayLetters.length){
-          awayLetters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
+        if(awayRes === "win"){
+          const letters = aPill.querySelectorAll(".letter");
+          letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
         }
       }
 
       return link;
     }
 
-    function nameOrBlank(s){ return safeText(s) || ""; }
-
     function recomputeShift(){
-      // One layout read
       shiftPx = laneA.scrollWidth || 0;
       normalizeOffset();
       setTransform();
@@ -795,40 +804,31 @@
 
     function triggerWave(){
       wrap.classList.remove("wave");
-      // force reflow once, cheap
       void wrap.offsetWidth;
       wrap.classList.add("wave");
-
-      // remove class after animation window
       window.setTimeout(()=> wrap.classList.remove("wave"), (opts.waveDurMs + (24 * opts.waveStaggerMs) + 160));
     }
 
-    function render(allItems){
-      // filter based on mode
+    function render(){
       const now = new Date();
       const start = new Date(now);
       start.setHours(0,0,0,0);
+
       const from = new Date(start);
       from.setDate(from.getDate() - opts.daysBack);
+
       const to = new Date(start);
-      to.setDate(to.getDate() + opts.daysForward + 1); // inclusive window end (next midnight)
+      to.setDate(to.getDate() + opts.daysForward + 1);
 
       let items = allItems.filter(it => it.dt && it.dt >= from && it.dt < to);
 
-      if(lastMode === "fixtures"){
-        // fixtures: include items that are NOT final OR are future
-        items = items.filter(it => !it.isFinal);
-      }else{
-        // results: include items that ARE final
-        items = items.filter(it => it.isFinal);
-      }
+      if(mode === "fixtures") items = items.filter(it => !it.isFinal);
+      else items = items.filter(it => it.isFinal);
 
-      // sort chronological for ticker readability
       items.sort((a,b)=> (+a.dt) - (+b.dt));
 
-      // hard cap AFTER filtering so we don't miss end-of-sheet items
       if(items.length > opts.maxItems){
-        items = items.slice(items.length - opts.maxItems); // keep newest chunk
+        items = items.slice(items.length - opts.maxItems);
       }
 
       laneA.innerHTML = "";
@@ -836,7 +836,7 @@
 
       if(!items.length){
         msg.style.display = "block";
-        msg.innerHTML = `<strong>${lastMode === "fixtures" ? "Fixtures" : "Results"}:</strong> none in the last/next ${Math.max(opts.daysBack, opts.daysForward)} days.`;
+        msg.innerHTML = `<strong>${mode === "fixtures" ? "Fixtures" : "Results"}:</strong> none in ±${Math.max(opts.daysBack, opts.daysForward)} days.`;
         offsetPx = 0;
         setTransform();
         shiftPx = 0;
@@ -852,7 +852,6 @@
         fragA.appendChild(buildFixtureEl(fx, idx));
         fragA.appendChild(buildDividerEl());
       });
-
       items.forEach((fx, idx)=>{
         fragB.appendChild(buildFixtureEl(fx, idx));
         fragB.appendChild(buildDividerEl());
@@ -861,7 +860,6 @@
       laneA.appendChild(fragA);
       laneB.appendChild(fragB);
 
-      // Keep current offset if possible; just normalize after measuring
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
@@ -870,8 +868,7 @@
         msg.style.display = "block";
         msg.innerHTML = `<strong>Loading…</strong>`;
 
-        // load clubs-meta in parallel with CSV
-        const [csvRes, clubsMeta] = await Promise.all([
+        const [csvText, clubsMeta] = await Promise.all([
           fetch(opts.csv, { cache:"no-store" }).then(r=>{
             if(!r.ok) throw new Error("Feed fetch failed: " + r.status);
             return r.text();
@@ -881,7 +878,7 @@
 
         clubColors = buildClubColorMap(clubsMeta);
 
-        const rows = parseCSV(csvRes);
+        const rows = parseCSV(csvText);
         if(!rows.length){
           msg.style.display = "block";
           msg.innerHTML = `<strong>Error:</strong> CSV has no rows.`;
@@ -891,21 +888,17 @@
         const header = rows[0].map(normalizeHeader);
 
         const idxDateTime = header.indexOf("date & time");
-        const idxMD       = header.indexOf("md");
         const idxComp     = header.indexOf("competition");
         const idxHome     = header.indexOf("home team");
         const idxScore    = header.indexOf("score");
         const idxAway     = header.indexOf("away team");
 
-        const needed = [
-          ["Date & Time", idxDateTime],
-          ["MD", idxMD],
-          ["Competition", idxComp],
-          ["Home team", idxHome],
-          ["Score", idxScore],
-          ["Away team", idxAway]
-        ];
-        const missing = needed.filter(([,i]) => i === -1).map(([n]) => n);
+        const missing = [];
+        if(idxDateTime === -1) missing.push("Date & Time");
+        if(idxComp === -1) missing.push("Competition");
+        if(idxHome === -1) missing.push("Home team");
+        if(idxScore === -1) missing.push("Score");
+        if(idxAway === -1) missing.push("Away team");
 
         if(missing.length){
           msg.style.display = "block";
@@ -913,63 +906,52 @@
           return;
         }
 
-        // Parse ALL rows (no early cut-off)
         const parsed = [];
         for(let i=1; i<rows.length; i++){
           const r = rows[i];
           if(!r || !r.length) continue;
 
           const dtRaw = safeText(r[idxDateTime]);
+          const dt = parseUKDateTimeToLocal(dtRaw);
+          if(!dt) continue;
+
           const comp = safeText(r[idxComp]);
           const home = safeText(r[idxHome]);
           const scoreRaw = safeText(r[idxScore]);
           const away = safeText(r[idxAway]);
 
-          if(!dtRaw && !home && !away && !scoreRaw) continue;
-
-          const dt = parseUKDateTimeToLocal(dtRaw);
-          if(!dt) continue;
-
           if(!home || !away) continue;
-
-          const final = isScoreFinal(scoreRaw);
 
           parsed.push({
             dt,
-            md: safeText(r[idxMD]),
             comp,
             home,
             away,
-            scoreRaw: scoreRaw,
-            isFinal: final
+            scoreRaw,
+            isFinal: isScoreFinal(scoreRaw)
           });
         }
 
-        // keep parsed set
-        lastFixtures = parsed;
-
-        render(lastFixtures);
+        allItems = parsed;
+        render();
       }catch(e){
-        console.error("[ResultsTicker " + VERSION + "]", e);
+        console.error("[ResultsTicker " + VERSION + "] refresh error", e);
         msg.style.display = "block";
         msg.innerHTML = `<strong>Error:</strong> Feed/parse failed.`;
       }
     }
 
-    // ResizeObserver (cheap) to keep loop seamless
     try{
       ro = new ResizeObserver(()=> recomputeShift());
       ro.observe(wrap);
     }catch{}
 
-    // Initial render
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
-
-    // Winner wave loop
     waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
-    // Start animation
+    setTransform();
+    normalizeOffset();
     setTransform();
     startAnim();
 
@@ -983,7 +965,6 @@
     };
   }
 
-  // Boot robustly (handles scripts loaded before container exists)
   function bootOnce(){
     const nodes = document.querySelectorAll("[data-nl-results-ticker]");
     nodes.forEach(node => {
@@ -999,7 +980,6 @@
   function boot(){
     bootOnce();
 
-    // If CMS injects widget after load, observe and boot again
     const mo = new MutationObserver(()=>{
       bootOnce();
     });
