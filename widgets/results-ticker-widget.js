@@ -1,151 +1,398 @@
-/* News Ticker Widget (v1.7.2) — Shadow DOM isolated embed
-   - Crests from assets/crests/(TEAMNAME).png (CSV club name; no meta dependency)
-   - Colours from assets/data/clubs-meta.json (match by name/short/code)
-   - Team name pill: bg=primary, text=secondary, border=tertiary (fallback primary)
-   - Headline colour black (configurable)
-   - TRUE seamless loop: separator after last item too
-   - Keeps vertical divider between team and headline
-   - JS-driven scroll + drag scrub
+/* Results Ticker Widget (v1.64) — Shadow DOM isolated embed
+   Feed: Google Sheets published CSV
+   Sheet columns:
+   Date & Time | MD | Competition | Home team | Score | Away team
+
+   v1.64:
+   - Uses clubs-meta.json tertiary colour for TEAM pill border (fallback: secondary)
+   - Normalises hex colours to UPPERCASE
+   - Hardening: host element gets a minimum height to avoid "nothing shows"
+   - Hardening: clearer on-widget error messages when fetch/parse fails
+   - Keeps v1.62 features (switcher designs, optional separator, drag scrub, link click, v vs score, 3-day window, persisted mode/offset)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.7.2";
+  const VERSION = "v1.64";
 
   const DEFAULTS = {
-    csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
+    csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
     clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
-    maxItems: 10,
-    height: 64,              // px
-    speed: 48,               // px/sec
-    refreshMs: 120000,       // 2 min
+
+    maxItems: 60,
+    height: 74,
+    speed: 80,
+    refreshMs: 120000,
+
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
-    roseImg: "National League rose.png",
-    bg: "#ffffff",
-    headline: "#000000",
-    rule: "#000000"
+
+    bg: "#FFFFFF",
+    text: "#111111",
+    muted: "#6B7280",
+
+    pillBorder: "#000000",      // fallback border if club meta missing
+    dividerColor: "#000000",
+    dividerH: 30,
+    dividerW: 2,
+    dividerPad: 18,
+
+    waveEveryMs: 10000,
+    waveStaggerMs: 35,
+    waveDurMs: 520,
+
+    daysBack: 3,
+    daysForward: 3,
+
+    matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
+
+    // Switcher design (v1.62)
+    switcher: "stacked",      // "stacked" | "segmented"
+    switcherSep: false        // true adds hard separator line
   };
 
+  const COMP_DISPLAY = {
+    "National": "Enterprise National League",
+    "North": "Enterprise National League North",
+    "South": "Enterprise National League South",
+    "NL Cup": "National League Cup"
+  };
+
+  const STORAGE_PREFIX = "nlResultsTickerState:";
+
   function safeText(s){ return (s || "").toString().replace(/\s+/g," ").trim(); }
-  function toAllCaps(s){ return safeText(s).toUpperCase(); }
 
-  function resolveUrl(u){
-    const raw = safeText(u);
-    if(!raw) return "";
-    try{
-      return new URL(raw, document.baseURI).toString();
-    }catch{
-      return raw;
+  function clampInt(v, min, max, fallback){
+    const n = parseInt(v, 10);
+    if(Number.isNaN(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function readOptions(el){
+    const d = el.dataset || {};
+    const opts = Object.assign({}, DEFAULTS);
+
+    if(d.csv) opts.csv = d.csv;
+    if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
+
+    if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
+    if(d.height) opts.height = clampInt(d.height, 46, 140, DEFAULTS.height);
+    if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
+    if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
+
+    if(d.dividerColor) opts.dividerColor = d.dividerColor;
+    if(d.dividerH) opts.dividerH = clampInt(d.dividerH, 10, 80, DEFAULTS.dividerH);
+    if(d.dividerW) opts.dividerW = clampInt(d.dividerW, 1, 12, DEFAULTS.dividerW);
+    if(d.dividerPad) opts.dividerPad = clampInt(d.dividerPad, 0, 60, DEFAULTS.dividerPad);
+
+    if(d.waveEveryMs) opts.waveEveryMs = clampInt(d.waveEveryMs, 2000, 600000, DEFAULTS.waveEveryMs);
+    if(d.waveStaggerMs) opts.waveStaggerMs = clampInt(d.waveStaggerMs, 10, 200, DEFAULTS.waveStaggerMs);
+    if(d.waveDurMs) opts.waveDurMs = clampInt(d.waveDurMs, 200, 2000, DEFAULTS.waveDurMs);
+
+    if(d.kitCss) opts.kitCss = d.kitCss;
+    if(d.crestBase) opts.crestBase = d.crestBase;
+
+    if(d.bg) opts.bg = d.bg;
+    if(d.text) opts.text = d.text;
+    if(d.muted) opts.muted = d.muted;
+    if(d.pillBorder) opts.pillBorder = d.pillBorder;
+
+    if(d.daysBack) opts.daysBack = clampInt(d.daysBack, 0, 30, DEFAULTS.daysBack);
+    if(d.daysForward) opts.daysForward = clampInt(d.daysForward, 0, 30, DEFAULTS.daysForward);
+
+    if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
+
+    // Switcher (v1.62)
+    if(d.switcher){
+      const s = safeText(d.switcher).toLowerCase();
+      if(s === "segmented" || s === "stacked") opts.switcher = s;
     }
+    if(d.switcherSep){
+      const v = safeText(d.switcherSep).toLowerCase();
+      opts.switcherSep = (v === "1" || v === "true" || v === "yes");
+    }
+
+    // Normalise default hexes to uppercase
+    opts.bg = safeHexColor(opts.bg, "#FFFFFF");
+    opts.text = safeHexColor(opts.text, "#111111");
+    opts.muted = safeHexColor(opts.muted, "#6B7280");
+    opts.pillBorder = safeHexColor(opts.pillBorder, "#000000");
+    opts.dividerColor = safeHexColor(opts.dividerColor, "#000000");
+
+    return opts;
   }
 
-  function normKey(s){
-    // Adds tolerance for "&" vs "and"
-    return safeText(s).toLowerCase().replace(/&/g, "and");
+  function cssFor(opts){
+    return `
+:host{
+  display:block;
+  min-height:${opts.height}px;
+
+  --bg:${opts.bg};
+  --text:${opts.text};
+  --muted:${opts.muted};
+  --h:${opts.height}px;
+
+  --crest:30px;
+
+  --pill-border:${opts.pillBorder};
+  --divider:${opts.dividerColor};
+  --div-h:${opts.dividerH}px;
+  --div-w:${opts.dividerW}px;
+  --div-pad:${opts.dividerPad}px;
+
+  --wave-dur:${opts.waveDurMs}ms;
+}
+
+*{ box-sizing:border-box; }
+
+.wrap{
+  height:var(--h);
+  background:var(--bg);
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  position:relative;
+  border-radius:10px;
+  touch-action: pan-y;
+  user-select:none;
+  border:1px solid rgba(0,0,0,0.06);
+}
+
+.wrap:before,
+.wrap:after{
+  content:"";
+  position:absolute;
+  top:0; bottom:0;
+  width:48px;
+  pointer-events:none;
+  z-index:6;
+}
+.wrap:before{
+  left:0;
+  background:linear-gradient(to right, var(--bg) 0%, rgba(255,255,255,0) 100%);
+}
+.wrap:after{
+  right:0;
+  background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
+}
+
+/* ===== Controls block ===== */
+.controls{
+  position:absolute;
+  top:8px;
+  left:10px;
+  z-index:10;
+  display:flex;
+  gap:10px;
+  align-items:stretch;
+  pointer-events:auto;
+}
+
+.sep{
+  width:2px;
+  align-self:stretch;
+  background:rgba(0,0,0,0.12);
+  border-radius:2px;
+}
+
+/* ===== Switcher styles ===== */
+.switcher.stacked{
+  display:flex;
+  flex-direction:column;
+  border:2px solid rgba(0,0,0,0.14);
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:saturate(1.2) blur(6px);
+  border-radius:10px;
+  overflow:hidden;
+  box-shadow:0 1px 0 rgba(0,0,0,.04);
+  min-width:96px;
+}
+.switcher.stacked .tbtn{
+  appearance:none;
+  border:0;
+  background:transparent;
+  padding:7px 10px;
+  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:900;
+  font-size:12px;
+  color:var(--text);
+  cursor:pointer;
+  line-height:1;
+  text-align:left;
+  text-transform:uppercase;
+}
+.switcher.stacked .tbtn + .tbtn{
+  border-top:1px solid rgba(0,0,0,0.12);
+}
+.switcher.stacked .tbtn.active{
+  background:#0B0F19;
+  color:#FFFFFF;
+}
+
+.switcher.segmented{
+  display:inline-flex;
+  border:2px solid rgba(0,0,0,0.14);
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:saturate(1.2) blur(6px);
+  border-radius:999px;
+  overflow:hidden;
+  box-shadow:0 1px 0 rgba(0,0,0,.04);
+}
+.switcher.segmented .tbtn{
+  appearance:none;
+  border:0;
+  background:transparent;
+  padding:7px 12px;
+  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:900;
+  font-size:12px;
+  color:var(--text);
+  cursor:pointer;
+  line-height:1;
+  text-transform:uppercase;
+}
+.switcher.segmented .tbtn.active{
+  background:#0B0F19;
+  color:#FFFFFF;
+}
+
+.belt{
+  display:flex;
+  align-items:center;
+  white-space:nowrap;
+  will-change:transform;
+  transform:translate3d(0,0,0);
+}
+
+.lane{
+  display:flex;
+  align-items:center;
+}
+
+.fixtureLink{
+  display:inline-flex;
+  align-items:center;
+  text-decoration:none;
+  color:inherit;
+  padding:0 var(--div-pad);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fixture{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:6px;
+  min-height: calc(var(--h) - 14px);
+  padding:7px 0;
+}
+
+.meta{
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-size:11px;
+  color:var(--muted);
+  letter-spacing:.2px;
+  white-space:nowrap;
+  line-height:1;
+  text-align:left;
+}
+
+.row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.side{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+}
+
+.crest{
+  width:var(--crest);
+  height:var(--crest);
+  object-fit:contain;
+  display:block;
+}
+.crest.missing{ width:0; height:0; }
+
+.teamPill{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:999px;
+  border:2px solid var(--pill-border);
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:900;
+  font-size:14px;
+  letter-spacing:0.03em;
+  text-transform:uppercase;
+  line-height:1;
+  white-space:nowrap;
+}
+
+.scorePill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:60px;
+  height:30px;
+  padding:0 12px;
+  border:2px solid var(--pill-border);
+  border-radius:999px;
+  background:#FFFFFF;
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:900;
+  font-size:15px;
+  color:var(--text);
+  line-height:1;
+  white-space:nowrap;
+}
+
+.divider{
+  width:var(--div-w);
+  height:var(--div-h);
+  background:var(--divider);
+  display:block;
+  opacity:1;
+}
+
+.letter{
+  display:inline-block;
+  transform:translateY(0);
+  will-change:transform, filter;
+}
+
+@keyframes waveJump{
+  0%   { transform:translateY(0); filter:brightness(1); }
+  18%  { transform:translateY(-7px); filter:brightness(1.35); }
+  38%  { transform:translateY(2px); filter:brightness(1.15); }
+  60%  { transform:translateY(-3px); filter:brightness(1.22); }
+  100% { transform:translateY(0); filter:brightness(1); }
+}
+
+.wrap.wave .teamPill.win .letter{
+  animation-name: waveJump;
+  animation-duration: var(--wave-dur);
+  animation-timing-function: cubic-bezier(.2,.9,.2,1);
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+  animation-delay: var(--d, 0ms);
+}
+
+.msg{
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-size:14px;
+  color:#111111;
+  padding:0 14px;
+  white-space:nowrap;
+}
+.msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+`;
   }
 
-  function teamTextForGraphic(teamName){
-    const t = safeText(teamName);
-    if(!t) return "";
-    if(t.toLowerCase() === "hampton & richmond borough") return "HAMPTON & RICHMOND";
-    return toAllCaps(t);
-  }
-
-  // ===== Clubs meta cache =====
-  let CLUBS_BY_KEY = new Map();     // key -> club object
-  let CLUBS_LOADED = false;
-  let CLUBS_LOADING = null;
-
-  function addClubKey(map, key, clubObj){
-    const k = normKey(key);
-    if(!k) return;
-    if(!map.has(k)) map.set(k, clubObj);
-  }
-
-  async function ensureClubsMeta(opts){
-    if(CLUBS_LOADED) return;
-    if(CLUBS_LOADING) return CLUBS_LOADING;
-
-    CLUBS_LOADING = (async ()=>{
-      try{
-        const metaUrl = resolveUrl(opts.clubsMeta);
-        const res = await fetch(metaUrl, { cache:"no-store" });
-        if(!res.ok) throw new Error("clubs-meta fetch failed: " + res.status);
-        const json = await res.json();
-        const clubs = Array.isArray(json && json.clubs) ? json.clubs : [];
-
-        const map = new Map();
-        for(const c of clubs){
-          if(!c) continue;
-          addClubKey(map, c.name, c);
-          addClubKey(map, c.short, c);
-          addClubKey(map, c.code, c);
-        }
-
-        CLUBS_BY_KEY = map;
-        CLUBS_LOADED = true;
-      }catch(e){
-        console.error("[Ticker " + VERSION + "] clubs-meta load error:", e);
-        CLUBS_BY_KEY = new Map();
-        CLUBS_LOADED = false;
-      }finally{
-        CLUBS_LOADING = null;
-      }
-    })();
-
-    return CLUBS_LOADING;
-  }
-
-  function clubMetaForName(clubName){
-    const k = normKey(clubName);
-    if(!k) return null;
-    return CLUBS_BY_KEY.get(k) || null;
-  }
-
-  function normalizeHexColor(s){
-    const v = safeText(s);
-    if(!v) return "";
-    const x = v.startsWith("#") ? v : ("#" + v);
-    return x.toUpperCase();
-  }
-
-  function normalizeBW(s, fallback){
-    const v = normalizeHexColor(s);
-    if(v === "#FFFFFF" || v === "#000000") return v;
-    return fallback;
-  }
-
-  function clubPillColors(clubName){
-    const meta = clubMetaForName(clubName);
-    const colors = meta && meta.colors ? meta.colors : null;
-
-    const primary = normalizeHexColor(colors && colors.primary) || "#E6E6E6";
-    const secondary = normalizeBW(colors && colors.secondary, "#000000");
-    const tertiary = normalizeHexColor(colors && colors.tertiary) || primary;
-
-    return { primary, secondary, tertiary };
-  }
-
-  // ===== URLs =====
-
-  function crestUrlForTeam(opts, club){
-    const t = safeText(club);
-    if(!t) return null;
-
-    // Crest uses the TEAMNAME from CSV: assets/crests/(TEAMNAME).png
-    const base = resolveUrl(opts.crestBase);
-    return encodeURI(base + t + ".png");
-  }
-
-  function roseUrl(opts){
-    const fn = safeText(opts.roseImg || "");
-    if(!fn) return null;
-    const base = resolveUrl(opts.crestBase);
-    return encodeURI(base + fn);
-  }
-
-  // Robust-ish CSV parser (handles quotes/commas)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -178,161 +425,132 @@
       row.push(cur);
       out.push(row);
     }
-
     return out.map(r => r.map(c => safeText(c)));
   }
 
-  function isHeaderRow(r){
-    const joined = (r || []).join(" ").toLowerCase();
-    return joined.includes("club") && joined.includes("headline");
+  function normalizeHeader(h){ return safeText(h).toLowerCase(); }
+
+  function normalizeScoreCell(s){
+    const t = safeText(s);
+    if(!t) return "";
+    return t.replace(/[–—]/g, "-").replace(/\s+/g,"");
   }
 
-  function normaliseItems(items, maxItems){
-    const out = [];
-    for(const it of items){
-      const club = safeText(it.club);
-      const headline = safeText(it.headline);
-      const hyperlink = safeText(it.hyperlink);
-      if(!club || !headline || !hyperlink) continue;
-      out.push({ club, headline, hyperlink });
-      if(out.length >= maxItems) break;
+  function isScoreFinal(s){
+    return /^\d+-\d+$/.test(normalizeScoreCell(s));
+  }
+
+  function parseScore(s){
+    const m = /^(\d+)-(\d+)$/.exec(normalizeScoreCell(s));
+    if(!m) return null;
+    return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
+  }
+
+  function parseUKDateTimeToLocal(dtStr){
+    const s = safeText(dtStr);
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
+    if(!m) return null;
+    const dd = +m[1], mm = +m[2], yyyy = +m[3], hh = +m[4], mi = +m[5];
+    const d = new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
+    if(!Number.isFinite(+d)) return null;
+    return d;
+  }
+
+  function formatDddDMmmYYYYHHMM(d){
+    const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
+    const day = d.getDate();
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2,"0");
+    const mi = String(d.getMinutes()).padStart(2,"0");
+    return `${wd}, ${day} ${mon} ${yyyy} ${hh}:${mi}`;
+  }
+
+  function compDisplay(comp){
+    const c = safeText(comp);
+    return COMP_DISPLAY[c] || c || "—";
+  }
+
+  function storageKey(opts){
+    return STORAGE_PREFIX + encodeURIComponent(opts.csv);
+  }
+
+  function loadState(opts){
+    try{
+      const raw = localStorage.getItem(storageKey(opts));
+      if(!raw) return null;
+      const s = JSON.parse(raw);
+      if(!s || typeof s !== "object") return null;
+      return s;
+    }catch{
+      return null;
     }
-    return out;
   }
 
-  function cssFor(opts){
-    return `
-:host{
-  --bg:${opts.bg};
-  --headline:${opts.headline};
-  --rule:${opts.rule};
-  --h:${opts.height}px;
-  --crest:34px;
-  --gap:16px;
-}
+  function saveState(opts, state){
+    try{
+      localStorage.setItem(storageKey(opts), JSON.stringify(state));
+    }catch{}
+  }
 
-*{ box-sizing:border-box; }
+  function makeLetters(text){
+    const frag = document.createDocumentFragment();
+    const str = String(text || "");
+    for(let i=0;i<str.length;i++){
+      const ch = str[i];
+      const span = document.createElement("span");
+      span.className = "letter";
+      if(ch === " ") span.innerHTML = "&nbsp;";
+      else span.textContent = ch;
+      frag.appendChild(span);
+    }
+    return frag;
+  }
 
-.wrap{
-  height:var(--h);
-  background:var(--bg);
-  overflow:hidden;
-  display:flex;
-  align-items:center;
-  position:relative;
-  border-radius:10px;
-  touch-action: pan-y;
-  user-select:none;
-}
+  function safeHexColor(x, fallback){
+    const s = safeText(x);
+    if(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) return s.toUpperCase();
+    return fallback.toUpperCase();
+  }
 
-/* subtle mask edges */
-.wrap:before,
-.wrap:after{
-  content:"";
-  position:absolute;
-  top:0; bottom:0;
-  width:48px;
-  pointer-events:none;
-  z-index:3;
-}
-.wrap:before{
-  left:0;
-  background:linear-gradient(to right, var(--bg) 0%, rgba(255,255,255,0) 100%);
-}
-.wrap:after{
-  right:0;
-  background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
-}
+  async function fetchJson(url){
+    const res = await fetch(url, { cache:"no-store" });
+    if(!res.ok) throw new Error("JSON fetch failed: " + res.status);
+    return await res.json();
+  }
 
-.belt{
-  display:flex;
-  align-items:center;
-  white-space:nowrap;
-  will-change:transform;
-  transform:translateX(0);
-}
+  function buildClubColorMap(meta){
+    const map = new Map();
+    if(!meta || !Array.isArray(meta.clubs)) return map;
 
-.lane{
-  display:flex;
-  align-items:center;
-  gap:var(--gap);
-}
+    for(const c of meta.clubs){
+      const name = safeText(c && c.name);
+      if(!name) continue;
 
-.item{
-  display:inline-flex;
-  align-items:center;
-  gap:12px;
-}
+      const primary = safeHexColor(c?.colors?.primary, "#111111");
+      const secondary = safeHexColor(c?.colors?.secondary, "#FFFFFF");
+      const tertiary = safeHexColor(c?.colors?.tertiary, secondary);
 
-.crest{
-  width:var(--crest);
-  height:var(--crest);
-  object-fit:contain;
-  display:block;
-}
+      map.set(name.toLowerCase(), { primary, secondary, tertiary });
+    }
+    return map;
+  }
 
-.crest.missing{ width:0; height:0; }
-
-.clubpill{
-  display:inline-flex;
-  align-items:center;
-  padding:7px 12px;
-  border-radius:999px;
-  border:2px solid var(--pill-border, #000000);
-  background:var(--pill-bg, #E6E6E6);
-  line-height:1;
-}
-
-.club{
-  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:800;
-  letter-spacing:0.04em;
-  font-size:15px;
-  text-transform:uppercase;
-  color:var(--pill-fg, #000000);
-  line-height:1;
-}
-
-.vrule{
-  width:2px;
-  height:26px;
-  background:var(--rule);
-  display:block;
-}
-
-.headline{
-  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:450;
-  font-size:16px;
-  color:var(--headline);
-  text-decoration:none;
-  line-height:1.1;
-}
-
-.headline:hover{ text-decoration:underline; }
-
-/* Rose separator BETWEEN items: just clear space + rose */
-.sep{
-  display:inline-flex;
-  align-items:center;
-  padding:0 18px;
-}
-
-.rose{
-  width:22px;
-  height:22px;
-  object-fit:contain;
-  display:block;
-}
-
-@media (prefers-reduced-motion: reduce){
-  .wrap{ overflow:auto; }
-}
-`;
+  function crestUrlForTeam(opts, club){
+    const t = safeText(club);
+    if(!t) return null;
+    return encodeURI(opts.crestBase + t + ".png");
   }
 
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
+
+    // Hardening: if host is inline or collapsed, force it to behave
+    try{
+      hostEl.style.display = hostEl.style.display || "block";
+      hostEl.style.minHeight = hostEl.style.minHeight || (opts.height + "px");
+    }catch{}
+
     const root = hostEl.attachShadow({ mode:"open" });
 
     if(opts.kitCss){
@@ -349,8 +567,39 @@
     const wrap = document.createElement("div");
     wrap.className = "wrap";
     wrap.setAttribute("role","region");
-    wrap.setAttribute("aria-label","Club news ticker");
+    wrap.setAttribute("aria-label","Fixtures and results ticker");
+    root.appendChild(wrap);
 
+    // Controls
+    const controls = document.createElement("div");
+    controls.className = "controls";
+
+    const switcher = document.createElement("div");
+    switcher.className = "switcher " + (opts.switcher === "segmented" ? "segmented" : "stacked");
+
+    const btnFixtures = document.createElement("button");
+    btnFixtures.className = "tbtn";
+    btnFixtures.type = "button";
+    btnFixtures.textContent = "FIXTURES";
+
+    const btnResults = document.createElement("button");
+    btnResults.className = "tbtn";
+    btnResults.type = "button";
+    btnResults.textContent = "RESULTS";
+
+    switcher.appendChild(btnFixtures);
+    switcher.appendChild(btnResults);
+    controls.appendChild(switcher);
+
+    if(opts.switcherSep){
+      const sep = document.createElement("div");
+      sep.className = "sep";
+      controls.appendChild(sep);
+    }
+
+    wrap.appendChild(controls);
+
+    // Belt
     const belt = document.createElement("div");
     belt.className = "belt";
 
@@ -362,24 +611,45 @@
     belt.appendChild(laneA);
     belt.appendChild(laneB);
     wrap.appendChild(belt);
-    root.appendChild(wrap);
+
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    msg.innerHTML = `<strong>Loading…</strong>`;
+    wrap.appendChild(msg);
+
+    // Data / rendering state
+    let clubColors = new Map();
+    let allItems = [];
+    let mode = "results";
 
     // Animation state
-    let shiftPx = 0;           // width of one lane
-    let offsetPx = 0;          // current translateX
+    let shiftPx = 0;
+    let offsetPx = 0;
     let lastTs = 0;
     let rafId = 0;
 
-    // Scrub state
+    // Drag state
+    const DRAG_THRESHOLD_PX = 6;
     let dragging = false;
     let dragStartX = 0;
     let dragStartOffset = 0;
+    let didDrag = false;
 
     let refreshTimer = null;
+    let waveTimer = null;
     let ro = null;
 
+    // Persisted state
+    const persisted = loadState(opts);
+    if(persisted && (persisted.mode === "fixtures" || persisted.mode === "results")){
+      mode = persisted.mode;
+    }
+    if(persisted && typeof persisted.offsetPx === "number" && Number.isFinite(persisted.offsetPx)){
+      offsetPx = persisted.offsetPx;
+    }
+
     function setTransform(){
-      belt.style.transform = "translateX(" + offsetPx + "px)";
+      belt.style.transform = "translate3d(" + offsetPx + "px,0,0)";
     }
 
     function normalizeOffset(){
@@ -408,222 +678,395 @@
       rafId = requestAnimationFrame(tick);
     }
 
-    function onPointerDown(e){
+    function persist(){
+      saveState(opts, { mode, offsetPx, savedAt: Date.now() });
+    }
+
+    function applyModeUI(){
+      btnFixtures.classList.toggle("active", mode === "fixtures");
+      btnResults.classList.toggle("active", mode === "results");
+    }
+
+    function setMode(newMode){
+      mode = newMode;
+      applyModeUI();
+      persist();
+      render();
+    }
+
+    btnFixtures.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      setMode("fixtures");
+    });
+
+    btnResults.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      setMode("results");
+    });
+
+    applyModeUI();
+
+    // Drag scrub on wrap, but don't start drag if user pressed controls
+    wrap.addEventListener("pointerdown", (e)=>{
+      const path = e.composedPath ? e.composedPath() : [];
+      if(path.some(el => el && el.classList && el.classList.contains("controls"))) return;
+
       if(e.pointerType === "mouse" && e.button !== 0) return;
 
       dragging = true;
+      didDrag = false;
       dragStartX = e.clientX;
       dragStartOffset = offsetPx;
 
-      try{ wrap.setPointerCapture(e.pointerId); }catch(_e){}
-    }
+      try{ wrap.setPointerCapture(e.pointerId); }catch{}
+    });
 
-    function onPointerMove(e){
-      if(!dragging) return;
-      if(!shiftPx) return;
-
+    wrap.addEventListener("pointermove", (e)=>{
+      if(!dragging || !shiftPx) return;
       const dx = e.clientX - dragStartX;
-      offsetPx = dragStartOffset + dx;
+      if(Math.abs(dx) > DRAG_THRESHOLD_PX) didDrag = true;
 
+      offsetPx = dragStartOffset + dx;
       normalizeOffset();
       setTransform();
-    }
+    });
 
-    function onPointerUp(e){
+    wrap.addEventListener("pointerup", (e)=>{
       if(!dragging) return;
       dragging = false;
-
-      try{ wrap.releasePointerCapture(e.pointerId); }catch(_e){}
+      try{ wrap.releasePointerCapture(e.pointerId); }catch{}
       lastTs = performance.now();
+      persist();
+    });
+
+    wrap.addEventListener("pointercancel", ()=>{
+      dragging = false;
+      didDrag = false;
+    });
+
+    // Only cancel navigation if a drag truly happened
+    wrap.addEventListener("click", (e)=>{
+      if(!didDrag) return;
+      const a = e.target && e.target.closest ? e.target.closest("a") : null;
+      if(a){
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      didDrag = false;
+    }, false);
+
+    function buildDividerEl(){
+      const d = document.createElement("span");
+      d.className = "divider";
+      d.setAttribute("aria-hidden","true");
+      return d;
     }
 
-    wrap.addEventListener("pointerdown", onPointerDown);
-    wrap.addEventListener("pointermove", onPointerMove);
-    wrap.addEventListener("pointerup", onPointerUp);
-    wrap.addEventListener("pointercancel", onPointerUp);
-
-    function buildItemEl(it){
-      const el = document.createElement("span");
-      el.className = "item";
-
-      const crest = document.createElement("img");
-      crest.className = "crest";
-      crest.alt = safeText(it.club) ? (safeText(it.club) + " crest") : "";
-
-      const cUrl = crestUrlForTeam(opts, it.club);
-      if(cUrl){
-        crest.src = cUrl;
-        crest.onerror = ()=> crest.classList.add("missing");
-      }else{
-        crest.classList.add("missing");
-      }
-
+    function teamPillEl(teamName, outcome){
+      const name = safeText(teamName);
       const pill = document.createElement("span");
-      pill.className = "clubpill";
+      pill.className = "teamPill" + (outcome ? (" " + outcome) : "");
 
-      const pillColors = clubPillColors(it.club);
-      pill.style.setProperty("--pill-bg", pillColors.primary);
-      pill.style.setProperty("--pill-fg", pillColors.secondary);
-      pill.style.setProperty("--pill-border", pillColors.tertiary);
-
-      const club = document.createElement("span");
-      club.className = "club";
-      club.textContent = teamTextForGraphic(it.club) || toAllCaps(it.club);
-
-      pill.appendChild(club);
-
-      const vrule = document.createElement("span");
-      vrule.className = "vrule";
-      vrule.setAttribute("aria-hidden","true");
-
-      const a = document.createElement("a");
-      a.className = "headline";
-      a.href = it.hyperlink;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      a.textContent = it.headline;
-
-      el.appendChild(crest);
-      el.appendChild(pill);
-      el.appendChild(vrule);
-      el.appendChild(a);
-
-      return el;
-    }
-
-    function buildSepEl(rUrl){
-      const sep = document.createElement("span");
-      sep.className = "sep";
-      sep.setAttribute("aria-hidden","true");
-
-      const img = document.createElement("img");
-      img.className = "rose";
-      img.alt = "";
-      if(rUrl){
-        img.src = rUrl;
+      const colors = clubColors.get(name.toLowerCase());
+      if(colors){
+        pill.style.background = colors.primary;
+        pill.style.color = colors.secondary;
+        pill.style.borderColor = colors.tertiary || colors.secondary; // v1.64
       }else{
-        img.style.display = "none";
+        pill.style.background = "#111111";
+        pill.style.color = "#FFFFFF";
+        pill.style.borderColor = opts.pillBorder;
       }
 
-      sep.appendChild(img);
-      return sep;
+      pill.appendChild(makeLetters(name.toUpperCase()));
+      return pill;
+    }
+
+    function buildFixtureEl(fx, idx){
+      const link = document.createElement("a");
+      link.className = "fixtureLink";
+      link.href = opts.matchHubUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", "Open Match Hub");
+
+      const box = document.createElement("span");
+      box.className = "fixture";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = fx.dt ? (formatDddDMmmYYYYHHMM(fx.dt) + " • " + compDisplay(fx.comp)) : compDisplay(fx.comp);
+
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const homeSide = document.createElement("span");
+      homeSide.className = "side";
+
+      const hCrest = document.createElement("img");
+      hCrest.className = "crest";
+      hCrest.alt = safeText(fx.home) ? (safeText(fx.home) + " crest") : "";
+      const hUrl = crestUrlForTeam(opts, fx.home);
+      if(hUrl){
+        hCrest.src = hUrl;
+        hCrest.loading = "lazy";
+        hCrest.decoding = "async";
+        hCrest.onerror = ()=> hCrest.classList.add("missing");
+      }else{
+        hCrest.classList.add("missing");
+      }
+
+      const parsed = fx.isFinal ? parseScore(fx.scoreRaw) : null;
+
+      let homeRes = "";
+      let awayRes = "";
+      if(parsed){
+        if(parsed.h > parsed.a){ homeRes = "win"; awayRes = "lose"; }
+        else if(parsed.h < parsed.a){ homeRes = "lose"; awayRes = "win"; }
+        else { homeRes = "draw"; awayRes = "draw"; }
+      }
+
+      homeSide.appendChild(hCrest);
+      const hPill = teamPillEl(fx.home, homeRes);
+      homeSide.appendChild(hPill);
+
+      const score = document.createElement("span");
+      score.className = "scorePill";
+      score.textContent = fx.isFinal ? normalizeScoreCell(fx.scoreRaw) : "v";
+
+      const awaySide = document.createElement("span");
+      awaySide.className = "side";
+
+      const aPill = teamPillEl(fx.away, awayRes);
+
+      const aCrest = document.createElement("img");
+      aCrest.className = "crest";
+      aCrest.alt = safeText(fx.away) ? (safeText(fx.away) + " crest") : "";
+      const aUrl = crestUrlForTeam(opts, fx.away);
+      if(aUrl){
+        aCrest.src = aUrl;
+        aCrest.loading = "lazy";
+        aCrest.decoding = "async";
+        aCrest.onerror = ()=> aCrest.classList.add("missing");
+      }else{
+        aCrest.classList.add("missing");
+      }
+
+      awaySide.appendChild(aPill);
+      awaySide.appendChild(aCrest);
+
+      row.appendChild(homeSide);
+      row.appendChild(score);
+      row.appendChild(awaySide);
+
+      box.appendChild(meta);
+      box.appendChild(row);
+      link.appendChild(box);
+
+      if(parsed){
+        if(homeRes === "win"){
+          const letters = hPill.querySelectorAll(".letter");
+          letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
+          hPill.classList.add("win");
+        }
+        if(awayRes === "win"){
+          const letters = aPill.querySelectorAll(".letter");
+          letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
+          aPill.classList.add("win");
+        }
+      }
+
+      return link;
     }
 
     function recomputeShift(){
-      // shift equals laneA width exactly; MUST be stable for seamless wrap
       shiftPx = laneA.scrollWidth || 0;
       normalizeOffset();
       setTransform();
     }
 
-    function render(items){
+    function triggerWave(){
+      wrap.classList.remove("wave");
+      void wrap.offsetWidth;
+      wrap.classList.add("wave");
+      window.setTimeout(()=> wrap.classList.remove("wave"), (opts.waveDurMs + (24 * opts.waveStaggerMs) + 160));
+    }
+
+    function render(){
+      const now = new Date();
+      const start = new Date(now);
+      start.setHours(0,0,0,0);
+
+      const from = new Date(start);
+      from.setDate(from.getDate() - opts.daysBack);
+
+      const to = new Date(start);
+      to.setDate(to.getDate() + opts.daysForward + 1);
+
+      let items = allItems.filter(it => it.dt && it.dt >= from && it.dt < to);
+
+      if(mode === "fixtures") items = items.filter(it => !it.isFinal);
+      else items = items.filter(it => it.isFinal);
+
+      items.sort((a,b)=> (+a.dt) - (+b.dt));
+
+      if(items.length > opts.maxItems){
+        items = items.slice(items.length - opts.maxItems);
+      }
+
       laneA.innerHTML = "";
       laneB.innerHTML = "";
 
-      const rUrl = roseUrl(opts);
-
-      // IMPORTANT: include a separator AFTER the last item too
-      function fillLane(lane){
-        if(items.length === 0) return;
-
-        items.forEach((it)=>{
-          lane.appendChild(buildItemEl(it));
-          lane.appendChild(buildSepEl(rUrl));
-        });
+      if(!items.length){
+        msg.style.display = "block";
+        msg.innerHTML = `<strong>${mode === "fixtures" ? "FIXTURES" : "RESULTS"}:</strong> none in ±${Math.max(opts.daysBack, opts.daysForward)} days.`;
+        offsetPx = 0;
+        setTransform();
+        shiftPx = 0;
+        return;
       }
 
-      fillLane(laneA);
-      fillLane(laneB);
+      msg.style.display = "none";
 
-      // reset position on refresh
-      offsetPx = 0;
-      setTransform();
+      const fragA = document.createDocumentFragment();
+      const fragB = document.createDocumentFragment();
+
+      items.forEach((fx, idx)=>{
+        fragA.appendChild(buildFixtureEl(fx, idx));
+        fragA.appendChild(buildDividerEl());
+      });
+      items.forEach((fx, idx)=>{
+        fragB.appendChild(buildFixtureEl(fx, idx));
+        fragB.appendChild(buildDividerEl());
+      });
+
+      laneA.appendChild(fragA);
+      laneB.appendChild(fragB);
 
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
     async function refresh(){
       try{
-        await ensureClubsMeta(opts);
+        msg.style.display = "block";
+        msg.innerHTML = `<strong>Loading…</strong>`;
 
-        const res = await fetch(resolveUrl(opts.csv), { cache:"no-store" });
-        if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
-        const csvText = await res.text();
+        const [csvText, clubsMeta] = await Promise.all([
+          fetch(opts.csv, { cache:"no-store" }).then(r=>{
+            if(!r.ok) throw new Error("Feed fetch failed: " + r.status);
+            return r.text();
+          }),
+          fetchJson(opts.clubsMeta).catch(()=> null)
+        ]);
 
-        const rows = parseCSV(csvText).filter(r => r.some(c => safeText(c)));
-        let startRow = 0;
-        if(rows.length && isHeaderRow(rows[0])) startRow = 1;
+        clubColors = buildClubColorMap(clubsMeta);
 
-        const items = [];
-        for(let i=startRow;i<rows.length;i++){
-          items.push({ club: rows[i][0], headline: rows[i][1], hyperlink: rows[i][2] });
+        const rows = parseCSV(csvText);
+        if(!rows.length){
+          msg.style.display = "block";
+          msg.innerHTML = `<strong>Error:</strong> CSV has no rows.`;
+          return;
         }
 
-        const data = normaliseItems(items, opts.maxItems);
-        render(data);
+        const header = rows[0].map(normalizeHeader);
+
+        const idxDateTime = header.indexOf("date & time");
+        const idxComp     = header.indexOf("competition");
+        const idxHome     = header.indexOf("home team");
+        const idxScore    = header.indexOf("score");
+        const idxAway     = header.indexOf("away team");
+
+        const missing = [];
+        if(idxDateTime === -1) missing.push("Date & Time");
+        if(idxComp === -1) missing.push("Competition");
+        if(idxHome === -1) missing.push("Home team");
+        if(idxScore === -1) missing.push("Score");
+        if(idxAway === -1) missing.push("Away team");
+
+        if(missing.length){
+          msg.style.display = "block";
+          msg.innerHTML = `<strong>Error:</strong> Missing columns: ${missing.join(", ")}.`;
+          return;
+        }
+
+        const parsed = [];
+        for(let i=1; i<rows.length; i++){
+          const r = rows[i];
+          if(!r || !r.length) continue;
+
+          const dtRaw = safeText(r[idxDateTime]);
+          const dt = parseUKDateTimeToLocal(dtRaw);
+          if(!dt) continue;
+
+          const comp = safeText(r[idxComp]);
+          const home = safeText(r[idxHome]);
+          const scoreRaw = safeText(r[idxScore]);
+          const away = safeText(r[idxAway]);
+
+          if(!home || !away) continue;
+
+          parsed.push({
+            dt,
+            comp,
+            home,
+            away,
+            scoreRaw,
+            isFinal: isScoreFinal(scoreRaw)
+          });
+        }
+
+        allItems = parsed;
+        render();
       }catch(e){
-        console.error("[Ticker " + VERSION + "]", e);
+        console.error("[ResultsTicker " + VERSION + "] refresh error", e);
+        msg.style.display = "block";
+        msg.innerHTML = `<strong>Error:</strong> Feed/parse failed (check console).`;
       }
     }
 
     try{
       ro = new ResizeObserver(()=> recomputeShift());
       ro.observe(wrap);
-    }catch(_e){}
+    }catch{}
 
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
+    waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
+
+    setTransform();
+    normalizeOffset();
+    setTransform();
     startAnim();
 
     return {
       destroy(){
         if(rafId) cancelAnimationFrame(rafId);
         if(refreshTimer) window.clearInterval(refreshTimer);
+        if(waveTimer) window.clearInterval(waveTimer);
         if(ro) ro.disconnect();
       }
     };
   }
 
-  function readOptions(el){
-    const d = el.dataset || {};
-    const opts = Object.assign({}, DEFAULTS);
-
-    if(d.csv) opts.csv = d.csv;
-    if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
-
-    if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 50, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 30, 160, DEFAULTS.height);
-    if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
-    if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
-
-    if(d.kitCss) opts.kitCss = d.kitCss;
-    if(d.crestBase) opts.crestBase = d.crestBase;
-    if(d.roseImg) opts.roseImg = d.roseImg;
-
-    if(d.bg) opts.bg = d.bg;
-    if(d.headline) opts.headline = d.headline;
-    if(d.rule) opts.rule = d.rule;
-
-    // Normalize URLs for embedding reliability
-    opts.csv = resolveUrl(opts.csv);
-    opts.clubsMeta = resolveUrl(opts.clubsMeta);
-    opts.crestBase = resolveUrl(opts.crestBase);
-
-    return opts;
-  }
-
-  function clampInt(v, min, max, fallback){
-    const n = parseInt(v, 10);
-    if(Number.isNaN(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
+  function bootOnce(){
+    const nodes = document.querySelectorAll("[data-nl-results-ticker]");
+    nodes.forEach(node => {
+      if(node.__nlResultsTicker) return;
+      try{
+        node.__nlResultsTicker = makeWidget(node);
+      }catch(e){
+        console.error("[ResultsTicker " + VERSION + "] boot error", e);
+      }
+    });
   }
 
   function boot(){
-    const nodes = document.querySelectorAll("[data-nl-news-ticker]");
-    nodes.forEach(node => {
-      if(node.__nlTicker) return;
-      node.__nlTicker = makeWidget(node);
+    bootOnce();
+
+    const mo = new MutationObserver(()=>{
+      bootOnce();
     });
+    mo.observe(document.documentElement, { childList:true, subtree:true });
   }
 
   if(document.readyState === "loading"){
