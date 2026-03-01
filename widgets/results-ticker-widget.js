@@ -1,26 +1,18 @@
-/* Results Ticker Widget (v1.63) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.64) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.63:
-   - Team pills use clubs-meta.json:
-       primary = pill background
-       secondary = pill text
-       tertiary = pill border (NEW)
-     (If tertiary missing, uses secondary)
-   - Hardening so widget always renders:
-       :host display:block + host width
-       fetch timeouts (AbortController)
-       better error surfacing (no infinite "Loading…")
-   - Keeps v1.62 features:
-       stacked/segmented F&R switcher, optional separator line, drag scrub,
-       link clicks, score->"v" when not final, 3-day window ±, state persistence
+   v1.64:
+   - Removed winner text wave animation entirely (for smoothness)
+   - Simplified F/R switcher: single clean pill, no "box-in-box", sits flush visually
+   - Reduced repaint pressure: fewer heavy effects, no backdrop-filter
+   - Keeps: club primary/secondary/tertiary pills, drag scrub, link click, 3-day window, persistence
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.63";
+  const VERSION = "v1.64";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -46,18 +38,14 @@
     dividerW: 2,
     dividerPad: 18,
 
-    waveEveryMs: 10000,
-    waveStaggerMs: 35,
-    waveDurMs: 520,
-
     daysBack: 3,
     daysForward: 3,
 
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
     // Switcher design
-    switcher: "stacked",      // "stacked" | "segmented"
-    switcherSep: false,       // true adds hard separator line
+    switcher: "pill",         // "pill" (simple) | "segmented" (kept for compatibility)
+    switcherSep: false,       // retained (no longer used visually by default)
 
     // Network hardening
     fetchTimeoutMs: 12000
@@ -97,10 +85,6 @@
     if(d.dividerW) opts.dividerW = clampInt(d.dividerW, 1, 12, DEFAULTS.dividerW);
     if(d.dividerPad) opts.dividerPad = clampInt(d.dividerPad, 0, 60, DEFAULTS.dividerPad);
 
-    if(d.waveEveryMs) opts.waveEveryMs = clampInt(d.waveEveryMs, 2000, 600000, DEFAULTS.waveEveryMs);
-    if(d.waveStaggerMs) opts.waveStaggerMs = clampInt(d.waveStaggerMs, 10, 200, DEFAULTS.waveStaggerMs);
-    if(d.waveDurMs) opts.waveDurMs = clampInt(d.waveDurMs, 200, 2000, DEFAULTS.waveDurMs);
-
     if(d.kitCss) opts.kitCss = d.kitCss;
     if(d.crestBase) opts.crestBase = d.crestBase;
 
@@ -114,13 +98,11 @@
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
+    // Switcher option (accept old values)
     if(d.switcher){
       const s = safeText(d.switcher).toLowerCase();
-      if(s === "segmented" || s === "stacked") opts.switcher = s;
-    }
-    if(d.switcherSep){
-      const v = safeText(d.switcherSep).toLowerCase();
-      opts.switcherSep = (v === "1" || v === "true" || v === "yes");
+      if(s === "segmented" || s === "stacked") opts.switcher = "segmented";
+      if(s === "pill") opts.switcher = "pill";
     }
 
     if(d.fetchTimeoutMs) opts.fetchTimeoutMs = clampInt(d.fetchTimeoutMs, 2000, 60000, DEFAULTS.fetchTimeoutMs);
@@ -146,8 +128,6 @@
   --div-h:${opts.dividerH}px;
   --div-w:${opts.dividerW}px;
   --div-pad:${opts.dividerPad}px;
-
-  --wave-dur:${opts.waveDurMs}ms;
 }
 
 *{ box-sizing:border-box; }
@@ -162,15 +142,16 @@
   border-radius:10px;
   touch-action: pan-y;
   user-select:none;
-  border:1px solid rgba(0,0,0,0.06);
+  border:1px solid rgba(0,0,0,0.08);
 }
 
+/* mask edges */
 .wrap:before,
 .wrap:after{
   content:"";
   position:absolute;
   top:0; bottom:0;
-  width:48px;
+  width:46px;
   pointer-events:none;
   z-index:6;
 }
@@ -186,87 +167,31 @@
 /* ===== Controls block ===== */
 .controls{
   position:absolute;
-  top:8px;
-  left:10px;
+  top:6px;
+  left:8px;
   z-index:10;
   display:flex;
-  gap:10px;
-  align-items:stretch;
+  align-items:center;
   pointer-events:auto;
 }
 
-/* Helps prevent ticker content visually “floating” behind controls */
-.controls{
-  padding:0;
-}
-.controls::before{
-  content:"";
-  position:absolute;
-  inset:-6px -10px -6px -10px;
-  background:rgba(255,255,255,0.92);
-  backdrop-filter:saturate(1.2) blur(6px);
-  border-radius:12px;
-  border:1px solid rgba(0,0,0,0.10);
-  z-index:-1;
-}
-
-.sep{
-  width:2px;
-  align-self:stretch;
-  background:rgba(0,0,0,0.12);
-  border-radius:2px;
-}
-
-/* ===== Switcher styles ===== */
-
-/* Stacked */
-.switcher.stacked{
-  display:flex;
-  flex-direction:column;
-  border:2px solid rgba(0,0,0,0.14);
-  background:transparent;
-  border-radius:10px;
-  overflow:hidden;
-  box-shadow:0 1px 0 rgba(0,0,0,.04);
-  min-width:104px;
-}
-.switcher.stacked .tbtn{
-  appearance:none;
-  border:0;
-  background:transparent;
-  padding:8px 10px;
-  font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:950;
-  font-size:13px;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-  color:var(--text);
-  cursor:pointer;
-  line-height:1;
-  text-align:left;
-}
-.switcher.stacked .tbtn + .tbtn{
-  border-top:2px solid rgba(0,0,0,0.12);
-}
-.switcher.stacked .tbtn.active{
-  background:#0b0f19;
-  color:#fff;
-}
-
-/* Segmented */
-.switcher.segmented{
+/* Single clean pill switcher */
+.switchPill{
   display:inline-flex;
-  border:2px solid rgba(0,0,0,0.14);
-  background:transparent;
+  align-items:center;
   border-radius:999px;
+  border:2px solid rgba(0,0,0,0.14);
+  background:rgba(255,255,255,0.94);
   overflow:hidden;
   box-shadow:0 1px 0 rgba(0,0,0,.04);
 }
-.switcher.segmented .tbtn{
+
+/* Buttons */
+.tbtn{
   appearance:none;
   border:0;
   background:transparent;
-  padding:8px 12px;
+  padding:7px 12px;
   font-family:"carbona-variable", system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
   font-size:13px;
@@ -276,11 +201,18 @@
   cursor:pointer;
   line-height:1;
 }
-.switcher.segmented .tbtn.active{
+.tbtn.active{
   background:#0b0f19;
   color:#fff;
 }
+.tbtn:focus{
+  outline:none;
+}
+.tbtn:focus-visible{
+  box-shadow:0 0 0 3px rgba(11,15,25,0.18) inset;
+}
 
+/* Belt */
 .belt{
   display:flex;
   align-items:center;
@@ -288,7 +220,6 @@
   will-change:transform;
   transform:translate3d(0,0,0);
 }
-
 .lane{
   display:flex;
   align-items:center;
@@ -308,8 +239,8 @@
   flex-direction:column;
   justify-content:center;
   gap:6px;
-  min-height: calc(var(--h) - 14px);
-  padding:7px 0;
+  min-height: calc(var(--h) - 12px);
+  padding:6px 0;
 }
 
 .meta{
@@ -327,7 +258,6 @@
   align-items:center;
   gap:12px;
 }
-
 .side{
   display:inline-flex;
   align-items:center;
@@ -381,29 +311,6 @@
   background:var(--divider);
   display:block;
   opacity:1;
-}
-
-.letter{
-  display:inline-block;
-  transform:translateY(0);
-  will-change:transform, filter;
-}
-
-@keyframes waveJump{
-  0%   { transform:translateY(0); filter:brightness(1); }
-  18%  { transform:translateY(-7px); filter:brightness(1.35); }
-  38%  { transform:translateY(2px); filter:brightness(1.15); }
-  60%  { transform:translateY(-3px); filter:brightness(1.22); }
-  100% { transform:translateY(0); filter:brightness(1); }
-}
-
-.wrap.wave .teamPill.win .letter{
-  animation-name: waveJump;
-  animation-duration: var(--wave-dur);
-  animation-timing-function: cubic-bezier(.2,.9,.2,1);
-  animation-iteration-count: 1;
-  animation-fill-mode: both;
-  animation-delay: var(--d, 0ms);
 }
 
 .msg{
@@ -464,12 +371,6 @@
     return /^\d+-\d+$/.test(normalizeScoreCell(s));
   }
 
-  function parseScore(s){
-    const m = /^(\d+)-(\d+)$/.exec(normalizeScoreCell(s));
-    if(!m) return null;
-    return { h: parseInt(m[1],10), a: parseInt(m[2],10) };
-  }
-
   function parseUKDateTimeToLocal(dtStr){
     const s = safeText(dtStr);
     const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
@@ -517,20 +418,6 @@
     }catch{}
   }
 
-  function makeLetters(text){
-    const frag = document.createDocumentFragment();
-    const str = String(text || "");
-    for(let i=0;i<str.length;i++){
-      const ch = str[i];
-      const span = document.createElement("span");
-      span.className = "letter";
-      if(ch === " ") span.innerHTML = "&nbsp;";
-      else span.textContent = ch;
-      frag.appendChild(span);
-    }
-    return frag;
-  }
-
   function safeHexColor(x, fallback){
     const s = safeText(x);
     if(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) return s.toUpperCase();
@@ -564,10 +451,7 @@
 
       const primary = safeHexColor(c?.colors?.primary, "#111111");
       const secondary = safeHexColor(c?.colors?.secondary, "#FFFFFF");
-
-      // NEW: tertiary (border colour). If missing, repeat secondary.
-      const tertiaryRaw = c?.colors?.tertiary;
-      const tertiary = safeHexColor(tertiaryRaw, secondary);
+      const tertiary = safeHexColor(c?.colors?.tertiary, secondary);
 
       map.set(name.toLowerCase(), { primary, secondary, tertiary });
     }
@@ -583,7 +467,6 @@
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
 
-    // Ensure host has a box in layouts that treat empty divs oddly
     if(!hostEl.style.display) hostEl.style.display = "block";
     if(!hostEl.style.width) hostEl.style.width = "100%";
 
@@ -610,8 +493,8 @@
     const controls = document.createElement("div");
     controls.className = "controls";
 
-    const switcher = document.createElement("div");
-    switcher.className = "switcher " + (opts.switcher === "segmented" ? "segmented" : "stacked");
+    const switchPill = document.createElement("div");
+    switchPill.className = "switchPill";
 
     const btnFixtures = document.createElement("button");
     btnFixtures.className = "tbtn";
@@ -623,17 +506,9 @@
     btnResults.type = "button";
     btnResults.textContent = "RESULTS";
 
-    switcher.appendChild(btnFixtures);
-    switcher.appendChild(btnResults);
-
-    controls.appendChild(switcher);
-
-    if(opts.switcherSep){
-      const sep = document.createElement("div");
-      sep.className = "sep";
-      controls.appendChild(sep);
-    }
-
+    switchPill.appendChild(btnFixtures);
+    switchPill.appendChild(btnResults);
+    controls.appendChild(switchPill);
     wrap.appendChild(controls);
 
     // Belt
@@ -673,7 +548,6 @@
     let didDrag = false;
 
     let refreshTimer = null;
-    let waveTimer = null;
     let ro = null;
 
     // Persisted state
@@ -792,7 +666,7 @@
       didDrag = false;
     }, false);
 
-    // Pause animation when tab hidden (reduces jank on return)
+    // Pause animation when tab hidden
     document.addEventListener("visibilitychange", ()=>{
       if(document.hidden){
         if(rafId) cancelAnimationFrame(rafId);
@@ -810,17 +684,15 @@
       return d;
     }
 
-    function teamPillEl(teamName, outcome){
+    function teamPillEl(teamName){
       const name = safeText(teamName);
       const pill = document.createElement("span");
-      pill.className = "teamPill" + (outcome ? (" " + outcome) : "");
+      pill.className = "teamPill";
 
       const colors = clubColors.get(name.toLowerCase());
       if(colors){
         pill.style.background = colors.primary;
         pill.style.color = colors.secondary;
-
-        // NEW: tertiary controls border colour
         pill.style.borderColor = colors.tertiary;
       }else{
         pill.style.background = "#111";
@@ -828,11 +700,11 @@
         pill.style.borderColor = opts.pillBorder;
       }
 
-      pill.appendChild(makeLetters(name.toUpperCase()));
+      pill.textContent = name.toUpperCase();
       return pill;
     }
 
-    function buildFixtureEl(fx, idx){
+    function buildFixtureEl(fx){
       const link = document.createElement("a");
       link.className = "fixtureLink";
       link.href = opts.matchHubUrl;
@@ -866,19 +738,8 @@
         hCrest.classList.add("missing");
       }
 
-      const parsed = fx.isFinal ? parseScore(fx.scoreRaw) : null;
-
-      let homeRes = "";
-      let awayRes = "";
-      if(parsed){
-        if(parsed.h > parsed.a){ homeRes = "win"; awayRes = "lose"; }
-        else if(parsed.h < parsed.a){ homeRes = "lose"; awayRes = "win"; }
-        else { homeRes = "draw"; awayRes = "draw"; }
-      }
-
       homeSide.appendChild(hCrest);
-      const hPill = teamPillEl(fx.home, homeRes);
-      homeSide.appendChild(hPill);
+      homeSide.appendChild(teamPillEl(fx.home));
 
       const score = document.createElement("span");
       score.className = "scorePill";
@@ -887,7 +748,7 @@
       const awaySide = document.createElement("span");
       awaySide.className = "side";
 
-      const aPill = teamPillEl(fx.away, awayRes);
+      awaySide.appendChild(teamPillEl(fx.away));
 
       const aCrest = document.createElement("img");
       aCrest.className = "crest";
@@ -902,7 +763,6 @@
         aCrest.classList.add("missing");
       }
 
-      awaySide.appendChild(aPill);
       awaySide.appendChild(aCrest);
 
       row.appendChild(homeSide);
@@ -913,20 +773,6 @@
       box.appendChild(row);
       link.appendChild(box);
 
-      // winner wave setup (delays + .win)
-      if(parsed){
-        if(homeRes === "win"){
-          const letters = hPill.querySelectorAll(".letter");
-          letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
-          hPill.classList.add("win");
-        }
-        if(awayRes === "win"){
-          const letters = aPill.querySelectorAll(".letter");
-          letters.forEach((l, i)=> l.style.setProperty("--d", (i * opts.waveStaggerMs) + "ms"));
-          aPill.classList.add("win");
-        }
-      }
-
       return link;
     }
 
@@ -934,13 +780,6 @@
       shiftPx = laneA.scrollWidth || 0;
       normalizeOffset();
       setTransform();
-    }
-
-    function triggerWave(){
-      wrap.classList.remove("wave");
-      void wrap.offsetWidth;
-      wrap.classList.add("wave");
-      window.setTimeout(()=> wrap.classList.remove("wave"), (opts.waveDurMs + (24 * opts.waveStaggerMs) + 160));
     }
 
     function render(){
@@ -982,12 +821,12 @@
       const fragA = document.createDocumentFragment();
       const fragB = document.createDocumentFragment();
 
-      items.forEach((fx, idx)=>{
-        fragA.appendChild(buildFixtureEl(fx, idx));
+      items.forEach((fx)=>{
+        fragA.appendChild(buildFixtureEl(fx));
         fragA.appendChild(buildDividerEl());
       });
-      items.forEach((fx, idx)=>{
-        fragB.appendChild(buildFixtureEl(fx, idx));
+      items.forEach((fx)=>{
+        fragB.appendChild(buildFixtureEl(fx));
         fragB.appendChild(buildDividerEl());
       });
 
@@ -1077,12 +916,9 @@
         }
 
         allItems = parsed;
-
-        // If we were stuck on Loading due to previous failures, render now
         render();
       }catch(e){
         console.error("[ResultsTicker " + VERSION + "] refresh error", e);
-
         msg.style.display = "block";
         msg.innerHTML =
           `<strong>Error:</strong> Feed/parse failed. ` +
@@ -1097,7 +933,6 @@
 
     refresh();
     refreshTimer = window.setInterval(refresh, opts.refreshMs);
-    waveTimer = window.setInterval(triggerWave, opts.waveEveryMs);
 
     setTransform();
     normalizeOffset();
@@ -1108,7 +943,6 @@
       destroy(){
         if(rafId) cancelAnimationFrame(rafId);
         if(refreshTimer) window.clearInterval(refreshTimer);
-        if(waveTimer) window.clearInterval(waveTimer);
         if(ro) ro.disconnect();
       }
     };
@@ -1121,7 +955,6 @@
       try{
         node.__nlResultsTicker = makeWidget(node);
       }catch(e){
-        // If Shadow DOM attach fails for any reason
         console.error("[ResultsTicker " + VERSION + "] boot error", e);
       }
     });
