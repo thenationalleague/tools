@@ -1,27 +1,23 @@
-/* News Ticker Widget (v1.7) — Shadow DOM isolated embed
-   Changes from v1.6:
-   - Loads assets/data/clubs-meta.json to resolve club IDs + colours
-   - Team name becomes a colour pill:
-       background = colors.primary
-       text = colors.secondary (assumed #FFFFFF or #000000)
-       border = colors.tertiary (fallback to primary)
-   - Headline colour is black (configurable via data-headline, default #000000)
-   - Removes red/blue alternation logic and hardcoded team list
-   - Keeps TRUE seamless loop: separator after last item too
+/* News Ticker Widget (v1.7.2) — Shadow DOM isolated embed
+   - Crests from assets/crests/(TEAMNAME).png (CSV club name; no meta dependency)
+   - Colours from assets/data/clubs-meta.json (match by name/short/code)
+   - Team name pill: bg=primary, text=secondary, border=tertiary (fallback primary)
+   - Headline colour black (configurable)
+   - TRUE seamless loop: separator after last item too
    - Keeps vertical divider between team and headline
    - JS-driven scroll + drag scrub
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.7";
+  const VERSION = "v1.7.2";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
-    clubsMeta: "assets/data/clubs-meta.json",
+    clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
     maxItems: 10,
     height: 64,              // px
-    speed: 48,               // px/sec (slow)
+    speed: 48,               // px/sec
     refreshMs: 120000,       // 2 min
     kitCss: "https://use.typekit.net/gff4ipy.css",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
@@ -34,6 +30,21 @@
   function safeText(s){ return (s || "").toString().replace(/\s+/g," ").trim(); }
   function toAllCaps(s){ return safeText(s).toUpperCase(); }
 
+  function resolveUrl(u){
+    const raw = safeText(u);
+    if(!raw) return "";
+    try{
+      return new URL(raw, document.baseURI).toString();
+    }catch{
+      return raw;
+    }
+  }
+
+  function normKey(s){
+    // Adds tolerance for "&" vs "and"
+    return safeText(s).toLowerCase().replace(/&/g, "and");
+  }
+
   function teamTextForGraphic(teamName){
     const t = safeText(teamName);
     if(!t) return "";
@@ -41,14 +52,10 @@
     return toAllCaps(t);
   }
 
-  // ===== Clubs meta cache (loaded from DEFAULTS.clubsMeta) =====
+  // ===== Clubs meta cache =====
   let CLUBS_BY_KEY = new Map();     // key -> club object
   let CLUBS_LOADED = false;
   let CLUBS_LOADING = null;
-
-  function normKey(s){
-    return safeText(s).toLowerCase();
-  }
 
   function addClubKey(map, key, clubObj){
     const k = normKey(key);
@@ -62,7 +69,8 @@
 
     CLUBS_LOADING = (async ()=>{
       try{
-        const res = await fetch(opts.clubsMeta, { cache:"no-store" });
+        const metaUrl = resolveUrl(opts.clubsMeta);
+        const res = await fetch(metaUrl, { cache:"no-store" });
         if(!res.ok) throw new Error("clubs-meta fetch failed: " + res.status);
         const json = await res.json();
         const clubs = Array.isArray(json && json.clubs) ? json.clubs : [];
@@ -75,14 +83,11 @@
           addClubKey(map, c.code, c);
         }
 
-        if(map.size){
-          CLUBS_BY_KEY = map;
-          CLUBS_LOADED = true;
-        }else{
-          throw new Error("clubs-meta contained no clubs");
-        }
+        CLUBS_BY_KEY = map;
+        CLUBS_LOADED = true;
       }catch(e){
         console.error("[Ticker " + VERSION + "] clubs-meta load error:", e);
+        CLUBS_BY_KEY = new Map();
         CLUBS_LOADED = false;
       }finally{
         CLUBS_LOADING = null;
@@ -122,24 +127,25 @@
     return { primary, secondary, tertiary };
   }
 
+  // ===== URLs =====
+
   function crestUrlForTeam(opts, club){
     const t = safeText(club);
     if(!t) return null;
 
-    const meta = clubMetaForName(t);
-    if(!meta) return null;
-
-    const crestName = safeText(meta.name) || t;
-    return encodeURI(opts.crestBase + crestName + ".png");
+    // Crest uses the TEAMNAME from CSV: assets/crests/(TEAMNAME).png
+    const base = resolveUrl(opts.crestBase);
+    return encodeURI(base + t + ".png");
   }
 
   function roseUrl(opts){
     const fn = safeText(opts.roseImg || "");
     if(!fn) return null;
-    return encodeURI(opts.crestBase + fn);
+    const base = resolveUrl(opts.crestBase);
+    return encodeURI(base + fn);
   }
 
-  // Robust-ish CSV parser (handles quotes/commas reasonably)
+  // Robust-ish CSV parser (handles quotes/commas)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -517,7 +523,6 @@
       const rUrl = roseUrl(opts);
 
       // IMPORTANT: include a separator AFTER the last item too
-      // so the boundary to the next lane begins with identical spacing/rose.
       function fillLane(lane){
         if(items.length === 0) return;
 
@@ -534,7 +539,6 @@
       offsetPx = 0;
       setTransform();
 
-      // let layout settle (fonts/images), then measure precisely
       requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
     }
 
@@ -542,7 +546,7 @@
       try{
         await ensureClubsMeta(opts);
 
-        const res = await fetch(opts.csv, { cache:"no-store" });
+        const res = await fetch(resolveUrl(opts.csv), { cache:"no-store" });
         if(!res.ok) throw new Error("Feed fetch failed: " + res.status);
         const csvText = await res.text();
 
@@ -562,7 +566,6 @@
       }
     }
 
-    // Resize observer keeps loop accurate if fonts load late or container resizes
     try{
       ro = new ResizeObserver(()=> recomputeShift());
       ro.observe(wrap);
@@ -600,6 +603,11 @@
     if(d.bg) opts.bg = d.bg;
     if(d.headline) opts.headline = d.headline;
     if(d.rule) opts.rule = d.rule;
+
+    // Normalize URLs for embedding reliability
+    opts.csv = resolveUrl(opts.csv);
+    opts.clubsMeta = resolveUrl(opts.clubsMeta);
+    opts.crestBase = resolveUrl(opts.crestBase);
 
     return opts;
   }
