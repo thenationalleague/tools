@@ -1,4 +1,4 @@
-name: Build Club News JSON (v1.23)
+name: Build Club News JSON (v1.24)
 
 on:
   workflow_dispatch:
@@ -15,6 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,13 +30,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 lxml feedparser
 
-      - name: Build assets/data/club-news.json
+      - name: Build club-news.json
         run: |
           python -u .github/workflows/build-club-news.py
 
-      - name: Commit & push if changed
+      - name: Verify output exists
         run: |
-          if git diff --quiet; then
+          echo "---- LS assets/data ----"
+          ls -la assets/data || true
+          echo "---- File check ----"
+          test -f assets/data/club-news.json && echo "club-news.json exists" || (echo "club-news.json MISSING" && exit 1)
+
+      - name: Commit & push if changed (including untracked)
+        run: |
+          echo "---- git status (porcelain) ----"
+          git status --porcelain
+
+          if [ -z "$(git status --porcelain)" ]; then
             echo "No changes to commit"
             exit 0
           fi
@@ -43,6 +54,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add assets/data/club-news.json
-          git commit -m "Update club-news.json (v1.23)"
+          git add -f assets/data/club-news.json
+          git commit -m "Update club-news.json (v1.24)"
           git push
