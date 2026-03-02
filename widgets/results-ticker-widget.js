@@ -1,11 +1,11 @@
-/* Results Ticker Widget (v1.70) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.72) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.70:
-   - Fixes drag/scrub (proper axis-lock, correct Y tracking)
-   - Adds touch fallback (for environments where Pointer Events are unreliable)
+   v1.72:
+   - FIX: pointer capture only AFTER a real horizontal drag (restores click + middle-click on <a>)
+   - FIX: drag/scrub usable on desktop + mobile (pointer + touch)
    - Uses clubs-meta.json with PRIMARY/SECONDARY/TERTIARY
      * pill BG = primary, text = secondary, border = tertiary
    - Uses club SHORT names from clubs-meta.json
@@ -21,7 +21,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.71";
+  const VERSION = "v1.72";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -363,7 +363,6 @@
 `;
   }
 
-  // Robust CSV parser (handles quoted commas)
   function parseCSV(text){
     const out = [];
     let row = [];
@@ -573,15 +572,13 @@
     let lastTs = 0;
     let rafId = 0;
 
-    // Drag state (v1.71)
+    // Drag state
     const DRAG_THRESHOLD_PX = 6;
 
-    // pointer/pending drag: we do NOT stop auto-scroll unless a real horizontal drag is detected
     let pointerActive = false;
     let pendingDrag = false;
-    let activePointerId = null;
-
     let dragging = false;
+
     let dragStartX = 0;
     let dragStartY = 0;
     let dragStartOffset = 0;
@@ -590,7 +587,11 @@
 
     let axisLocked = false;
     let lockAxis = ""; // "x" | "y"
-     
+
+    // Pointer capture only AFTER real drag (v1.72)
+    let activePointerId = null;
+    let pointerCaptured = false;
+
     let refreshTimer = null;
     let ro = null;
 
@@ -659,8 +660,6 @@
     });
     applyModeUI();
 
-    // Drag scrub on ticker area only (Pointer Events + Touch fallback)
-    // v1.71: do NOT stop scroll on press; only "arm" drag after threshold + horizontal axis-lock.
     function beginDrag(clientX, clientY){
       pointerActive = true;
       pendingDrag = true;
@@ -674,7 +673,6 @@
       dragStartX = clientX;
       dragStartY = clientY;
 
-      // Make sure scrubbing has something to work with even if recomputeShift hasn't run yet
       if(!shiftPx){
         shiftPx = laneA.scrollWidth || 0;
       }
@@ -685,7 +683,6 @@
     function moveDrag(clientX, clientY, evForPrevent){
       if(!pointerActive) return;
 
-      // Ensure we have width before trying to scrub
       if(!shiftPx){
         shiftPx = laneA.scrollWidth || 0;
         if(!shiftPx) return;
@@ -697,15 +694,12 @@
       if(!axisLocked){
         const adx = Math.abs(dx);
         const ady = Math.abs(dy);
-
-        // Only lock once user has moved a touch
         if(adx > 3 || ady > 3){
           axisLocked = true;
           lockAxis = (adx >= ady) ? "x" : "y";
         }
       }
 
-      // If user is scrolling vertically, do nothing and allow page to scroll naturally
       if(lockAxis === "y") return;
 
       // lockAxis === "x"
@@ -713,6 +707,14 @@
         pendingDrag = false;
         dragging = true;
         didDrag = true;
+
+        // capture now (not on pointerdown)
+        if(!pointerCaptured && activePointerId !== null){
+          try{
+            tickerCol.setPointerCapture(activePointerId);
+            pointerCaptured = true;
+          }catch{}
+        }
       }
 
       if(!dragging) return;
@@ -740,16 +742,19 @@
         lastTs = performance.now();
         persist();
       }
+
+      // allow normal click after release
+      window.setTimeout(()=>{ didDrag = false; }, 0);
     }
-     
-    // Pointer Events
+
+    // Pointer Events (primary)
     tickerCol.addEventListener("pointerdown", (e)=>{
       if(e.pointerType === "mouse" && e.button !== 0) return;
 
-      beginDrag(e.clientX, e.clientY);
       activePointerId = e.pointerId;
+      pointerCaptured = false;
 
-      try{ tickerCol.setPointerCapture(e.pointerId); }catch{}
+      beginDrag(e.clientX, e.clientY);
     });
 
     tickerCol.addEventListener("pointermove", (e)=>{
@@ -757,15 +762,21 @@
     }, { passive:false });
 
     tickerCol.addEventListener("pointerup", ()=>{
-      try{
-        if(activePointerId !== null) tickerCol.releasePointerCapture(activePointerId);
-      }catch{}
+      if(pointerCaptured && activePointerId !== null){
+        try{ tickerCol.releasePointerCapture(activePointerId); }catch{}
+      }
+      pointerCaptured = false;
       activePointerId = null;
       endDrag();
     });
 
     tickerCol.addEventListener("pointercancel", ()=>{
+      if(pointerCaptured && activePointerId !== null){
+        try{ tickerCol.releasePointerCapture(activePointerId); }catch{}
+      }
+      pointerCaptured = false;
       activePointerId = null;
+
       pointerActive = false;
       pendingDrag = false;
       dragging = false;
@@ -773,8 +784,8 @@
       axisLocked = false;
       lockAxis = "";
     });
-     
-    // Touch fallback
+
+    // Touch fallback (for odd environments)
     tickerCol.addEventListener("touchstart", (e)=>{
       if(!e.touches || !e.touches.length) return;
       const t = e.touches[0];
@@ -792,7 +803,6 @@
     }, { passive:true });
 
     tickerCol.addEventListener("touchcancel", ()=>{
-      activePointerId = null;
       pointerActive = false;
       pendingDrag = false;
       dragging = false;
@@ -800,7 +810,7 @@
       axisLocked = false;
       lockAxis = "";
     }, { passive:true });
-     
+
     // Cancel navigation only if actual horizontal drag happened
     tickerCol.addEventListener("click", (e)=>{
       if(!didDrag) return;
