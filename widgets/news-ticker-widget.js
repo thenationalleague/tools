@@ -10,7 +10,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.8.1";
+  const VERSION = "v1.8.2";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
@@ -322,13 +322,6 @@
   line-height:1;
 }
 
-.vrule{
-  width:2px;
-  height:26px;
-  background:var(--rule);
-  display:block;
-}
-
 .headline{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:450;
@@ -340,13 +333,16 @@
 
 .headline:hover{ text-decoration:underline; }
 
-/* Rose separator BETWEEN items: just clear space + rose */
+/* Item separator is now the vertical rule */
 .sep{
-  display:inline-flex;
-  align-items:center;
-  padding:0 18px;
+  width:2px;
+  height:26px;
+  background:var(--rule);
+  display:block;
+  margin:0 18px;
 }
 
+/* Rose is now inside each item (after pill) */
 .rose{
   width:22px;
   height:22px;
@@ -505,9 +501,15 @@
 
       pill.appendChild(club);
 
-      const vrule = document.createElement("span");
-      vrule.className = "vrule";
-      vrule.setAttribute("aria-hidden","true");
+      const rose = document.createElement("img");
+      rose.className = "rose";
+      rose.alt = "";
+      const rUrl = roseUrl(opts);
+      if(rUrl){
+        rose.src = rUrl;
+      }else{
+        rose.style.display = "none";
+      }
 
       const a = document.createElement("a");
       a.className = "headline";
@@ -518,30 +520,18 @@
 
       el.appendChild(crest);
       el.appendChild(pill);
-      el.appendChild(vrule);
+      el.appendChild(rose);
       el.appendChild(a);
 
       return el;
-    }
-
-    function buildSepEl(rUrl){
+       
+    function buildSepEl(){
       const sep = document.createElement("span");
       sep.className = "sep";
       sep.setAttribute("aria-hidden","true");
-
-      const img = document.createElement("img");
-      img.className = "rose";
-      img.alt = "";
-      if(rUrl){
-        img.src = rUrl;
-      }else{
-        img.style.display = "none";
-      }
-
-      sep.appendChild(img);
       return sep;
     }
-
+       
     function recomputeShift(){
       // shift equals laneA width exactly; MUST be stable for seamless wrap
       shiftPx = laneA.scrollWidth || 0;
