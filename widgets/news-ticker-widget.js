@@ -1,8 +1,8 @@
-/* News Ticker Widget (v1.7.2) — Shadow DOM isolated embed
-   - Crests from assets/crests/(TEAMNAME).png (CSV club name; no meta dependency)
-   - Colours from assets/data/clubs-meta.json (match by name/short/code)
-   - Team name pill: bg=primary, text=secondary, border=tertiary (fallback primary)
-   - Headline colour black (configurable)
+/* News Ticker Widget (v1.8.1) — Shadow DOM isolated embed
+   - Google Sheet CSV columns: Headline | Hyperlink
+   - Infers club from hyperlink domain using assets/data/clubs-meta.json (match by domain)
+   - Crests from assets/crests/(TEAMNAME).png where TEAMNAME = meta.name
+   - Colours from clubs-meta.json: pill bg=primary, text=secondary, border=tertiary (fallback primary)
    - TRUE seamless loop: separator after last item too
    - Keeps vertical divider between team and headline
    - JS-driven scroll + drag scrub
@@ -10,7 +10,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.7.2";
+  const VERSION = "v1.8.1";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSuNN7o0PQ-YzDS7-oZe_D91PMpJmF9d6CYshqXcMOpJVq-WHceJN_qanp79QuwrqBMUX7KoGCMWXZm/pub?output=csv",
@@ -24,7 +24,8 @@
     roseImg: "National League rose.png",
     bg: "#ffffff",
     headline: "#000000",
-    rule: "#000000"
+    rule: "#000000",
+    unknownClubLabel: "NEWS" // used if domain doesn't match a club
   };
 
   function safeText(s){ return (s || "").toString().replace(/\s+/g," ").trim(); }
@@ -33,16 +34,19 @@
   function resolveUrl(u){
     const raw = safeText(u);
     if(!raw) return "";
-    try{
-      return new URL(raw, document.baseURI).toString();
-    }catch{
-      return raw;
-    }
+    try{ return new URL(raw, document.baseURI).toString(); }
+    catch{ return raw; }
   }
 
   function normKey(s){
     // Adds tolerance for "&" vs "and"
     return safeText(s).toLowerCase().replace(/&/g, "and");
+  }
+
+  function stripWww(host){
+    const h = safeText(host).toLowerCase();
+    if(!h) return "";
+    return h.startsWith("www.") ? h.slice(4) : h;
   }
 
   function teamTextForGraphic(teamName){
@@ -53,7 +57,8 @@
   }
 
   // ===== Clubs meta cache =====
-  let CLUBS_BY_KEY = new Map();     // key -> club object
+  let CLUBS_BY_KEY = new Map();        // name/short/code -> club object
+  let CLUBS_BY_DOMAIN = new Map();     // domain -> club object (www-stripped)
   let CLUBS_LOADED = false;
   let CLUBS_LOADING = null;
 
@@ -61,6 +66,12 @@
     const k = normKey(key);
     if(!k) return;
     if(!map.has(k)) map.set(k, clubObj);
+  }
+
+  function addClubDomain(map, domain, clubObj){
+    const d = stripWww(domain);
+    if(!d) return;
+    if(!map.has(d)) map.set(d, clubObj);
   }
 
   async function ensureClubsMeta(opts){
@@ -75,19 +86,25 @@
         const json = await res.json();
         const clubs = Array.isArray(json && json.clubs) ? json.clubs : [];
 
-        const map = new Map();
+        const mapKeys = new Map();
+        const mapDomains = new Map();
+
         for(const c of clubs){
           if(!c) continue;
-          addClubKey(map, c.name, c);
-          addClubKey(map, c.short, c);
-          addClubKey(map, c.code, c);
+          addClubKey(mapKeys, c.name, c);
+          addClubKey(mapKeys, c.short, c);
+          addClubKey(mapKeys, c.code, c);
+
+          if(c.domain) addClubDomain(mapDomains, c.domain, c);
         }
 
-        CLUBS_BY_KEY = map;
+        CLUBS_BY_KEY = mapKeys;
+        CLUBS_BY_DOMAIN = mapDomains;
         CLUBS_LOADED = true;
       }catch(e){
         console.error("[Ticker " + VERSION + "] clubs-meta load error:", e);
         CLUBS_BY_KEY = new Map();
+        CLUBS_BY_DOMAIN = new Map();
         CLUBS_LOADED = false;
       }finally{
         CLUBS_LOADING = null;
@@ -97,10 +114,22 @@
     return CLUBS_LOADING;
   }
 
-  function clubMetaForName(clubName){
-    const k = normKey(clubName);
+  function clubMetaForNameKey(nameOrShortOrCode){
+    const k = normKey(nameOrShortOrCode);
     if(!k) return null;
     return CLUBS_BY_KEY.get(k) || null;
+  }
+
+  function clubMetaForDomain(href){
+    const u = safeText(href);
+    if(!u) return null;
+    try{
+      const host = stripWww(new URL(u).hostname);
+      if(!host) return null;
+      return CLUBS_BY_DOMAIN.get(host) || null;
+    }catch{
+      return null;
+    }
   }
 
   function normalizeHexColor(s){
@@ -116,8 +145,7 @@
     return fallback;
   }
 
-  function clubPillColors(clubName){
-    const meta = clubMetaForName(clubName);
+  function clubPillColorsByMeta(meta){
     const colors = meta && meta.colors ? meta.colors : null;
 
     const primary = normalizeHexColor(colors && colors.primary) || "#E6E6E6";
@@ -129,11 +157,11 @@
 
   // ===== URLs =====
 
-  function crestUrlForTeam(opts, club){
-    const t = safeText(club);
+  function crestUrlForTeam(opts, teamNameFromMeta){
+    const t = safeText(teamNameFromMeta);
     if(!t) return null;
 
-    // Crest uses the TEAMNAME from CSV: assets/crests/(TEAMNAME).png
+    // Crest uses the meta.name: assets/crests/(TEAMNAME).png
     const base = resolveUrl(opts.crestBase);
     return encodeURI(base + t + ".png");
   }
@@ -183,18 +211,19 @@
   }
 
   function isHeaderRow(r){
-    const joined = (r || []).join(" ").toLowerCase();
-    return joined.includes("club") && joined.includes("headline");
+    const a = safeText(r && r[0]).toLowerCase();
+    const b = safeText(r && r[1]).toLowerCase();
+    return (a.includes("headline") && b.includes("hyperlink")) ||
+           (a.includes("hyperlink") && b.includes("headline"));
   }
 
   function normaliseItems(items, maxItems){
     const out = [];
     for(const it of items){
-      const club = safeText(it.club);
       const headline = safeText(it.headline);
       const hyperlink = safeText(it.hyperlink);
-      if(!club || !headline || !hyperlink) continue;
-      out.push({ club, headline, hyperlink });
+      if(!headline || !hyperlink) continue;
+      out.push({ headline, hyperlink });
       if(out.length >= maxItems) break;
     }
     return out;
@@ -446,11 +475,15 @@
       const el = document.createElement("span");
       el.className = "item";
 
+      const meta = clubMetaForDomain(it.hyperlink);
+      const clubName = meta && meta.name ? safeText(meta.name) : "";
+      const label = clubName ? teamTextForGraphic(clubName) : toAllCaps(opts.unknownClubLabel);
+
       const crest = document.createElement("img");
       crest.className = "crest";
-      crest.alt = safeText(it.club) ? (safeText(it.club) + " crest") : "";
+      crest.alt = clubName ? (clubName + " crest") : "";
 
-      const cUrl = crestUrlForTeam(opts, it.club);
+      const cUrl = crestUrlForTeam(opts, clubName);
       if(cUrl){
         crest.src = cUrl;
         crest.onerror = ()=> crest.classList.add("missing");
@@ -461,14 +494,14 @@
       const pill = document.createElement("span");
       pill.className = "clubpill";
 
-      const pillColors = clubPillColors(it.club);
+      const pillColors = clubPillColorsByMeta(meta);
       pill.style.setProperty("--pill-bg", pillColors.primary);
       pill.style.setProperty("--pill-fg", pillColors.secondary);
       pill.style.setProperty("--pill-border", pillColors.tertiary);
 
       const club = document.createElement("span");
       club.className = "club";
-      club.textContent = teamTextForGraphic(it.club) || toAllCaps(it.club);
+      club.textContent = label;
 
       pill.appendChild(club);
 
@@ -525,7 +558,6 @@
       // IMPORTANT: include a separator AFTER the last item too
       function fillLane(lane){
         if(items.length === 0) return;
-
         items.forEach((it)=>{
           lane.appendChild(buildItemEl(it));
           lane.appendChild(buildSepEl(rUrl));
@@ -556,7 +588,8 @@
 
         const items = [];
         for(let i=startRow;i<rows.length;i++){
-          items.push({ club: rows[i][0], headline: rows[i][1], hyperlink: rows[i][2] });
+          // Sheet columns: Headline | Hyperlink
+          items.push({ headline: rows[i][0], hyperlink: rows[i][1] });
         }
 
         const data = normaliseItems(items, opts.maxItems);
@@ -603,6 +636,8 @@
     if(d.bg) opts.bg = d.bg;
     if(d.headline) opts.headline = d.headline;
     if(d.rule) opts.rule = d.rule;
+
+    if(d.unknownClubLabel) opts.unknownClubLabel = safeText(d.unknownClubLabel) || DEFAULTS.unknownClubLabel;
 
     // Normalize URLs for embedding reliability
     opts.csv = resolveUrl(opts.csv);
