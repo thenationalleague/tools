@@ -1,20 +1,27 @@
-/* Results Ticker Widget (v1.69) — Shadow DOM isolated embed
+/* Results Ticker Widget (v1.70) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Date & Time | MD | Competition | Home team | Score | Away team
 
-   v1.69:
-   - Team pills use club SHORT names from clubs-meta.json (fallback: full name)
-   - Slightly smaller/tighter pills + score + crests for space efficiency
-   - Fixes drag/tap scrub (touch-action + preventDefault during horizontal drag)
-   - Keeps: stacked switcher (desktop) + top switcher (mobile), brand red switcher,
-            clubs meta colors incl tertiary border, v vs score, ±days window,
-            link to match hub (new tab), robust CSV parsing, persisted mode/offset
+   v1.70:
+   - Fixes drag/scrub (proper axis-lock, correct Y tracking)
+   - Adds touch fallback (for environments where Pointer Events are unreliable)
+   - Uses clubs-meta.json with PRIMARY/SECONDARY/TERTIARY
+     * pill BG = primary, text = secondary, border = tertiary
+   - Uses club SHORT names from clubs-meta.json
+   - Slightly smaller pills / text for efficiency
+   - Stacked FIXTURES/RESULTS switcher (desktop left), mobile (≤768px) switcher top
+   - Switcher always uses brand red (#9E0000)
+   - Score shows "v" when Score isn't a final n-n
+   - Window filtering: daysBack/daysForward (default 3/3)
+   - Seamless loop + requestAnimationFrame scroll
+   - Drag prevents click only when real horizontal drag happened
+   - All fixture elements link to Match Hub (new tab)
 */
 (function(){
   "use strict";
 
-  const VERSION = "v1.69";
+  const VERSION = "v1.70";
 
   const DEFAULTS = {
     csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
@@ -37,7 +44,7 @@
     dividerColor: "#000000",
     dividerH: 30,
     dividerW: 2,
-    dividerPad: 16,
+    dividerPad: 18,
 
     daysBack: 3,
     daysForward: 3,
@@ -45,10 +52,7 @@
     matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
 
     // layout
-    controlsWidth: 130,
-
-    // name display
-    useShortNames: true
+    controlsWidth: 130
   };
 
   const COMP_DISPLAY = {
@@ -99,12 +103,7 @@
 
     if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
 
-    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 100, 200, DEFAULTS.controlsWidth);
-
-    if(d.useShortNames){
-      const v = safeText(d.useShortNames).toLowerCase();
-      opts.useShortNames = (v === "1" || v === "true" || v === "yes");
-    }
+    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 100, 220, DEFAULTS.controlsWidth);
 
     return opts;
   }
@@ -193,11 +192,8 @@
   height:var(--h);
   overflow:hidden;
   position:relative;
-
-  /* critical for touch drag */
   touch-action: pan-y;
   user-select:none;
-  -webkit-user-select:none;
 }
 
 .edgeMask:before,
@@ -239,18 +235,15 @@
   color:inherit;
   padding:0 var(--div-pad);
   -webkit-tap-highlight-color: transparent;
-
-  /* helps touch drags start on anchors */
-  touch-action: pan-y;
 }
 
 .fixture{
   display:flex;
   flex-direction:column;
   justify-content:center;
-  gap:5px;
+  gap:6px;
   min-height:var(--h);
-  padding:7px 0;
+  padding:8px 0;
 }
 
 .meta{
@@ -477,23 +470,25 @@
     return await res.json();
   }
 
-  function buildClubMap(meta){
-    const map = new Map();
-    if(!meta || !Array.isArray(meta.clubs)) return map;
+  function buildClubMaps(meta){
+    const colors = new Map();
+    const shortNames = new Map();
+    if(!meta || !Array.isArray(meta.clubs)) return { colors, shortNames };
 
     for(const c of meta.clubs){
       const name = safeText(c && c.name);
       if(!name) continue;
 
-      const short = safeText(c && c.short) || name;
-
       const primary = safeHexColor(c?.colors?.primary, "#111111");
       const secondary = safeHexColor(c?.colors?.secondary, "#FFFFFF");
       const tertiary = safeHexColor(c?.colors?.tertiary, secondary);
 
-      map.set(name.toLowerCase(), { primary, secondary, tertiary, short });
+      colors.set(name.toLowerCase(), { primary, secondary, tertiary });
+
+      const sh = safeText(c?.short);
+      if(sh) shortNames.set(name.toLowerCase(), sh);
     }
-    return map;
+    return { colors, shortNames };
   }
 
   function crestUrlForTeam(opts, club){
@@ -567,7 +562,8 @@
     tickerCol.appendChild(msg);
 
     // State
-    let clubMap = new Map();
+    let clubColors = new Map();
+    let clubShort = new Map();
     let allItems = [];
     let mode = "results";
 
@@ -581,6 +577,7 @@
     const DRAG_THRESHOLD_PX = 6;
     let dragging = false;
     let dragStartX = 0;
+    let dragStartY = 0;
     let dragStartOffset = 0;
     let didDrag = false;
     let axisLocked = false;
@@ -654,28 +651,23 @@
     });
     applyModeUI();
 
-    // Drag scrub on ticker area only
-    tickerCol.addEventListener("pointerdown", (e)=>{
-      if(e.pointerType === "mouse" && e.button !== 0) return;
-
+    // Drag scrub on ticker area only (Pointer Events + Touch fallback)
+    function beginDrag(clientX, clientY){
       dragging = true;
       didDrag = false;
       axisLocked = false;
       lockAxis = "";
-
-      dragStartX = e.clientX;
+      dragStartX = clientX;
+      dragStartY = clientY;
       dragStartOffset = offsetPx;
+    }
 
-      try{ tickerCol.setPointerCapture(e.pointerId); }catch{}
-    });
-
-    tickerCol.addEventListener("pointermove", (e)=>{
+    function moveDrag(clientX, clientY, evForPrevent){
       if(!dragging || !shiftPx) return;
 
-      const dx = e.clientX - dragStartX;
-      const dy = e.clientY - (e._nlDragStartY || (e._nlDragStartY = e.clientY)); // fallback
+      const dx = clientX - dragStartX;
+      const dy = clientY - dragStartY;
 
-      // axis lock based on first meaningful movement
       if(!axisLocked){
         const adx = Math.abs(dx);
         const ady = Math.abs(dy);
@@ -687,24 +679,35 @@
 
       if(lockAxis === "x"){
         if(Math.abs(dx) > DRAG_THRESHOLD_PX) didDrag = true;
-
-        // prevent the browser from treating this as scroll/gesture
-        e.preventDefault();
+        if(evForPrevent && evForPrevent.cancelable) evForPrevent.preventDefault();
 
         offsetPx = dragStartOffset + dx;
         normalizeOffset();
         setTransform();
       }
+    }
+
+    function endDrag(){
+      if(!dragging) return;
+      dragging = false;
+      lastTs = performance.now();
+      persist();
+    }
+
+    // Pointer Events
+    tickerCol.addEventListener("pointerdown", (e)=>{
+      if(e.pointerType === "mouse" && e.button !== 0) return;
+      beginDrag(e.clientX, e.clientY);
+      try{ tickerCol.setPointerCapture(e.pointerId); }catch{}
+    });
+
+    tickerCol.addEventListener("pointermove", (e)=>{
+      moveDrag(e.clientX, e.clientY, e);
     }, { passive:false });
 
     tickerCol.addEventListener("pointerup", (e)=>{
-      if(!dragging) return;
-      dragging = false;
-
       try{ tickerCol.releasePointerCapture(e.pointerId); }catch{}
-
-      lastTs = performance.now();
-      persist();
+      endDrag();
     });
 
     tickerCol.addEventListener("pointercancel", ()=>{
@@ -714,7 +717,31 @@
       lockAxis = "";
     });
 
-    // Cancel navigation only if actual drag happened
+    // Touch fallback
+    tickerCol.addEventListener("touchstart", (e)=>{
+      if(!e.touches || !e.touches.length) return;
+      const t = e.touches[0];
+      beginDrag(t.clientX, t.clientY);
+    }, { passive:true });
+
+    tickerCol.addEventListener("touchmove", (e)=>{
+      if(!e.touches || !e.touches.length) return;
+      const t = e.touches[0];
+      moveDrag(t.clientX, t.clientY, e);
+    }, { passive:false });
+
+    tickerCol.addEventListener("touchend", ()=>{
+      endDrag();
+    }, { passive:true });
+
+    tickerCol.addEventListener("touchcancel", ()=>{
+      dragging = false;
+      didDrag = false;
+      axisLocked = false;
+      lockAxis = "";
+    }, { passive:true });
+
+    // Cancel navigation only if actual horizontal drag happened
     tickerCol.addEventListener("click", (e)=>{
       if(!didDrag) return;
       const a = e.target && e.target.closest ? e.target.closest("a") : null;
@@ -732,30 +759,29 @@
       return d;
     }
 
-    function displayName(teamFull){
-      const full = safeText(teamFull);
-      if(!opts.useShortNames) return full;
-      const meta = clubMap.get(full.toLowerCase());
-      return (meta && meta.short) ? meta.short : full;
+    function displayTeamName(fullName){
+      const key = safeText(fullName).toLowerCase();
+      return clubShort.get(key) || safeText(fullName);
     }
 
-    function teamPillEl(teamNameFull){
-      const full = safeText(teamNameFull);
+    function teamPillEl(teamName){
+      const full = safeText(teamName);
+      const display = displayTeamName(full);
       const pill = document.createElement("span");
       pill.className = "teamPill";
 
-      const meta = clubMap.get(full.toLowerCase());
-      if(meta){
-        pill.style.background = meta.primary;
-        pill.style.color = meta.secondary;
-        pill.style.borderColor = meta.tertiary;
+      const colors = clubColors.get(full.toLowerCase());
+      if(colors){
+        pill.style.background = colors.primary;
+        pill.style.color = colors.secondary;
+        pill.style.borderColor = colors.tertiary;
       }else{
         pill.style.background = "#111111";
         pill.style.color = "#FFFFFF";
         pill.style.borderColor = "rgba(0,0,0,0.18)";
       }
 
-      pill.textContent = displayName(full).toUpperCase();
+      pill.textContent = display.toUpperCase();
       return pill;
     }
 
@@ -906,7 +932,9 @@
           fetchJson(opts.clubsMeta).catch(()=> null)
         ]);
 
-        clubMap = buildClubMap(clubsMeta);
+        const maps = buildClubMaps(clubsMeta);
+        clubColors = maps.colors;
+        clubShort = maps.shortNames;
 
         const rows = parseCSV(csvText);
         if(!rows.length){
