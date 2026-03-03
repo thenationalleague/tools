@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-# build-club-news.py (v1.29)
+# build-club-news.py (v1.32)
 #
-# v1.29:
-# - Adds FEED_OVERRIDES (Aldershot + Altrincham included)
-# - Pitchero handling is scrape-only (NO pitchero.com RSS guesses)
+# v1.32:
+# - Keeps live progress logging ([i/72]...) with unbuffered output
+# - Adds Boston (Pitchero custom domain) via PITCHERO_SCRAPE override
+# - Pitchero listing scrape tightened to real article pattern: /news/<slug>-<id>.html
+# - Pitchero article meta: adds JSON-LD fallback for datePublished/dateCreated
+# - MAX_ITEMS_GLOBAL = 100, MAX_ITEMS_PER_CLUB = 20
+# - Pitchero handling remains scrape-only (NO pitchero.com RSS guesses)
 # - Keeps WP REST fallback
 # - Writes club-news.json + club-news-failures.json
 
@@ -20,7 +24,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.31"
+VERSION = "v1.32"
 
 UA = (
     "nl-tools club-news builder/"
@@ -56,6 +60,7 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 CLUBS_META = os.path.join(REPO_ROOT, "assets", "data", "clubs-meta.json")
 OUT_JSON = os.path.join(REPO_ROOT, "assets", "data", "club-news.json")
 OUT_FAIL = os.path.join(REPO_ROOT, "assets", "data", "club-news-failures.json")
+
 
 @dataclass
 class SourceResult:
@@ -229,50 +234,71 @@ def try_feed(url: str) -> tuple[bool, str, list[dict], str]:
         return (False, url, [], f"{type(e).__name__}: {e}")
 
 
-def pitchero_list_links(news_url: str, limit: int = 15) -> list[str]:
+def pitchero_list_links(news_url: str, limit: int = 30) -> list[str]:
     """
-    Scrape /news listing for article links.
-    Pitchero custom domains commonly use: /news/some-slug-1234567.html
+    Scrape /news listing for Pitchero custom-domain article links.
+
+    We only accept real Pitchero news-article pages, typically:
+      /news/<slug>-<id>.html
+
+    This avoids match-centre links like:
+      /teams/.../match-centre/.../report
     """
     r = safe_get(news_url)
     if r.status_code != 200:
         return []
 
     soup = BeautifulSoup(r.text, "html.parser")
-    links = []
+    host = urlparse(news_url).netloc
+
+    candidates = []
     for a in soup.find_all("a", href=True):
-        href = (a["href"] or "").strip()
+        href = (a.get("href") or "").strip()
         if not href:
             continue
 
-        if re.search(r"^/news/.+\.html$", href):
-            links.append(urljoin(news_url, href))
+        # Normalize to absolute URL (same domain only)
+        if href.startswith("/"):
+            absu = urljoin(news_url, href)
+        elif href.startswith("http"):
+            try:
+                if urlparse(href).netloc != host:
+                    continue
+                absu = href
+            except Exception:
+                continue
+        else:
             continue
 
-        if href.startswith("http"):
-            try:
-                if urlparse(href).netloc == urlparse(news_url).netloc:
-                    if "/news/" in href and href.endswith(".html"):
-                        links.append(href)
-            except Exception:
-                pass
+        path = urlparse(absu).path or ""
 
-    # de-dupe preserve order
+        # Pitchero article pattern
+        if re.search(r"^/news/.+-\d+\.html$", path):
+            candidates.append(absu)
+
+    # De-dupe preserve order
     seen = set()
     out = []
-    for u in links:
+    for u in candidates:
         if u in seen:
             continue
         seen.add(u)
         out.append(u)
         if len(out) >= limit:
             break
+
     return out
 
 
 def pitchero_article_meta(url: str) -> tuple[str, str]:
     """
     Fetch a Pitchero article and pull title + published time.
+
+    Uses:
+      1) og:title / <title>
+      2) article:published_time
+      3) JSON-LD datePublished / dateCreated
+      4) <time datetime=...>
     """
     r = safe_get(url)
     if r.status_code != 200:
@@ -293,6 +319,31 @@ def pitchero_article_meta(url: str) -> tuple[str, str]:
     ogp = soup.find("meta", attrs={"property": "article:published_time"})
     if ogp and ogp.get("content"):
         published = parse_date_any(ogp["content"])
+
+    # JSON-LD fallback
+    if not published:
+        for s in soup.find_all("script", attrs={"type": "application/ld+json"}):
+            raw = (s.string or "").strip()
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+
+            nodes = data if isinstance(data, list) else [data]
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                dp = node.get("datePublished") or node.get("dateCreated") or ""
+                if dp:
+                    published = parse_date_any(str(dp))
+                    if published:
+                        break
+            if published:
+                break
+
+    # <time> fallback
     if not published:
         tm = soup.find("time")
         if tm and (tm.get("datetime") or tm.get_text()):
@@ -419,9 +470,15 @@ def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
 
 def pitchero_scrape(name: str, code: str, short: str, domain: str, base: str) -> tuple[SourceResult, list[dict]]:
     news_url = base.rstrip("/") + "/news"
-    links = pitchero_list_links(news_url, limit=MAX_ITEMS_PER_CLUB)
+    links = pitchero_list_links(news_url, limit=MAX_ITEMS_PER_CLUB * 2)
     items = []
+    seen_urls = set()
+
     for u in links:
+        if u in seen_urls:
+            continue
+        seen_urls.add(u)
+
         t, p = pitchero_article_meta(u)
         if t and u:
             items.append(
@@ -436,6 +493,9 @@ def pitchero_scrape(name: str, code: str, short: str, domain: str, base: str) ->
                 }
             )
         time.sleep(0.15)
+
+        if len(items) >= MAX_ITEMS_PER_CLUB:
+            break
 
     if items:
         return (SourceResult(name, domain, "pitchero:/news (scrape)", True, len(items), ""), items)
@@ -469,7 +529,7 @@ def main():
         print(f"[{i}/{total}] {name} ({domain})", flush=True)
 
         src, items = build_for_club(club)
-        
+
         sources.append(
             {
                 "club": src.club,
@@ -527,7 +587,7 @@ def main():
     with open(OUT_FAIL, "w", encoding="utf-8") as f:
         json.dump(out_fail, f, ensure_ascii=False, indent=2)
 
-    print(f"Done. Sources OK: {ok_sources}/{total}. Items written: {len(out['items'])}")
+    print(f"Done. Sources OK: {ok_sources}/{total}. Items written: {len(out['items'])}", flush=True)
 
 
 if __name__ == "__main__":
