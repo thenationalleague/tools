@@ -20,7 +20,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.29"
+VERSION = "v1.31"
 
 UA = (
     "nl-tools club-news builder/"
@@ -29,8 +29,8 @@ UA = (
 )
 
 DEFAULT_TIMEOUT = 25
-MAX_ITEMS_GLOBAL = 30
-MAX_ITEMS_PER_CLUB = 12  # hard cap; global list still trimmed to MAX_ITEMS_GLOBAL
+MAX_ITEMS_GLOBAL = 100
+MAX_ITEMS_PER_CLUB = 20  # hard cap; global list still trimmed to MAX_ITEMS_GLOBAL
 
 # ---- Feed overrides (domain -> feed URL) ----
 # Add more here as we solve clubs.
@@ -39,8 +39,10 @@ FEED_OVERRIDES = {
     "theshots.co.uk": "https://www.theshots.co.uk/feed/",
     "altrinchamfc.com": "https://altrinchamfc.com/blogs/news.atom",
 
+    # Pitchero custom-domain sites (scrape-only)
+    "bostonunited.co.uk": "PITCHERO_SCRAPE",
+
     # Next batch placeholders (fill these as we confirm)
-    # "bostonunited.co.uk": "PITCHERO_SCRAPE",
     # "brackleytownfc.com": "https://example.com/feed/",
     # "braintreetownfc.org": "https://example.com/rss.xml",
     # "telfordunited.com": "https://example.com/feed/",
@@ -464,10 +466,10 @@ def main():
     for i, club in enumerate(clubs, start=1):
         name = club.get("name", "")
         domain = club.get("domain", "")
-        print(f"[{i}/{total}] {name} ({domain})")
+        print(f"[{i}/{total}] {name} ({domain})", flush=True)
 
         src, items = build_for_club(club)
-
+        
         sources.append(
             {
                 "club": src.club,
