@@ -1,10 +1,10 @@
-name: Debug club news fetch (v0.1)
+name: Debug club news (v0.3)
 
 on:
   workflow_dispatch:
     inputs:
       domain:
-        description: "Club domain to debug (e.g. theshots.co.uk)"
+        description: "Club domain to debug (must match clubs-meta.json domain)"
         required: true
         default: "theshots.co.uk"
 
@@ -17,8 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,9 +28,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 lxml
 
-      - name: Debug single club
+      - name: Run debug (single domain)
         env:
           PYTHONUNBUFFERED: "1"
           DEBUG_DOMAIN: ${{ inputs.domain }}
         run: |
+          mkdir -p debug-out
           python -u .github/workflows/debug-club-news.py
+
+      - name: Upload debug artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: club-news-debug-${{ inputs.domain }}
+          path: debug-out/
+          if-no-files-found: error
