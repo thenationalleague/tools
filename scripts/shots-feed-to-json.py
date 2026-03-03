@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
-# shots-feed-to-json.py (v1.1)
+# shots-feed-to-json.py (v1.3)
 #
-# v1.1:
-# - Repo-root paths (no "nl-tools/" prefix anywhere)
-# - Slightly clearer output + guards
-#
-# Fetches The Shots RSS and writes a JSON file for front-end widgets.
-# Output: assets/data/shots-feed.json
+# v1.3:
+# - Stops using /feed/ (blocked by WAF)
+# - Scrapes a server-rendered tag archive (default: /tag/aldershot/)
+# - Paginates /page/2/, /page/3/ until no more posts or MAX_ITEMS reached
+# - Writes assets/data/shots-feed.json for your widget
 
 import json
+import os
+import re
 import time
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from html import unescape
-import re
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.1"
+VERSION = "v1.3"
 
-FEED_URL = "https://www.theshots.co.uk/feed/"
+# Use a tag page that loads in normal browsers (server-rendered list of posts).
+# You can override in workflow/env via SHOTS_TAG_URL.
+TAG_URL_DEFAULT = "https://www.theshots.co.uk/tag/aldershot/"
+TAG_URL = os.environ.get("SHOTS_TAG_URL", TAG_URL_DEFAULT)
+
 OUT_PATH = "assets/data/shots-feed.json"
+MAX_ITEMS = int(os.environ.get("SHOTS_MAX_ITEMS", "60"))
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -29,23 +34,28 @@ UA = (
     "Chrome/123.0.0.0 Safari/537.36 "
 )
 
-def strip_html(html: str) -> str:
-    soup = BeautifulSoup(html or "", "html.parser")
-    txt = soup.get_text(" ", strip=True)
-    txt = re.sub(r"\s+", " ", txt).strip()
-    return txt
+def now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def strip_ws(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
 
 def clamp(s: str, n: int) -> str:
-    s = (s or "").strip()
+    s = strip_ws(s)
     if len(s) <= n:
         return s
     return (s[: n - 1].rstrip() + "…")
 
-def fetch_with_retry(url: str, tries: int = 6) -> str:
+def safe_mkdirs(path: str) -> None:
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
+def fetch_html(url: str, tries: int = 5) -> str:
     sess = requests.Session()
     headers = {
         "User-Agent": UA,
-        "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-GB,en;q=0.9",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
@@ -63,64 +73,127 @@ def fetch_with_retry(url: str, tries: int = 6) -> str:
         except Exception as e:
             last_err = e
 
-        # backoff: 2s, 5s, 10s, 20s, 30s, 45s
-        time.sleep([2, 5, 10, 20, 30, 45][min(i, 5)])
+        time.sleep([2, 5, 10, 20, 30][min(i, 4)])
 
-    raise RuntimeError(f"Failed to fetch RSS after {tries} tries: {last_err}")
+    raise RuntimeError(f"Failed to fetch HTML after {tries} tries: {last_err}")
 
-def parse_rss(xml_text: str, max_items: int = 60):
-    soup = BeautifulSoup(xml_text, "xml")
+def parse_tag_page(html: str, base_url: str):
+    """
+    Tag archive layout (from theshots.co.uk tag pages) is typically:
+      ## <a href="post">TITLE</a>
+      ##### DD/MM/YYYY
+      Excerpt ... Read more
+    We collect title/link/date/excerpt.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
     items = []
+    seen_links = set()
 
-    for item in soup.find_all("item")[:max_items]:
-        title = (item.title.get_text(strip=True) if item.title else "").strip()
-        link = (item.link.get_text(strip=True) if item.link else "").strip()
-        pub = (item.pubDate.get_text(strip=True) if item.pubDate else "").strip()
+    # The page uses H2 for post headings in the archive list (observed).
+    for h2 in soup.find_all("h2"):
+        a = h2.find("a", href=True)
+        if not a:
+            continue
 
-        content = ""
-        c = item.find("content:encoded")
-        if c and c.get_text(strip=False):
-            content = c.get_text(strip=False)
-        elif item.description and item.description.get_text(strip=False):
-            content = item.description.get_text(strip=False)
+        title = strip_ws(a.get_text(" ", strip=True))
+        link = a["href"].strip()
+        if not link:
+            continue
 
-        excerpt = clamp(strip_html(unescape(content)), 220)
+        link = urljoin(base_url, link)
 
-        iso = ""
-        if pub:
-            try:
-                dt = parsedate_to_datetime(pub)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                iso = dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-            except Exception:
-                iso = ""
+        if link in seen_links:
+            continue
 
-        if title and link:
-            items.append({
-                "title": title,
-                "link": link,
-                "date": iso,
-                "excerpt": excerpt,
-            })
+        # Date is often the next H5 (#####) after the H2.
+        date_text = ""
+        nxt = h2.find_next()
+        # scan forward a few elements to find an H5 with a date-like string
+        for _ in range(0, 8):
+            if not nxt:
+                break
+            if getattr(nxt, "name", "") == "h5":
+                date_text = strip_ws(nxt.get_text(" ", strip=True))
+                break
+            nxt = nxt.find_next()
 
-    return items
+        # Excerpt usually appears in the paragraph text following.
+        # Grab text until "Read more" and clamp.
+        excerpt = ""
+        p = h2.find_next("p")
+        if p:
+            raw = p.get_text(" ", strip=True)
+            raw = unescape(raw)
+            raw = raw.replace("Read more", "").strip()
+            excerpt = clamp(strip_ws(raw), 220)
+
+        items.append({
+            "title": title,
+            "link": link,
+            "date": date_text,   # keep as displayed (DD/MM/YYYY) to avoid parse edge cases
+            "excerpt": excerpt
+        })
+        seen_links.add(link)
+
+    # Detect pagination: presence of "»" link or /page/2/ etc.
+    next_url = None
+    for a in soup.find_all("a", href=True):
+        txt = strip_ws(a.get_text(" ", strip=True))
+        href = a["href"].strip()
+
+        # WordPress commonly uses “Next” or “»”
+        if txt in ("»", "Next", "Next »"):
+            next_url = urljoin(base_url, href)
+            break
+
+    return items, next_url
+
+def build_from_tag_archive(start_url: str, max_items: int):
+    all_items = []
+    url = start_url
+    pages = 0
+
+    while url and len(all_items) < max_items and pages < 20:
+        pages += 1
+        html = fetch_html(url)
+        items, next_url = parse_tag_page(html, url)
+
+        if not items:
+            break
+
+        # Append new items, de-dupe by link
+        known = {x["link"] for x in all_items}
+        for it in items:
+            if it["link"] not in known:
+                all_items.append(it)
+                known.add(it["link"])
+            if len(all_items) >= max_items:
+                break
+
+        # Stop if pagination doesn't advance
+        if next_url == url:
+            break
+
+        url = next_url
+
+    return all_items
 
 def main():
-    xml = fetch_with_retry(FEED_URL)
-    items = parse_rss(xml, max_items=60)
+    items = build_from_tag_archive(TAG_URL, MAX_ITEMS)
 
     payload = {
         "version": VERSION,
-        "source": FEED_URL,
-        "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "items": items,
+        "source": TAG_URL,
+        "generatedAt": now_utc_iso(),
+        "items": items
     }
 
+    safe_mkdirs(OUT_PATH)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    print(f"[shots-feed-to-json] wrote {OUT_PATH} ({len(items)} items)")
+    print(f"[shots-feed-to-json] wrote {OUT_PATH} ({len(items)} items) from {TAG_URL}")
 
 if __name__ == "__main__":
     main()
