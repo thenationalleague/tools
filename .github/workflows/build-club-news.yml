@@ -1,56 +1,44 @@
-name: Build Club News JSON (v1.27)
+name: Build club-news.json (v1.29)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/20 * * * *" # every 20 minutes (UTC)
+    - cron: "15,45 * * * *"
 
 permissions:
   contents: write
 
-concurrency:
-  group: build-club-news
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout (full history for rebase)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Sync with origin/main (avoid non-fast-forward + no local changes yet)
-        run: |
-          git fetch origin main
-          git checkout main
-          git rebase origin/main
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml feedparser
+          pip install requests beautifulsoup4 lxml
 
-      - name: Build club-news.json + failures
+      - name: Sync with origin/main (clean tree)
         run: |
-          python -u .github/workflows/build-club-news.py
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git reset --hard origin/main
 
-      - name: Verify outputs exist
+      - name: Build club news
         run: |
-          echo "---- LS assets/data ----"
-          ls -la assets/data || true
-          echo "---- File checks ----"
-          test -f assets/data/club-news.json && echo "club-news.json exists" || (echo "club-news.json MISSING" && exit 1)
-          test -f assets/data/club-news-failures.json && echo "club-news-failures.json exists" || (echo "club-news-failures.json MISSING" && exit 1)
+          python assets/data/build-club-news.py
 
-      - name: Commit & push if changed (including untracked)
+      - name: Commit & push if changed
         run: |
           echo "---- git status (porcelain) ----"
           git status --porcelain
@@ -60,9 +48,6 @@ jobs:
             exit 0
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git add -f assets/data/club-news.json assets/data/club-news-failures.json
-          git commit -m "Update club-news.json (v1.27)"
+          git commit -m "Update club-news.json (v1.29)"
           git push origin HEAD:main
