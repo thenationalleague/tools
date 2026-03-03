@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-# shots-feed-to-json.py (v1.0)
+# shots-feed-to-json.py (v1.1)
+#
+# v1.1:
+# - Repo-root paths (no "nl-tools/" prefix anywhere)
+# - Slightly clearer output + guards
 #
 # Fetches The Shots RSS and writes a JSON file for front-end widgets.
-# Output: nl-tools/assets/data/shots-feed.json
+# Output: assets/data/shots-feed.json
 
 import json
 import time
@@ -14,7 +18,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.0"
+VERSION = "v1.1"
 
 FEED_URL = "https://www.theshots.co.uk/feed/"
 OUT_PATH = "assets/data/shots-feed.json"
@@ -37,7 +41,7 @@ def clamp(s: str, n: int) -> str:
         return s
     return (s[: n - 1].rstrip() + "…")
 
-def fetch_with_retry(url: str, tries: int = 5) -> str:
+def fetch_with_retry(url: str, tries: int = 6) -> str:
     sess = requests.Session()
     headers = {
         "User-Agent": UA,
@@ -46,26 +50,28 @@ def fetch_with_retry(url: str, tries: int = 5) -> str:
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
         "Connection": "keep-alive",
+        "Referer": "https://www.theshots.co.uk/",
     }
 
     last_err = None
     for i in range(tries):
         try:
-            r = sess.get(url, headers=headers, timeout=25)
-            if r.status_code == 200 and r.text.strip():
+            r = sess.get(url, headers=headers, timeout=25, allow_redirects=True)
+            if r.status_code == 200 and r.text and r.text.strip():
                 return r.text
             last_err = RuntimeError(f"HTTP {r.status_code}")
         except Exception as e:
             last_err = e
 
-        # backoff: 2s, 5s, 10s, 20s, 30s
-        time.sleep([2, 5, 10, 20, 30][min(i, 4)])
+        # backoff: 2s, 5s, 10s, 20s, 30s, 45s
+        time.sleep([2, 5, 10, 20, 30, 45][min(i, 5)])
 
     raise RuntimeError(f"Failed to fetch RSS after {tries} tries: {last_err}")
 
-def parse_rss(xml_text: str, max_items: int = 50):
+def parse_rss(xml_text: str, max_items: int = 60):
     soup = BeautifulSoup(xml_text, "xml")
     items = []
+
     for item in soup.find_all("item")[:max_items]:
         title = (item.title.get_text(strip=True) if item.title else "").strip()
         link = (item.link.get_text(strip=True) if item.link else "").strip()
@@ -114,7 +120,7 @@ def main():
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    print(f"Wrote {OUT_PATH} ({len(items)} items)")
+    print(f"[shots-feed-to-json] wrote {OUT_PATH} ({len(items)} items)")
 
 if __name__ == "__main__":
     main()
