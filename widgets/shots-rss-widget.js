@@ -1,12 +1,10 @@
-/* Shots RSS Widget (v1.4) — Shadow DOM isolated embed (AllOrigins-only)
-   v1.4:
-   - Always fetches RSS via https://api.allorigins.win/raw?url=...
-   - Avoids browser CORS blocks on https://www.theshots.co.uk/feed/
-   - Renders title, date, excerpt, link
-   - Simple refresh button
+/* Shots Feed Widget (v1.5) — JSON-only
+   v1.5:
+   - Reads a JSON cache (assets/data/shots-feed.json)
+   - No RSS, no AllOrigins, no cross-origin scraping
 */
 (function(){
-  const VERSION = "v1.4";
+  const VERSION = "v1.5";
 
   function el(tag, attrs, ...kids){
     const n = document.createElement(tag);
@@ -24,65 +22,19 @@
     return n;
   }
 
-  function stripHtml(html){
-    const d = document.createElement("div");
-    d.innerHTML = html || "";
-    return (d.textContent || "").replace(/\s+/g, " ").trim();
+  function fmtDateDDMMYYYY(s){
+    // Input from scraper is typically DD/MM/YYYY. Display it as-is.
+    return (s || "").trim();
   }
 
-  function clamp(s, n){
-    s = (s || "").trim();
-    if(!s) return "";
-    if(s.length <= n) return s;
-    return s.slice(0, n - 1).trimEnd() + "…";
-  }
-
-  function fmtDate(value){
-    if(!value) return "";
-    const d = new Date(value);
-    if(isNaN(d)) return "";
-    return d.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"2-digit" });
-  }
-
-  function parseRss(xmlText){
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(xmlText, "application/xml");
-    if(xml.querySelector("parsererror")) throw new Error("RSS parse error");
-
-    const items = Array.from(xml.querySelectorAll("item")).map(item=>{
-      const title = (item.querySelector("title")?.textContent || "").trim();
-      const link  = (item.querySelector("link")?.textContent || "").trim();
-      const pub   = (item.querySelector("pubDate")?.textContent || "").trim();
-
-      const contentNode =
-        item.getElementsByTagName("content:encoded")[0] ||
-        item.querySelector("encoded") ||
-        item.querySelector("description");
-
-      const raw = contentNode ? (contentNode.textContent || "") : "";
-      const excerpt = clamp(stripHtml(raw), 220);
-
-      let dateISO = "";
-      if(pub){
-        const d = new Date(pub);
-        if(!isNaN(d)) dateISO = d.toISOString();
-      }
-
-      return { title, link, date: dateISO, excerpt };
-    }).filter(x => x.title && x.link);
-
-    return items;
-  }
-
-  async function fetchRssViaAllOrigins(feedURL){
-    const url = "https://api.allorigins.win/raw?url=" + encodeURIComponent(feedURL);
+  async function fetchJson(url){
     const r = await fetch(url, { cache:"no-store" });
-    if(!r.ok) throw new Error("AllOrigins fetch failed (" + r.status + ")");
-    return await r.text();
+    if(!r.ok) throw new Error("JSON fetch failed (" + r.status + ")");
+    return await r.json();
   }
 
   async function mount(host){
-    const feedURL = host.getAttribute("data-feed") || "https://www.theshots.co.uk/feed/";
+    const jsonURL = host.getAttribute("data-json") || "https://rckd-nl.github.io/nl-tools/assets/data/shots-feed.json";
     const max = Math.max(1, Math.min(50, parseInt(host.getAttribute("data-max") || "10", 10) || 10));
     const heading = host.getAttribute("data-title") || "Aldershot Town — Latest News";
 
@@ -123,8 +75,8 @@
     const body = el("div", { class:"body" }, status, list);
 
     const foot = el("div", { class:"foot" },
-      el("span", null, "Source: RSS via AllOrigins"),
-      el("a", { href: feedURL, target:"_blank", rel:"noopener noreferrer" }, "Open feed")
+      el("span", null, "Source: cached JSON"),
+      el("a", { href: jsonURL, target:"_blank", rel:"noopener noreferrer" }, "Open JSON")
     );
 
     shadow.appendChild(el("div", { class:"wrap" }, top, body, foot));
@@ -134,8 +86,8 @@
       list.textContent = "";
 
       try{
-        const xmlText = await fetchRssViaAllOrigins(feedURL);
-        const items = parseRss(xmlText).slice(0, max);
+        const data = await fetchJson(jsonURL);
+        const items = (data.items || []).slice(0, max);
 
         if(!items.length){
           status.textContent = "No items found.";
@@ -148,15 +100,14 @@
         status.textContent = "";
 
         items.forEach(it=>{
-          const dateStr = fmtDate(it.date) || "Update";
+          const dateStr = fmtDateDDMMYYYY(it.date) || "Update";
           const a = el("a", { href: it.link, target:"_blank", rel:"noopener noreferrer" }, it.title);
           const sub = el("div", { class:"sub" }, el("span", { class:"dot", "aria-hidden":"true" }), el("span", null, dateStr));
           const excerpt = it.excerpt ? el("div", { class:"excerpt" }, it.excerpt) : null;
           list.appendChild(el("div", { class:"item" }, a, sub, excerpt));
         });
       }catch(e){
-        status.textContent =
-          "Couldn’t load RSS via AllOrigins (rate-limit or upstream block). Try again later, or switch to JSON caching.";
+        status.textContent = "Couldn’t load cached JSON. Check that the GitHub Action has produced the file and Pages is serving it.";
         last.textContent = "—";
       }
     }
