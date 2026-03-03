@@ -1,17 +1,24 @@
-/* Club News Feed Widget (v1.0.0) — Shadow DOM isolated embed
+/* Club News Feed Widget (v1.0.1) — Shadow DOM isolated embed
    - Renders assets/data/club-news.json as a vertical, stylised feed list
    - Styling matches News Ticker: Carbona, club pill colours from clubs-meta.json,
      crests from assets/crests/(TEAMNAME).png, and optional NL rose icon
-   - Auto refresh + optional scroll container
 
    Host attributes (all optional):
    - data-json="https://.../assets/data/club-news.json"
    - data-clubs-meta="https://.../assets/data/clubs-meta.json"
-   - data-max="25"
+   - data-max="100"
    - data-refresh-ms="120000"
-   - data-height="520"              (px; list scrolls if set)
-   - data-show-date="1"             (default 1)
-   - data-show-source="0"           (default 0; shows item.club domain)
+
+   Sizing/layout:
+   - data-height="0"          (0 = no max-height; list grows naturally)
+   - data-height="520"        (px; list scrolls internally)
+   - data-full-bleed="1"      (removes border + radius for page-native look)
+
+   Display:
+   - data-show-date="1"       (default 1)
+   - data-show-source="0"     (default 0)
+
+   Assets/styles:
    - data-kit-css="https://use.typekit.net/gff4ipy.css"
    - data-crest-base="https://.../assets/crests/"
    - data-rose-img="National League rose.png"
@@ -24,14 +31,19 @@
 (function(){
   "use strict";
 
-  const VERSION = "v1.0.0";
+  const VERSION = "v1.0.1";
 
   const DEFAULTS = {
     json: "https://rckd-nl.github.io/nl-tools/assets/data/club-news.json",
     clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
     max: 25,
     refreshMs: 120000,
+
+    // 0 = no internal scroll, let page scroll
     height: 520,
+
+    // 1 = remove border/radius to feel like part of page
+    fullBleed: false,
 
     showDate: true,
     showSource: false,
@@ -109,7 +121,6 @@
     if(!s) return "";
     const d = new Date(s);
     if(isNaN(d)) return "";
-    // “3 Mar 2026, 14:05” style, local browser time
     try{
       return d.toLocaleString(undefined, {
         day: "2-digit",
@@ -170,7 +181,6 @@
     const u = safeText(domainOrUrl);
     if(!u) return null;
 
-    // If it’s a URL, pull host; if it’s already a domain, use as-is
     try{
       const host = stripWww(new URL(u).hostname);
       return CLUBS_BY_DOMAIN.get(host) || null;
@@ -181,6 +191,14 @@
   }
 
   function cssFor(opts){
+    const heightRule = (opts.height && opts.height > 0)
+      ? `max-height:${opts.height}px; overflow:auto;`
+      : `max-height:none; overflow:visible;`;
+
+    const wrapRule = opts.fullBleed
+      ? `border:none; border-radius:0;`
+      : `border:1px solid rgba(0,0,0,0.10); border-radius:14px;`;
+
     return `
 :host{
   --bg:${opts.bg};
@@ -188,9 +206,7 @@
   --muted:${opts.muted};
   --rule:${opts.rule};
 
-  --radius:14px;
   --pad:14px;
-
   --crest:34px;
   --gap:12px;
 
@@ -203,9 +219,8 @@
 
 .wrap{
   background:var(--bg);
-  border-radius:var(--radius);
   overflow:hidden;
-  border:1px solid rgba(0,0,0,0.10);
+  ${wrapRule}
 }
 
 .head{
@@ -250,8 +265,7 @@
 }
 
 .list{
-  max-height:${opts.height}px;
-  overflow:auto;
+  ${heightRule}
 }
 
 .row{
@@ -317,14 +331,7 @@
   flex-wrap:wrap;
 }
 
-.date{
-  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:450;
-  color:var(--muted);
-  font-size:12.5px;
-}
-
-.source{
+.date, .source{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:450;
   color:var(--muted);
@@ -370,7 +377,14 @@
     if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
     if(d.max) opts.max = clampInt(d.max, 1, 200, DEFAULTS.max);
-    if(d.height) opts.height = clampInt(d.height, 160, 5000, DEFAULTS.height);
+
+    // allow 0 to disable max-height
+    if(d.height !== undefined){
+      const n = parseInt(d.height, 10);
+      if(!Number.isNaN(n)) opts.height = Math.max(0, n);
+    }
+
+    if(d.fullBleed !== undefined) opts.fullBleed = safeText(d.fullBleed) === "1";
 
     if(d.showDate !== undefined) opts.showDate = safeText(d.showDate) !== "0";
     if(d.showSource !== undefined) opts.showSource = safeText(d.showSource) === "1";
@@ -454,8 +468,6 @@
     }
 
     function buildRow(item){
-      // item shape from your builder:
-      // {club, short, code, domain, title, url, published}
       const clubName = safeText(item && item.club);
       const domain = safeText(item && item.domain);
       const titleText = safeText(item && item.title);
@@ -470,7 +482,10 @@
       const crest = document.createElement("img");
       crest.className = "crest";
       crest.alt = clubName ? (clubName + " crest") : "";
-      const cUrl = crestUrlForTeam(opts, meta && meta.name ? meta.name : clubName);
+
+      const crestName = (meta && meta.name) ? meta.name : clubName;
+      const cUrl = crestUrlForTeam(opts, crestName);
+
       if(cUrl){
         crest.src = cUrl;
         crest.onerror = ()=> crest.classList.add("missing");
@@ -560,7 +575,6 @@
         const max = clampInt(opts.max, 1, 200, DEFAULTS.max);
         const sliced = items.slice(0, max);
 
-        // header subtitle
         const genAt = safeText(json && json.generatedAt);
         sub.textContent = genAt ? ("Updated " + fmtDate(genAt)) : "";
 
