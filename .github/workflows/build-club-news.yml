@@ -1,4 +1,4 @@
-name: Build club-news.json (v1.32)
+name: Build club-news.json (v1.33)
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: club-news-json
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -51,5 +55,11 @@ jobs:
           fi
 
           git add -f assets/data/club-news.json assets/data/club-news-failures.json
-          git commit -m "Update club-news.json (v1.32)"
+          git commit -m "Update club-news.json (v1.33)"
+
+          # Another run may have pushed while we were building.
+          # Rebase our commit on top of latest main, then push.
+          git fetch origin main
+          git pull --rebase origin main
+
           git push origin HEAD:main
