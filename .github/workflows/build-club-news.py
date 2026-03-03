@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Club News Aggregator (v1.26)
+Club News Aggregator (v1.27)
 
 Reads:  assets/data/clubs-meta.json
 Writes: assets/data/club-news.json
-Also:   assets/data/club-news-failures.json  (only failures for easy debugging)
+Also:   assets/data/club-news-failures.json
 
-Fixes vs v1.24:
-- Avoids accidentally selecting WordPress oEmbed XML as a "feed"
-- Uses urljoin() for correct relative URL handling (fixes "domainupdates.atom" bugs)
-- Adds FEED_OVERRIDES for manual per-domain feeds
-- Keeps hard per-club timeout so no hangs (DNS etc)
+Improvements:
+- Hard per-club timeout (prevents DNS hangs)
+- Proper urljoin() (fixes broken concatenations)
+- Ignores WP oEmbed XML (not a feed)
+- Common feed paths fallback
+- Manual FEED_OVERRIDES for stubborn sites
+- Treats "0 usable items" as failure (so you notice bad feeds)
 """
 
 from __future__ import annotations
@@ -30,10 +32,8 @@ import feedparser
 import requests
 from bs4 import BeautifulSoup
 
+VERSION = "v1.27"
 
-VERSION = "v1.26"
-
-# parents[0]=workflows, [1]=.github, [2]=repo root
 ROOT = Path(__file__).resolve().parents[2]
 
 CLUBS_META_JSON = ROOT / "assets" / "data" / "clubs-meta.json"
@@ -41,11 +41,11 @@ OUT_JSON = ROOT / "assets" / "data" / "club-news.json"
 FAIL_JSON = ROOT / "assets" / "data" / "club-news-failures.json"
 
 MAX_ITEMS = 30
-REQ_TIMEOUT = (4, 10)          # (connect, read)
-CLUB_HARD_TIMEOUT_SECS = 16    # whole club (dns+html+feed+parse)
+REQ_TIMEOUT = (4, 10)            # (connect, read)
+CLUB_HARD_TIMEOUT_SECS = 16      # whole club (dns+html+feed+parse)
 SLEEP_BETWEEN = 0.10
 
-UA = "Mozilla/5.0 (compatible; NL-ClubNewsBot/1.26; +https://rckd-nl.github.io/nl-tools/)"
+UA = "Mozilla/5.0 (compatible; NL-ClubNewsBot/1.27; +https://rckd-nl.github.io/nl-tools/)"
 
 COMMON_FEED_PATHS = [
     "/feed/",
@@ -60,13 +60,10 @@ COMMON_FEED_PATHS = [
     "/?feed=atom",
 ]
 
-# Manual per-domain overrides (only needed for stubborn sites).
-# Add to this list as you discover reliable feeds.
+# Add overrides as you discover them
 FEED_OVERRIDES: Dict[str, str] = {
-    # Example fix patterns:
+    # "theshots.co.uk": "https://www.theshots.co.uk/news/rss/",  # example
     # "maidenheadunitedfc.org": "https://maidenheadunitedfc.org/updates.atom",
-    # "rochdaleafc.co.uk": "https://rochdaleafc.co.uk/feed/",
-    # "theshots.co.uk": "https://theshots.co.uk/feed/",
 }
 
 
@@ -129,14 +126,9 @@ def parse_any_date(entry: dict) -> Optional[datetime]:
 
 
 def load_clubs() -> List[Club]:
-    if not CLUBS_META_JSON.exists():
-        raise FileNotFoundError(f"Missing clubs-meta.json at: {CLUBS_META_JSON}")
-
     data = json.loads(CLUBS_META_JSON.read_text(encoding="utf-8"))
-    clubs_raw = data.get("clubs", [])
-
     clubs: List[Club] = []
-    for c in clubs_raw:
+    for c in data.get("clubs", []):
         domain = (c.get("domain") or "").strip()
         if not domain:
             continue
@@ -148,7 +140,6 @@ def load_clubs() -> List[Club]:
                 domain=domain,
             )
         )
-
     clubs.sort(key=lambda x: x.name.lower())
     return clubs
 
@@ -170,7 +161,6 @@ def session_get(session: requests.Session, url: str) -> Optional[requests.Respon
 
 def looks_like_oembed(href: str) -> bool:
     h = (href or "").lower()
-    # Most of your false "feeds" were wp-json/oembed endpoints
     if "wp-json/oembed" in h:
         return True
     if "/oembed" in h and "format=xml" in h:
@@ -192,12 +182,8 @@ def discover_feed_url(session: requests.Session, base_url: str) -> Optional[str]
         href = (ln.get("href") or "").strip()
         if not href:
             continue
-
-        # ignore oEmbed XML that masquerades as "xml"
         if looks_like_oembed(href):
             continue
-
-        # only accept actual rss/atom-ish types, not "xml" generically
         if ("rss" in t) or ("atom" in t):
             abs_url = urljoin(base_url + "/", href)
             score = 0 if "rss" in t else 1
@@ -233,10 +219,8 @@ def fetch_and_parse_feed(session: requests.Session, feed_url: str) -> List[Dict]
         title = (e.get("title") or "").strip()
         link = (e.get("link") or "").strip()
         dt = parse_any_date(e)
-
         if not title or not link or not dt:
             continue
-
         out.append({"title": title, "url": link, "published": iso_z(dt)})
 
     return out
@@ -245,15 +229,10 @@ def fetch_and_parse_feed(session: requests.Session, feed_url: str) -> List[Dict]
 def process_one_club(session: requests.Session, club: Club) -> Tuple[List[Dict], Dict]:
     base = domain_to_base(club.domain)
     feed_url = ""
-    ok = False
-    error = ""
-
-    # hard timeout per club (covers DNS stalls too)
     signal.signal(signal.SIGALRM, _alarm_handler)
     signal.alarm(CLUB_HARD_TIMEOUT_SECS)
 
     try:
-        # manual override first
         if club.domain in FEED_OVERRIDES:
             feed_url = FEED_OVERRIDES[club.domain].strip()
         else:
@@ -263,13 +242,8 @@ def process_one_club(session: requests.Session, club: Club) -> Tuple[List[Dict],
             raise RuntimeError("No feed found")
 
         items = fetch_and_parse_feed(session, feed_url)
-
-        # If we found a feed but got zero usable items, mark as not OK
-        # (usually means it isn't really a feed, or entries lack dates)
         if len(items) == 0:
             raise RuntimeError("Feed returned 0 usable items")
-
-        ok = True
 
         club_items: List[Dict] = []
         for it in items:
@@ -295,25 +269,23 @@ def process_one_club(session: requests.Session, club: Club) -> Tuple[List[Dict],
         }
 
     except HardTimeout:
-        error = f"Hard timeout after {CLUB_HARD_TIMEOUT_SECS}s"
         return [], {
             "club": club.name,
             "domain": club.domain,
             "feed": feed_url,
             "ok": False,
             "count": 0,
-            "error": error,
+            "error": f"Hard timeout after {CLUB_HARD_TIMEOUT_SECS}s",
         }
 
     except Exception as ex:
-        error = str(ex)
         return [], {
             "club": club.name,
             "domain": club.domain,
             "feed": feed_url,
             "ok": False,
             "count": 0,
-            "error": error,
+            "error": str(ex),
         }
 
     finally:
@@ -341,7 +313,7 @@ def main() -> int:
 
     all_items.sort(key=lambda x: x.get("published", ""), reverse=True)
 
-    # dedupe by URL
+    # Dedupe by URL
     seen = set()
     deduped: List[Dict] = []
     for it in all_items:
@@ -384,7 +356,10 @@ def main() -> int:
     )
 
     ok_count = sum(1 for s in sources if s.get("ok"))
-    print(f"Done. Sources OK: {ok_count}/{total}. Items written: {len(deduped)}. Failures: {len(failures)}", flush=True)
+    print(
+        f"Done. Sources OK: {ok_count}/{total}. Items written: {len(deduped)}. Failures: {len(failures)}",
+        flush=True,
+    )
     return 0
 
 
