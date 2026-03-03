@@ -46,12 +46,14 @@ FEED_OVERRIDES = {
     # "telfordunited.com": "https://example.com/feed/",
 }
 
-# ---- Paths (relative to this file) ----
-HERE = os.path.dirname(os.path.abspath(__file__))
-CLUBS_META = os.path.join(HERE, "clubs-meta.json")
-OUT_JSON = os.path.join(HERE, "club-news.json")
-OUT_FAIL = os.path.join(HERE, "club-news-failures.json")
+# ---- Paths (repo-root aware) ----
+# This script lives in .github/workflows/, so we anchor paths to repo root.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 
+CLUBS_META = os.path.join(REPO_ROOT, "assets", "data", "clubs-meta.json")
+OUT_JSON = os.path.join(REPO_ROOT, "assets", "data", "club-news.json")
+OUT_FAIL = os.path.join(REPO_ROOT, "assets", "data", "club-news-failures.json")
 
 @dataclass
 class SourceResult:
