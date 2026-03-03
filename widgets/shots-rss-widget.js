@@ -1,46 +1,27 @@
-/* Shots RSS Widget (v1.2) — JSON-first (recommended)
-   v1.2:
-   - Default JSON path assumes nl-tools is the repo published at /nl-tools/
-   - Lets you override JSON path with data-json
-   - Keeps optional RSS-proxy fallback if JSON is missing/unavailable
+/* Shots RSS Widget (v1.4) — Shadow DOM isolated embed (AllOrigins-only)
+   v1.4:
+   - Always fetches RSS via https://api.allorigins.win/raw?url=...
+   - Avoids browser CORS blocks on https://www.theshots.co.uk/feed/
+   - Renders title, date, excerpt, link
+   - Simple refresh button
 */
 (function(){
-  const VERSION = "v1.2";
+  const VERSION = "v1.4";
 
   function el(tag, attrs, ...kids){
     const n = document.createElement(tag);
     if(attrs){
       Object.entries(attrs).forEach(([k,v])=>{
-        if(k==="class") n.className=v;
+        if(k === "class") n.className = v;
         else n.setAttribute(k, v);
       });
     }
     kids.forEach(k=>{
-      if(k==null) return;
-      if(typeof k==="string") n.appendChild(document.createTextNode(k));
+      if(k == null) return;
+      if(typeof k === "string") n.appendChild(document.createTextNode(k));
       else n.appendChild(k);
     });
     return n;
-  }
-
-  function fmtDate(iso){
-    if(!iso) return "";
-    const d = new Date(iso);
-    if(isNaN(d)) return "";
-    return d.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"2-digit" });
-  }
-
-  async function fetchJson(url){
-    const r = await fetch(url, { cache:"no-store" });
-    if(!r.ok) throw new Error("JSON fetch failed (" + r.status + ")");
-    return await r.json();
-  }
-
-  async function fetchTextWithProxy(url){
-    const prox = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-    const r = await fetch(prox, { cache:"no-store" });
-    if(!r.ok) throw new Error("RSS proxy fetch failed (" + r.status + ")");
-    return await r.text();
   }
 
   function stripHtml(html){
@@ -54,6 +35,13 @@
     if(!s) return "";
     if(s.length <= n) return s;
     return s.slice(0, n - 1).trimEnd() + "…";
+  }
+
+  function fmtDate(value){
+    if(!value) return "";
+    const d = new Date(value);
+    if(isNaN(d)) return "";
+    return d.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"2-digit" });
   }
 
   function parseRss(xmlText){
@@ -74,25 +62,27 @@
       const raw = contentNode ? (contentNode.textContent || "") : "";
       const excerpt = clamp(stripHtml(raw), 220);
 
-      let date = "";
+      let dateISO = "";
       if(pub){
         const d = new Date(pub);
-        if(!isNaN(d)) date = d.toISOString();
+        if(!isNaN(d)) dateISO = d.toISOString();
       }
 
-      return { title, link, date, excerpt };
+      return { title, link, date: dateISO, excerpt };
     }).filter(x => x.title && x.link);
 
     return items;
   }
 
+  async function fetchRssViaAllOrigins(feedURL){
+    const url = "https://api.allorigins.win/raw?url=" + encodeURIComponent(feedURL);
+    const r = await fetch(url, { cache:"no-store" });
+    if(!r.ok) throw new Error("AllOrigins fetch failed (" + r.status + ")");
+    return await r.text();
+  }
+
   async function mount(host){
     const feedURL = host.getAttribute("data-feed") || "https://www.theshots.co.uk/feed/";
-
-    // Default assumes GitHub Pages site is https://<user>.github.io/nl-tools/
-    // so /nl-tools/assets/... works cross-site embeds too.
-    const jsonURL = host.getAttribute("data-json") || "/nl-tools/assets/data/shots-feed.json";
-
     const max = Math.max(1, Math.min(50, parseInt(host.getAttribute("data-max") || "10", 10) || 10));
     const heading = host.getAttribute("data-title") || "Aldershot Town — Latest News";
 
@@ -133,51 +123,18 @@
     const body = el("div", { class:"body" }, status, list);
 
     const foot = el("div", { class:"foot" },
-      el("span", null, "Source: JSON cache"),
-      el("a", { href: jsonURL, target:"_blank", rel:"noopener noreferrer" }, "Open JSON")
+      el("span", null, "Source: RSS via AllOrigins"),
+      el("a", { href: feedURL, target:"_blank", rel:"noopener noreferrer" }, "Open feed")
     );
 
     shadow.appendChild(el("div", { class:"wrap" }, top, body, foot));
-
-    async function renderItems(items, note){
-      if(note) status.textContent = note;
-      else status.textContent = "";
-      list.textContent = "";
-
-      items.forEach(it=>{
-        const dateStr = fmtDate(it.date) || "Update";
-        const a = el("a", { href: it.link, target:"_blank", rel:"noopener noreferrer" }, it.title);
-        const sub = el("div", { class:"sub" }, el("span", { class:"dot", "aria-hidden":"true" }), el("span", null, dateStr));
-        const excerpt = it.excerpt ? el("div", { class:"excerpt" }, it.excerpt) : null;
-        list.appendChild(el("div", { class:"item" }, a, sub, excerpt));
-      });
-    }
 
     async function load(){
       status.textContent = "Loading…";
       list.textContent = "";
 
       try{
-        const data = await fetchJson(jsonURL);
-        const items = (data.items || []).slice(0, max);
-
-        if(!items.length){
-          status.textContent = "No items found.";
-          last.textContent = "—";
-          return;
-        }
-
-        const now = new Date();
-        last.textContent = "Updated " + now.toLocaleTimeString(undefined, { hour:"2-digit", minute:"2-digit" });
-
-        await renderItems(items, "");
-        return;
-      }catch(_e){
-        // fall through to RSS-proxy fallback
-      }
-
-      try{
-        const xmlText = await fetchTextWithProxy(feedURL);
+        const xmlText = await fetchRssViaAllOrigins(feedURL);
         const items = parseRss(xmlText).slice(0, max);
 
         if(!items.length){
@@ -188,10 +145,18 @@
 
         const now = new Date();
         last.textContent = "Updated " + now.toLocaleTimeString(undefined, { hour:"2-digit", minute:"2-digit" });
+        status.textContent = "";
 
-        await renderItems(items, "Loaded via RSS proxy (JSON missing/unavailable).");
-      }catch(_e2){
-        status.textContent = "Couldn’t load JSON cache or RSS. Check that the Action has run and JSON path is correct.";
+        items.forEach(it=>{
+          const dateStr = fmtDate(it.date) || "Update";
+          const a = el("a", { href: it.link, target:"_blank", rel:"noopener noreferrer" }, it.title);
+          const sub = el("div", { class:"sub" }, el("span", { class:"dot", "aria-hidden":"true" }), el("span", null, dateStr));
+          const excerpt = it.excerpt ? el("div", { class:"excerpt" }, it.excerpt) : null;
+          list.appendChild(el("div", { class:"item" }, a, sub, excerpt));
+        });
+      }catch(e){
+        status.textContent =
+          "Couldn’t load RSS via AllOrigins (rate-limit or upstream block). Try again later, or switch to JSON caching.";
         last.textContent = "—";
       }
     }
