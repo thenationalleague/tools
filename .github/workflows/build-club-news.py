@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# build-club-news.py (v1.32)
+# build-club-news.py (v1.33)
 #
-# v1.32:
-# - Pitchero scraping now uses month archive pages (/news?month=YYYY-MM) because /news is JS-driven
-# - Keeps FEED_OVERRIDES (Aldershot + Altrincham + Boston included)
-# - Keeps WP REST fallback
-# - Improves per-club log lines so Actions output shows progress clearly
+# v1.33:
 # - MAX_ITEMS_GLOBAL = 100
+# - More browser-like headers + retry to reduce WP feed/WAF blocks (e.g. theshots.co.uk)
+# - Pitchero scrape improved: extract /news/*.html from <a> tags AND embedded JSON/scripts (for client-rendered pages)
+# - Keeps FEED_OVERRIDES + WP REST fallback
+# - Writes club-news.json + club-news-failures.json
 
 import json
 import os
@@ -21,30 +21,32 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.32"
+VERSION = "v1.33"
 
 UA = (
-    "nl-tools club-news builder/"
-    + VERSION
-    + " (+https://rckd-nl.github.io/nl-tools/)"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/123.0.0.0 Safari/537.36 "
+    f"(nl-tools club-news builder/{VERSION})"
 )
 
 DEFAULT_TIMEOUT = 25
 MAX_ITEMS_GLOBAL = 100
-MAX_ITEMS_PER_CLUB = 20  # hard cap; global list still trimmed to MAX_ITEMS_GLOBAL
+MAX_ITEMS_PER_CLUB = 25  # hard cap; global list still trimmed to MAX_ITEMS_GLOBAL
 
 # ---- Feed overrides (domain -> feed URL) ----
 FEED_OVERRIDES = {
-    # Solved
+    # Solved (WP / feeds etc.)
     "theshots.co.uk": "https://www.theshots.co.uk/feed/",
+    "www.theshots.co.uk": "https://www.theshots.co.uk/feed/",
     "altrinchamfc.com": "https://altrinchamfc.com/blogs/news.atom",
 
     # Pitchero custom-domain sites (scrape-only)
     "bostonunited.co.uk": "PITCHERO_SCRAPE",
+    "www.bostonunited.co.uk": "PITCHERO_SCRAPE",
 }
 
 # ---- Paths (repo-root aware) ----
-# This script lives in .github/workflows/, so we anchor paths to repo root.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 
@@ -77,13 +79,37 @@ def absolutize(base: str, href: str) -> str:
     return urljoin(base, href)
 
 
-def safe_get(url: str, timeout=DEFAULT_TIMEOUT) -> requests.Response:
-    return requests.get(
-        url,
-        timeout=timeout,
-        headers={"User-Agent": UA, "Accept": "*/*"},
-        allow_redirects=True,
+def _session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update(
+        {
+            "User-Agent": UA,
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.8",
+            "Accept-Language": "en-GB,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        }
     )
+    return s
+
+
+SESS = _session()
+
+
+def safe_get(url: str, timeout=DEFAULT_TIMEOUT) -> requests.Response:
+    """
+    GET with a retry once (helps when a site intermittently blocks "botty" requests).
+    """
+    last_exc = None
+    for attempt in range(2):
+        try:
+            r = SESS.get(url, timeout=timeout, allow_redirects=True)
+            return r
+        except Exception as e:
+            last_exc = e
+            # tiny delay then retry
+            time.sleep(0.4)
+    raise last_exc
 
 
 def looks_like_pitchero(html_text: str) -> bool:
@@ -119,9 +145,18 @@ def parse_rss_or_atom(xml_text: str, base_url: str) -> list[dict]:
         for ent in soup.find_all("entry"):
             title = norm_space(ent.title.get_text()) if ent.title else ""
             link = ""
-            l = ent.find("link")
-            if l and l.get("href"):
-                link = norm_space(l.get("href"))
+            # prefer rel="alternate" if present
+            links = ent.find_all("link") if ent else []
+            chosen = None
+            for l in links:
+                if l.get("rel") == "alternate" and l.get("href"):
+                    chosen = l
+                    break
+            if not chosen:
+                chosen = ent.find("link")
+            if chosen and chosen.get("href"):
+                link = norm_space(chosen.get("href"))
+
             updated = ""
             if ent.updated and ent.updated.get_text():
                 updated = norm_space(ent.updated.get_text())
@@ -163,6 +198,7 @@ def parse_date_any(s: str) -> str:
     # RFC822-ish (forgiving)
     try:
         from email.utils import parsedate_to_datetime
+
         dt = parsedate_to_datetime(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -225,83 +261,61 @@ def try_feed(url: str) -> tuple[bool, str, list[dict], str]:
         return (False, url, [], f"{type(e).__name__}: {e}")
 
 
-def month_key(dt: datetime) -> str:
-    return f"{dt.year:04d}-{dt.month:02d}"
-
-
-def add_months(dt: datetime, delta_months: int) -> datetime:
-    """
-    Move dt by delta_months, keeping day=1 to avoid month length issues.
-    """
-    y = dt.year
-    m = dt.month + delta_months
-    while m > 12:
-        m -= 12
-        y += 1
-    while m < 1:
-        m += 12
-        y -= 1
-    return dt.replace(year=y, month=m, day=1)
-
-
-def pitchero_list_links_month_archives(base: str, limit: int = 20, months_back: int = 18) -> list[str]:
-    """
-    Pitchero /news is often JS-driven with no server-rendered items.
-    The month archives (/news?month=YYYY-MM) typically render links server-side.
-
-    We crawl from current month backward until we gather enough /news/*.html links.
-    """
-    base = base.rstrip("/")
-    start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
+def _dedupe_preserve(seq: list[str]) -> list[str]:
     seen = set()
-    out: list[str] = []
+    out = []
+    for x in seq:
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
 
-    for k in range(0, months_back + 1):
-        dt = add_months(start, -k)
-        mk = month_key(dt)
-        url = f"{base}/news?month={mk}"
 
-        try:
-            r = safe_get(url)
-            if r.status_code != 200:
-                continue
+def pitchero_list_links(news_url: str, limit: int = 15) -> list[str]:
+    """
+    Scrape /news listing for article links.
+    Pitchero custom domains commonly use: /news/some-slug-1234567.html
 
-            soup = BeautifulSoup(r.text, "html.parser")
+    IMPORTANT: Many Pitchero pages are client-rendered, so <a> tags may be absent
+    in the initial HTML. We therefore also scan embedded JSON/scripts for /news/*.html.
+    """
+    r = safe_get(news_url)
+    if r.status_code != 200:
+        return []
 
-            for a in soup.find_all("a", href=True):
-                href = (a["href"] or "").strip()
-                if not href:
-                    continue
+    html = r.text or ""
+    soup = BeautifulSoup(html, "html.parser")
 
-                # Standard Pitchero news article pattern on custom domains
-                # e.g. /news/programme--woking-2967522.html
-                if re.search(r"^/news/.+\.html$", href):
-                    full = urljoin(url, href)
-                elif href.startswith("http"):
-                    try:
-                        if urlparse(href).netloc == urlparse(base).netloc and "/news/" in href and href.endswith(".html"):
-                            full = href
-                        else:
-                            continue
-                    except Exception:
-                        continue
-                else:
-                    continue
+    links: list[str] = []
 
-                if full in seen:
-                    continue
-                seen.add(full)
-                out.append(full)
-                if len(out) >= limit:
-                    return out
-
-        except Exception:
+    # 1) Normal anchors (works when server includes the links in HTML)
+    for a in soup.find_all("a", href=True):
+        href = (a["href"] or "").strip()
+        if not href:
             continue
 
-        time.sleep(0.15)
+        if re.search(r"^/news/.+\.html$", href):
+            links.append(urljoin(news_url, href))
+            continue
 
-    return out
+        if href.startswith("http"):
+            try:
+                if urlparse(href).netloc == urlparse(news_url).netloc:
+                    if "/news/" in href and href.endswith(".html"):
+                        links.append(href)
+            except Exception:
+                pass
+
+    # 2) Embedded JSON / script scan (works when client-rendered)
+    # Look for /news/xxxxx.html inside the HTML (including __NEXT_DATA__)
+    if len(links) < 3:
+        found = re.findall(r'(/news/[^"\']+?\.html)', html)
+        for rel in found:
+            links.append(urljoin(news_url, rel))
+
+    links = _dedupe_preserve(links)
+    return links[:limit]
 
 
 def pitchero_article_meta(url: str) -> tuple[str, str]:
@@ -327,17 +341,24 @@ def pitchero_article_meta(url: str) -> tuple[str, str]:
     ogp = soup.find("meta", attrs={"property": "article:published_time"})
     if ogp and ogp.get("content"):
         published = parse_date_any(ogp["content"])
+
     if not published:
         tm = soup.find("time")
         if tm and (tm.get("datetime") or tm.get_text()):
             published = parse_date_any(tm.get("datetime") or tm.get_text())
 
+    # Extra fallback: scan scripts for ISO timestamps if meta tags missing
+    if not published:
+        m = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)', r.text or "")
+        if m:
+            published = parse_date_any(m.group(1))
+
     return (title, published)
 
 
 def pitchero_scrape(name: str, code: str, short: str, domain: str, base: str) -> tuple[SourceResult, list[dict]]:
-    # Crawl month archives to get article URLs
-    links = pitchero_list_links_month_archives(base, limit=MAX_ITEMS_PER_CLUB, months_back=18)
+    news_url = base.rstrip("/") + "/news"
+    links = pitchero_list_links(news_url, limit=MAX_ITEMS_PER_CLUB)
 
     items = []
     for u in links:
@@ -357,12 +378,9 @@ def pitchero_scrape(name: str, code: str, short: str, domain: str, base: str) ->
         time.sleep(0.15)
 
     if items:
-        return (SourceResult(name, domain, "pitchero:/news?month=YYYY-MM (scrape)", True, len(items), ""), items)
+        return (SourceResult(name, domain, "pitchero:/news (scrape)", True, len(items), ""), items)
 
-    return (
-        SourceResult(name, domain, "pitchero:/news?month=YYYY-MM (scrape)", False, 0, "Pitchero month-archive scrape returned 0 usable items"),
-        [],
-    )
+    return (SourceResult(name, domain, "pitchero:/news (scrape)", False, 0, "Pitchero scrape returned 0 usable items"), [])
 
 
 def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
@@ -398,6 +416,7 @@ def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
                     for it in items[:MAX_ITEMS_PER_CLUB]
                 ],
             )
+
         override_err = err or "Feed returned 0 usable items"
     else:
         override_err = ""
@@ -438,7 +457,7 @@ def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
             last_err = "Feed returned 0 usable items"
             best_feed = final_url
         elif err:
-            last_err = "Feed request failed"
+            last_err = err or "Feed request failed"
 
     # ---- 2) WordPress REST fallback ----
     try:
@@ -465,11 +484,9 @@ def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
         pass
 
     # ---- 3) Pitchero scrape fallback (custom domain) ----
-    # IMPORTANT: we do NOT use pitchero.com RSS. Only scrape the club's domain.
     try:
-        # Try month archive first (more reliable server-side HTML)
-        test_url = base.rstrip("/") + "/news?month=" + month_key(datetime.now(timezone.utc))
-        r = safe_get(test_url)
+        news_url = base.rstrip("/") + "/news"
+        r = safe_get(news_url)
         if r.status_code == 200 and looks_like_pitchero(r.text):
             return pitchero_scrape(name, code, short, domain, base)
     except Exception:
@@ -480,7 +497,7 @@ def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
 
 def main():
     if not os.path.exists(CLUBS_META):
-        print(f"Missing clubs-meta.json at {CLUBS_META}", file=sys.stderr, flush=True)
+        print(f"Missing clubs-meta.json at {CLUBS_META}", file=sys.stderr)
         sys.exit(1)
 
     with open(CLUBS_META, "r", encoding="utf-8") as f:
@@ -488,7 +505,7 @@ def main():
 
     clubs = meta.get("clubs", [])
     if not isinstance(clubs, list) or not clubs:
-        print("clubs-meta.json has no clubs[]", file=sys.stderr, flush=True)
+        print("clubs-meta.json has no clubs[]", file=sys.stderr)
         sys.exit(1)
 
     all_items = []
@@ -504,12 +521,6 @@ def main():
         print(f"[{i}/{total}] {name} ({domain})", flush=True)
 
         src, items = build_for_club(club)
-
-        # Extra per-club outcome line (helps quickly spot failures in Actions logs)
-        if src.ok:
-            print(f"  -> OK ({src.count}) via {src.feed}", flush=True)
-        else:
-            print(f"  -> FAIL via {src.feed} :: {src.error}", flush=True)
 
         sources.append(
             {
@@ -538,8 +549,7 @@ def main():
 
         all_items.extend(items)
 
-        # be polite
-        time.sleep(0.35)
+        time.sleep(0.30)
 
     # sort newest-first (missing dates go last)
     def sort_key(it):
@@ -568,7 +578,7 @@ def main():
     with open(OUT_FAIL, "w", encoding="utf-8") as f:
         json.dump(out_fail, f, ensure_ascii=False, indent=2)
 
-    print(f"Done. Sources OK: {ok_sources}/{total}. Items written: {len(out['items'])}", flush=True)
+    print(f"Done. Sources OK: {ok_sources}/{total}. Items written: {len(out['items'])}")
 
 
 if __name__ == "__main__":
