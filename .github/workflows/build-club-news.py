@@ -1,367 +1,530 @@
 #!/usr/bin/env python3
-"""
-Club News Aggregator (v1.27)
-
-Reads:  assets/data/clubs-meta.json
-Writes: assets/data/club-news.json
-Also:   assets/data/club-news-failures.json
-
-Improvements:
-- Hard per-club timeout (prevents DNS hangs)
-- Proper urljoin() (fixes broken concatenations)
-- Ignores WP oEmbed XML (not a feed)
-- Common feed paths fallback
-- Manual FEED_OVERRIDES for stubborn sites
-- Treats "0 usable items" as failure (so you notice bad feeds)
-"""
-
-from __future__ import annotations
+# build-club-news.py (v1.29)
+#
+# v1.29:
+# - Adds FEED_OVERRIDES (Aldershot + Altrincham included)
+# - Pitchero handling is scrape-only (NO pitchero.com RSS guesses)
+# - Keeps WP REST fallback
+# - Writes club-news.json + club-news-failures.json
 
 import json
+import os
 import re
-import signal
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-from pathlib import Path
-from typing import Optional, List, Dict, Tuple
-from urllib.parse import urljoin
+from html import unescape
+from urllib.parse import urljoin, urlparse
 
-import feedparser
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.27"
+VERSION = "v1.29"
 
-ROOT = Path(__file__).resolve().parents[2]
+UA = (
+    "nl-tools club-news builder/"
+    + VERSION
+    + " (+https://rckd-nl.github.io/nl-tools/)"
+)
 
-CLUBS_META_JSON = ROOT / "assets" / "data" / "clubs-meta.json"
-OUT_JSON = ROOT / "assets" / "data" / "club-news.json"
-FAIL_JSON = ROOT / "assets" / "data" / "club-news-failures.json"
+DEFAULT_TIMEOUT = 25
+MAX_ITEMS_GLOBAL = 30
+MAX_ITEMS_PER_CLUB = 12  # hard cap; global list still trimmed to MAX_ITEMS_GLOBAL
 
-MAX_ITEMS = 30
-REQ_TIMEOUT = (4, 10)            # (connect, read)
-CLUB_HARD_TIMEOUT_SECS = 16      # whole club (dns+html+feed+parse)
-SLEEP_BETWEEN = 0.10
+# ---- Feed overrides (domain -> feed URL) ----
+# Add more here as we solve clubs.
+FEED_OVERRIDES = {
+    # Solved
+    "theshots.co.uk": "https://www.theshots.co.uk/feed/",
+    "altrinchamfc.com": "https://altrinchamfc.com/blogs/news.atom",
 
-UA = "Mozilla/5.0 (compatible; NL-ClubNewsBot/1.27; +https://rckd-nl.github.io/nl-tools/)"
-
-COMMON_FEED_PATHS = [
-    "/feed/",
-    "/news/feed/",
-    "/rss",
-    "/rss/",
-    "/rss.xml",
-    "/feed.xml",
-    "/atom.xml",
-    "/?feed=rss",
-    "/?feed=rss2",
-    "/?feed=atom",
-]
-
-# Add overrides as you discover them
-FEED_OVERRIDES: Dict[str, str] = {
-    # "theshots.co.uk": "https://www.theshots.co.uk/news/rss/",  # example
-    # "maidenheadunitedfc.org": "https://maidenheadunitedfc.org/updates.atom",
+    # Next batch placeholders (fill these as we confirm)
+    # "bostonunited.co.uk": "PITCHERO_SCRAPE",
+    # "brackleytownfc.com": "https://example.com/feed/",
+    # "braintreetownfc.org": "https://example.com/rss.xml",
+    # "telfordunited.com": "https://example.com/feed/",
 }
 
+# ---- Paths (relative to this file) ----
+HERE = os.path.dirname(os.path.abspath(__file__))
+CLUBS_META = os.path.join(HERE, "clubs-meta.json")
+OUT_JSON = os.path.join(HERE, "club-news.json")
+OUT_FAIL = os.path.join(HERE, "club-news-failures.json")
 
-@dataclass(frozen=True)
-class Club:
-    name: str
-    code: str
-    short: str
+
+@dataclass
+class SourceResult:
+    club: str
     domain: str
+    feed: str
+    ok: bool
+    count: int
+    error: str
 
 
-class HardTimeout(Exception):
-    pass
+def iso_now():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _alarm_handler(signum, frame):
-    raise HardTimeout("Hard timeout reached")
+def norm_space(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip()
 
 
-def iso_z(dt: datetime) -> str:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def now_z() -> str:
-    return iso_z(datetime.now(timezone.utc))
-
-
-def domain_to_base(domain: str) -> str:
-    d = (domain or "").strip()
-    if not d:
+def absolutize(base: str, href: str) -> str:
+    if not href:
         return ""
-    if d.startswith("http://") or d.startswith("https://"):
-        return d.rstrip("/")
-    return ("https://" + d).rstrip("/")
+    return urljoin(base, href)
 
 
-def parse_any_date(entry: dict) -> Optional[datetime]:
-    for k in ("published_parsed", "updated_parsed"):
-        v = entry.get(k)
-        if v:
-            try:
-                return datetime(*v[:6], tzinfo=timezone.utc)
-            except Exception:
-                pass
-
-    for k in ("published", "updated", "date"):
-        v = entry.get(k)
-        if v:
-            try:
-                dt = parsedate_to_datetime(v)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(timezone.utc)
-            except Exception:
-                pass
-
-    return None
+def safe_get(url: str, timeout=DEFAULT_TIMEOUT) -> requests.Response:
+    return requests.get(
+        url,
+        timeout=timeout,
+        headers={"User-Agent": UA, "Accept": "*/*"},
+        allow_redirects=True,
+    )
 
 
-def load_clubs() -> List[Club]:
-    data = json.loads(CLUBS_META_JSON.read_text(encoding="utf-8"))
-    clubs: List[Club] = []
-    for c in data.get("clubs", []):
-        domain = (c.get("domain") or "").strip()
-        if not domain:
-            continue
-        clubs.append(
-            Club(
-                name=(c.get("name") or "").strip(),
-                code=(c.get("code") or "").strip(),
-                short=(c.get("short") or "").strip(),
-                domain=domain,
-            )
-        )
-    clubs.sort(key=lambda x: x.name.lower())
-    return clubs
+def looks_like_pitchero(html_text: str) -> bool:
+    t = (html_text or "").lower()
+    return ("pitchero" in t) or ("pitch hero ltd" in t)
 
 
-def session_get(session: requests.Session, url: str) -> Optional[requests.Response]:
+def parse_rss_or_atom(xml_text: str, base_url: str) -> list[dict]:
+    """
+    Returns list of {title,url,published_raw}
+    Tries RSS 2.0 and Atom-ish structures.
+    """
+    items = []
+    soup = BeautifulSoup(xml_text, "xml")
+
+    # RSS items
+    for it in soup.find_all("item"):
+        title = norm_space(it.title.get_text()) if it.title else ""
+        link = norm_space(it.link.get_text()) if it.link else ""
+        pub = ""
+        if it.pubDate and it.pubDate.get_text():
+            pub = norm_space(it.pubDate.get_text())
+        elif it.find("dc:date") and it.find("dc:date").get_text():
+            pub = norm_space(it.find("dc:date").get_text())
+
+        if link:
+            link = absolutize(base_url, link)
+
+        items.append({"title": title, "url": link, "published_raw": pub})
+
+    # Atom entries
+    if not items:
+        for ent in soup.find_all("entry"):
+            title = norm_space(ent.title.get_text()) if ent.title else ""
+            link = ""
+            l = ent.find("link")
+            if l and l.get("href"):
+                link = norm_space(l.get("href"))
+            updated = ""
+            if ent.updated and ent.updated.get_text():
+                updated = norm_space(ent.updated.get_text())
+            elif ent.published and ent.published.get_text():
+                updated = norm_space(ent.published.get_text())
+
+            if link:
+                link = absolutize(base_url, link)
+
+            items.append({"title": title, "url": link, "published_raw": updated})
+
+    return items
+
+
+def parse_date_any(s: str) -> str:
+    """
+    Returns ISO Z if parseable, else "".
+    Accepts ISO8601, RFC822-ish pubDate, dd/mm/yyyy.
+    """
+    s = (s or "").strip()
+    if not s:
+        return ""
+
+    # ISO already
+    if re.match(r"^\d{4}-\d{2}-\d{2}T", s):
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        except Exception:
+            pass
+
+    # dd/mm/yyyy
+    m = re.match(r"^(\d{2})/(\d{2})/(\d{4})$", s)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        dt = datetime(y, mo, d, 0, 0, 0, tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
+    # RFC822-ish (forgiving)
     try:
-        return session.get(
-            url,
-            timeout=REQ_TIMEOUT,
-            allow_redirects=True,
-            headers={
-                "User-Agent": UA,
-                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.8",
-            },
-        )
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     except Exception:
-        return None
+        return ""
 
 
-def looks_like_oembed(href: str) -> bool:
-    h = (href or "").lower()
-    if "wp-json/oembed" in h:
-        return True
-    if "/oembed" in h and "format=xml" in h:
-        return True
-    return False
-
-
-def discover_feed_url(session: requests.Session, base_url: str) -> Optional[str]:
-    r = session_get(session, base_url)
-    if not r or r.status_code >= 400 or not (r.text or "").strip():
-        return None
-
-    soup = BeautifulSoup(r.text, "lxml")
-    links = soup.find_all("link", attrs={"rel": re.compile(r"\balternate\b", re.I)})
-
-    candidates: List[Tuple[int, str]] = []
-    for ln in links:
-        t = (ln.get("type") or "").lower().strip()
-        href = (ln.get("href") or "").strip()
-        if not href:
-            continue
-        if looks_like_oembed(href):
-            continue
-        if ("rss" in t) or ("atom" in t):
-            abs_url = urljoin(base_url + "/", href)
-            score = 0 if "rss" in t else 1
-            candidates.append((score, abs_url))
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda x: x[0])
-    return candidates[0][1]
-
-
-def try_common_feed_urls(session: requests.Session, base_url: str) -> Optional[str]:
-    for p in COMMON_FEED_PATHS:
-        u = base_url.rstrip("/") + p
-        r = session_get(session, u)
-        if not r or r.status_code >= 400:
-            continue
-        head = (r.text or "")[:2500].lower()
-        if "<rss" in head or "<feed" in head:
-            return u
-    return None
-
-
-def fetch_and_parse_feed(session: requests.Session, feed_url: str) -> List[Dict]:
-    r = session_get(session, feed_url)
-    if not r or r.status_code >= 400 or not (r.content or b""):
+def wp_rest_posts(base: str, per_page: int = 10) -> list[dict]:
+    """
+    WordPress REST API posts (fallback).
+    """
+    api = base.rstrip("/") + "/wp-json/wp/v2/posts"
+    r = safe_get(api + f"?per_page={per_page}&_embed=1")
+    if r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except Exception:
         return []
 
-    fp = feedparser.parse(r.content)
-    out: List[Dict] = []
-    for e in (fp.entries or []):
-        title = (e.get("title") or "").strip()
-        link = (e.get("link") or "").strip()
-        dt = parse_any_date(e)
-        if not title or not link or not dt:
-            continue
-        out.append({"title": title, "url": link, "published": iso_z(dt)})
+    out = []
+    for p in data:
+        title = ""
+        if isinstance(p.get("title"), dict):
+            title = unescape(norm_space(p["title"].get("rendered", "")))
+        link = norm_space(p.get("link", ""))
 
+        dt = ""
+        dg = p.get("date_gmt") or ""
+        if dg:
+            try:
+                dt0 = datetime.fromisoformat(dg)
+                dt = dt0.replace(tzinfo=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            except Exception:
+                dt = ""
+        out.append({"title": title, "url": link, "published": dt})
     return out
 
 
-def process_one_club(session: requests.Session, club: Club) -> Tuple[List[Dict], Dict]:
-    base = domain_to_base(club.domain)
-    feed_url = ""
-    signal.signal(signal.SIGALRM, _alarm_handler)
-    signal.alarm(CLUB_HARD_TIMEOUT_SECS)
-
+def try_feed(url: str) -> tuple[bool, str, list[dict], str]:
+    """
+    Returns (ok, final_url, usable_items, error)
+    usable_items: {title,url,published}
+    """
     try:
-        if club.domain in FEED_OVERRIDES:
-            feed_url = FEED_OVERRIDES[club.domain].strip()
-        else:
-            feed_url = discover_feed_url(session, base) or try_common_feed_urls(session, base) or ""
-
-        if not feed_url:
-            raise RuntimeError("No feed found")
-
-        items = fetch_and_parse_feed(session, feed_url)
-        if len(items) == 0:
-            raise RuntimeError("Feed returned 0 usable items")
-
-        club_items: List[Dict] = []
+        r = safe_get(url)
+        if r.status_code != 200:
+            return (False, url, [], f"HTTP {r.status_code}")
+        items = parse_rss_or_atom(r.text, r.url)
+        usable = []
         for it in items:
-            club_items.append(
+            title = norm_space(it.get("title", ""))
+            link = norm_space(it.get("url", ""))
+            pub = parse_date_any(it.get("published_raw", ""))
+            if title and link:
+                usable.append({"title": title, "url": link, "published": pub})
+        return (True, r.url, usable, "")
+    except Exception as e:
+        return (False, url, [], f"{type(e).__name__}: {e}")
+
+
+def pitchero_list_links(news_url: str, limit: int = 15) -> list[str]:
+    """
+    Scrape /news listing for article links.
+    Pitchero custom domains commonly use: /news/some-slug-1234567.html
+    """
+    r = safe_get(news_url)
+    if r.status_code != 200:
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    links = []
+    for a in soup.find_all("a", href=True):
+        href = (a["href"] or "").strip()
+        if not href:
+            continue
+
+        if re.search(r"^/news/.+\.html$", href):
+            links.append(urljoin(news_url, href))
+            continue
+
+        if href.startswith("http"):
+            try:
+                if urlparse(href).netloc == urlparse(news_url).netloc:
+                    if "/news/" in href and href.endswith(".html"):
+                        links.append(href)
+            except Exception:
+                pass
+
+    # de-dupe preserve order
+    seen = set()
+    out = []
+    for u in links:
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def pitchero_article_meta(url: str) -> tuple[str, str]:
+    """
+    Fetch a Pitchero article and pull title + published time.
+    """
+    r = safe_get(url)
+    if r.status_code != 200:
+        return ("", "")
+
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # Title
+    title = ""
+    ogt = soup.find("meta", attrs={"property": "og:title"})
+    if ogt and ogt.get("content"):
+        title = norm_space(ogt["content"])
+    if not title and soup.title:
+        title = norm_space(soup.title.get_text())
+
+    # Published
+    published = ""
+    ogp = soup.find("meta", attrs={"property": "article:published_time"})
+    if ogp and ogp.get("content"):
+        published = parse_date_any(ogp["content"])
+    if not published:
+        tm = soup.find("time")
+        if tm and (tm.get("datetime") or tm.get_text()):
+            published = parse_date_any(tm.get("datetime") or tm.get_text())
+
+    return (title, published)
+
+
+def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
+    name = club.get("name", "")
+    code = club.get("code", "")
+    short = club.get("short", "") or name
+    domain = (club.get("domain") or "").strip()
+    base = "https://" + domain.lstrip("/")
+
+    if not domain:
+        return (SourceResult(name, domain, "", False, 0, "No domain"), [])
+
+    # ---- 0) Hard overrides first ----
+    ov = FEED_OVERRIDES.get(domain)
+    if ov:
+        if ov == "PITCHERO_SCRAPE":
+            # Forced pitchero scrape mode for this domain
+            return pitchero_scrape(name, code, short, domain, base)
+
+        ok, final_url, items, err = try_feed(ov)
+        if ok and len(items) > 0:
+            return (
+                SourceResult(name, domain, final_url, True, len(items), ""),
+                [
+                    {
+                        "club": name,
+                        "code": code,
+                        "short": short,
+                        "domain": domain,
+                        "title": it["title"],
+                        "url": it["url"],
+                        "published": it["published"] or "",
+                    }
+                    for it in items[:MAX_ITEMS_PER_CLUB]
+                ],
+            )
+        # Override exists but didn’t yield items
+        # Fall through to other strategies but record the error context
+        override_err = err or "Feed returned 0 usable items"
+    else:
+        override_err = ""
+
+    # ---- 1) Try common feed endpoints ----
+    candidate_feeds = [
+        base.rstrip("/") + "/feed/",
+        base.rstrip("/") + "/rss.xml",
+        base.rstrip("/") + "/rss",
+        base.rstrip("/") + "/news-rss.xml",
+        base.rstrip("/") + "/news/rss.xml",
+        base.rstrip("/") + "/news/feed/",
+    ]
+
+    best_feed = ""
+    last_err = override_err or "No feed found"
+
+    for f in candidate_feeds:
+        ok, final_url, items, err = try_feed(f)
+        if ok and len(items) > 0:
+            best_feed = final_url
+            return (
+                SourceResult(name, domain, best_feed, True, len(items), ""),
+                [
+                    {
+                        "club": name,
+                        "code": code,
+                        "short": short,
+                        "domain": domain,
+                        "title": it["title"],
+                        "url": it["url"],
+                        "published": it["published"] or "",
+                    }
+                    for it in items[:MAX_ITEMS_PER_CLUB]
+                ],
+            )
+        if ok and len(items) == 0:
+            last_err = "Feed returned 0 usable items"
+            best_feed = final_url
+        elif err:
+            last_err = "Feed request failed"
+
+    # ---- 2) WordPress REST fallback ----
+    try:
+        r = safe_get(base.rstrip("/") + "/wp-json/")
+        if r.status_code == 200 and ("wp/v2" in (r.text or "")):
+            posts = wp_rest_posts(base, per_page=MAX_ITEMS_PER_CLUB)
+            if posts:
+                return (
+                    SourceResult(name, domain, base.rstrip("/") + "/wp-json/wp/v2/posts", True, len(posts), ""),
+                    [
+                        {
+                            "club": name,
+                            "code": code,
+                            "short": short,
+                            "domain": domain,
+                            "title": p["title"],
+                            "url": p["url"],
+                            "published": p["published"] or "",
+                        }
+                        for p in posts[:MAX_ITEMS_PER_CLUB]
+                    ],
+                )
+    except Exception:
+        pass
+
+    # ---- 3) Pitchero scrape fallback (custom domain) ----
+    # IMPORTANT: we do NOT use pitchero.com RSS. Only scrape the club's domain.
+    try:
+        news_url = base.rstrip("/") + "/news"
+        r = safe_get(news_url)
+        if r.status_code == 200 and looks_like_pitchero(r.text):
+            return pitchero_scrape(name, code, short, domain, base)
+    except Exception:
+        pass
+
+    # ---- fail ----
+    return (SourceResult(name, domain, best_feed, False, 0, last_err), [])
+
+
+def pitchero_scrape(name: str, code: str, short: str, domain: str, base: str) -> tuple[SourceResult, list[dict]]:
+    news_url = base.rstrip("/") + "/news"
+    links = pitchero_list_links(news_url, limit=MAX_ITEMS_PER_CLUB)
+    items = []
+    for u in links:
+        t, p = pitchero_article_meta(u)
+        if t and u:
+            items.append(
                 {
-                    "club": club.name,
-                    "code": club.code,
-                    "short": club.short,
-                    "domain": club.domain,
-                    "title": it["title"],
-                    "url": it["url"],
-                    "published": it["published"],
+                    "club": name,
+                    "code": code,
+                    "short": short,
+                    "domain": domain,
+                    "title": t,
+                    "url": u,
+                    "published": p or "",
+                }
+            )
+        time.sleep(0.15)
+
+    if items:
+        return (SourceResult(name, domain, "pitchero:/news (scrape)", True, len(items), ""), items)
+
+    return (SourceResult(name, domain, "pitchero:/news (scrape)", False, 0, "Pitchero scrape returned 0 usable items"), [])
+
+
+def main():
+    if not os.path.exists(CLUBS_META):
+        print(f"Missing clubs-meta.json at {CLUBS_META}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(CLUBS_META, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    clubs = meta.get("clubs", [])
+    if not isinstance(clubs, list) or not clubs:
+        print("clubs-meta.json has no clubs[]", file=sys.stderr)
+        sys.exit(1)
+
+    all_items = []
+    sources = []
+    failures = []
+
+    total = len(clubs)
+    ok_sources = 0
+
+    for i, club in enumerate(clubs, start=1):
+        name = club.get("name", "")
+        domain = club.get("domain", "")
+        print(f"[{i}/{total}] {name} ({domain})")
+
+        src, items = build_for_club(club)
+
+        sources.append(
+            {
+                "club": src.club,
+                "domain": src.domain,
+                "feed": src.feed,
+                "ok": src.ok,
+                "count": src.count,
+                "error": src.error,
+            }
+        )
+
+        if src.ok:
+            ok_sources += 1
+        else:
+            failures.append(
+                {
+                    "club": src.club,
+                    "domain": src.domain,
+                    "feed": src.feed,
+                    "ok": False,
+                    "count": 0,
+                    "error": src.error,
                 }
             )
 
-        return club_items, {
-            "club": club.name,
-            "domain": club.domain,
-            "feed": feed_url,
-            "ok": True,
-            "count": len(items),
-            "error": "",
-        }
+        all_items.extend(items)
 
-    except HardTimeout:
-        return [], {
-            "club": club.name,
-            "domain": club.domain,
-            "feed": feed_url,
-            "ok": False,
-            "count": 0,
-            "error": f"Hard timeout after {CLUB_HARD_TIMEOUT_SECS}s",
-        }
+        # be polite
+        time.sleep(0.35)
 
-    except Exception as ex:
-        return [], {
-            "club": club.name,
-            "domain": club.domain,
-            "feed": feed_url,
-            "ok": False,
-            "count": 0,
-            "error": str(ex),
-        }
+    # sort newest-first (missing dates go last)
+    def sort_key(it):
+        p = it.get("published") or ""
+        return p if p else "0000-00-00T00:00:00Z"
 
-    finally:
-        signal.alarm(0)
+    all_items.sort(key=sort_key, reverse=True)
 
+    out = {
+        "version": VERSION,
+        "generatedAt": iso_now(),
+        "maxItems": MAX_ITEMS_GLOBAL,
+        "sources": sources,
+        "items": all_items[:MAX_ITEMS_GLOBAL],
+    }
 
-def main() -> int:
-    clubs = load_clubs()
+    out_fail = {
+        "version": VERSION,
+        "generatedAt": iso_now(),
+        "failures": failures,
+    }
 
-    session = requests.Session()
-    session.trust_env = False
+    with open(OUT_JSON, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=2)
 
-    all_items: List[Dict] = []
-    sources: List[Dict] = []
+    with open(OUT_FAIL, "w", encoding="utf-8") as f:
+        json.dump(out_fail, f, ensure_ascii=False, indent=2)
 
-    total = len(clubs)
-    print(f"[{VERSION}] Clubs: {total}", flush=True)
-
-    for i, club in enumerate(clubs, start=1):
-        print(f"[{i}/{total}] {club.name} ({club.domain})", flush=True)
-        club_items, src = process_one_club(session, club)
-        sources.append(src)
-        all_items.extend(club_items)
-        time.sleep(SLEEP_BETWEEN)
-
-    all_items.sort(key=lambda x: x.get("published", ""), reverse=True)
-
-    # Dedupe by URL
-    seen = set()
-    deduped: List[Dict] = []
-    for it in all_items:
-        u = it.get("url", "")
-        if not u or u in seen:
-            continue
-        seen.add(u)
-        deduped.append(it)
-
-    deduped = deduped[:MAX_ITEMS]
-
-    OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    OUT_JSON.write_text(
-        json.dumps(
-            {
-                "version": VERSION,
-                "generatedAt": now_z(),
-                "maxItems": MAX_ITEMS,
-                "sources": sources,
-                "items": deduped,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    failures = [s for s in sources if not s.get("ok")]
-    FAIL_JSON.write_text(
-        json.dumps(
-            {
-                "version": VERSION,
-                "generatedAt": now_z(),
-                "failures": failures,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    ok_count = sum(1 for s in sources if s.get("ok"))
-    print(
-        f"Done. Sources OK: {ok_count}/{total}. Items written: {len(deduped)}. Failures: {len(failures)}",
-        flush=True,
-    )
-    return 0
+    print(f"Done. Sources OK: {ok_sources}/{total}. Items written: {len(out['items'])}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
