@@ -40,7 +40,7 @@
     refreshMs: 120000,
 
     // 0 = no internal scroll, let page scroll
-    height: 520,
+    height: 0,
 
     // 1 = remove border/radius to feel like part of page
     fullBleed: false,
