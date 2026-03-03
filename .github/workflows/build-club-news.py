@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-# build-club-news.py (v1.33)
+# build-club-news.py (v1.34)
 #
-# v1.33:
-# - MAX_ITEMS_GLOBAL = 100
-# - More browser-like headers + retry to reduce WP feed/WAF blocks (e.g. theshots.co.uk)
-# - Pitchero scrape improved: extract /news/*.html from <a> tags AND embedded JSON/scripts (for client-rendered pages)
-# - Keeps FEED_OVERRIDES + WP REST fallback
+# v1.34:
+# - Adds Braintree table-based /news.html scraper (headline-boundary split)
+# - Keeps existing feed overrides + WP REST + Pitchero scrape fallback
 # - Writes club-news.json + club-news-failures.json
 
 import json
@@ -14,14 +12,14 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from html import unescape
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-VERSION = "v1.33"
+VERSION = "v1.34"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -44,6 +42,10 @@ FEED_OVERRIDES = {
     # Pitchero custom-domain sites (scrape-only)
     "bostonunited.co.uk": "PITCHERO_SCRAPE",
     "www.bostonunited.co.uk": "PITCHERO_SCRAPE",
+
+    # Table-based legacy HTML (scrape-only)
+    "braintreetownfc.org.uk": "BRAINTREE_SCRAPE",
+    "www.braintreetownfc.org.uk": "BRAINTREE_SCRAPE",
 }
 
 # ---- Paths (repo-root aware) ----
@@ -272,6 +274,96 @@ def _dedupe_preserve(seq: list[str]) -> list[str]:
     return out
 
 
+def _slugify(s: str, max_len: int = 60) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"&amp;", "and", s)
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    if not s:
+        s = "item"
+    return s[:max_len]
+
+
+def braintree_scrape(name: str, code: str, short: str, domain: str, base: str) -> tuple[SourceResult, list[dict]]:
+    """
+    Braintree Town:
+    - Single legacy HTML page: /news.html
+    - News entries are not individually linked and are not reliably dated.
+    - We split items on headline blocks that appear as:
+      <font color="#0000FF"><b>ALL CAPS HEADLINE</b>...
+    Strategy:
+    - Extract the left news <td width="700">...</td>
+    - Split into items using a regex boundary on that blue headline pattern
+    - Create stable per-item fragment URLs (#bt-<slug>-<n>)
+    - Provide an estimated published timestamp (now - n minutes) to preserve ordering
+    """
+    news_url = base.rstrip("/") + "/news.html"
+    r = safe_get(news_url)
+    if r.status_code != 200:
+        return (SourceResult(name, domain, "braintree:/news.html (table scrape)", False, 0, f"HTTP {r.status_code}"), [])
+
+    soup = BeautifulSoup(r.text or "", "html.parser")
+
+    # The page stores all news in the left TD, typically width="700"
+    left_td = soup.find("td", attrs={"width": "700"})
+    if left_td is None:
+        # fallback: first TD that looks like the long text column
+        tds = soup.find_all("td")
+        left_td = tds[0] if tds else None
+
+    if left_td is None:
+        return (SourceResult(name, domain, "braintree:/news.html (table scrape)", False, 0, "Could not locate news <td>"), [])
+
+    html = left_td.decode_contents() or ""
+
+    # Split on headline markers: <font ... color="#0000FF" ...><b>HEADLINE</b>
+    # Capture the headline text so split yields [preamble, H1, body1, H2, body2, ...]
+    pat = re.compile(
+        r'<font[^>]*color\s*=\s*["\']?#0000FF["\']?[^>]*>\s*<b>(.*?)</b>',
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    parts = pat.split(html)
+    if len(parts) < 3:
+        return (SourceResult(name, domain, "braintree:/news.html (table scrape)", False, 0, "No headline boundaries found"), [])
+
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+
+    items: list[dict] = []
+    # parts layout: [preamble, H1, body1, H2, body2, ...]
+    headlines = parts[1::2]
+    bodies = parts[2::2]
+
+    for idx, raw_head in enumerate(headlines[:MAX_ITEMS_PER_CLUB]):
+        head_txt = norm_space(unescape(BeautifulSoup(raw_head, "html.parser").get_text(" ", strip=True)))
+        if not head_txt:
+            continue
+
+        frag = f"bt-{_slugify(head_txt)}-{idx+1}"
+        u = news_url + "#" + frag
+
+        # Estimated published time to maintain order (page is newest-first).
+        published_est = (now_utc - timedelta(minutes=idx)).isoformat().replace("+00:00", "Z")
+
+        items.append(
+            {
+                "club": name,
+                "code": code,
+                "short": short,
+                "domain": domain,
+                "title": head_txt,
+                "url": u,
+                "published": published_est,
+                "publishedEstimated": True,
+            }
+        )
+
+    if items:
+        return (SourceResult(name, domain, "braintree:/news.html (table scrape)", True, len(items), ""), items)
+
+    return (SourceResult(name, domain, "braintree:/news.html (table scrape)", False, 0, "Braintree scrape returned 0 usable items"), [])
+
+
 def pitchero_list_links(news_url: str, limit: int = 15) -> list[str]:
     """
     Scrape /news listing for article links.
@@ -398,6 +490,9 @@ def build_for_club(club: dict) -> tuple[SourceResult, list[dict]]:
     if ov:
         if ov == "PITCHERO_SCRAPE":
             return pitchero_scrape(name, code, short, domain, base)
+
+        if ov == "BRAINTREE_SCRAPE":
+            return braintree_scrape(name, code, short, domain, base)
 
         ok, final_url, items, err = try_feed(ov)
         if ok and len(items) > 0:
