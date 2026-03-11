@@ -1,33 +1,31 @@
-/* Transfers Ticker Widget (v2.0) — Shadow DOM isolated embed
+/* Transfers Ticker Widget (v2.2) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Player | From | To | Type | Date
 
-   v2.0:
-   - NEW: fixed left panel "LATEST TRANSFERS"
-   - NEW: right content cell with improved broadcast-style layout
-   - NEW: date line shown under type pill, formatted "Tue 10 Mar 2026"
-   - NEW: mobile stacked layout (player > meta > from > to)
-   - FIX: removed disappearing arrow entirely
-   - FIX: cleaner end-loop back to first item
-   - Hold 10s by default, then eased vertical slide to next
-   - Crest lookup by club name via clubs-meta.json
-   - Fallback crest = National League rose
+   v2.2:
+   - Desktop keeps vertical up/down swap
+   - Mobile uses left-to-right slide
+   - Narrower left "LATEST TRANSFERS" panel
+   - Consistent font size in left label cell
+   - Date shown under type pill as "Tue 10 Mar 2026"
+   - Crest fallback = National League rose
+   - Clean loop from last item back to first
 */
 
 (function(){
   "use strict";
 
-  const VERSION = "v2.0";
+  const VERSION = "v2.2";
 
   const DEFAULTS = {
-    sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxHxoahMihnuA/pubhtml",
+    sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxqHxoahMihnuA/pubhtml",
     clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
     roseImg: "National League rose.png",
 
     height: 108,
-    panelWidth: 154,
+    panelWidth: 132,
     holdMs: 10000,
     animMs: 950,
     refreshMs: 120000,
@@ -317,7 +315,7 @@
   flex-direction:column;
   align-items:flex-start;
   justify-content:center;
-  gap:4px;
+  gap:3px;
   width:100%;
 }
 
@@ -328,14 +326,7 @@
   line-height:0.95;
   text-transform:uppercase;
   letter-spacing:0.04em;
-}
-
-.labelTop{
-  font-size:16px;
-}
-
-.labelBottom{
-  font-size:24px;
+  font-size:18px;
 }
 
 .contentCol{
@@ -497,6 +488,7 @@
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
 }
+
 .msg strong{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
 }
@@ -521,12 +513,9 @@
     gap:8px;
   }
 
-  .labelTop{
-    font-size:14px;
-  }
-
+  .labelTop,
   .labelBottom{
-    font-size:20px;
+    font-size:16px;
   }
 
   .contentCol{
@@ -759,21 +748,28 @@
     }
 
     function currentCardHeight(){
-      if(isMobileStack()){
-        const first = track.firstElementChild;
-        if(first) return first.offsetHeight || opts.height;
-      }
+      const first = track.firstElementChild;
+      if(first) return first.offsetHeight || opts.height;
       return opts.height;
+    }
+
+    function currentCardWidth(){
+      const first = track.firstElementChild;
+      if(first) return first.offsetWidth || contentCol.offsetWidth || 0;
+      return contentCol.offsetWidth || 0;
     }
 
     function resetTrack(){
       track.style.transition = "none";
-      track.style.transform = "translateY(0)";
+      track.style.transform = isMobileStack() ? "translateX(0)" : "translateY(0)";
       while(track.firstChild) track.removeChild(track.firstChild);
     }
 
     function renderSingle(item){
       resetTrack();
+      track.style.display = "block";
+      track.style.flexDirection = "";
+      track.style.alignItems = "";
       track.appendChild(makeCard(opts, item));
     }
 
@@ -795,19 +791,53 @@
         const current = items[index];
         const nextIndex = (index + 1) % items.length;
         const next = items[nextIndex];
+        const mobile = isMobileStack();
 
         resetTrack();
         track.appendChild(makeCard(opts, current));
         track.appendChild(makeCard(opts, next));
 
-        const cardH = currentCardHeight();
+        if(mobile){
+          track.style.display = "flex";
+          track.style.flexDirection = "row";
+          track.style.alignItems = "stretch";
 
-        requestAnimationFrame(()=>{
+          const cards = track.children;
+          for(let i = 0; i < cards.length; i++){
+            cards[i].style.minWidth = "100%";
+            cards[i].style.width = "100%";
+            cards[i].style.flex = "0 0 100%";
+          }
+
+          const cardW = currentCardWidth();
+
           requestAnimationFrame(()=>{
-            track.style.transition = "transform " + opts.animMs + "ms cubic-bezier(0.22, 1, 0.36, 1)";
-            track.style.transform = "translateY(-" + cardH + "px)";
+            requestAnimationFrame(()=>{
+              track.style.transition = "transform " + opts.animMs + "ms cubic-bezier(0.22, 1, 0.36, 1)";
+              track.style.transform = "translateX(-" + cardW + "px)";
+            });
           });
-        });
+        }else{
+          track.style.display = "block";
+          track.style.flexDirection = "";
+          track.style.alignItems = "";
+
+          const cards = track.children;
+          for(let i = 0; i < cards.length; i++){
+            cards[i].style.minWidth = "";
+            cards[i].style.width = "";
+            cards[i].style.flex = "";
+          }
+
+          const cardH = currentCardHeight();
+
+          requestAnimationFrame(()=>{
+            requestAnimationFrame(()=>{
+              track.style.transition = "transform " + opts.animMs + "ms cubic-bezier(0.22, 1, 0.36, 1)";
+              track.style.transform = "translateY(-" + cardH + "px)";
+            });
+          });
+        }
 
         timer = window.setTimeout(()=>{
           index = nextIndex;
