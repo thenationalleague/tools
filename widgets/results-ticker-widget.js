@@ -1,70 +1,64 @@
-/* Results Ticker Widget (v1.72) — Shadow DOM isolated embed
+/* Transfers Ticker Widget (v2.0) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
-   Date & Time | MD | Competition | Home team | Score | Away team
+   Player | From | To | Type | Date
 
-   v1.72:
-   - FIX: pointer capture only AFTER a real horizontal drag (restores click + middle-click on <a>)
-   - FIX: drag/scrub usable on desktop + mobile (pointer + touch)
-   - Uses clubs-meta.json with PRIMARY/SECONDARY/TERTIARY
-     * pill BG = primary, text = secondary, border = tertiary
-   - Uses club SHORT names from clubs-meta.json
-   - Slightly smaller pills / text for efficiency
-   - Stacked FIXTURES/RESULTS switcher (desktop left), mobile (≤768px) switcher top
-   - Switcher always uses brand red (#9E0000)
-   - Score shows "v" when Score isn't a final n-n
-   - Window filtering: daysBack/daysForward (default 3/3)
-   - Seamless loop + requestAnimationFrame scroll
-   - Drag prevents click only when real horizontal drag happened
-   - All fixture elements link to Match Hub (new tab)
+   v2.0:
+   - NEW: fixed left panel "LATEST TRANSFERS"
+   - NEW: right content cell with improved broadcast-style layout
+   - NEW: date line shown under type pill, formatted "Tue 10 Mar 2026"
+   - NEW: mobile stacked layout (player > meta > from > to)
+   - FIX: removed disappearing arrow entirely
+   - FIX: cleaner end-loop back to first item
+   - Hold 10s by default, then eased vertical slide to next
+   - Crest lookup by club name via clubs-meta.json
+   - Fallback crest = National League rose
 */
+
 (function(){
   "use strict";
 
-  const VERSION = "v1.72";
+  const VERSION = "v2.0";
 
   const DEFAULTS = {
-    csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOvhhj8bPbZCsAEOurgzBzK_iZN6-qCux9ThncoO7_gZuPWmCHfrxf3vReW8m97hJ4guc954TzRrra/pub?output=csv",
+    sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxHxoahMihnuA/pubhtml",
     clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
+    crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
+    roseImg: "National League rose.png",
 
-    maxItems: 60,
-    height: 74,
-    speed: 80,
+    height: 108,
+    panelWidth: 154,
+    holdMs: 10000,
+    animMs: 950,
     refreshMs: 120000,
 
+    bg: "#FFE100",
+    fg: "#000000",
+    panelBg: "#000000",
+    panelFg: "#FFE100",
+    border: "#000000",
+
     kitCss: "https://use.typekit.net/gff4ipy.css",
-    crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
-
-    bg: "#ffffff",
-    text: "#111111",
-    muted: "#6b7280",
-
-    brand: "#9E0000",
-
-    dividerColor: "#000000",
-    dividerH: 30,
-    dividerW: 2,
-    dividerPad: 18,
-
-    daysBack: 3,
-    daysForward: 3,
-
-    matchHubUrl: "https://www.thenationalleague.org.uk/match-hub/",
-
-    // layout
-    controlsWidth: 130
+    fallbackClubLabel: "NL"
   };
 
-  const COMP_DISPLAY = {
-    "National": "Enterprise National League",
-    "North": "Enterprise National League North",
-    "South": "Enterprise National League South",
-    "NL Cup": "National League Cup"
-  };
+  function safeText(s){
+    return (s || "").toString().replace(/\s+/g, " ").trim();
+  }
 
-  const STORAGE_PREFIX = "nlResultsTickerState:";
+  function toAllCaps(s){
+    return safeText(s).toUpperCase();
+  }
 
-  function safeText(s){ return (s || "").toString().replace(/\s+/g," ").trim(); }
+  function resolveUrl(u){
+    const raw = safeText(u);
+    if(!raw) return "";
+    try{
+      return new URL(raw, document.baseURI).toString();
+    }catch{
+      return raw;
+    }
+  }
 
   function clampInt(v, min, max, fallback){
     const n = parseInt(v, 10);
@@ -72,38 +66,210 @@
     return Math.max(min, Math.min(max, n));
   }
 
+  function normKey(s){
+    return safeText(s)
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/\./g, "")
+      .replace(/'/g, "")
+      .replace(/-/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normaliseSheetUrlToCsv(url){
+    const raw = resolveUrl(url);
+    if(!raw) return "";
+
+    if(raw.includes("/pubhtml")){
+      return raw.replace("/pubhtml", "/pub?output=csv");
+    }
+
+    if(raw.includes("/pub?")){
+      if(raw.includes("output=csv")) return raw;
+      return raw + (raw.includes("?") ? "&" : "?") + "output=csv";
+    }
+
+    if(raw.includes("output=csv")) return raw;
+
+    return raw;
+  }
+
+  function parseCSV(text){
+    const out = [];
+    let row = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for(let i = 0; i < text.length; i++){
+      const ch = text[i];
+      const next = text[i + 1];
+
+      if(ch === '"' && inQuotes && next === '"'){
+        cur += '"';
+        i++;
+        continue;
+      }
+
+      if(ch === '"'){
+        inQuotes = !inQuotes;
+        continue;
+      }
+
+      if(!inQuotes && ch === ","){
+        row.push(cur);
+        cur = "";
+        continue;
+      }
+
+      if(!inQuotes && ch === "\n"){
+        row.push(cur);
+        out.push(row);
+        row = [];
+        cur = "";
+        continue;
+      }
+
+      if(ch !== "\r") cur += ch;
+    }
+
+    if(cur.length || row.length){
+      row.push(cur);
+      out.push(row);
+    }
+
+    return out.map(r => r.map(c => safeText(c)));
+  }
+
+  function normalizeHeader(h){
+    return safeText(h).toLowerCase();
+  }
+
+  function parseDateCell(value){
+    const s = safeText(value);
+    if(!s) return null;
+
+    let m = /^(\d{1,2})\/(\d{1,2})\/(\d{2})$/.exec(s);
+    if(m){
+      const dd = +m[1];
+      const mm = +m[2];
+      const yy = +m[3];
+      const yyyy = yy >= 70 ? 1900 + yy : 2000 + yy;
+      const d = new Date(yyyy, mm - 1, dd, 12, 0, 0, 0);
+      return Number.isFinite(+d) ? d : null;
+    }
+
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+    if(m){
+      const dd = +m[1];
+      const mm = +m[2];
+      const yyyy = +m[3];
+      const d = new Date(yyyy, mm - 1, dd, 12, 0, 0, 0);
+      return Number.isFinite(+d) ? d : null;
+    }
+
+    return null;
+  }
+
+  function formatDateDisplay(d){
+    if(!d) return "";
+    const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
+    return wd + " " + d.getDate() + " " + mon + " " + d.getFullYear();
+  }
+
+  let CLUBS_BY_KEY = new Map();
+  let CLUBS_LOADED = false;
+  let CLUBS_LOADING = null;
+
+  function addClubKey(map, key, clubObj){
+    const k = normKey(key);
+    if(!k) return;
+    if(!map.has(k)) map.set(k, clubObj);
+  }
+
+  async function ensureClubsMeta(opts){
+    if(CLUBS_LOADED) return;
+    if(CLUBS_LOADING) return CLUBS_LOADING;
+
+    CLUBS_LOADING = (async ()=>{
+      try{
+        const res = await fetch(resolveUrl(opts.clubsMeta), { cache: "no-store" });
+        if(!res.ok) throw new Error("clubs-meta fetch failed: " + res.status);
+
+        const json = await res.json();
+        const clubs = Array.isArray(json && json.clubs) ? json.clubs : [];
+
+        const map = new Map();
+
+        for(const c of clubs){
+          if(!c) continue;
+          addClubKey(map, c.name, c);
+          addClubKey(map, c.short, c);
+          addClubKey(map, c.code, c);
+        }
+
+        CLUBS_BY_KEY = map;
+        CLUBS_LOADED = true;
+      }catch(e){
+        console.error("[Transfers Ticker " + VERSION + "] clubs-meta load error:", e);
+        CLUBS_BY_KEY = new Map();
+        CLUBS_LOADED = false;
+      }finally{
+        CLUBS_LOADING = null;
+      }
+    })();
+
+    return CLUBS_LOADING;
+  }
+
+  function clubMetaForName(name){
+    const k = normKey(name);
+    if(!k) return null;
+    return CLUBS_BY_KEY.get(k) || null;
+  }
+
+  function crestUrlForClub(opts, clubName){
+    const meta = clubMetaForName(clubName);
+    const base = resolveUrl(opts.crestBase);
+
+    if(meta && safeText(meta.name)){
+      return encodeURI(base + safeText(meta.name) + ".png");
+    }
+
+    const rose = safeText(opts.roseImg);
+    if(rose) return encodeURI(base + rose);
+
+    return null;
+  }
+
   function readOptions(el){
     const d = el.dataset || {};
     const opts = Object.assign({}, DEFAULTS);
 
-    if(d.csv) opts.csv = d.csv;
+    if(d.sheet) opts.sheet = d.sheet;
     if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
+    if(d.crestBase) opts.crestBase = d.crestBase;
+    if(d.roseImg) opts.roseImg = d.roseImg;
+    if(d.kitCss) opts.kitCss = d.kitCss;
 
-    if(d.maxItems) opts.maxItems = clampInt(d.maxItems, 1, 500, DEFAULTS.maxItems);
-    if(d.height) opts.height = clampInt(d.height, 52, 140, DEFAULTS.height);
-    if(d.speed) opts.speed = clampInt(d.speed, 10, 500, DEFAULTS.speed);
+    if(d.height) opts.height = clampInt(d.height, 72, 220, DEFAULTS.height);
+    if(d.panelWidth) opts.panelWidth = clampInt(d.panelWidth, 90, 240, DEFAULTS.panelWidth);
+    if(d.holdMs) opts.holdMs = clampInt(d.holdMs, 1000, 30000, DEFAULTS.holdMs);
+    if(d.animMs) opts.animMs = clampInt(d.animMs, 200, 4000, DEFAULTS.animMs);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
 
     if(d.bg) opts.bg = d.bg;
-    if(d.text) opts.text = d.text;
-    if(d.muted) opts.muted = d.muted;
+    if(d.fg) opts.fg = d.fg;
+    if(d.panelBg) opts.panelBg = d.panelBg;
+    if(d.panelFg) opts.panelFg = d.panelFg;
+    if(d.border) opts.border = d.border;
 
-    if(d.brand) opts.brand = d.brand;
+    if(d.fallbackClubLabel) opts.fallbackClubLabel = safeText(d.fallbackClubLabel) || DEFAULTS.fallbackClubLabel;
 
-    if(d.dividerColor) opts.dividerColor = d.dividerColor;
-    if(d.dividerH) opts.dividerH = clampInt(d.dividerH, 10, 80, DEFAULTS.dividerH);
-    if(d.dividerW) opts.dividerW = clampInt(d.dividerW, 1, 12, DEFAULTS.dividerW);
-    if(d.dividerPad) opts.dividerPad = clampInt(d.dividerPad, 0, 60, DEFAULTS.dividerPad);
-
-    if(d.daysBack) opts.daysBack = clampInt(d.daysBack, 0, 30, DEFAULTS.daysBack);
-    if(d.daysForward) opts.daysForward = clampInt(d.daysForward, 0, 30, DEFAULTS.daysForward);
-
-    if(d.kitCss) opts.kitCss = d.kitCss;
-    if(d.crestBase) opts.crestBase = d.crestBase;
-
-    if(d.matchHubUrl) opts.matchHubUrl = d.matchHubUrl;
-
-    if(d.controlsWidth) opts.controlsWidth = clampInt(d.controlsWidth, 100, 220, DEFAULTS.controlsWidth);
+    opts.sheet = normaliseSheetUrlToCsv(opts.sheet);
+    opts.clubsMeta = resolveUrl(opts.clubsMeta);
+    opts.crestBase = resolveUrl(opts.crestBase);
 
     return opts;
   }
@@ -114,19 +280,12 @@
   display:block;
   width:100%;
   --bg:${opts.bg};
-  --text:${opts.text};
-  --muted:${opts.muted};
-  --brand:${opts.brand};
-
+  --fg:${opts.fg};
+  --panel-bg:${opts.panelBg};
+  --panel-fg:${opts.panelFg};
+  --border:${opts.border};
   --h:${opts.height}px;
-  --controls-w:${opts.controlsWidth}px;
-
-  --crest:28px;
-
-  --divider:${opts.dividerColor};
-  --div-h:${opts.dividerH}px;
-  --div-w:${opts.dividerW}px;
-  --div-pad:${opts.dividerPad}px;
+  --panel-w:${opts.panelWidth}px;
 }
 
 *{ box-sizing:border-box; }
@@ -135,370 +294,397 @@
   width:100%;
   display:flex;
   background:var(--bg);
+  border:3px solid var(--border);
   border-radius:12px;
   overflow:hidden;
-  border:1px solid rgba(0,0,0,0.08);
-  position:relative;
+  color:var(--fg);
 }
 
-/* ===== Controls (desktop left) ===== */
-.controlsCol{
-  width:var(--controls-w);
-  flex:0 0 var(--controls-w);
-  display:flex;
-  flex-direction:column;
-  background:rgba(255,255,255,0.98);
-  border-right:2px solid var(--brand);
-}
-
-.switcher{
-  display:flex;
-  flex-direction:column;
-  height:100%;
-}
-
-.tbtn{
-  appearance:none;
-  border:0;
-  background:transparent;
-  padding:0 14px;
-  height:calc(var(--h) / 2);
+.labelCol{
+  width:var(--panel-w);
+  flex:0 0 var(--panel-w);
+  background:var(--panel-bg);
+  color:var(--panel-fg);
   display:flex;
   align-items:center;
-  justify-content:flex-start;
-  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  justify-content:center;
+  border-right:3px solid var(--border);
+  padding:12px 10px;
+}
+
+.labelStack{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:4px;
+  width:100%;
+}
+
+.labelTop,
+.labelBottom{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
-  font-size:13px;
-  letter-spacing:.12em;
+  line-height:0.95;
   text-transform:uppercase;
-  color:var(--brand);
-  cursor:pointer;
-  user-select:none;
+  letter-spacing:0.04em;
 }
 
-.tbtn + .tbtn{
-  border-top:2px solid var(--brand);
+.labelTop{
+  font-size:16px;
 }
 
-.tbtn.active{
-  background:var(--brand);
-  color:#fff;
+.labelBottom{
+  font-size:24px;
 }
 
-/* ===== Ticker area ===== */
-.tickerCol{
+.contentCol{
   flex:1 1 auto;
   min-width:0;
   height:var(--h);
   overflow:hidden;
   position:relative;
-  touch-action: pan-y;
-  user-select:none;
 }
 
-.edgeMask:before,
-.edgeMask:after{
-  content:"";
-  position:absolute;
-  top:0; bottom:0;
-  width:40px;
-  pointer-events:none;
-  z-index:6;
-}
-.edgeMask:before{
-  left:0;
-  background:linear-gradient(to right, var(--bg) 0%, rgba(255,255,255,0) 100%);
-}
-.edgeMask:after{
-  right:0;
-  background:linear-gradient(to left, var(--bg) 0%, rgba(255,255,255,0) 100%);
-}
-
-.belt{
-  display:flex;
-  align-items:center;
+.viewport{
+  position:relative;
+  width:100%;
   height:100%;
-  white-space:nowrap;
+  overflow:hidden;
+}
+
+.track{
+  position:absolute;
+  inset:0;
   will-change:transform;
-  transform:translate3d(0,0,0);
+  transform:translateY(0);
 }
 
-.lane{
+.card{
+  width:100%;
+  height:var(--h);
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items:center;
+  gap:18px;
+  padding:14px 18px;
+  background:var(--bg);
+}
+
+.clubSide{
   display:flex;
   align-items:center;
+  gap:12px;
+  min-width:0;
 }
 
-.fixtureLink{
-  display:inline-flex;
-  align-items:center;
-  text-decoration:none;
-  color:inherit;
-  padding:0 var(--div-pad);
-  -webkit-tap-highlight-color: transparent;
+.clubSide.to{
+  justify-content:flex-end;
 }
 
-.fixture{
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-  gap:6px;
-  min-height:var(--h);
-  padding:8px 0;
+.clubSide.to .clubCopy{
+  order:1;
+  text-align:right;
+  align-items:flex-end;
 }
 
-.meta{
-  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-size:10.5px;
-  color:var(--muted);
-  white-space:nowrap;
-  line-height:1.1;
-}
-
-.row{
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
-
-.side{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
+.clubSide.to .crest{
+  order:2;
 }
 
 .crest{
-  width:var(--crest);
-  height:var(--crest);
+  width:42px;
+  height:42px;
   object-fit:contain;
+  flex:0 0 42px;
   display:block;
 }
-.crest.missing{ width:0; height:0; }
 
-.teamPill{
-  display:inline-flex;
-  align-items:center;
-  padding:5px 9px;
-  border-radius:999px;
-  border:2px solid rgba(0,0,0,0.18);
-  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:950;
-  font-size:13px;
-  letter-spacing:0.03em;
-  text-transform:uppercase;
-  line-height:1;
-  white-space:nowrap;
+.clubCopy{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:0;
 }
 
-.scorePill{
+.sideLabel{
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:800;
+  font-size:11px;
+  line-height:1;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  opacity:0.82;
+}
+
+.clubName{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  font-size:18px;
+  line-height:1.02;
+  text-transform:uppercase;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.middle{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  min-width:0;
+  text-align:center;
+}
+
+.player{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  font-size:26px;
+  line-height:0.98;
+  text-transform:uppercase;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:100%;
+}
+
+.metaRow{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+}
+
+.typePill{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width:52px;
-  height:28px;
-  padding:0 10px;
-  border:2px solid rgba(0,0,0,0.18);
+  min-height:30px;
+  padding:5px 13px 4px;
+  border:2px solid var(--border);
   border-radius:999px;
-  background:#fff;
+  background:#000000;
+  color:#FFE100;
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
   font-size:14px;
-  color:var(--text);
   line-height:1;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
   white-space:nowrap;
 }
 
-.divider{
-  width:var(--div-w);
-  height:var(--div-h);
-  background:var(--divider);
-  display:block;
-  opacity:1;
+.dateText{
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:700;
+  font-size:12px;
+  line-height:1.1;
+  letter-spacing:0.03em;
+  text-transform:uppercase;
 }
 
-/* Status/error */
 .msg{
   position:absolute;
   inset:0;
   display:flex;
   align-items:center;
-  padding:0 14px;
+  padding:0 16px;
+  background:var(--bg);
+  color:var(--fg);
+  z-index:5;
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-size:14px;
-  color:#111;
-  background:var(--bg);
-  z-index:8;
 }
-.msg strong{ font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+.msg strong{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
 
-/* ===== Mobile: switcher goes on top ===== */
 @media (max-width: 768px){
   .wrap{
     flex-direction:column;
   }
-  .controlsCol{
+
+  .labelCol{
     width:100%;
     flex:0 0 auto;
     border-right:0;
-    border-bottom:2px solid var(--brand);
+    border-bottom:3px solid var(--border);
+    padding:12px 14px 10px;
   }
-  .switcher{
+
+  .labelStack{
     flex-direction:row;
+    align-items:center;
+    justify-content:flex-start;
+    gap:8px;
+  }
+
+  .labelTop{
+    font-size:14px;
+  }
+
+  .labelBottom{
+    font-size:20px;
+  }
+
+  .contentCol{
     height:auto;
+    min-height:var(--h);
   }
-  .tbtn{
+
+  .viewport{
     height:auto;
-    padding:12px 0;
-    justify-content:center;
-    flex:1;
-    font-size:12px;
+    min-height:var(--h);
   }
-  .tbtn + .tbtn{
-    border-top:0;
-    border-left:2px solid var(--brand);
+
+  .track{
+    position:relative;
   }
-  .tickerCol{
-    height:var(--h);
+
+  .card{
+    height:auto;
+    min-height:var(--h);
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    gap:12px;
+    padding:14px 14px 16px;
+  }
+
+  .middle{
+    order:1;
+    align-items:flex-start;
+    text-align:left;
+  }
+
+  .player{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    font-size:22px;
+  }
+
+  .metaRow{
+    align-items:flex-start;
+  }
+
+  .clubSide,
+  .clubSide.to{
+    justify-content:flex-start;
+  }
+
+  .clubSide.to .clubCopy,
+  .clubSide.to .crest{
+    order:initial;
+  }
+
+  .clubSide.to .clubCopy{
+    text-align:left;
+    align-items:flex-start;
+  }
+
+  .clubName{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    font-size:17px;
+  }
+
+  .crest{
+    width:36px;
+    height:36px;
+    flex-basis:36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .track{
+    transition:none !important;
   }
 }
 `;
   }
 
-  function parseCSV(text){
-    const out = [];
-    let row = [];
-    let cur = "";
-    let inQuotes = false;
+  function makeClubSide(opts, labelText, clubName, className){
+    const side = document.createElement("div");
+    side.className = "clubSide " + className;
 
-    for(let i=0;i<text.length;i++){
-      const ch = text[i];
-      const next = text[i+1];
+    const crest = document.createElement("img");
+    crest.className = "crest";
+    crest.alt = safeText(clubName) ? (clubName + " crest") : "National League crest";
+    crest.src = crestUrlForClub(opts, clubName) || "";
+    crest.loading = "lazy";
+    crest.decoding = "async";
+    crest.onerror = function(){
+      const base = resolveUrl(opts.crestBase);
+      this.onerror = null;
+      this.src = encodeURI(base + safeText(opts.roseImg));
+    };
 
-      if(ch === '"' && inQuotes && next === '"'){
-        cur += '"'; i++; continue;
-      }
-      if(ch === '"'){
-        inQuotes = !inQuotes; continue;
-      }
-      if(!inQuotes && ch === ","){
-        row.push(cur); cur = ""; continue;
-      }
-      if(!inQuotes && ch === "\n"){
-        row.push(cur);
-        out.push(row);
-        row = [];
-        cur = "";
-        continue;
-      }
-      if(ch !== "\r") cur += ch;
-    }
-    if(cur.length || row.length){
-      row.push(cur);
-      out.push(row);
-    }
-    return out.map(r => r.map(c => safeText(c)));
+    const copy = document.createElement("div");
+    copy.className = "clubCopy";
+
+    const label = document.createElement("div");
+    label.className = "sideLabel";
+    label.textContent = labelText;
+
+    const club = document.createElement("div");
+    club.className = "clubName";
+    club.textContent = safeText(clubName) || opts.fallbackClubLabel;
+
+    copy.appendChild(label);
+    copy.appendChild(club);
+
+    side.appendChild(crest);
+    side.appendChild(copy);
+
+    return side;
   }
 
-  function normalizeHeader(h){ return safeText(h).toLowerCase(); }
+  function makeCard(opts, item){
+    const card = document.createElement("div");
+    card.className = "card";
 
-  function normalizeScoreCell(s){
-    const t = safeText(s);
-    if(!t) return "";
-    return t.replace(/[–—]/g, "-").replace(/\s+/g,"");
-  }
+    const left = makeClubSide(opts, "From", item.from, "from");
 
-  function isScoreFinal(s){
-    return /^\d+-\d+$/.test(normalizeScoreCell(s));
-  }
+    const middle = document.createElement("div");
+    middle.className = "middle";
 
-  function parseUKDateTimeToLocal(dtStr){
-    const s = safeText(dtStr);
-    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(s);
-    if(!m) return null;
-    const dd = +m[1], mm = +m[2], yyyy = +m[3], hh = +m[4], mi = +m[5];
-    const d = new Date(yyyy, mm-1, dd, hh, mi, 0, 0);
-    if(!Number.isFinite(+d)) return null;
-    return d;
-  }
+    const player = document.createElement("div");
+    player.className = "player";
+    player.textContent = safeText(item.player);
 
-  function formatDddDMmmYYYYHHMM(d){
-    const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
-    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
-    const day = d.getDate();
-    const yyyy = d.getFullYear();
-    const hh = String(d.getHours()).padStart(2,"0");
-    const mi = String(d.getMinutes()).padStart(2,"0");
-    return `${wd}, ${day} ${mon} ${yyyy} ${hh}:${mi}`;
-  }
+    const metaRow = document.createElement("div");
+    metaRow.className = "metaRow";
 
-  function compDisplay(comp){
-    const c = safeText(comp);
-    return COMP_DISPLAY[c] || c || "—";
-  }
+    const typePill = document.createElement("div");
+    typePill.className = "typePill";
+    typePill.textContent = toAllCaps(item.type);
 
-  function storageKey(opts){
-    return STORAGE_PREFIX + encodeURIComponent(opts.csv);
-  }
+    const dateText = document.createElement("div");
+    dateText.className = "dateText";
+    dateText.textContent = item.dateDisplay || "";
 
-  function loadState(opts){
-    try{
-      const raw = localStorage.getItem(storageKey(opts));
-      if(!raw) return null;
-      const s = JSON.parse(raw);
-      if(!s || typeof s !== "object") return null;
-      return s;
-    }catch{
-      return null;
-    }
-  }
+    metaRow.appendChild(typePill);
+    if(item.dateDisplay) metaRow.appendChild(dateText);
 
-  function saveState(opts, state){
-    try{
-      localStorage.setItem(storageKey(opts), JSON.stringify(state));
-    }catch{}
-  }
+    middle.appendChild(player);
+    middle.appendChild(metaRow);
 
-  function safeHexColor(x, fallback){
-    const s = safeText(x);
-    if(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i.test(s)) return s.toUpperCase();
-    return fallback;
-  }
+    const right = makeClubSide(opts, "To", item.to, "to");
 
-  async function fetchJson(url){
-    const res = await fetch(url, { cache:"no-store" });
-    if(!res.ok) throw new Error("JSON fetch failed: " + res.status);
-    return await res.json();
-  }
+    card.appendChild(left);
+    card.appendChild(middle);
+    card.appendChild(right);
 
-  function buildClubMaps(meta){
-    const colors = new Map();
-    const shortNames = new Map();
-    if(!meta || !Array.isArray(meta.clubs)) return { colors, shortNames };
-
-    for(const c of meta.clubs){
-      const name = safeText(c && c.name);
-      if(!name) continue;
-
-      const primary = safeHexColor(c?.colors?.primary, "#111111");
-      const secondary = safeHexColor(c?.colors?.secondary, "#FFFFFF");
-      const tertiary = safeHexColor(c?.colors?.tertiary, secondary);
-
-      colors.set(name.toLowerCase(), { primary, secondary, tertiary });
-
-      const sh = safeText(c?.short);
-      if(sh) shortNames.set(name.toLowerCase(), sh);
-    }
-    return { colors, shortNames };
-  }
-
-  function crestUrlForTeam(opts, club){
-    const t = safeText(club);
-    if(!t) return null;
-    return encodeURI(opts.crestBase + t + ".png");
+    return card;
   }
 
   function makeWidget(hostEl){
     const opts = readOptions(hostEl);
-    const root = hostEl.attachShadow({ mode:"open" });
+    const root = hostEl.attachShadow({ mode: "open" });
 
     if(opts.kitCss){
       const kit = document.createElement("link");
@@ -513,592 +699,260 @@
 
     const wrap = document.createElement("div");
     wrap.className = "wrap";
-    wrap.setAttribute("role","region");
-    wrap.setAttribute("aria-label","Fixtures and results ticker");
-    root.appendChild(wrap);
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", "Latest transfers ticker");
 
-    // Controls column
-    const controlsCol = document.createElement("div");
-    controlsCol.className = "controlsCol";
-    wrap.appendChild(controlsCol);
+    const labelCol = document.createElement("div");
+    labelCol.className = "labelCol";
 
-    const switcher = document.createElement("div");
-    switcher.className = "switcher";
-    controlsCol.appendChild(switcher);
+    const labelStack = document.createElement("div");
+    labelStack.className = "labelStack";
 
-    const btnFixtures = document.createElement("button");
-    btnFixtures.className = "tbtn";
-    btnFixtures.type = "button";
-    btnFixtures.textContent = "FIXTURES";
+    const labelTop = document.createElement("div");
+    labelTop.className = "labelTop";
+    labelTop.textContent = "Latest";
 
-    const btnResults = document.createElement("button");
-    btnResults.className = "tbtn";
-    btnResults.type = "button";
-    btnResults.textContent = "RESULTS";
+    const labelBottom = document.createElement("div");
+    labelBottom.className = "labelBottom";
+    labelBottom.textContent = "Transfers";
 
-    switcher.appendChild(btnFixtures);
-    switcher.appendChild(btnResults);
+    labelStack.appendChild(labelTop);
+    labelStack.appendChild(labelBottom);
+    labelCol.appendChild(labelStack);
 
-    // Ticker column
-    const tickerCol = document.createElement("div");
-    tickerCol.className = "tickerCol edgeMask";
-    wrap.appendChild(tickerCol);
+    const contentCol = document.createElement("div");
+    contentCol.className = "contentCol";
 
-    const belt = document.createElement("div");
-    belt.className = "belt";
-    tickerCol.appendChild(belt);
+    const viewport = document.createElement("div");
+    viewport.className = "viewport";
 
-    const laneA = document.createElement("div");
-    laneA.className = "lane";
-    const laneB = document.createElement("div");
-    laneB.className = "lane";
-    belt.appendChild(laneA);
-    belt.appendChild(laneB);
+    const track = document.createElement("div");
+    track.className = "track";
 
     const msg = document.createElement("div");
     msg.className = "msg";
-    msg.innerHTML = `<strong>Loading…</strong>`;
-    tickerCol.appendChild(msg);
+    msg.innerHTML = "<strong>Loading…</strong>";
 
-    // State
-    let clubColors = new Map();
-    let clubShort = new Map();
-    let allItems = [];
-    let mode = "results";
+    viewport.appendChild(track);
+    contentCol.appendChild(viewport);
+    contentCol.appendChild(msg);
 
-    // Animation state
-    let shiftPx = 0;
-    let offsetPx = 0;
-    let lastTs = 0;
-    let rafId = 0;
+    wrap.appendChild(labelCol);
+    wrap.appendChild(contentCol);
+    root.appendChild(wrap);
 
-    // Drag state
-    const DRAG_THRESHOLD_PX = 6;
-
-    let pointerActive = false;
-    let pendingDrag = false;
-    let dragging = false;
-
-    let dragStartX = 0;
-    let dragStartY = 0;
-    let dragStartOffset = 0;
-
-    let didDrag = false;
-
-    let axisLocked = false;
-    let lockAxis = ""; // "x" | "y"
-
-    // Pointer capture only AFTER real drag (v1.72)
-    let activePointerId = null;
-    let pointerCaptured = false;
-
+    let items = [];
+    let index = 0;
+    let timer = null;
     let refreshTimer = null;
-    let ro = null;
+    let destroyed = false;
 
-    // Restore persisted state
-    const persisted = loadState(opts);
-    if(persisted && (persisted.mode === "fixtures" || persisted.mode === "results")){
-      mode = persisted.mode;
-    }
-    if(persisted && typeof persisted.offsetPx === "number" && Number.isFinite(persisted.offsetPx)){
-      offsetPx = persisted.offsetPx;
-    }
-
-    function setTransform(){
-      belt.style.transform = "translate3d(" + offsetPx + "px,0,0)";
-    }
-
-    function normalizeOffset(){
-      if(!shiftPx) return;
-      while(offsetPx <= -shiftPx) offsetPx += shiftPx;
-      while(offsetPx > 0) offsetPx -= shiftPx;
-    }
-
-    function tick(ts){
-      if(!lastTs) lastTs = ts;
-      const dt = (ts - lastTs) / 1000;
-      lastTs = ts;
-
-      if(!dragging && shiftPx > 0){
-        offsetPx -= (opts.speed * dt);
-        normalizeOffset();
-        setTransform();
+    function clearCycle(){
+      if(timer){
+        window.clearTimeout(timer);
+        timer = null;
       }
-
-      rafId = requestAnimationFrame(tick);
     }
 
-    function startAnim(){
-      if(rafId) cancelAnimationFrame(rafId);
-      lastTs = 0;
-      rafId = requestAnimationFrame(tick);
+    function isMobileStack(){
+      return window.matchMedia("(max-width: 768px)").matches;
     }
 
-    function persist(){
-      saveState(opts, { mode, offsetPx, savedAt: Date.now() });
+    function currentCardHeight(){
+      if(isMobileStack()){
+        const first = track.firstElementChild;
+        if(first) return first.offsetHeight || opts.height;
+      }
+      return opts.height;
     }
 
-    function applyModeUI(){
-      btnFixtures.classList.toggle("active", mode === "fixtures");
-      btnResults.classList.toggle("active", mode === "results");
+    function resetTrack(){
+      track.style.transition = "none";
+      track.style.transform = "translateY(0)";
+      while(track.firstChild) track.removeChild(track.firstChild);
     }
 
-    function setMode(newMode){
-      mode = newMode;
-      applyModeUI();
-      persist();
-      render();
+    function renderSingle(item){
+      resetTrack();
+      track.appendChild(makeCard(opts, item));
     }
 
-    btnFixtures.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      setMode("fixtures");
-    });
-    btnResults.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      setMode("results");
-    });
-    applyModeUI();
-
-    function beginDrag(clientX, clientY){
-      pointerActive = true;
-      pendingDrag = true;
-
-      dragging = false;
-      didDrag = false;
-
-      axisLocked = false;
-      lockAxis = "";
-
-      dragStartX = clientX;
-      dragStartY = clientY;
-
-      if(!shiftPx){
-        shiftPx = laneA.scrollWidth || 0;
-      }
-
-      dragStartOffset = offsetPx;
+    function showMessage(html){
+      msg.style.display = "flex";
+      msg.innerHTML = html;
     }
 
-    function moveDrag(clientX, clientY, evForPrevent){
-      if(!pointerActive) return;
-
-      if(!shiftPx){
-        shiftPx = laneA.scrollWidth || 0;
-        if(!shiftPx) return;
-      }
-
-      const dx = clientX - dragStartX;
-      const dy = clientY - dragStartY;
-
-      if(!axisLocked){
-        const adx = Math.abs(dx);
-        const ady = Math.abs(dy);
-        if(adx > 3 || ady > 3){
-          axisLocked = true;
-          lockAxis = (adx >= ady) ? "x" : "y";
-        }
-      }
-
-      if(lockAxis === "y") return;
-
-      // lockAxis === "x"
-      if(pendingDrag && Math.abs(dx) > DRAG_THRESHOLD_PX){
-        pendingDrag = false;
-        dragging = true;
-        didDrag = true;
-
-        // capture now (not on pointerdown)
-        if(!pointerCaptured && activePointerId !== null){
-          try{
-            tickerCol.setPointerCapture(activePointerId);
-            pointerCaptured = true;
-          }catch{}
-        }
-      }
-
-      if(!dragging) return;
-
-      if(evForPrevent && evForPrevent.cancelable) evForPrevent.preventDefault();
-
-      offsetPx = dragStartOffset + dx;
-      normalizeOffset();
-      setTransform();
-    }
-
-    function endDrag(){
-      if(!pointerActive) return;
-
-      pointerActive = false;
-      pendingDrag = false;
-
-      const wasDragging = dragging;
-      dragging = false;
-
-      axisLocked = false;
-      lockAxis = "";
-
-      if(wasDragging){
-        lastTs = performance.now();
-        persist();
-      }
-
-      // allow normal click after release
-      window.setTimeout(()=>{ didDrag = false; }, 0);
-    }
-
-    // Pointer Events (primary)
-    tickerCol.addEventListener("pointerdown", (e)=>{
-      if(e.pointerType === "mouse" && e.button !== 0) return;
-
-      activePointerId = e.pointerId;
-      pointerCaptured = false;
-
-      beginDrag(e.clientX, e.clientY);
-    });
-
-    tickerCol.addEventListener("pointermove", (e)=>{
-      moveDrag(e.clientX, e.clientY, e);
-    }, { passive:false });
-
-    tickerCol.addEventListener("pointerup", ()=>{
-      if(pointerCaptured && activePointerId !== null){
-        try{ tickerCol.releasePointerCapture(activePointerId); }catch{}
-      }
-      pointerCaptured = false;
-      activePointerId = null;
-      endDrag();
-    });
-
-    tickerCol.addEventListener("pointercancel", ()=>{
-      if(pointerCaptured && activePointerId !== null){
-        try{ tickerCol.releasePointerCapture(activePointerId); }catch{}
-      }
-      pointerCaptured = false;
-      activePointerId = null;
-
-      pointerActive = false;
-      pendingDrag = false;
-      dragging = false;
-      didDrag = false;
-      axisLocked = false;
-      lockAxis = "";
-    });
-
-    // Touch fallback (for odd environments)
-    tickerCol.addEventListener("touchstart", (e)=>{
-      if(!e.touches || !e.touches.length) return;
-      const t = e.touches[0];
-      beginDrag(t.clientX, t.clientY);
-    }, { passive:true });
-
-    tickerCol.addEventListener("touchmove", (e)=>{
-      if(!e.touches || !e.touches.length) return;
-      const t = e.touches[0];
-      moveDrag(t.clientX, t.clientY, e);
-    }, { passive:false });
-
-    tickerCol.addEventListener("touchend", ()=>{
-      endDrag();
-    }, { passive:true });
-
-    tickerCol.addEventListener("touchcancel", ()=>{
-      pointerActive = false;
-      pendingDrag = false;
-      dragging = false;
-      didDrag = false;
-      axisLocked = false;
-      lockAxis = "";
-    }, { passive:true });
-
-    // Cancel navigation only if actual horizontal drag happened
-    tickerCol.addEventListener("click", (e)=>{
-      if(!didDrag) return;
-      const a = e.target && e.target.closest ? e.target.closest("a") : null;
-      if(a){
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      didDrag = false;
-    }, false);
-
-    function buildDividerEl(){
-      const d = document.createElement("span");
-      d.className = "divider";
-      d.setAttribute("aria-hidden","true");
-      return d;
-    }
-
-    function displayTeamName(fullName){
-      const key = safeText(fullName).toLowerCase();
-      return clubShort.get(key) || safeText(fullName);
-    }
-
-    function teamPillEl(teamName){
-      const full = safeText(teamName);
-      const display = displayTeamName(full);
-      const pill = document.createElement("span");
-      pill.className = "teamPill";
-
-      const colors = clubColors.get(full.toLowerCase());
-      if(colors){
-        pill.style.background = colors.primary;
-        pill.style.color = colors.secondary;
-        pill.style.borderColor = colors.tertiary;
-      }else{
-        pill.style.background = "#111111";
-        pill.style.color = "#FFFFFF";
-        pill.style.borderColor = "rgba(0,0,0,0.18)";
-      }
-
-      pill.textContent = display.toUpperCase();
-      return pill;
-    }
-
-    function buildFixtureEl(fx){
-      const link = document.createElement("a");
-      link.className = "fixtureLink";
-      link.href = opts.matchHubUrl;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-
-      const box = document.createElement("span");
-      box.className = "fixture";
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = fx.dt ? (formatDddDMmmYYYYHHMM(fx.dt) + " • " + compDisplay(fx.comp)) : compDisplay(fx.comp);
-
-      const row = document.createElement("div");
-      row.className = "row";
-
-      const homeSide = document.createElement("span");
-      homeSide.className = "side";
-
-      const hCrest = document.createElement("img");
-      hCrest.className = "crest";
-      hCrest.alt = safeText(fx.home) ? (safeText(fx.home) + " crest") : "";
-      const hUrl = crestUrlForTeam(opts, fx.home);
-      if(hUrl){
-        hCrest.src = hUrl;
-        hCrest.loading = "lazy";
-        hCrest.decoding = "async";
-        hCrest.onerror = ()=> hCrest.classList.add("missing");
-      }else{
-        hCrest.classList.add("missing");
-      }
-
-      const hPill = teamPillEl(fx.home);
-
-      const score = document.createElement("span");
-      score.className = "scorePill";
-      score.textContent = fx.isFinal ? normalizeScoreCell(fx.scoreRaw) : "v";
-
-      const awaySide = document.createElement("span");
-      awaySide.className = "side";
-
-      const aPill = teamPillEl(fx.away);
-
-      const aCrest = document.createElement("img");
-      aCrest.className = "crest";
-      aCrest.alt = safeText(fx.away) ? (safeText(fx.away) + " crest") : "";
-      const aUrl = crestUrlForTeam(opts, fx.away);
-      if(aUrl){
-        aCrest.src = aUrl;
-        aCrest.loading = "lazy";
-        aCrest.decoding = "async";
-        aCrest.onerror = ()=> aCrest.classList.add("missing");
-      }else{
-        aCrest.classList.add("missing");
-      }
-
-      homeSide.appendChild(hCrest);
-      homeSide.appendChild(hPill);
-
-      awaySide.appendChild(aPill);
-      awaySide.appendChild(aCrest);
-
-      row.appendChild(homeSide);
-      row.appendChild(score);
-      row.appendChild(awaySide);
-
-      box.appendChild(meta);
-      box.appendChild(row);
-      link.appendChild(box);
-
-      return link;
-    }
-
-    function recomputeShift(){
-      shiftPx = laneA.scrollWidth || 0;
-      normalizeOffset();
-      setTransform();
-    }
-
-    function render(){
-      const now = new Date();
-      const start = new Date(now);
-      start.setHours(0,0,0,0);
-
-      const from = new Date(start);
-      from.setDate(from.getDate() - opts.daysBack);
-
-      const to = new Date(start);
-      to.setDate(to.getDate() + opts.daysForward + 1);
-
-      let items = allItems.filter(it => it.dt && it.dt >= from && it.dt < to);
-
-      if(mode === "fixtures") items = items.filter(it => !it.isFinal);
-      else items = items.filter(it => it.isFinal);
-
-      items.sort((a,b)=> (+a.dt) - (+b.dt));
-
-      if(items.length > opts.maxItems){
-        items = items.slice(items.length - opts.maxItems);
-      }
-
-      laneA.innerHTML = "";
-      laneB.innerHTML = "";
-
-      if(!items.length){
-        msg.style.display = "flex";
-        msg.innerHTML = `<strong>${mode === "fixtures" ? "FIXTURES" : "RESULTS"}:</strong>&nbsp;none in ±${Math.max(opts.daysBack, opts.daysForward)} days.`;
-        offsetPx = 0;
-        setTransform();
-        shiftPx = 0;
-        return;
-      }
-
+    function hideMessage(){
       msg.style.display = "none";
+    }
 
-      const fragA = document.createDocumentFragment();
-      const fragB = document.createDocumentFragment();
+    function queueNext(){
+      clearCycle();
 
-      for(const fx of items){
-        fragA.appendChild(buildFixtureEl(fx));
-        fragA.appendChild(buildDividerEl());
-      }
-      for(const fx of items){
-        fragB.appendChild(buildFixtureEl(fx));
-        fragB.appendChild(buildDividerEl());
-      }
+      if(destroyed || items.length <= 1) return;
 
-      laneA.appendChild(fragA);
-      laneB.appendChild(fragB);
+      timer = window.setTimeout(()=>{
+        const current = items[index];
+        const nextIndex = (index + 1) % items.length;
+        const next = items[nextIndex];
 
-      requestAnimationFrame(()=> requestAnimationFrame(recomputeShift));
+        resetTrack();
+        track.appendChild(makeCard(opts, current));
+        track.appendChild(makeCard(opts, next));
+
+        const cardH = currentCardHeight();
+
+        requestAnimationFrame(()=>{
+          requestAnimationFrame(()=>{
+            track.style.transition = "transform " + opts.animMs + "ms cubic-bezier(0.22, 1, 0.36, 1)";
+            track.style.transform = "translateY(-" + cardH + "px)";
+          });
+        });
+
+        timer = window.setTimeout(()=>{
+          index = nextIndex;
+          renderSingle(items[index]);
+          queueNext();
+        }, opts.animMs + 60);
+
+      }, opts.holdMs);
     }
 
     async function refresh(){
       try{
-        msg.style.display = "flex";
-        msg.innerHTML = `<strong>Loading…</strong>`;
+        showMessage("<strong>Loading…</strong>");
 
-        const [csvText, clubsMeta] = await Promise.all([
-          fetch(opts.csv, { cache:"no-store" }).then(r=>{
-            if(!r.ok) throw new Error("Feed fetch failed: " + r.status);
-            return r.text();
-          }),
-          fetchJson(opts.clubsMeta).catch(()=> null)
-        ]);
+        await ensureClubsMeta(opts);
 
-        const maps = buildClubMaps(clubsMeta);
-        clubColors = maps.colors;
-        clubShort = maps.shortNames;
+        const res = await fetch(opts.sheet, { cache: "no-store" });
+        if(!res.ok) throw new Error("sheet fetch failed: " + res.status);
 
-        const rows = parseCSV(csvText);
+        const csvText = await res.text();
+        const rows = parseCSV(csvText).filter(r => r.some(c => safeText(c)));
+
         if(!rows.length){
-          msg.style.display = "flex";
-          msg.innerHTML = `<strong>Error:</strong> CSV has no rows.`;
+          showMessage("<strong>Error:</strong>&nbsp;CSV has no rows.");
           return;
         }
 
         const header = rows[0].map(normalizeHeader);
 
-        const idxDateTime = header.indexOf("date & time");
-        const idxComp     = header.indexOf("competition");
-        const idxHome     = header.indexOf("home team");
-        const idxScore    = header.indexOf("score");
-        const idxAway     = header.indexOf("away team");
+        const idxPlayer = header.indexOf("player");
+        const idxFrom = header.indexOf("from");
+        const idxTo = header.indexOf("to");
+        const idxType = header.indexOf("type");
+        const idxDate = header.indexOf("date");
 
         const missing = [];
-        if(idxDateTime === -1) missing.push("Date & Time");
-        if(idxComp === -1) missing.push("Competition");
-        if(idxHome === -1) missing.push("Home team");
-        if(idxScore === -1) missing.push("Score");
-        if(idxAway === -1) missing.push("Away team");
+        if(idxPlayer === -1) missing.push("Player");
+        if(idxFrom === -1) missing.push("From");
+        if(idxTo === -1) missing.push("To");
+        if(idxType === -1) missing.push("Type");
+        if(idxDate === -1) missing.push("Date");
 
         if(missing.length){
-          msg.style.display = "flex";
-          msg.innerHTML = `<strong>Error:</strong> Missing columns: ${missing.join(", ")}.`;
+          showMessage("<strong>Error:</strong>&nbsp;Missing columns: " + missing.join(", ") + ".");
           return;
         }
 
-        const parsed = [];
-        for(let i=1; i<rows.length; i++){
+        const nextItems = [];
+
+        for(let i = 1; i < rows.length; i++){
           const r = rows[i];
           if(!r || !r.length) continue;
 
-          const dtRaw = safeText(r[idxDateTime]);
-          const dt = parseUKDateTimeToLocal(dtRaw);
-          if(!dt) continue;
+          const player = safeText(r[idxPlayer]);
+          const from = safeText(r[idxFrom]);
+          const to = safeText(r[idxTo]);
+          const type = safeText(r[idxType]);
+          const dateRaw = safeText(r[idxDate]);
+          const dateObj = parseDateCell(dateRaw);
+          const dateDisplay = formatDateDisplay(dateObj);
 
-          const comp = safeText(r[idxComp]);
-          const home = safeText(r[idxHome]);
-          const scoreRaw = safeText(r[idxScore]);
-          const away = safeText(r[idxAway]);
+          if(!player || !from || !to || !type) continue;
 
-          if(!home || !away) continue;
-
-          parsed.push({
-            dt,
-            comp,
-            home,
-            away,
-            scoreRaw,
-            isFinal: isScoreFinal(scoreRaw)
+          nextItems.push({
+            player,
+            from,
+            to,
+            type,
+            dateRaw,
+            dateObj,
+            dateDisplay
           });
         }
 
-        allItems = parsed;
-        render();
+        if(!nextItems.length){
+          showMessage("<strong>No transfers found.</strong>");
+          return;
+        }
+
+        const oldSig = JSON.stringify(items);
+        const newSig = JSON.stringify(nextItems);
+
+        items = nextItems;
+
+        hideMessage();
+
+        if(oldSig !== newSig || !track.firstChild){
+          index = 0;
+          clearCycle();
+          renderSingle(items[index]);
+          queueNext();
+        }
       }catch(e){
-        console.error("[ResultsTicker " + VERSION + "] refresh error", e);
-        msg.style.display = "flex";
-        msg.innerHTML = `<strong>Error:</strong> Feed/parse failed.`;
+        console.error("[Transfers Ticker " + VERSION + "]", e);
+        showMessage("<strong>Error:</strong>&nbsp;Feed/parse failed.");
       }
     }
 
-    try{
-      ro = new ResizeObserver(()=> recomputeShift());
-      ro.observe(tickerCol);
-    }catch{}
-
-    refresh();
-    refreshTimer = window.setInterval(refresh, opts.refreshMs);
-
-    setTransform();
-    normalizeOffset();
-    setTransform();
-    startAnim();
-
-    return {
-      destroy(){
-        if(rafId) cancelAnimationFrame(rafId);
-        if(refreshTimer) window.clearInterval(refreshTimer);
-        if(ro) ro.disconnect();
-      }
+    const onResize = ()=>{
+      if(!items.length) return;
+      clearCycle();
+      renderSingle(items[index]);
+      queueNext();
     };
+
+    try{
+      const ro = new ResizeObserver(onResize);
+      ro.observe(contentCol);
+
+      refresh();
+      refreshTimer = window.setInterval(refresh, opts.refreshMs);
+
+      return {
+        destroy(){
+          destroyed = true;
+          clearCycle();
+          if(refreshTimer) window.clearInterval(refreshTimer);
+          ro.disconnect();
+        }
+      };
+    }catch{
+      window.addEventListener("resize", onResize);
+
+      refresh();
+      refreshTimer = window.setInterval(refresh, opts.refreshMs);
+
+      return {
+        destroy(){
+          destroyed = true;
+          clearCycle();
+          if(refreshTimer) window.clearInterval(refreshTimer);
+          window.removeEventListener("resize", onResize);
+        }
+      };
+    }
   }
 
   function bootOnce(){
-    const nodes = document.querySelectorAll("[data-nl-results-ticker]");
+    const nodes = document.querySelectorAll("[data-nl-transfers-ticker]");
     nodes.forEach(node => {
-      if(node.__nlResultsTicker) return;
+      if(node.__nlTransfersTicker) return;
       try{
-        node.__nlResultsTicker = makeWidget(node);
+        node.__nlTransfersTicker = makeWidget(node);
       }catch(e){
-        console.error("[ResultsTicker " + VERSION + "] boot error", e);
+        console.error("[Transfers Ticker " + VERSION + "] boot error", e);
       }
     });
   }
@@ -1106,7 +960,7 @@
   function boot(){
     bootOnce();
     const mo = new MutationObserver(()=>{ bootOnce(); });
-    mo.observe(document.documentElement, { childList:true, subtree:true });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   if(document.readyState === "loading"){
