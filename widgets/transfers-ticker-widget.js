@@ -1,22 +1,23 @@
-/* Transfers Ticker Widget (v2.2) — Shadow DOM isolated embed
+/* Transfers Ticker Widget (v2.4) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
-   Player | From | To | Type | Date
+   Player | Position | From | To | Type | Date
 
-   v2.2:
-   - Desktop keeps vertical up/down swap
-   - Mobile uses left-to-right slide
-   - Narrower left "LATEST TRANSFERS" panel
-   - Consistent font size in left label cell
-   - Date shown under type pill as "Tue 10 Mar 2026"
-   - Crest fallback = National League rose
-   - Clean loop from last item back to first
+   v2.4:
+   - NEW: Position column added (2-letter display, e.g. GK)
+   - NEW: Items older than 31 days are hidden
+   - NEW: Sorted newest first by date; earlier row wins ties
+   - NEW: FLASH badge for today and yesterday items
+   - NEW: Rose watermark underlay
+   - NEW: Better mobile player hierarchy
+   - Desktop = vertical swap
+   - Mobile = horizontal slide + swipe prev/next
 */
 
 (function(){
   "use strict";
 
-  const VERSION = "v2.2";
+  const VERSION = "v2.4";
 
   const DEFAULTS = {
     sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxqHxoahMihnuA/pubhtml",
@@ -29,6 +30,7 @@
     holdMs: 10000,
     animMs: 950,
     refreshMs: 120000,
+    maxAgeDays: 31,
 
     bg: "#FFE100",
     fg: "#000000",
@@ -176,6 +178,26 @@
     return wd + " " + d.getDate() + " " + mon + " " + d.getFullYear();
   }
 
+  function startOfLocalDay(d){
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  }
+
+  function dayDiffFromToday(d){
+    const today = startOfLocalDay(new Date());
+    const target = startOfLocalDay(d);
+    return Math.round((today - target) / 86400000);
+  }
+
+  function isFlashDate(d){
+    const diff = dayDiffFromToday(d);
+    return diff === 0 || diff === 1;
+  }
+
+  function normalizePosition(pos){
+    const p = toAllCaps(pos).replace(/[^A-Z]/g, "");
+    return p.slice(0, 2);
+  }
+
   let CLUBS_BY_KEY = new Map();
   let CLUBS_LOADED = false;
   let CLUBS_LOADING = null;
@@ -256,6 +278,7 @@
     if(d.holdMs) opts.holdMs = clampInt(d.holdMs, 1000, 30000, DEFAULTS.holdMs);
     if(d.animMs) opts.animMs = clampInt(d.animMs, 200, 4000, DEFAULTS.animMs);
     if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
+    if(d.maxAgeDays) opts.maxAgeDays = clampInt(d.maxAgeDays, 1, 365, DEFAULTS.maxAgeDays);
 
     if(d.bg) opts.bg = d.bg;
     if(d.fg) opts.fg = d.fg;
@@ -335,6 +358,7 @@
   height:var(--h);
   overflow:hidden;
   position:relative;
+  touch-action:pan-y;
 }
 
 .viewport{
@@ -355,11 +379,30 @@
   width:100%;
   height:var(--h);
   display:grid;
-  grid-template-columns:minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns:minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
   align-items:center;
   gap:18px;
   padding:14px 18px;
   background:var(--bg);
+  position:relative;
+  overflow:hidden;
+}
+
+.card::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background-image:var(--rose-watermark, none);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:min(240px, 52%);
+  opacity:0.08;
+  pointer-events:none;
+}
+
+.card > *{
+  position:relative;
+  z-index:1;
 }
 
 .clubSide{
@@ -429,6 +472,35 @@
   text-align:center;
 }
 
+.playerRow{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  min-width:0;
+  max-width:100%;
+}
+
+.posPill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:34px;
+  height:28px;
+  padding:0 8px;
+  border:2px solid var(--border);
+  border-radius:999px;
+  background:rgba(255,255,255,0.65);
+  color:var(--fg);
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  font-size:13px;
+  line-height:1;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  flex:0 0 auto;
+}
+
 .player{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
@@ -448,6 +520,14 @@
   gap:5px;
 }
 
+.metaTop{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
 .typePill{
   display:inline-flex;
   align-items:center;
@@ -465,6 +545,31 @@
   letter-spacing:0.05em;
   text-transform:uppercase;
   white-space:nowrap;
+}
+
+.flashPill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:30px;
+  padding:5px 12px 4px;
+  border:2px solid var(--border);
+  border-radius:999px;
+  background:#d00000;
+  color:#ffffff;
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  font-size:13px;
+  line-height:1;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  animation:flashPulse 1s steps(1, end) infinite;
+}
+
+@keyframes flashPulse{
+  0%, 49%{ opacity:1; }
+  50%, 100%{ opacity:0.38; }
 }
 
 .dateText{
@@ -538,25 +643,48 @@
     display:flex;
     flex-direction:column;
     align-items:stretch;
-    gap:12px;
-    padding:14px 14px 16px;
+    gap:14px;
+    padding:16px 14px 18px;
   }
 
   .middle{
     order:1;
     align-items:flex-start;
     text-align:left;
+    gap:10px;
+  }
+
+  .playerRow{
+    justify-content:flex-start;
+    align-items:flex-start;
+    gap:10px;
+  }
+
+  .posPill{
+    min-width:36px;
+    height:30px;
+    font-size:13px;
   }
 
   .player{
     white-space:normal;
     overflow:visible;
     text-overflow:clip;
-    font-size:22px;
+    font-size:26px;
+    line-height:0.95;
   }
 
   .metaRow{
     align-items:flex-start;
+    gap:6px;
+  }
+
+  .metaTop{
+    justify-content:flex-start;
+  }
+
+  .dateText{
+    font-size:13px;
   }
 
   .clubSide,
@@ -589,8 +717,9 @@
 }
 
 @media (prefers-reduced-motion: reduce){
-  .track{
+  .track, .flashPill{
     transition:none !important;
+    animation:none !important;
   }
 }
 `;
@@ -641,25 +770,47 @@
     const middle = document.createElement("div");
     middle.className = "middle";
 
+    const playerRow = document.createElement("div");
+    playerRow.className = "playerRow";
+
+    if(item.position){
+      const posPill = document.createElement("div");
+      posPill.className = "posPill";
+      posPill.textContent = item.position;
+      playerRow.appendChild(posPill);
+    }
+
     const player = document.createElement("div");
     player.className = "player";
     player.textContent = safeText(item.player);
+    playerRow.appendChild(player);
 
     const metaRow = document.createElement("div");
     metaRow.className = "metaRow";
 
+    const metaTop = document.createElement("div");
+    metaTop.className = "metaTop";
+
     const typePill = document.createElement("div");
     typePill.className = "typePill";
     typePill.textContent = toAllCaps(item.type);
+    metaTop.appendChild(typePill);
+
+    if(item.isFlash){
+      const flashPill = document.createElement("div");
+      flashPill.className = "flashPill";
+      flashPill.textContent = "Flash";
+      metaTop.appendChild(flashPill);
+    }
 
     const dateText = document.createElement("div");
     dateText.className = "dateText";
     dateText.textContent = item.dateDisplay || "";
 
-    metaRow.appendChild(typePill);
+    metaRow.appendChild(metaTop);
     if(item.dateDisplay) metaRow.appendChild(dateText);
 
-    middle.appendChild(player);
+    middle.appendChild(playerRow);
     middle.appendChild(metaRow);
 
     const right = makeClubSide(opts, "To", item.to, "to");
@@ -730,11 +881,20 @@
     wrap.appendChild(contentCol);
     root.appendChild(wrap);
 
+    const roseWatermarkUrl = resolveUrl(opts.crestBase) + safeText(opts.roseImg);
+    wrap.style.setProperty("--rose-watermark", 'url("' + roseWatermarkUrl.replace(/"/g, '\\"') + '")');
+
     let items = [];
     let index = 0;
     let timer = null;
     let refreshTimer = null;
     let destroyed = false;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchDeltaX = 0;
+    let touchDeltaY = 0;
+    let touchActive = false;
 
     function clearCycle(){
       if(timer){
@@ -780,6 +940,22 @@
 
     function hideMessage(){
       msg.style.display = "none";
+    }
+
+    function goToIndex(newIndex){
+      if(!items.length) return;
+      index = ((newIndex % items.length) + items.length) % items.length;
+      clearCycle();
+      renderSingle(items[index]);
+      queueNext();
+    }
+
+    function goNext(){
+      goToIndex(index + 1);
+    }
+
+    function goPrev(){
+      goToIndex(index - 1);
     }
 
     function queueNext(){
@@ -868,6 +1044,7 @@
         const header = rows[0].map(normalizeHeader);
 
         const idxPlayer = header.indexOf("player");
+        const idxPosition = header.indexOf("position");
         const idxFrom = header.indexOf("from");
         const idxTo = header.indexOf("to");
         const idxType = header.indexOf("type");
@@ -875,6 +1052,7 @@
 
         const missing = [];
         if(idxPlayer === -1) missing.push("Player");
+        if(idxPosition === -1) missing.push("Position");
         if(idxFrom === -1) missing.push("From");
         if(idxTo === -1) missing.push("To");
         if(idxType === -1) missing.push("Type");
@@ -886,34 +1064,49 @@
         }
 
         const nextItems = [];
+        const todayStart = startOfLocalDay(new Date());
 
         for(let i = 1; i < rows.length; i++){
           const r = rows[i];
           if(!r || !r.length) continue;
 
           const player = safeText(r[idxPlayer]);
+          const position = normalizePosition(r[idxPosition]);
           const from = safeText(r[idxFrom]);
           const to = safeText(r[idxTo]);
           const type = safeText(r[idxType]);
           const dateRaw = safeText(r[idxDate]);
           const dateObj = parseDateCell(dateRaw);
-          const dateDisplay = formatDateDisplay(dateObj);
 
-          if(!player || !from || !to || !type) continue;
+          if(!player || !from || !to || !type || !dateObj) continue;
+
+          const itemDay = startOfLocalDay(dateObj);
+          const ageDays = Math.floor((todayStart - itemDay) / 86400000);
+
+          if(ageDays > opts.maxAgeDays) continue;
 
           nextItems.push({
             player,
+            position,
             from,
             to,
             type,
             dateRaw,
             dateObj,
-            dateDisplay
+            dateDisplay: formatDateDisplay(dateObj),
+            isFlash: isFlashDate(dateObj),
+            rowOrder: i
           });
         }
 
+        nextItems.sort((a, b)=>{
+          const dateDiff = b.dateObj - a.dateObj;
+          if(dateDiff !== 0) return dateDiff;
+          return a.rowOrder - b.rowOrder;
+        });
+
         if(!nextItems.length){
-          showMessage("<strong>No transfers found.</strong>");
+          showMessage("<strong>No recent transfers found.</strong>");
           return;
         }
 
@@ -943,6 +1136,49 @@
       queueNext();
     };
 
+    function onTouchStart(e){
+      if(!isMobileStack()) return;
+      if(!e.touches || e.touches.length !== 1) return;
+
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      touchDeltaX = 0;
+      touchDeltaY = 0;
+      touchActive = true;
+    }
+
+    function onTouchMove(e){
+      if(!isMobileStack()) return;
+      if(!touchActive) return;
+      if(!e.touches || !e.touches.length) return;
+
+      const t = e.touches[0];
+      touchDeltaX = t.clientX - touchStartX;
+      touchDeltaY = t.clientY - touchStartY;
+    }
+
+    function onTouchEnd(){
+      if(!isMobileStack()) return;
+      if(!touchActive) return;
+
+      const absX = Math.abs(touchDeltaX);
+      const absY = Math.abs(touchDeltaY);
+
+      touchActive = false;
+
+      if(absX < 40) return;
+      if(absX <= absY) return;
+
+      if(touchDeltaX < 0) goNext();
+      else goPrev();
+    }
+
+    contentCol.addEventListener("touchstart", onTouchStart, { passive: true });
+    contentCol.addEventListener("touchmove", onTouchMove, { passive: true });
+    contentCol.addEventListener("touchend", onTouchEnd, { passive: true });
+    contentCol.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
     try{
       const ro = new ResizeObserver(onResize);
       ro.observe(contentCol);
@@ -955,6 +1191,10 @@
           destroyed = true;
           clearCycle();
           if(refreshTimer) window.clearInterval(refreshTimer);
+          contentCol.removeEventListener("touchstart", onTouchStart, { passive: true });
+          contentCol.removeEventListener("touchmove", onTouchMove, { passive: true });
+          contentCol.removeEventListener("touchend", onTouchEnd, { passive: true });
+          contentCol.removeEventListener("touchcancel", onTouchEnd, { passive: true });
           ro.disconnect();
         }
       };
@@ -969,6 +1209,10 @@
           destroyed = true;
           clearCycle();
           if(refreshTimer) window.clearInterval(refreshTimer);
+          contentCol.removeEventListener("touchstart", onTouchStart, { passive: true });
+          contentCol.removeEventListener("touchmove", onTouchMove, { passive: true });
+          contentCol.removeEventListener("touchend", onTouchEnd, { passive: true });
+          contentCol.removeEventListener("touchcancel", onTouchEnd, { passive: true });
           window.removeEventListener("resize", onResize);
         }
       };
