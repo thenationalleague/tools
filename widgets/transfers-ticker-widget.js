@@ -1,29 +1,43 @@
-/* Transfers Ticker Widget (v1.0) — Shadow DOM isolated embed
-   - Google Sheet columns: Player | From | To | Type
-   - Accepts either pubhtml or CSV sheet URL; auto-normalises to CSV feed
-   - Matches club names against assets/data/clubs-meta.json
-   - Crest fallback = National League rose
-   - One item visible at a time
-   - Holds for 5s, then eased vertical slide to next
+/* Transfers Ticker Widget (v2.0) — Shadow DOM isolated embed
+   Feed: Google Sheets published CSV
+   Sheet columns:
+   Player | From | To | Type | Date
+
+   v2.0:
+   - NEW: fixed left panel "LATEST TRANSFERS"
+   - NEW: right content cell with improved broadcast-style layout
+   - NEW: date line shown under type pill, formatted "Tue 10 Mar 2026"
+   - NEW: mobile stacked layout (player > meta > from > to)
+   - FIX: removed disappearing arrow entirely
+   - FIX: cleaner end-loop back to first item
+   - Hold 10s by default, then eased vertical slide to next
+   - Crest lookup by club name via clubs-meta.json
+   - Fallback crest = National League rose
 */
 
 (function(){
   "use strict";
 
-  const VERSION = "v1.0";
+  const VERSION = "v2.0";
 
   const DEFAULTS = {
-    sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxqHxoahMihnuA/pubhtml",
+    sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxHxoahMihnuA/pubhtml",
     clubsMeta: "https://rckd-nl.github.io/nl-tools/assets/data/clubs-meta.json",
     crestBase: "https://rckd-nl.github.io/nl-tools/assets/crests/",
     roseImg: "National League rose.png",
-    height: 92,
-    holdMs: 5000,
+
+    height: 108,
+    panelWidth: 154,
+    holdMs: 10000,
     animMs: 950,
     refreshMs: 120000,
+
     bg: "#FFE100",
     fg: "#000000",
+    panelBg: "#000000",
+    panelFg: "#FFE100",
     border: "#000000",
+
     kitCss: "https://use.typekit.net/gff4ipy.css",
     fallbackClubLabel: "NL"
   };
@@ -46,6 +60,12 @@
     }
   }
 
+  function clampInt(v, min, max, fallback){
+    const n = parseInt(v, 10);
+    if(Number.isNaN(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
   function normKey(s){
     return safeText(s)
       .toLowerCase()
@@ -55,12 +75,6 @@
       .replace(/-/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  }
-
-  function clampInt(v, min, max, fallback){
-    const n = parseInt(v, 10);
-    if(Number.isNaN(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
   }
 
   function normaliseSheetUrlToCsv(url){
@@ -127,33 +141,41 @@
     return out.map(r => r.map(c => safeText(c)));
   }
 
-  function isHeaderRow(row){
-    const a = safeText(row && row[0]).toLowerCase();
-    const b = safeText(row && row[1]).toLowerCase();
-    const c = safeText(row && row[2]).toLowerCase();
-    const d = safeText(row && row[3]).toLowerCase();
-
-    return a === "player" && b === "from" && c === "to" && d === "type";
+  function normalizeHeader(h){
+    return safeText(h).toLowerCase();
   }
 
-  function normaliseItems(rows){
-    const items = [];
-    let startRow = 0;
+  function parseDateCell(value){
+    const s = safeText(value);
+    if(!s) return null;
 
-    if(rows.length && isHeaderRow(rows[0])) startRow = 1;
-
-    for(let i = startRow; i < rows.length; i++){
-      const player = safeText(rows[i][0]);
-      const from = safeText(rows[i][1]);
-      const to = safeText(rows[i][2]);
-      const type = safeText(rows[i][3]);
-
-      if(!player || !from || !to || !type) continue;
-
-      items.push({ player, from, to, type });
+    let m = /^(\d{1,2})\/(\d{1,2})\/(\d{2})$/.exec(s);
+    if(m){
+      const dd = +m[1];
+      const mm = +m[2];
+      const yy = +m[3];
+      const yyyy = yy >= 70 ? 1900 + yy : 2000 + yy;
+      const d = new Date(yyyy, mm - 1, dd, 12, 0, 0, 0);
+      return Number.isFinite(+d) ? d : null;
     }
 
-    return items;
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+    if(m){
+      const dd = +m[1];
+      const mm = +m[2];
+      const yyyy = +m[3];
+      const d = new Date(yyyy, mm - 1, dd, 12, 0, 0, 0);
+      return Number.isFinite(+d) ? d : null;
+    }
+
+    return null;
+  }
+
+  function formatDateDisplay(d){
+    if(!d) return "";
+    const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
+    return wd + " " + d.getDate() + " " + mon + " " + d.getFullYear();
   }
 
   let CLUBS_BY_KEY = new Map();
@@ -221,26 +243,107 @@
     return null;
   }
 
+  function readOptions(el){
+    const d = el.dataset || {};
+    const opts = Object.assign({}, DEFAULTS);
+
+    if(d.sheet) opts.sheet = d.sheet;
+    if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
+    if(d.crestBase) opts.crestBase = d.crestBase;
+    if(d.roseImg) opts.roseImg = d.roseImg;
+    if(d.kitCss) opts.kitCss = d.kitCss;
+
+    if(d.height) opts.height = clampInt(d.height, 72, 220, DEFAULTS.height);
+    if(d.panelWidth) opts.panelWidth = clampInt(d.panelWidth, 90, 240, DEFAULTS.panelWidth);
+    if(d.holdMs) opts.holdMs = clampInt(d.holdMs, 1000, 30000, DEFAULTS.holdMs);
+    if(d.animMs) opts.animMs = clampInt(d.animMs, 200, 4000, DEFAULTS.animMs);
+    if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
+
+    if(d.bg) opts.bg = d.bg;
+    if(d.fg) opts.fg = d.fg;
+    if(d.panelBg) opts.panelBg = d.panelBg;
+    if(d.panelFg) opts.panelFg = d.panelFg;
+    if(d.border) opts.border = d.border;
+
+    if(d.fallbackClubLabel) opts.fallbackClubLabel = safeText(d.fallbackClubLabel) || DEFAULTS.fallbackClubLabel;
+
+    opts.sheet = normaliseSheetUrlToCsv(opts.sheet);
+    opts.clubsMeta = resolveUrl(opts.clubsMeta);
+    opts.crestBase = resolveUrl(opts.crestBase);
+
+    return opts;
+  }
+
   function cssFor(opts){
     return `
 :host{
+  display:block;
+  width:100%;
   --bg:${opts.bg};
   --fg:${opts.fg};
+  --panel-bg:${opts.panelBg};
+  --panel-fg:${opts.panelFg};
   --border:${opts.border};
   --h:${opts.height}px;
+  --panel-w:${opts.panelWidth}px;
 }
 
 *{ box-sizing:border-box; }
 
 .wrap{
-  position:relative;
-  height:var(--h);
-  overflow:hidden;
+  width:100%;
+  display:flex;
   background:var(--bg);
   border:3px solid var(--border);
   border-radius:12px;
+  overflow:hidden;
   color:var(--fg);
-  user-select:none;
+}
+
+.labelCol{
+  width:var(--panel-w);
+  flex:0 0 var(--panel-w);
+  background:var(--panel-bg);
+  color:var(--panel-fg);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-right:3px solid var(--border);
+  padding:12px 10px;
+}
+
+.labelStack{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:4px;
+  width:100%;
+}
+
+.labelTop,
+.labelBottom{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  line-height:0.95;
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+}
+
+.labelTop{
+  font-size:16px;
+}
+
+.labelBottom{
+  font-size:24px;
+}
+
+.contentCol{
+  flex:1 1 auto;
+  min-width:0;
+  height:var(--h);
+  overflow:hidden;
+  position:relative;
 }
 
 .viewport{
@@ -261,21 +364,32 @@
   width:100%;
   height:var(--h);
   display:grid;
-  grid-template-columns:minmax(0, 1.2fr) auto minmax(0, 1.2fr);
+  grid-template-columns:minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
   align-items:center;
   gap:18px;
-  padding:12px 18px;
+  padding:14px 18px;
+  background:var(--bg);
 }
 
-.side{
+.clubSide{
   display:flex;
   align-items:center;
   gap:12px;
   min-width:0;
 }
 
-.side.to{
+.clubSide.to{
   justify-content:flex-end;
+}
+
+.clubSide.to .clubCopy{
+  order:1;
+  text-align:right;
+  align-items:flex-end;
+}
+
+.clubSide.to .crest{
+  order:2;
 }
 
 .crest{
@@ -283,35 +397,31 @@
   height:42px;
   object-fit:contain;
   flex:0 0 42px;
+  display:block;
 }
 
-.copy{
+.clubCopy{
   display:flex;
   flex-direction:column;
-  min-width:0;
   gap:4px;
+  min-width:0;
 }
 
-.side.to .copy{
-  align-items:flex-end;
-  text-align:right;
-}
-
-.label{
+.sideLabel{
   font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:800;
   font-size:11px;
-  font-weight:700;
   line-height:1;
   letter-spacing:0.12em;
   text-transform:uppercase;
-  opacity:0.85;
+  opacity:0.82;
 }
 
-.club{
+.clubName{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
   font-size:18px;
-  font-weight:800;
-  line-height:1.05;
+  line-height:1.02;
   text-transform:uppercase;
   white-space:nowrap;
   overflow:hidden;
@@ -323,17 +433,16 @@
   flex-direction:column;
   align-items:center;
   justify-content:center;
-  text-align:center;
-  min-width:0;
   gap:8px;
-  padding:0 6px;
+  min-width:0;
+  text-align:center;
 }
 
 .player{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-size:24px;
-  font-weight:800;
-  line-height:1;
+  font-weight:950;
+  font-size:26px;
+  line-height:0.98;
   text-transform:uppercase;
   white-space:nowrap;
   overflow:hidden;
@@ -341,58 +450,153 @@
   max-width:100%;
 }
 
-.type{
+.metaRow{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+}
+
+.typePill{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-height:28px;
-  padding:5px 12px 4px;
+  min-height:30px;
+  padding:5px 13px 4px;
   border:2px solid var(--border);
   border-radius:999px;
   background:#000000;
   color:#FFE100;
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
   font-size:14px;
-  font-weight:800;
   line-height:1;
   letter-spacing:0.05em;
   text-transform:uppercase;
   white-space:nowrap;
 }
 
-.arrow{
-  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-size:26px;
-  font-weight:800;
-  line-height:1;
+.dateText{
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:700;
+  font-size:12px;
+  line-height:1.1;
+  letter-spacing:0.03em;
+  text-transform:uppercase;
 }
 
-@media (max-width: 820px){
-  .card{
-    grid-template-columns:1fr;
-    gap:8px;
-    padding:10px 14px;
+.msg{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  padding:0 16px;
+  background:var(--bg);
+  color:var(--fg);
+  z-index:5;
+  font-family:"carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-size:14px;
+}
+.msg strong{
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+
+@media (max-width: 768px){
+  .wrap{
+    flex-direction:column;
   }
 
-  .side,
-  .side.to{
-    justify-content:center;
+  .labelCol{
+    width:100%;
+    flex:0 0 auto;
+    border-right:0;
+    border-bottom:3px solid var(--border);
+    padding:12px 14px 10px;
   }
 
-  .side .copy,
-  .side.to .copy{
+  .labelStack{
+    flex-direction:row;
     align-items:center;
-    text-align:center;
+    justify-content:flex-start;
+    gap:8px;
+  }
+
+  .labelTop{
+    font-size:14px;
+  }
+
+  .labelBottom{
+    font-size:20px;
+  }
+
+  .contentCol{
+    height:auto;
+    min-height:var(--h);
+  }
+
+  .viewport{
+    height:auto;
+    min-height:var(--h);
+  }
+
+  .track{
+    position:relative;
+  }
+
+  .card{
+    height:auto;
+    min-height:var(--h);
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    gap:12px;
+    padding:14px 14px 16px;
   }
 
   .middle{
-    order:-1;
-    gap:6px;
+    order:1;
+    align-items:flex-start;
+    text-align:left;
   }
 
-  .player{ font-size:20px; }
-  .club{ font-size:16px; }
-  .crest{ width:34px; height:34px; flex-basis:34px; }
+  .player{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    font-size:22px;
+  }
+
+  .metaRow{
+    align-items:flex-start;
+  }
+
+  .clubSide,
+  .clubSide.to{
+    justify-content:flex-start;
+  }
+
+  .clubSide.to .clubCopy,
+  .clubSide.to .crest{
+    order:initial;
+  }
+
+  .clubSide.to .clubCopy{
+    text-align:left;
+    align-items:flex-start;
+  }
+
+  .clubName{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    font-size:17px;
+  }
+
+  .crest{
+    width:36px;
+    height:36px;
+    flex-basis:36px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -403,41 +607,16 @@
 `;
   }
 
-  function readOptions(el){
-    const d = el.dataset || {};
-    const opts = Object.assign({}, DEFAULTS);
-
-    if(d.sheet) opts.sheet = d.sheet;
-    if(d.clubsMeta) opts.clubsMeta = d.clubsMeta;
-    if(d.crestBase) opts.crestBase = d.crestBase;
-    if(d.roseImg) opts.roseImg = d.roseImg;
-    if(d.kitCss) opts.kitCss = d.kitCss;
-
-    if(d.height) opts.height = clampInt(d.height, 60, 220, DEFAULTS.height);
-    if(d.holdMs) opts.holdMs = clampInt(d.holdMs, 1000, 20000, DEFAULTS.holdMs);
-    if(d.animMs) opts.animMs = clampInt(d.animMs, 200, 4000, DEFAULTS.animMs);
-    if(d.refreshMs) opts.refreshMs = clampInt(d.refreshMs, 10000, 3600000, DEFAULTS.refreshMs);
-
-    if(d.bg) opts.bg = d.bg;
-    if(d.fg) opts.fg = d.fg;
-    if(d.border) opts.border = d.border;
-    if(d.fallbackClubLabel) opts.fallbackClubLabel = safeText(d.fallbackClubLabel) || DEFAULTS.fallbackClubLabel;
-
-    opts.sheet = normaliseSheetUrlToCsv(opts.sheet);
-    opts.clubsMeta = resolveUrl(opts.clubsMeta);
-    opts.crestBase = resolveUrl(opts.crestBase);
-
-    return opts;
-  }
-
-  function makeClubSide(opts, sideLabel, clubName, sideClass){
+  function makeClubSide(opts, labelText, clubName, className){
     const side = document.createElement("div");
-    side.className = "side " + sideClass;
+    side.className = "clubSide " + className;
 
     const crest = document.createElement("img");
     crest.className = "crest";
     crest.alt = safeText(clubName) ? (clubName + " crest") : "National League crest";
     crest.src = crestUrlForClub(opts, clubName) || "";
+    crest.loading = "lazy";
+    crest.decoding = "async";
     crest.onerror = function(){
       const base = resolveUrl(opts.crestBase);
       this.onerror = null;
@@ -445,26 +624,21 @@
     };
 
     const copy = document.createElement("div");
-    copy.className = "copy";
+    copy.className = "clubCopy";
 
     const label = document.createElement("div");
-    label.className = "label";
-    label.textContent = sideLabel;
+    label.className = "sideLabel";
+    label.textContent = labelText;
 
     const club = document.createElement("div");
-    club.className = "club";
+    club.className = "clubName";
     club.textContent = safeText(clubName) || opts.fallbackClubLabel;
 
     copy.appendChild(label);
     copy.appendChild(club);
 
-    if(sideClass === "to"){
-      side.appendChild(copy);
-      side.appendChild(crest);
-    }else{
-      side.appendChild(crest);
-      side.appendChild(copy);
-    }
+    side.appendChild(crest);
+    side.appendChild(copy);
 
     return side;
   }
@@ -482,17 +656,22 @@
     player.className = "player";
     player.textContent = safeText(item.player);
 
-    const type = document.createElement("div");
-    type.className = "type";
-    type.textContent = toAllCaps(item.type);
+    const metaRow = document.createElement("div");
+    metaRow.className = "metaRow";
 
-    const arrow = document.createElement("div");
-    arrow.className = "arrow";
-    arrow.textContent = "→";
+    const typePill = document.createElement("div");
+    typePill.className = "typePill";
+    typePill.textContent = toAllCaps(item.type);
+
+    const dateText = document.createElement("div");
+    dateText.className = "dateText";
+    dateText.textContent = item.dateDisplay || "";
+
+    metaRow.appendChild(typePill);
+    if(item.dateDisplay) metaRow.appendChild(dateText);
 
     middle.appendChild(player);
-    middle.appendChild(type);
-    middle.appendChild(arrow);
+    middle.appendChild(metaRow);
 
     const right = makeClubSide(opts, "To", item.to, "to");
 
@@ -520,6 +699,29 @@
 
     const wrap = document.createElement("div");
     wrap.className = "wrap";
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", "Latest transfers ticker");
+
+    const labelCol = document.createElement("div");
+    labelCol.className = "labelCol";
+
+    const labelStack = document.createElement("div");
+    labelStack.className = "labelStack";
+
+    const labelTop = document.createElement("div");
+    labelTop.className = "labelTop";
+    labelTop.textContent = "Latest";
+
+    const labelBottom = document.createElement("div");
+    labelBottom.className = "labelBottom";
+    labelBottom.textContent = "Transfers";
+
+    labelStack.appendChild(labelTop);
+    labelStack.appendChild(labelBottom);
+    labelCol.appendChild(labelStack);
+
+    const contentCol = document.createElement("div");
+    contentCol.className = "contentCol";
 
     const viewport = document.createElement("div");
     viewport.className = "viewport";
@@ -527,8 +729,16 @@
     const track = document.createElement("div");
     track.className = "track";
 
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    msg.innerHTML = "<strong>Loading…</strong>";
+
     viewport.appendChild(track);
-    wrap.appendChild(viewport);
+    contentCol.appendChild(viewport);
+    contentCol.appendChild(msg);
+
+    wrap.appendChild(labelCol);
+    wrap.appendChild(contentCol);
     root.appendChild(wrap);
 
     let items = [];
@@ -544,6 +754,18 @@
       }
     }
 
+    function isMobileStack(){
+      return window.matchMedia("(max-width: 768px)").matches;
+    }
+
+    function currentCardHeight(){
+      if(isMobileStack()){
+        const first = track.firstElementChild;
+        if(first) return first.offsetHeight || opts.height;
+      }
+      return opts.height;
+    }
+
     function resetTrack(){
       track.style.transition = "none";
       track.style.transform = "translateY(0)";
@@ -553,6 +775,15 @@
     function renderSingle(item){
       resetTrack();
       track.appendChild(makeCard(opts, item));
+    }
+
+    function showMessage(html){
+      msg.style.display = "flex";
+      msg.innerHTML = html;
+    }
+
+    function hideMessage(){
+      msg.style.display = "none";
     }
 
     function queueNext(){
@@ -569,10 +800,12 @@
         track.appendChild(makeCard(opts, current));
         track.appendChild(makeCard(opts, next));
 
+        const cardH = currentCardHeight();
+
         requestAnimationFrame(()=>{
           requestAnimationFrame(()=>{
             track.style.transition = "transform " + opts.animMs + "ms cubic-bezier(0.22, 1, 0.36, 1)";
-            track.style.transform = "translateY(-" + opts.height + "px)";
+            track.style.transform = "translateY(-" + cardH + "px)";
           });
         });
 
@@ -580,13 +813,15 @@
           index = nextIndex;
           renderSingle(items[index]);
           queueNext();
-        }, opts.animMs + 40);
+        }, opts.animMs + 60);
 
       }, opts.holdMs);
     }
 
     async function refresh(){
       try{
+        showMessage("<strong>Loading…</strong>");
+
         await ensureClubsMeta(opts);
 
         const res = await fetch(opts.sheet, { cache: "no-store" });
@@ -594,14 +829,70 @@
 
         const csvText = await res.text();
         const rows = parseCSV(csvText).filter(r => r.some(c => safeText(c)));
-        const nextItems = normaliseItems(rows);
 
-        if(!nextItems.length) return;
+        if(!rows.length){
+          showMessage("<strong>Error:</strong>&nbsp;CSV has no rows.");
+          return;
+        }
+
+        const header = rows[0].map(normalizeHeader);
+
+        const idxPlayer = header.indexOf("player");
+        const idxFrom = header.indexOf("from");
+        const idxTo = header.indexOf("to");
+        const idxType = header.indexOf("type");
+        const idxDate = header.indexOf("date");
+
+        const missing = [];
+        if(idxPlayer === -1) missing.push("Player");
+        if(idxFrom === -1) missing.push("From");
+        if(idxTo === -1) missing.push("To");
+        if(idxType === -1) missing.push("Type");
+        if(idxDate === -1) missing.push("Date");
+
+        if(missing.length){
+          showMessage("<strong>Error:</strong>&nbsp;Missing columns: " + missing.join(", ") + ".");
+          return;
+        }
+
+        const nextItems = [];
+
+        for(let i = 1; i < rows.length; i++){
+          const r = rows[i];
+          if(!r || !r.length) continue;
+
+          const player = safeText(r[idxPlayer]);
+          const from = safeText(r[idxFrom]);
+          const to = safeText(r[idxTo]);
+          const type = safeText(r[idxType]);
+          const dateRaw = safeText(r[idxDate]);
+          const dateObj = parseDateCell(dateRaw);
+          const dateDisplay = formatDateDisplay(dateObj);
+
+          if(!player || !from || !to || !type) continue;
+
+          nextItems.push({
+            player,
+            from,
+            to,
+            type,
+            dateRaw,
+            dateObj,
+            dateDisplay
+          });
+        }
+
+        if(!nextItems.length){
+          showMessage("<strong>No transfers found.</strong>");
+          return;
+        }
 
         const oldSig = JSON.stringify(items);
         const newSig = JSON.stringify(nextItems);
 
         items = nextItems;
+
+        hideMessage();
 
         if(oldSig !== newSig || !track.firstChild){
           index = 0;
@@ -611,27 +902,65 @@
         }
       }catch(e){
         console.error("[Transfers Ticker " + VERSION + "]", e);
+        showMessage("<strong>Error:</strong>&nbsp;Feed/parse failed.");
       }
     }
 
-    refresh();
-    refreshTimer = window.setInterval(refresh, opts.refreshMs);
-
-    return {
-      destroy(){
-        destroyed = true;
-        clearCycle();
-        if(refreshTimer) window.clearInterval(refreshTimer);
-      }
+    const onResize = ()=>{
+      if(!items.length) return;
+      clearCycle();
+      renderSingle(items[index]);
+      queueNext();
     };
+
+    try{
+      const ro = new ResizeObserver(onResize);
+      ro.observe(contentCol);
+
+      refresh();
+      refreshTimer = window.setInterval(refresh, opts.refreshMs);
+
+      return {
+        destroy(){
+          destroyed = true;
+          clearCycle();
+          if(refreshTimer) window.clearInterval(refreshTimer);
+          ro.disconnect();
+        }
+      };
+    }catch{
+      window.addEventListener("resize", onResize);
+
+      refresh();
+      refreshTimer = window.setInterval(refresh, opts.refreshMs);
+
+      return {
+        destroy(){
+          destroyed = true;
+          clearCycle();
+          if(refreshTimer) window.clearInterval(refreshTimer);
+          window.removeEventListener("resize", onResize);
+        }
+      };
+    }
   }
 
-  function boot(){
+  function bootOnce(){
     const nodes = document.querySelectorAll("[data-nl-transfers-ticker]");
     nodes.forEach(node => {
       if(node.__nlTransfersTicker) return;
-      node.__nlTransfersTicker = makeWidget(node);
+      try{
+        node.__nlTransfersTicker = makeWidget(node);
+      }catch(e){
+        console.error("[Transfers Ticker " + VERSION + "] boot error", e);
+      }
     });
+  }
+
+  function boot(){
+    bootOnce();
+    const mo = new MutationObserver(()=>{ bootOnce(); });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   if(document.readyState === "loading"){
