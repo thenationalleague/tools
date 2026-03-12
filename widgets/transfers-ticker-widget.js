@@ -1,14 +1,14 @@
-/* Transfers Ticker Widget (v2.6) — Shadow DOM isolated embed
+/* Transfers Ticker Widget (v2.7) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Player | Position | From | To | Type | Date
 
-   v2.6:
-   - Mobile: true finger drag / scrub between cards
-   - Mobile: snap prev/next on release
-   - Freshness badge now subtle superscript style: TODAY / YESTERDAY
-   - Position pill changed to white
-   - Better player-name handling on narrow / landscape phones
+   v2.7:
+   - FIX: auto-scroll restored on mobile + desktop
+   - FIX: mobile finger drag / swipe works without killing auto-cycle
+   - Freshness badge moved back beside transfer type (red pill)
+   - Position pill made much smaller
+   - Rose underlay now black silhouette style and locked to viewport
    - Desktop = vertical swap
    - Mobile = horizontal drag + auto-advance
 */
@@ -16,7 +16,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v2.6";
+  const VERSION = "v2.7";
 
   const DEFAULTS = {
     sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxqHxoahMihnuA/pubhtml",
@@ -357,11 +357,26 @@
   overflow:hidden;
 }
 
+.viewport::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background-image:var(--rose-watermark, none);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:min(240px, 52%);
+  opacity:0.14;
+  pointer-events:none;
+  z-index:0;
+  filter:grayscale(1) brightness(0);
+}
+
 .track{
   position:absolute;
   inset:0;
   will-change:transform;
   transform:translateY(0);
+  z-index:1;
 }
 
 .card{
@@ -372,26 +387,9 @@
   align-items:center;
   gap:18px;
   padding:14px 18px;
-  background:var(--bg);
+  background:transparent;
   position:relative;
   overflow:hidden;
-}
-
-.card::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  background-image:var(--rose-watermark, none);
-  background-repeat:no-repeat;
-  background-position:center;
-  background-size:min(240px, 52%);
-  opacity:0.08;
-  pointer-events:none;
-}
-
-.card > *{
-  position:relative;
-  z-index:1;
 }
 
 .clubSide{
@@ -461,16 +459,6 @@
   text-align:center;
 }
 
-.playerBlock{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:2px;
-  min-width:0;
-  max-width:100%;
-}
-
 .playerRow{
   display:flex;
   align-items:flex-start;
@@ -484,29 +472,21 @@
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width:34px;
-  height:28px;
-  padding:0 8px;
-  border:2px solid var(--border);
+  min-width:24px;
+  height:20px;
+  padding:0 6px;
+  border:1.5px solid var(--border);
   border-radius:999px;
   background:#ffffff;
   color:var(--fg);
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
-  font-size:13px;
+  font-size:10px;
   line-height:1;
-  letter-spacing:0.04em;
+  letter-spacing:0.03em;
   text-transform:uppercase;
   flex:0 0 auto;
-}
-
-.playerNameWrap{
-  min-width:0;
-  display:flex;
-  align-items:flex-start;
-  justify-content:center;
-  flex-wrap:wrap;
-  gap:6px;
+  transform:translateY(3px);
 }
 
 .player{
@@ -521,23 +501,6 @@
   word-break:normal;
   overflow-wrap:anywhere;
   max-width:100%;
-}
-
-.freshnessPill{
-  display:inline-flex;
-  align-items:flex-start;
-  justify-content:center;
-  padding:0 0 0 2px;
-  color:#b00000;
-  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:950;
-  font-size:10px;
-  line-height:1;
-  letter-spacing:0.04em;
-  text-transform:uppercase;
-  vertical-align:super;
-  animation:freshnessPulse 3.2s steps(1, end) infinite;
-  transform:translateY(-2px);
 }
 
 .metaRow{
@@ -574,9 +537,29 @@
   white-space:nowrap;
 }
 
+.freshnessPill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:22px;
+  padding:2px 8px 1px;
+  border:1.5px solid #8f0000;
+  border-radius:999px;
+  background:#c40000;
+  color:#ffffff;
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  font-size:10px;
+  line-height:1;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  animation:freshnessPulse 3.4s steps(1, end) infinite;
+}
+
 @keyframes freshnessPulse{
-  0%, 70%{ opacity:0.95; }
-  71%, 100%{ opacity:0.4; }
+  0%, 75%{ opacity:0.95; }
+  76%, 100%{ opacity:0.48; }
 }
 
 .dateText{
@@ -671,36 +654,24 @@
     gap:10px;
   }
 
-  .playerBlock{
-    align-items:flex-start;
-  }
-
   .playerRow{
     justify-content:flex-start;
     align-items:flex-start;
-    gap:10px;
+    gap:8px;
     width:100%;
   }
 
-  .playerNameWrap{
-    justify-content:flex-start;
-    align-items:flex-start;
-  }
-
   .posPill{
-    min-width:36px;
-    height:30px;
-    font-size:13px;
+    min-width:22px;
+    height:18px;
+    padding:0 5px;
+    font-size:9px;
+    transform:translateY(4px);
   }
 
   .player{
     font-size:28px;
     line-height:0.94;
-  }
-
-  .freshnessPill{
-    font-size:10px;
-    transform:translateY(-1px);
   }
 
   .metaRow{
@@ -710,6 +681,12 @@
 
   .metaTop{
     justify-content:flex-start;
+  }
+
+  .freshnessPill{
+    min-height:20px;
+    padding:2px 7px 1px;
+    font-size:9px;
   }
 
   .dateText{
@@ -764,6 +741,12 @@
     font-size:12px;
     min-height:26px;
     padding:4px 10px 3px;
+  }
+
+  .freshnessPill{
+    font-size:8px;
+    min-height:18px;
+    padding:2px 6px 1px;
   }
 
   .dateText{
@@ -829,9 +812,6 @@
     const middle = document.createElement("div");
     middle.className = "middle";
 
-    const playerBlock = document.createElement("div");
-    playerBlock.className = "playerBlock";
-
     const playerRow = document.createElement("div");
     playerRow.className = "playerRow";
 
@@ -842,23 +822,10 @@
       playerRow.appendChild(posPill);
     }
 
-    const playerNameWrap = document.createElement("div");
-    playerNameWrap.className = "playerNameWrap";
-
     const player = document.createElement("div");
     player.className = "player";
     player.textContent = safeText(item.player);
-    playerNameWrap.appendChild(player);
-
-    if(item.freshnessLabel){
-      const freshnessPill = document.createElement("div");
-      freshnessPill.className = "freshnessPill";
-      freshnessPill.textContent = item.freshnessLabel;
-      playerNameWrap.appendChild(freshnessPill);
-    }
-
-    playerRow.appendChild(playerNameWrap);
-    playerBlock.appendChild(playerRow);
+    playerRow.appendChild(player);
 
     const metaRow = document.createElement("div");
     metaRow.className = "metaRow";
@@ -871,6 +838,13 @@
     typePill.textContent = toAllCaps(item.type);
     metaTop.appendChild(typePill);
 
+    if(item.freshnessLabel){
+      const freshnessPill = document.createElement("div");
+      freshnessPill.className = "freshnessPill";
+      freshnessPill.textContent = item.freshnessLabel;
+      metaTop.appendChild(freshnessPill);
+    }
+
     const dateText = document.createElement("div");
     dateText.className = "dateText";
     dateText.textContent = item.dateDisplay || "";
@@ -878,7 +852,7 @@
     metaRow.appendChild(metaTop);
     if(item.dateDisplay) metaRow.appendChild(dateText);
 
-    middle.appendChild(playerBlock);
+    middle.appendChild(playerRow);
     middle.appendChild(metaRow);
 
     const right = makeClubSide(opts, "To", item.to, "to");
@@ -964,6 +938,8 @@
     let touchDeltaY = 0;
     let touchActive = false;
     let touchDragging = false;
+    let dragAxisLocked = false;
+    let dragAxis = "";
 
     function clearCycle(){
       if(timer){
@@ -983,9 +959,7 @@
     }
 
     function currentCardWidth(){
-      const first = track.firstElementChild;
-      if(first) return first.offsetWidth || contentCol.offsetWidth || 0;
-      return contentCol.offsetWidth || 0;
+      return contentCol.clientWidth || opts.height;
     }
 
     function resetTrack(){
@@ -1007,25 +981,27 @@
 
       const prevIndex = ((index - 1) % items.length + items.length) % items.length;
       const nextIndex = (index + 1) % items.length;
+      const cardW = currentCardWidth();
 
       resetTrack();
       track.style.display = "flex";
       track.style.flexDirection = "row";
       track.style.alignItems = "stretch";
+      track.style.width = (cardW * 3) + "px";
 
       const prevCard = makeCard(opts, items[prevIndex]);
       const currentCard = makeCard(opts, items[index]);
       const nextCard = makeCard(opts, items[nextIndex]);
 
       [prevCard, currentCard, nextCard].forEach(card => {
-        card.style.minWidth = "100%";
-        card.style.width = "100%";
-        card.style.flex = "0 0 100%";
+        card.style.width = cardW + "px";
+        card.style.minWidth = cardW + "px";
+        card.style.maxWidth = cardW + "px";
+        card.style.flex = "0 0 " + cardW + "px";
         track.appendChild(card);
       });
 
-      const cardW = currentCardWidth();
-      track.style.transform = "translateX(-" + cardW + "px)";
+      track.style.transform = "translateX(" + (-cardW) + "px)";
     }
 
     function showMessage(html){
@@ -1045,14 +1021,6 @@
       queueNext();
     }
 
-    function goNext(){
-      goToIndex(index + 1);
-    }
-
-    function goPrev(){
-      goToIndex(index - 1);
-    }
-
     function queueNext(){
       clearCycle();
       if(destroyed || items.length <= 1 || touchDragging) return;
@@ -1068,34 +1036,40 @@
         track.appendChild(makeCard(opts, next));
 
         if(mobile){
+          const cardW = currentCardWidth();
+
           track.style.display = "flex";
           track.style.flexDirection = "row";
           track.style.alignItems = "stretch";
+          track.style.width = (cardW * 2) + "px";
 
           const cards = track.children;
           for(let i = 0; i < cards.length; i++){
-            cards[i].style.minWidth = "100%";
-            cards[i].style.width = "100%";
-            cards[i].style.flex = "0 0 100%";
+            cards[i].style.width = cardW + "px";
+            cards[i].style.minWidth = cardW + "px";
+            cards[i].style.maxWidth = cardW + "px";
+            cards[i].style.flex = "0 0 " + cardW + "px";
           }
 
-          const cardW = currentCardWidth();
+          track.style.transform = "translateX(0px)";
 
           requestAnimationFrame(()=>{
             requestAnimationFrame(()=>{
               track.style.transition = "transform " + opts.animMs + "ms cubic-bezier(0.22, 1, 0.36, 1)";
-              track.style.transform = "translateX(-" + cardW + "px)";
+              track.style.transform = "translateX(" + (-cardW) + "px)";
             });
           });
         }else{
           track.style.display = "block";
           track.style.flexDirection = "";
           track.style.alignItems = "";
+          track.style.width = "";
 
           const cards = track.children;
           for(let i = 0; i < cards.length; i++){
-            cards[i].style.minWidth = "";
             cards[i].style.width = "";
+            cards[i].style.minWidth = "";
+            cards[i].style.maxWidth = "";
             cards[i].style.flex = "";
           }
 
@@ -1113,7 +1087,7 @@
           index = nextIndex;
           renderSingle(items[index]);
           queueNext();
-        }, opts.animMs + 60);
+        }, opts.animMs + 80);
 
       }, opts.holdMs);
     }
@@ -1224,6 +1198,10 @@
     const onResize = ()=>{
       if(!items.length) return;
       clearCycle();
+      touchActive = false;
+      touchDragging = false;
+      dragAxisLocked = false;
+      dragAxis = "";
       renderSingle(items[index]);
       queueNext();
     };
@@ -1239,28 +1217,33 @@
       touchDeltaX = 0;
       touchDeltaY = 0;
       touchActive = true;
-      touchDragging = true;
-
-      clearCycle();
-      renderMobileDragSet();
+      touchDragging = false;
+      dragAxisLocked = false;
+      dragAxis = "";
     }
 
     function onTouchMove(e){
       if(!isMobileStack()) return;
-      if(!touchActive || !touchDragging) return;
+      if(!touchActive) return;
       if(!e.touches || !e.touches.length) return;
 
       const t = e.touches[0];
       touchDeltaX = t.clientX - touchStartX;
       touchDeltaY = t.clientY - touchStartY;
 
-      if(Math.abs(touchDeltaY) > Math.abs(touchDeltaX) + 8){
-        touchActive = false;
-        touchDragging = false;
-        renderSingle(items[index]);
-        queueNext();
-        return;
+      if(!dragAxisLocked){
+        if(Math.abs(touchDeltaX) > 6 || Math.abs(touchDeltaY) > 6){
+          dragAxisLocked = true;
+          dragAxis = Math.abs(touchDeltaX) > Math.abs(touchDeltaY) ? "x" : "y";
+          if(dragAxis === "x"){
+            touchDragging = true;
+            clearCycle();
+            renderMobileDragSet();
+          }
+        }
       }
+
+      if(dragAxis !== "x" || !touchDragging) return;
 
       const cardW = currentCardWidth();
       track.style.transition = "none";
@@ -1269,17 +1252,28 @@
 
     function onTouchEnd(){
       if(!isMobileStack()) return;
-      if(!touchDragging){
-        touchActive = false;
+      if(!touchActive){
+        touchDragging = false;
+        dragAxisLocked = false;
+        dragAxis = "";
         return;
       }
 
+      const wasDragging = touchDragging;
+      const dx = touchDeltaX;
+      const absX = Math.abs(dx);
       const cardW = currentCardWidth();
       const threshold = Math.max(50, cardW * 0.18);
-      const dx = touchDeltaX;
 
       touchActive = false;
       touchDragging = false;
+      dragAxisLocked = false;
+      dragAxis = "";
+
+      if(!wasDragging){
+        queueNext();
+        return;
+      }
 
       if(dx <= -threshold){
         track.style.transition = "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)";
