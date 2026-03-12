@@ -1,23 +1,22 @@
-/* Transfers Ticker Widget (v2.4) — Shadow DOM isolated embed
+/* Transfers Ticker Widget (v2.6) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Player | Position | From | To | Type | Date
 
-   v2.4:
-   - NEW: Position column added (2-letter display, e.g. GK)
-   - NEW: Items older than 31 days are hidden
-   - NEW: Sorted newest first by date; earlier row wins ties
-   - NEW: FLASH badge for today and yesterday items
-   - NEW: Rose watermark underlay
-   - NEW: Better mobile player hierarchy
+   v2.6:
+   - Mobile: true finger drag / scrub between cards
+   - Mobile: snap prev/next on release
+   - Freshness badge now subtle superscript style: TODAY / YESTERDAY
+   - Position pill changed to white
+   - Better player-name handling on narrow / landscape phones
    - Desktop = vertical swap
-   - Mobile = horizontal slide + swipe prev/next
+   - Mobile = horizontal drag + auto-advance
 */
 
 (function(){
   "use strict";
 
-  const VERSION = "v2.4";
+  const VERSION = "v2.6";
 
   const DEFAULTS = {
     sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxqHxoahMihnuA/pubhtml",
@@ -80,18 +79,12 @@
   function normaliseSheetUrlToCsv(url){
     const raw = resolveUrl(url);
     if(!raw) return "";
-
-    if(raw.includes("/pubhtml")){
-      return raw.replace("/pubhtml", "/pub?output=csv");
-    }
-
+    if(raw.includes("/pubhtml")) return raw.replace("/pubhtml", "/pub?output=csv");
     if(raw.includes("/pub?")){
       if(raw.includes("output=csv")) return raw;
       return raw + (raw.includes("?") ? "&" : "?") + "output=csv";
     }
-
     if(raw.includes("output=csv")) return raw;
-
     return raw;
   }
 
@@ -110,18 +103,15 @@
         i++;
         continue;
       }
-
       if(ch === '"'){
         inQuotes = !inQuotes;
         continue;
       }
-
       if(!inQuotes && ch === ","){
         row.push(cur);
         cur = "";
         continue;
       }
-
       if(!inQuotes && ch === "\n"){
         row.push(cur);
         out.push(row);
@@ -129,7 +119,6 @@
         cur = "";
         continue;
       }
-
       if(ch !== "\r") cur += ch;
     }
 
@@ -188,9 +177,11 @@
     return Math.round((today - target) / 86400000);
   }
 
-  function isFlashDate(d){
+  function freshnessLabel(d){
     const diff = dayDiffFromToday(d);
-    return diff === 0 || diff === 1;
+    if(diff === 0) return "Today";
+    if(diff === 1) return "Yesterday";
+    return "";
   }
 
   function normalizePosition(pos){
@@ -216,12 +207,10 @@
       try{
         const res = await fetch(resolveUrl(opts.clubsMeta), { cache: "no-store" });
         if(!res.ok) throw new Error("clubs-meta fetch failed: " + res.status);
-
         const json = await res.json();
         const clubs = Array.isArray(json && json.clubs) ? json.clubs : [];
 
         const map = new Map();
-
         for(const c of clubs){
           if(!c) continue;
           addClubKey(map, c.name, c);
@@ -379,7 +368,7 @@
   width:100%;
   height:var(--h);
   display:grid;
-  grid-template-columns:minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-columns:minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr);
   align-items:center;
   gap:18px;
   padding:14px 18px;
@@ -472,9 +461,19 @@
   text-align:center;
 }
 
+.playerBlock{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  min-width:0;
+  max-width:100%;
+}
+
 .playerRow{
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content:center;
   gap:8px;
   min-width:0;
@@ -490,7 +489,7 @@
   padding:0 8px;
   border:2px solid var(--border);
   border-radius:999px;
-  background:rgba(255,255,255,0.65);
+  background:#ffffff;
   color:var(--fg);
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
@@ -501,16 +500,44 @@
   flex:0 0 auto;
 }
 
+.playerNameWrap{
+  min-width:0;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
 .player{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
   font-size:26px;
   line-height:0.98;
   text-transform:uppercase;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  word-break:normal;
+  overflow-wrap:anywhere;
   max-width:100%;
+}
+
+.freshnessPill{
+  display:inline-flex;
+  align-items:flex-start;
+  justify-content:center;
+  padding:0 0 0 2px;
+  color:#b00000;
+  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  font-weight:950;
+  font-size:10px;
+  line-height:1;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  vertical-align:super;
+  animation:freshnessPulse 3.2s steps(1, end) infinite;
+  transform:translateY(-2px);
 }
 
 .metaRow{
@@ -547,29 +574,9 @@
   white-space:nowrap;
 }
 
-.flashPill{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  min-height:30px;
-  padding:5px 12px 4px;
-  border:2px solid var(--border);
-  border-radius:999px;
-  background:#d00000;
-  color:#ffffff;
-  font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  font-weight:950;
-  font-size:13px;
-  line-height:1;
-  letter-spacing:0.08em;
-  text-transform:uppercase;
-  white-space:nowrap;
-  animation:flashPulse 1s steps(1, end) infinite;
-}
-
-@keyframes flashPulse{
-  0%, 49%{ opacity:1; }
-  50%, 100%{ opacity:0.38; }
+@keyframes freshnessPulse{
+  0%, 70%{ opacity:0.95; }
+  71%, 100%{ opacity:0.4; }
 }
 
 .dateText{
@@ -596,6 +603,16 @@
 
 .msg strong{
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+
+@media (max-width: 980px){
+  .card{
+    grid-template-columns:minmax(0, 1fr) minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+
+  .player{
+    font-size:23px;
+  }
 }
 
 @media (max-width: 768px){
@@ -654,10 +671,20 @@
     gap:10px;
   }
 
+  .playerBlock{
+    align-items:flex-start;
+  }
+
   .playerRow{
     justify-content:flex-start;
     align-items:flex-start;
     gap:10px;
+    width:100%;
+  }
+
+  .playerNameWrap{
+    justify-content:flex-start;
+    align-items:flex-start;
   }
 
   .posPill{
@@ -667,11 +694,13 @@
   }
 
   .player{
-    white-space:normal;
-    overflow:visible;
-    text-overflow:clip;
-    font-size:26px;
-    line-height:0.95;
+    font-size:28px;
+    line-height:0.94;
+  }
+
+  .freshnessPill{
+    font-size:10px;
+    transform:translateY(-1px);
   }
 
   .metaRow{
@@ -716,8 +745,38 @@
   }
 }
 
+@media (max-width: 640px) and (orientation: landscape){
+  .card{
+    padding:12px 12px 14px;
+    gap:10px;
+  }
+
+  .player{
+    font-size:22px;
+    line-height:0.96;
+  }
+
+  .clubName{
+    font-size:15px;
+  }
+
+  .typePill{
+    font-size:12px;
+    min-height:26px;
+    padding:4px 10px 3px;
+  }
+
+  .dateText{
+    font-size:11px;
+  }
+
+  .sideLabel{
+    font-size:10px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce){
-  .track, .flashPill{
+  .track, .freshnessPill{
     transition:none !important;
     animation:none !important;
   }
@@ -770,6 +829,9 @@
     const middle = document.createElement("div");
     middle.className = "middle";
 
+    const playerBlock = document.createElement("div");
+    playerBlock.className = "playerBlock";
+
     const playerRow = document.createElement("div");
     playerRow.className = "playerRow";
 
@@ -780,10 +842,23 @@
       playerRow.appendChild(posPill);
     }
 
+    const playerNameWrap = document.createElement("div");
+    playerNameWrap.className = "playerNameWrap";
+
     const player = document.createElement("div");
     player.className = "player";
     player.textContent = safeText(item.player);
-    playerRow.appendChild(player);
+    playerNameWrap.appendChild(player);
+
+    if(item.freshnessLabel){
+      const freshnessPill = document.createElement("div");
+      freshnessPill.className = "freshnessPill";
+      freshnessPill.textContent = item.freshnessLabel;
+      playerNameWrap.appendChild(freshnessPill);
+    }
+
+    playerRow.appendChild(playerNameWrap);
+    playerBlock.appendChild(playerRow);
 
     const metaRow = document.createElement("div");
     metaRow.className = "metaRow";
@@ -796,13 +871,6 @@
     typePill.textContent = toAllCaps(item.type);
     metaTop.appendChild(typePill);
 
-    if(item.isFlash){
-      const flashPill = document.createElement("div");
-      flashPill.className = "flashPill";
-      flashPill.textContent = "Flash";
-      metaTop.appendChild(flashPill);
-    }
-
     const dateText = document.createElement("div");
     dateText.className = "dateText";
     dateText.textContent = item.dateDisplay || "";
@@ -810,7 +878,7 @@
     metaRow.appendChild(metaTop);
     if(item.dateDisplay) metaRow.appendChild(dateText);
 
-    middle.appendChild(playerRow);
+    middle.appendChild(playerBlock);
     middle.appendChild(metaRow);
 
     const right = makeClubSide(opts, "To", item.to, "to");
@@ -895,6 +963,7 @@
     let touchDeltaX = 0;
     let touchDeltaY = 0;
     let touchActive = false;
+    let touchDragging = false;
 
     function clearCycle(){
       if(timer){
@@ -933,6 +1002,32 @@
       track.appendChild(makeCard(opts, item));
     }
 
+    function renderMobileDragSet(){
+      if(!items.length) return;
+
+      const prevIndex = ((index - 1) % items.length + items.length) % items.length;
+      const nextIndex = (index + 1) % items.length;
+
+      resetTrack();
+      track.style.display = "flex";
+      track.style.flexDirection = "row";
+      track.style.alignItems = "stretch";
+
+      const prevCard = makeCard(opts, items[prevIndex]);
+      const currentCard = makeCard(opts, items[index]);
+      const nextCard = makeCard(opts, items[nextIndex]);
+
+      [prevCard, currentCard, nextCard].forEach(card => {
+        card.style.minWidth = "100%";
+        card.style.width = "100%";
+        card.style.flex = "0 0 100%";
+        track.appendChild(card);
+      });
+
+      const cardW = currentCardWidth();
+      track.style.transform = "translateX(-" + cardW + "px)";
+    }
+
     function showMessage(html){
       msg.style.display = "flex";
       msg.innerHTML = html;
@@ -960,8 +1055,7 @@
 
     function queueNext(){
       clearCycle();
-
-      if(destroyed || items.length <= 1) return;
+      if(destroyed || items.length <= 1 || touchDragging) return;
 
       timer = window.setTimeout(()=>{
         const current = items[index];
@@ -1082,7 +1176,6 @@
 
           const itemDay = startOfLocalDay(dateObj);
           const ageDays = Math.floor((todayStart - itemDay) / 86400000);
-
           if(ageDays > opts.maxAgeDays) continue;
 
           nextItems.push({
@@ -1094,7 +1187,7 @@
             dateRaw,
             dateObj,
             dateDisplay: formatDateDisplay(dateObj),
-            isFlash: isFlashDate(dateObj),
+            freshnessLabel: freshnessLabel(dateObj),
             rowOrder: i
           });
         }
@@ -1114,7 +1207,6 @@
         const newSig = JSON.stringify(nextItems);
 
         items = nextItems;
-
         hideMessage();
 
         if(oldSig !== newSig || !track.firstChild){
@@ -1138,6 +1230,7 @@
 
     function onTouchStart(e){
       if(!isMobileStack()) return;
+      if(!items.length || items.length <= 1) return;
       if(!e.touches || e.touches.length !== 1) return;
 
       const t = e.touches[0];
@@ -1146,32 +1239,76 @@
       touchDeltaX = 0;
       touchDeltaY = 0;
       touchActive = true;
+      touchDragging = true;
+
+      clearCycle();
+      renderMobileDragSet();
     }
 
     function onTouchMove(e){
       if(!isMobileStack()) return;
-      if(!touchActive) return;
+      if(!touchActive || !touchDragging) return;
       if(!e.touches || !e.touches.length) return;
 
       const t = e.touches[0];
       touchDeltaX = t.clientX - touchStartX;
       touchDeltaY = t.clientY - touchStartY;
+
+      if(Math.abs(touchDeltaY) > Math.abs(touchDeltaX) + 8){
+        touchActive = false;
+        touchDragging = false;
+        renderSingle(items[index]);
+        queueNext();
+        return;
+      }
+
+      const cardW = currentCardWidth();
+      track.style.transition = "none";
+      track.style.transform = "translateX(" + (-cardW + touchDeltaX) + "px)";
     }
 
     function onTouchEnd(){
       if(!isMobileStack()) return;
-      if(!touchActive) return;
+      if(!touchDragging){
+        touchActive = false;
+        return;
+      }
 
-      const absX = Math.abs(touchDeltaX);
-      const absY = Math.abs(touchDeltaY);
+      const cardW = currentCardWidth();
+      const threshold = Math.max(50, cardW * 0.18);
+      const dx = touchDeltaX;
 
       touchActive = false;
+      touchDragging = false;
 
-      if(absX < 40) return;
-      if(absX <= absY) return;
+      if(dx <= -threshold){
+        track.style.transition = "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)";
+        track.style.transform = "translateX(" + (-2 * cardW) + "px)";
+        window.setTimeout(()=>{
+          index = (index + 1) % items.length;
+          renderSingle(items[index]);
+          queueNext();
+        }, 260);
+        return;
+      }
 
-      if(touchDeltaX < 0) goNext();
-      else goPrev();
+      if(dx >= threshold){
+        track.style.transition = "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)";
+        track.style.transform = "translateX(0px)";
+        window.setTimeout(()=>{
+          index = ((index - 1) % items.length + items.length) % items.length;
+          renderSingle(items[index]);
+          queueNext();
+        }, 260);
+        return;
+      }
+
+      track.style.transition = "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)";
+      track.style.transform = "translateX(" + (-cardW) + "px)";
+      window.setTimeout(()=>{
+        renderSingle(items[index]);
+        queueNext();
+      }, 220);
     }
 
     contentCol.addEventListener("touchstart", onTouchStart, { passive: true });
