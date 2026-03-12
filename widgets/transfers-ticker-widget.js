@@ -1,14 +1,14 @@
-/* Transfers Ticker Widget (v2.7) — Shadow DOM isolated embed
+/* Transfers Ticker Widget (v2.8) — Shadow DOM isolated embed
    Feed: Google Sheets published CSV
    Sheet columns:
    Player | Position | From | To | Type | Date
 
-   v2.7:
+   v2.8:
    - FIX: auto-scroll restored on mobile + desktop
    - FIX: mobile finger drag / swipe works without killing auto-cycle
-   - Freshness badge moved back beside transfer type (red pill)
+   - Freshness badge smaller, smoother pulse, sits beside transfer type
    - Position pill made much smaller
-   - Rose underlay now black silhouette style and locked to viewport
+   - Rose underlay now black silhouette style, locked to viewport, wider on wide view, more transparent
    - Desktop = vertical swap
    - Mobile = horizontal drag + auto-advance
 */
@@ -16,7 +16,7 @@
 (function(){
   "use strict";
 
-  const VERSION = "v2.7";
+  const VERSION = "v2.8";
 
   const DEFAULTS = {
     sheet: "https://docs.google.com/spreadsheets/d/e/2PACX-1vScH-aEGMzzUMsxO4GkWK-mtoNGVUrQn_Lfz3LgnoH-1Uf3D7R-sxREmJsRy3DUfKOxqHxoahMihnuA/pubhtml",
@@ -364,8 +364,8 @@
   background-image:var(--rose-watermark, none);
   background-repeat:no-repeat;
   background-position:center;
-  background-size:min(240px, 52%);
-  opacity:0.14;
+  background-size:min(520px, 86%);
+  opacity:0.075;
   pointer-events:none;
   z-index:0;
   filter:grayscale(1) brightness(0);
@@ -541,25 +541,26 @@
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-height:22px;
-  padding:2px 8px 1px;
-  border:1.5px solid #8f0000;
+  min-height:18px;
+  padding:1px 6px 0;
+  border:1px solid #8f0000;
   border-radius:999px;
   background:#c40000;
   color:#ffffff;
   font-family:"carbona-extrabold","carbona-variable",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   font-weight:950;
-  font-size:10px;
+  font-size:8px;
   line-height:1;
-  letter-spacing:0.05em;
+  letter-spacing:0.04em;
   text-transform:uppercase;
   white-space:nowrap;
-  animation:freshnessPulse 3.4s steps(1, end) infinite;
+  animation:freshnessPulse 2.8s ease-in-out infinite;
 }
 
 @keyframes freshnessPulse{
-  0%, 75%{ opacity:0.95; }
-  76%, 100%{ opacity:0.48; }
+  0%{ opacity:0.9; }
+  50%{ opacity:0.4; }
+  100%{ opacity:0.9; }
 }
 
 .dateText{
@@ -684,9 +685,9 @@
   }
 
   .freshnessPill{
-    min-height:20px;
-    padding:2px 7px 1px;
-    font-size:9px;
+    min-height:16px;
+    padding:1px 5px 0;
+    font-size:8px;
   }
 
   .dateText{
@@ -744,9 +745,9 @@
   }
 
   .freshnessPill{
-    font-size:8px;
-    min-height:18px;
-    padding:2px 6px 1px;
+    font-size:7px;
+    min-height:14px;
+    padding:1px 4px 0;
   }
 
   .dateText{
@@ -973,6 +974,7 @@
       track.style.display = "block";
       track.style.flexDirection = "";
       track.style.alignItems = "";
+      track.style.width = "";
       track.appendChild(makeCard(opts, item));
     }
 
@@ -1011,14 +1013,6 @@
 
     function hideMessage(){
       msg.style.display = "none";
-    }
-
-    function goToIndex(newIndex){
-      if(!items.length) return;
-      index = ((newIndex % items.length) + items.length) % items.length;
-      clearCycle();
-      renderSingle(items[index]);
-      queueNext();
     }
 
     function queueNext(){
@@ -1261,7 +1255,6 @@
 
       const wasDragging = touchDragging;
       const dx = touchDeltaX;
-      const absX = Math.abs(dx);
       const cardW = currentCardWidth();
       const threshold = Math.max(50, cardW * 0.18);
 
