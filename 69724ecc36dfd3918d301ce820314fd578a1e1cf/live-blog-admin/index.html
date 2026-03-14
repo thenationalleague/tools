@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v4.1</title>
+<title>Live Blog Admin v4.2</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -289,8 +289,11 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   /* mobile subs panel */
   .mobile-subs{ display:flex; }
 
-  /* feed panel takes full height minus topbar+bottombar */
-  .feed-col{ min-height:calc(100vh - var(--topbar-h) - var(--bottombar-h)); }
+/* mobile panels — hide by default, show when active */
+@media (max-width:768px){
+  .mobile-panel{ display:none !important; }
+  .mobile-panel.is-active{ display:flex !important; flex-direction:column; flex:1 1 auto; }
+}
 
   /* mobile panels */
   .mobile-panel{ display:none; flex-direction:column; flex:1 1 auto; }
@@ -312,12 +315,21 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   .sheet-backdrop{ display:none !important; }
   .mobile-panel{ display:flex !important; flex-direction:column; flex:1 1 auto; }
 }
+
+/* ensure panels stack correctly */
+#panelFeed, #panelSubs{
+  width:100%;
+}
+
+#panelSubs .mobile-subs{
+  min-height:calc(100vh - var(--topbar-h) - var(--bottombar-h));
+}
 </style>
 </head>
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v4.1</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v4.2</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -867,7 +879,16 @@ function normaliseSubs(items){
 }
 
 async function loadSubs(){ const data=await apiGet({action:'listSubmissions'}); state.submissions=normaliseSubs(Array.isArray(data.items)?data.items:[]); renderSubRail(); renderFeed(); }
-async function reloadAll(){ setStatus('Loading…'); await Promise.all([loadPosts(),loadSubs()]); setStatus('Loaded.','success'); }
+async function reloadAll(){
+  setStatus('Loading…');
+  try{
+    await Promise.all([loadPosts(), loadSubs()]);
+    setStatus('Loaded.','success');
+  }catch(err){
+    handleErr(err);
+    dom.feedEl.innerHTML='<div class="feed-empty">Could not load — check API URL and deployment.</div>';
+  }
+}
 
 /* ── RTE ── */
 function bindRTEForRef(ref){
