@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Blog Admin</title>
+
+<link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+
+<style>
+
+body{
+font-family:"carbona-variable",system-ui;
+margin:0;
+background:#f5f5f5;
+}
+
+#wrap{
+display:grid;
+grid-template-columns:320px 1fr;
+height:100vh;
+}
+
+#list{
+background:#111;
+color:#fff;
+overflow:auto;
+}
+
+.post{
+padding:12px;
+border-bottom:1px solid #333;
+cursor:pointer;
+}
+
+.post:hover{
+background:#222;
+}
+
+.post.active{
+background:#9e0000;
+}
+
+#editor{
+padding:20px;
+overflow:auto;
+background:#fff;
+}
+
+label{
+display:block;
+font-size:12px;
+margin-top:10px;
+}
+
+input,textarea,select{
+width:100%;
+padding:6px;
+font-size:14px;
+margin-top:4px;
+}
+
+textarea{
+height:120px;
+}
+
+.row{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px;
+}
+
+button{
+margin-top:10px;
+padding:10px 14px;
+border:0;
+background:#9e0000;
+color:#fff;
+cursor:pointer;
+}
+
+button.secondary{
+background:#555;
+}
+
+button.delete{
+background:#c40000;
+}
+
+#toolbar{
+margin-bottom:6px;
+}
+
+#toolbar button{
+background:#eee;
+color:#000;
+padding:4px 8px;
+margin-right:4px;
+}
+
+</style>
+</head>
+
+
+<body>
+
+<div id="wrap">
+
+<div id="list"></div>
+
+<div id="editor">
+
+<h2>Post Editor</h2>
+
+<label>ID</label>
+<input id="id">
+
+<div class="row">
+
+<div>
+<label>Published</label>
+<select id="published">
+<option>TRUE</option>
+<option>FALSE</option>
+</select>
+</div>
+
+<div>
+<label>Pinned</label>
+<select id="pinned">
+<option>FALSE</option>
+<option>TRUE</option>
+</select>
+</div>
+
+</div>
+
+<label>Event</label>
+<input id="event">
+
+<label>Team</label>
+<input id="team">
+
+<div class="row">
+
+<div>
+<label>Match time</label>
+<input id="match_time">
+</div>
+
+<div>
+<label>Clock time</label>
+<input id="clock_time">
+</div>
+
+</div>
+
+<div class="row">
+
+<div>
+<label>Home</label>
+<input id="home">
+</div>
+
+<div>
+<label>Away</label>
+<input id="away">
+</div>
+
+</div>
+
+<div class="row">
+
+<div>
+<label>Home pens</label>
+<input id="home_pens">
+</div>
+
+<div>
+<label>Away pens</label>
+<input id="away_pens">
+</div>
+
+</div>
+
+<label>Copy</label>
+
+<div id="toolbar">
+<button onclick="wrapTag('strong')">B</button>
+<button onclick="wrapTag('em')">I</button>
+</div>
+
+<textarea id="copy_html"></textarea>
+
+<label>Media type</label>
+<input id="media_type">
+
+<label>Media URL</label>
+<input id="media_url">
+
+<div>
+
+<button onclick="savePost()">Save</button>
+<button class="secondary" onclick="newPost()">New</button>
+<button class="delete" onclick="deletePost()">Delete</button>
+
+</div>
+
+</div>
+
+</div>
+
+<script>
+
+const API="YOUR_SCRIPT_URL";
+
+let POSTS=[]
+
+async function loadPosts(){
+
+const res=await fetch(API+"?action=listPosts")
+const data=await res.json()
+
+POSTS=data.items||[]
+
+const list=document.getElementById("list")
+list.innerHTML=""
+
+POSTS.forEach(p=>{
+
+const div=document.createElement("div")
+div.className="post"
+
+div.innerHTML=
+`<div>${p.team||""}</div>
+<div style="font-size:12px;opacity:.7">${p.event}</div>`
+
+div.onclick=()=>loadPost(p)
+
+list.appendChild(div)
+
+})
+
+}
+
+function loadPost(p){
+
+for(const k in p){
+
+const el=document.getElementById(k)
+
+if(el) el.value=p[k]
+
+}
+
+}
+
+function newPost(){
+
+document.querySelectorAll("#editor input,#editor textarea").forEach(el=>{
+el.value=""
+})
+
+}
+
+function wrapTag(tag){
+
+const textarea=document.getElementById("copy_html")
+
+const start=textarea.selectionStart
+const end=textarea.selectionEnd
+
+const text=textarea.value
+
+const selected=text.substring(start,end)
+
+const replacement=`<${tag}>${selected}</${tag}>`
+
+textarea.value=text.substring(0,start)+replacement+text.substring(end)
+
+}
+
+async function savePost(){
+
+const data={action:"savePost"}
+
+document.querySelectorAll("#editor input,#editor textarea,#editor select").forEach(el=>{
+data[el.id]=el.value
+})
+
+await fetch(API,{
+method:"POST",
+body:JSON.stringify(data)
+})
+
+loadPosts()
+
+}
+
+async function deletePost(){
+
+const id=document.getElementById("id").value
+
+if(!id) return
+
+await fetch(API,{
+method:"POST",
+body:JSON.stringify({
+action:"deletePost",
+id:id
+})
+})
+
+newPost()
+loadPosts()
+
+}
+
+loadPosts()
+
+</script>
+
+</body>
+</html>
