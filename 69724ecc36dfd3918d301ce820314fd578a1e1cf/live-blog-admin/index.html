@@ -3,22 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin (v2.0)</title>
+<title>Live Blog Admin (v2.1)</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
-/* Live Blog Admin v2.0 */
+/* Live Blog Admin v2.1 */
 :root{
   --red:#9e0000;
   --blue:#223b7c;
-  --bg:#f4f5f7;
+  --bg:#f0f2f5;
   --panel:#ffffff;
   --text:#111111;
   --muted:#6b7280;
   --line:#d9dee5;
   --dark:#111111;
+  --dark2:#1c1c1c;
   --success:#0a7d2a;
   --danger:#b00020;
-  --sidebar-w:300px;
+  --sidebar-w:320px;
+  --topbar-h:52px;
 }
 
 *{ box-sizing:border-box; margin:0; padding:0; }
@@ -32,381 +34,371 @@ html,body{
   line-height:1.45;
 }
 
-/* ── LAYOUT ── */
-.admin{
-  display:grid;
-  grid-template-columns:var(--sidebar-w) 1fr;
-  grid-template-rows:auto 1fr;
-  grid-template-areas:
-    "topbar topbar"
-    "sidebar main";
-  min-height:100vh;
-}
-
 /* ── TOPBAR ── */
-.admin__topbar{
-  grid-area:topbar;
+.topbar{
+  position:fixed;
+  top:0; left:0; right:0;
+  height:var(--topbar-h);
   background:var(--dark);
   color:#fff;
-  padding:12px 16px;
   display:flex;
   align-items:center;
   justify-content:space-between;
+  padding:0 16px;
   gap:12px;
   border-bottom:2px solid var(--red);
+  z-index:100;
 }
 
-.admin__brand{
-  font-size:.9rem;
+.topbar__brand{
+  font-size:.88rem;
   font-weight:900;
   letter-spacing:.06em;
   text-transform:uppercase;
-}
-
-.admin__topbar-right{
   display:flex;
   align-items:center;
   gap:10px;
 }
 
-.admin__status{
-  font-size:.8rem;
-  color:rgba(255,255,255,.6);
-  min-height:18px;
+.topbar__version{
+  font-size:.68rem;
+  font-weight:400;
+  opacity:.35;
 }
 
-.admin__status.is-error{ color:#f87171; font-weight:700; }
-.admin__status.is-success{ color:#4ade80; font-weight:700; }
+.topbar__right{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.topbar__status{
+  font-size:.78rem;
+  color:rgba(255,255,255,.55);
+  min-width:120px;
+  text-align:right;
+}
+
+.topbar__status.is-error{ color:#f87171; font-weight:700; }
+.topbar__status.is-success{ color:#4ade80; font-weight:700; }
+
+/* ── LAYOUT ── */
+.layout{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) 1fr;
+  min-height:100vh;
+  padding-top:var(--topbar-h);
+}
 
 /* ── SIDEBAR ── */
-.admin__sidebar{
-  grid-area:sidebar;
-  background:var(--dark);
-  color:#fff;
+.sidebar{
+  background:var(--dark2);
+  border-right:1px solid #000;
   display:flex;
   flex-direction:column;
-  border-right:1px solid #222;
+  height:calc(100vh - var(--topbar-h));
+  position:sticky;
+  top:var(--topbar-h);
   overflow:hidden;
 }
 
-.admin__sidebar-tabs{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  border-bottom:1px solid #333;
-  flex:0 0 auto;
-}
-
-.admin__tab{
-  appearance:none;
-  border:0;
-  background:transparent;
-  color:rgba(255,255,255,.5);
-  font:inherit;
-  font-size:.72rem;
-  font-weight:900;
-  letter-spacing:.06em;
-  text-transform:uppercase;
-  padding:10px 8px;
-  cursor:pointer;
-  border-bottom:2px solid transparent;
-  transition:color .15s, border-color .15s;
-}
-
-.admin__tab.is-active{
-  color:#fff;
-  border-bottom-color:var(--red);
-}
-
-.admin__sidebar-actions{
+.sidebar__actions{
   padding:10px;
-  border-bottom:1px solid #222;
-  flex:0 0 auto;
+  border-bottom:1px solid #2a2a2a;
+  display:flex;
+  gap:8px;
+  flex-shrink:0;
 }
 
-.admin__list-wrap{
+.sidebar__count{
+  padding:6px 12px;
+  font-size:.68rem;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,.3);
+  border-bottom:1px solid #2a2a2a;
+  flex-shrink:0;
+}
+
+.sidebar__list{
   flex:1 1 auto;
   overflow-y:auto;
-}
-
-.admin__list-wrap::-webkit-scrollbar{ width:4px; }
-.admin__list-wrap::-webkit-scrollbar-thumb{ background:#333; border-radius:999px; }
-
-.admin__post-list,
-.admin__sub-list{
   list-style:none;
 }
 
-.admin__post-item,
-.admin__sub-item{
-  padding:10px 12px;
+.sidebar__list::-webkit-scrollbar{ width:3px; }
+.sidebar__list::-webkit-scrollbar-thumb{ background:#333; border-radius:999px; }
+
+/* ── MINI CARD ── */
+.mini-card{
   border-bottom:1px solid #1a1a1a;
   cursor:pointer;
+  transition:background .12s;
   position:relative;
 }
 
-.admin__post-item:hover{ background:#1a1a1a; }
-.admin__post-item.is-active{ background:#9e0000; }
-.admin__post-item.is-deleted{ opacity:.4; }
+.mini-card:hover{ background:#242424; }
+.mini-card.is-active{ background:rgba(158,0,0,.35); border-left:3px solid var(--red); }
+.mini-card.is-deleted{ opacity:.35; }
 
-.admin__post-item-event{
-  font-size:.68rem;
-  font-weight:900;
-  letter-spacing:.06em;
-  text-transform:uppercase;
-  color:rgba(255,255,255,.5);
-  margin:0 0 3px;
-}
-
-.admin__post-item.is-active .admin__post-item-event{
-  color:rgba(255,255,255,.7);
-}
-
-.admin__post-item-team{
-  font-size:.88rem;
-  font-weight:900;
-  color:#fff;
-  line-height:1.1;
-  margin:0 0 4px;
-}
-
-.admin__post-item-meta{
-  font-size:.7rem;
-  color:rgba(255,255,255,.45);
-}
-
-.admin__post-item-pills{
+.mini-card__head{
+  padding:8px 10px 6px;
+  background:var(--card-bg, #223b7c);
+  border-bottom:2px solid var(--card-border, #9e0000);
   display:flex;
-  flex-wrap:wrap;
-  gap:4px;
-  margin:5px 0 0;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:8px;
 }
 
-.admin__pill{
+.mini-card__head-left{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0;
+  flex:1 1 auto;
+}
+
+.mini-card__time{
   display:inline-flex;
   align-items:center;
-  min-height:18px;
+  min-height:20px;
   padding:0 7px;
   border-radius:999px;
+  background:rgba(255,255,255,.15);
   font-size:.62rem;
   font-weight:900;
   letter-spacing:.05em;
   text-transform:uppercase;
-  background:rgba(255,255,255,.1);
-  color:rgba(255,255,255,.7);
-}
-
-.admin__pill--live{ background:rgba(0,160,60,.25); color:#4ade80; }
-.admin__pill--deleted{ background:rgba(180,0,0,.25); color:#f87171; }
-.admin__pill--pinned{ background:rgba(216,162,29,.2); color:#fbbf24; }
-
-.admin__sub-item{
-  cursor:default;
-  padding:10px 12px;
-}
-
-.admin__sub-item-name{
-  font-size:.84rem;
-  font-weight:900;
   color:#fff;
-  margin:0 0 3px;
+  white-space:nowrap;
+  flex-shrink:0;
 }
 
-.admin__sub-item-time{
-  font-size:.7rem;
-  color:rgba(255,255,255,.4);
-  margin:0 0 6px;
-}
-
-.admin__sub-item-note{
+.mini-card__team{
   font-size:.8rem;
-  color:rgba(255,255,255,.7);
-  white-space:pre-wrap;
-  word-break:break-word;
-  margin:0 0 8px;
-  max-height:80px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.02em;
+  color:#fff;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.mini-card__event{
+  font-size:.62rem;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,.6);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.mini-card__score{
+  display:inline-flex;
+  align-items:center;
+  min-height:22px;
+  padding:0 8px;
+  border-radius:999px;
+  background:#fff;
+  color:#111;
+  font-size:.72rem;
+  font-weight:900;
+  letter-spacing:.04em;
+  white-space:nowrap;
+  flex-shrink:0;
+}
+
+.mini-card__body{
+  padding:6px 10px 8px;
+}
+
+.mini-card__copy{
+  font-size:.74rem;
+  color:rgba(255,255,255,.55);
+  line-height:1.4;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
   overflow:hidden;
 }
 
-.admin__sub-item-actions{
+.mini-card__pills{
   display:flex;
-  gap:6px;
+  gap:4px;
+  margin:5px 0 0;
+  flex-wrap:wrap;
+}
+
+.mpill{
+  display:inline-flex;
+  align-items:center;
+  min-height:16px;
+  padding:0 6px;
+  border-radius:999px;
+  font-size:.58rem;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  background:rgba(255,255,255,.08);
+  color:rgba(255,255,255,.5);
+}
+
+.mpill--live{ background:rgba(0,160,60,.2); color:#4ade80; }
+.mpill--draft{ background:rgba(255,255,255,.06); color:rgba(255,255,255,.35); }
+.mpill--deleted{ background:rgba(180,0,0,.25); color:#f87171; }
+.mpill--pinned{ background:rgba(216,162,29,.18); color:#fbbf24; }
+
+.list-empty{
+  padding:24px 14px;
+  text-align:center;
+  font-size:.78rem;
+  color:rgba(255,255,255,.25);
 }
 
 /* ── MAIN ── */
-.admin__main{
-  grid-area:main;
+.main{
   display:grid;
-  grid-template-columns:1fr 340px;
-  gap:0;
-  overflow:hidden;
-  height:calc(100vh - 50px);
+  grid-template-columns:1fr 360px;
+  min-height:calc(100vh - var(--topbar-h));
+  align-items:start;
 }
 
-.admin__editor-wrap{
-  overflow-y:auto;
+.editor-col{
   padding:16px;
+  min-width:0;
 }
 
-.admin__editor-wrap::-webkit-scrollbar{ width:4px; }
-.admin__editor-wrap::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
-
-.admin__preview-wrap{
+.preview-col{
+  padding:16px;
   border-left:1px solid var(--line);
-  background:#f0f2f5;
+  min-height:calc(100vh - var(--topbar-h));
+  position:sticky;
+  top:var(--topbar-h);
+  height:calc(100vh - var(--topbar-h));
   overflow-y:auto;
-  padding:16px;
-  display:flex;
-  flex-direction:column;
-  gap:12px;
 }
 
-.admin__preview-wrap::-webkit-scrollbar{ width:4px; }
-.admin__preview-wrap::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
+.preview-col::-webkit-scrollbar{ width:3px; }
+.preview-col::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
 
-.admin__preview-label{
-  font-size:.68rem;
-  font-weight:900;
-  letter-spacing:.06em;
-  text-transform:uppercase;
-  color:var(--muted);
-  margin:0 0 8px;
-}
-
-/* ── EDITOR CARD ── */
-.editor-card{
+/* ── EDITOR SECTIONS ── */
+.esec{
   background:var(--panel);
   border:1px solid var(--line);
-  border-radius:16px;
-  padding:16px;
+  border-radius:14px;
+  padding:14px;
   margin:0 0 12px;
 }
 
-.editor-card__title{
-  font-size:.72rem;
+.esec__title{
+  font-size:.66rem;
   font-weight:900;
-  letter-spacing:.06em;
+  letter-spacing:.07em;
   text-transform:uppercase;
   color:var(--muted);
+  padding:0 0 10px;
   margin:0 0 12px;
-  padding:0 0 8px;
   border-bottom:1px solid var(--line);
 }
 
-.editor-grid{
+.egrid{
   display:grid;
   gap:10px;
 }
 
-.editor-grid--2{
-  grid-template-columns:1fr 1fr;
-}
+.egrid--2{ grid-template-columns:1fr 1fr; }
+.egrid--3{ grid-template-columns:1fr 1fr 1fr; }
+.egrid--4{ grid-template-columns:1fr 1fr 1fr 1fr; }
 
-.editor-grid--3{
-  grid-template-columns:1fr 1fr 1fr;
-}
-
-.editor-field{
+.efield{
   display:grid;
   gap:4px;
 }
 
-.editor-label{
-  font-size:.68rem;
+.elabel{
+  font-size:.66rem;
   font-weight:900;
   letter-spacing:.05em;
   text-transform:uppercase;
   color:#374151;
 }
 
-.editor-input,
-.editor-textarea,
-.editor-select{
+.einput,
+.eselect,
+.etextarea{
   width:100%;
   border:1px solid #cfd6de;
-  border-radius:10px;
+  border-radius:9px;
   background:#fff;
   color:#111;
   font:inherit;
-  font-size:.88rem;
+  font-size:.86rem;
   padding:8px 10px;
   outline:none;
   transition:border-color .15s, box-shadow .15s;
 }
 
-.editor-input:focus,
-.editor-textarea:focus,
-.editor-select:focus{
+.einput:focus,
+.eselect:focus,
+.etextarea:focus{
   border-color:var(--blue);
   box-shadow:0 0 0 3px rgba(34,59,124,.1);
 }
 
-.editor-textarea{
-  min-height:120px;
-  resize:vertical;
-  font-size:.85rem;
-  line-height:1.5;
+/* combobox wrapper */
+.combo{
+  position:relative;
 }
 
-/* ── RICH TEXT TOOLBAR ── */
-.richtext-wrap{
+.combo__input{
+  width:100%;
   border:1px solid #cfd6de;
-  border-radius:10px;
-  overflow:hidden;
+  border-radius:9px;
+  background:#fff;
+  color:#111;
+  font:inherit;
+  font-size:.86rem;
+  padding:8px 10px;
+  outline:none;
   transition:border-color .15s, box-shadow .15s;
 }
 
-.richtext-wrap:focus-within{
+.combo__input:focus{
   border-color:var(--blue);
   box-shadow:0 0 0 3px rgba(34,59,124,.1);
 }
 
-.richtext-toolbar{
-  display:flex;
-  gap:2px;
-  padding:6px 8px;
-  background:#f8f9fb;
-  border-bottom:1px solid #e8ecf2;
-}
-
-.richtext-btn{
-  appearance:none;
-  border:0;
-  background:transparent;
-  border-radius:6px;
-  padding:4px 8px;
-  cursor:pointer;
-  font:inherit;
-  font-size:.78rem;
-  font-weight:700;
-  color:#374151;
-  line-height:1;
-  transition:background .12s;
-}
-
-.richtext-btn:hover{ background:#e8ecf2; }
-.richtext-btn.is-active{ background:#e8ecf2; color:var(--blue); }
-
-.richtext-btn--b{ font-weight:900; }
-.richtext-btn--i{ font-style:italic; }
-
-.richtext-editor{
-  min-height:120px;
-  padding:10px 12px;
-  outline:none;
-  font-size:.88rem;
-  line-height:1.55;
+.combo__list{
+  position:absolute;
+  top:calc(100% + 3px);
+  left:0; right:0;
   background:#fff;
-  color:#111;
+  border:1px solid var(--blue);
+  border-radius:9px;
+  box-shadow:0 8px 20px rgba(0,0,0,.1);
+  z-index:50;
+  overflow:hidden;
+  max-height:220px;
+  overflow-y:auto;
+  display:none;
 }
 
-.richtext-editor:empty::before{
-  content:attr(data-placeholder);
-  color:#aaa;
-  pointer-events:none;
+.combo__list.is-open{ display:block; }
+
+.combo__opt{
+  padding:8px 12px;
+  font-size:.84rem;
+  cursor:pointer;
+  transition:background .1s;
 }
 
-.richtext-editor p{ margin:0 0 .6em; }
-.richtext-editor p:last-child{ margin-bottom:0; }
+.combo__opt:hover,
+.combo__opt.is-focused{ background:#eef2f7; }
 
 /* ── TOGGLE ── */
 .toggle-row{
@@ -414,31 +406,30 @@ html,body{
   align-items:center;
   justify-content:space-between;
   gap:12px;
-  padding:10px 14px;
-  border-radius:10px;
+  padding:10px 12px;
+  border-radius:9px;
   background:#f8f9fb;
   border:1px solid var(--line);
 }
 
-.toggle-label{
+.toggle-label-wrap .toggle-label{
   font-size:.84rem;
   font-weight:700;
   color:#111;
 }
 
-.toggle-label small{
+.toggle-label-wrap small{
   display:block;
-  font-size:.72rem;
-  font-weight:400;
+  font-size:.7rem;
   color:var(--muted);
   margin:2px 0 0;
 }
 
 .toggle{
   position:relative;
-  width:44px;
-  height:24px;
-  flex:0 0 auto;
+  width:42px;
+  height:22px;
+  flex-shrink:0;
 }
 
 .toggle input{
@@ -448,7 +439,7 @@ html,body{
   position:absolute;
 }
 
-.toggle-track{
+.ttrack{
   position:absolute;
   inset:0;
   border-radius:999px;
@@ -457,14 +448,12 @@ html,body{
   transition:background .2s;
 }
 
-.toggle input:checked + .toggle-track{ background:var(--blue); }
+.toggle input:checked + .ttrack{ background:var(--blue); }
 
-.toggle-thumb{
+.tthumb{
   position:absolute;
-  top:3px;
-  left:3px;
-  width:18px;
-  height:18px;
+  top:3px; left:3px;
+  width:16px; height:16px;
   border-radius:50%;
   background:#fff;
   pointer-events:none;
@@ -472,7 +461,74 @@ html,body{
   box-shadow:0 1px 3px rgba(0,0,0,.2);
 }
 
-.toggle input:checked ~ .toggle-thumb{ transform:translateX(20px); }
+.toggle input:checked ~ .tthumb{ transform:translateX(20px); }
+
+/* ── RICHTEXT ── */
+.rte-wrap{
+  border:1px solid #cfd6de;
+  border-radius:9px;
+  overflow:hidden;
+  transition:border-color .15s, box-shadow .15s;
+}
+
+.rte-wrap:focus-within{
+  border-color:var(--blue);
+  box-shadow:0 0 0 3px rgba(34,59,124,.1);
+}
+
+.rte-bar{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  padding:5px 8px;
+  background:#f8f9fb;
+  border-bottom:1px solid #e8ecf2;
+}
+
+.rte-btn{
+  appearance:none;
+  border:0;
+  background:transparent;
+  border-radius:5px;
+  padding:4px 8px;
+  cursor:pointer;
+  font:inherit;
+  font-size:.78rem;
+  color:#374151;
+  line-height:1;
+  transition:background .1s;
+}
+
+.rte-btn:hover{ background:#e8ecf2; }
+.rte-btn.is-on{ background:#dbeafe; color:var(--blue); }
+.rte-btn--b{ font-weight:900; }
+.rte-btn--i{ font-style:italic; }
+
+.rte-sep{
+  width:1px;
+  height:16px;
+  background:#d9dee5;
+  margin:0 3px;
+}
+
+.rte-editor{
+  min-height:100px;
+  padding:10px 12px;
+  outline:none;
+  font-size:.88rem;
+  line-height:1.6;
+  background:#fff;
+  color:#111;
+}
+
+.rte-editor:empty::before{
+  content:attr(data-ph);
+  color:#bbb;
+  pointer-events:none;
+}
+
+.rte-editor p{ margin:0 0 .5em; }
+.rte-editor p:last-child{ margin:0; }
 
 /* ── BUTTONS ── */
 .btn{
@@ -492,11 +548,11 @@ html,body{
   transition:filter .15s, opacity .15s;
 }
 
-.btn:hover{ filter:brightness(.92); }
-.btn:disabled{ opacity:.5; cursor:default; filter:none; }
+.btn:hover:not(:disabled){ filter:brightness(.9); }
+.btn:disabled{ opacity:.45; cursor:default; }
 
-.btn--sm{ min-height:32px; padding:0 12px; font-size:.7rem; }
-.btn--md{ min-height:38px; padding:0 16px; font-size:.76rem; }
+.btn--sm{ min-height:30px; padding:0 12px; font-size:.68rem; }
+.btn--md{ min-height:36px; padding:0 14px; font-size:.74rem; }
 .btn--lg{ min-height:42px; padding:0 20px; font-size:.8rem; }
 
 .btn--red{ background:var(--red); color:#fff; }
@@ -505,39 +561,48 @@ html,body{
 .btn--ghost{ background:#eef2f7; color:#111; }
 .btn--danger{ background:var(--danger); color:#fff; }
 .btn--success{ background:var(--success); color:#fff; }
+.btn--white{ background:#fff; color:#111; border:1px solid var(--line); }
 
 .btn-row{
   display:flex;
   flex-wrap:wrap;
   gap:8px;
-  margin:14px 0 0;
+  margin:12px 0 0;
 }
 
-/* ── PREVIEW CARD ── */
-.preview-card{
+/* ── PREVIEW ── */
+.preview-label{
+  font-size:.66rem;
+  font-weight:900;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin:0 0 10px;
+}
+
+.pcard{
   border-radius:16px;
   overflow:hidden;
   border:1px solid var(--line);
-  background:#fff;
-  box-shadow:0 4px 16px rgba(0,0,0,.05);
+  box-shadow:0 4px 20px rgba(0,0,0,.07);
 }
 
-.preview-card__head{
-  padding:10px 12px;
+.pcard__head{
+  padding:11px 13px;
   color:#fff;
-  background:var(--blue);
-  border-bottom:3px solid var(--red);
+  background:var(--card-bg, #223b7c);
+  border-bottom:3px solid var(--card-border, #9e0000);
 }
 
-.preview-card__meta{
+.pcard__row1{
   display:flex;
   align-items:center;
   gap:8px;
-  margin:0 0 4px;
+  margin:0 0 5px;
   flex-wrap:wrap;
 }
 
-.preview-card__chip{
+.pcard__chip{
   display:inline-flex;
   align-items:center;
   gap:5px;
@@ -549,9 +614,10 @@ html,body{
   font-weight:900;
   letter-spacing:.05em;
   text-transform:uppercase;
+  white-space:nowrap;
 }
 
-.preview-card__score{
+.pcard__score{
   display:inline-flex;
   align-items:center;
   min-height:28px;
@@ -559,226 +625,333 @@ html,body{
   border-radius:999px;
   background:#fff;
   color:#111;
-  font-size:.84rem;
+  font-size:.88rem;
   font-weight:900;
   letter-spacing:.04em;
 }
 
-.preview-card__team{
+.pcard__team{
   font-size:.95rem;
   font-weight:900;
   text-transform:uppercase;
   letter-spacing:.02em;
 }
 
-.preview-card__event{
-  font-size:.7rem;
+.pcard__event{
+  font-size:.68rem;
   font-weight:900;
-  letter-spacing:.06em;
+  letter-spacing:.07em;
   text-transform:uppercase;
-  opacity:.85;
-  margin:2px 0 0;
+  opacity:.8;
+  margin:3px 0 0;
 }
 
-.preview-card__body{
+.pcard__body{
   padding:12px 14px;
   font-size:.88rem;
+  line-height:1.6;
+  background:#fff;
   color:#111;
-  line-height:1.55;
 }
 
-.preview-card__body p{ margin:0 0 .6em; }
-.preview-card__body p:last-child{ margin-bottom:0; }
+.pcard__body p{ margin:0 0 .5em; }
+.pcard__body p:last-child{ margin:0; }
 
 .preview-empty{
+  padding:40px 20px;
   text-align:center;
-  padding:32px 20px;
   color:var(--muted);
   font-size:.84rem;
+  background:#fff;
+  border-radius:16px;
+  border:1px dashed var(--line);
 }
 
-/* ── EMPTY STATES ── */
-.list-empty{
-  padding:20px 12px;
-  text-align:center;
-  font-size:.78rem;
-  color:rgba(255,255,255,.35);
+/* ── DRAWER (submissions) ── */
+.drawer-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.45);
+  z-index:200;
+  display:none;
+  opacity:0;
+  transition:opacity .25s;
 }
 
-/* ── COUNTS ── */
-.admin__counts{
+.drawer-overlay.is-open{
+  display:block;
+  opacity:1;
+}
+
+.drawer{
+  position:fixed;
+  top:0; right:0; bottom:0;
+  width:min(480px, 100vw);
+  background:#fff;
+  z-index:201;
+  display:flex;
+  flex-direction:column;
+  transform:translateX(100%);
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
+  box-shadow:-8px 0 32px rgba(0,0,0,.15);
+}
+
+.drawer.is-open{ transform:none; }
+
+.drawer__head{
+  padding:14px 16px;
+  background:var(--dark);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  border-bottom:2px solid var(--red);
+  flex-shrink:0;
+}
+
+.drawer__title{
+  font-size:.88rem;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+}
+
+.drawer__body{
+  flex:1 1 auto;
+  overflow-y:auto;
+  padding:14px;
+}
+
+.drawer__body::-webkit-scrollbar{ width:4px; }
+.drawer__body::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
+
+.sub-card{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px;
+  margin:0 0 10px;
+  background:#fafbfc;
+}
+
+.sub-card__name{
+  font-weight:900;
+  font-size:.88rem;
+  margin:0 0 2px;
+}
+
+.sub-card__time{
   font-size:.72rem;
-  color:rgba(255,255,255,.4);
+  color:var(--muted);
+  margin:0 0 8px;
 }
+
+.sub-card__note{
+  font-size:.84rem;
+  line-height:1.5;
+  white-space:pre-wrap;
+  word-break:break-word;
+  margin:0 0 10px;
+  padding:8px 10px;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:8px;
+}
+
+.sub-card__status{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+
+.sub-badge{
+  display:inline-flex;
+  align-items:center;
+  min-height:20px;
+  padding:0 8px;
+  border-radius:999px;
+  font-size:.64rem;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+}
+
+.sub-badge--live{ background:#dcfce7; color:#15803d; }
+.sub-badge--pending{ background:#fef3c7; color:#92400e; }
 
 /* ── MOBILE ── */
 @media (max-width:900px){
-  .admin{
-    grid-template-columns:1fr;
-    grid-template-areas:
-      "topbar"
-      "sidebar"
-      "main";
-  }
-
-  .admin__sidebar{
+  .layout{ grid-template-columns:1fr; }
+  .sidebar{
     height:auto;
-    max-height:40vh;
+    max-height:45vh;
+    position:relative;
+    top:0;
   }
-
-  .admin__main{
-    height:auto;
-    grid-template-columns:1fr;
-  }
-
-  .admin__preview-wrap{
+  .main{ grid-template-columns:1fr; }
+  .preview-col{
     border-left:0;
     border-top:1px solid var(--line);
+    position:relative;
+    top:0;
+    height:auto;
   }
+  .egrid--2,.egrid--3,.egrid--4{ grid-template-columns:1fr; }
+}
 
-  .editor-grid--2,
-  .editor-grid--3{
-    grid-template-columns:1fr;
-  }
+@media (max-width:600px){
+  .topbar__status{ display:none; }
 }
 </style>
 </head>
 <body>
 
-<div class="admin" id="admin">
+<!-- TOPBAR -->
+<header class="topbar">
+  <div class="topbar__brand">
+    Live Blog Admin
+    <span class="topbar__version">v2.1</span>
+  </div>
+  <div class="topbar__right">
+    <div class="topbar__status" id="tStatus">Ready.</div>
+    <button class="btn btn--white btn--sm" id="btnSubs" type="button">Submissions <span id="subsBadge"></span></button>
+    <button class="btn btn--ghost btn--sm" id="btnReload" type="button">Reload</button>
+    <button class="btn btn--blue btn--sm" id="btnNew" type="button">+ New Post</button>
+  </div>
+</header>
 
-  <header class="admin__topbar">
-    <div class="admin__brand">Live Blog Admin <span style="opacity:.4;font-weight:400">v2.0</span></div>
-    <div class="admin__topbar-right">
-      <div class="admin__status" id="adminStatus">Ready.</div>
-      <span class="admin__counts" id="adminCounts"></span>
-      <button class="btn btn--ghost btn--sm" id="adminReloadBtn" type="button">Reload</button>
-      <button class="btn btn--blue btn--sm" id="adminNewPostBtn" type="button">+ New Post</button>
-    </div>
-  </header>
+<!-- LAYOUT -->
+<div class="layout">
 
-  <aside class="admin__sidebar">
-    <div class="admin__sidebar-tabs">
-      <button class="admin__tab is-active" id="tabPostsBtn" type="button">Posts</button>
-      <button class="admin__tab" id="tabSubsBtn" type="button">Submissions</button>
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar__actions">
+      <input class="einput" id="sideSearch" type="search" placeholder="Search posts…" style="margin:0;font-size:.8rem;">
     </div>
-
-    <div id="tabPosts">
-      <div class="admin__list-wrap">
-        <ul class="admin__post-list" id="adminPostList">
-          <li class="list-empty">Loading…</li>
-        </ul>
-      </div>
-    </div>
-
-    <div id="tabSubs" style="display:none; flex:1 1 auto; overflow:hidden; display:none; flex-direction:column;">
-      <div class="admin__list-wrap">
-        <ul class="admin__sub-list" id="adminSubList">
-          <li class="list-empty">Loading…</li>
-        </ul>
-      </div>
-    </div>
+    <div class="sidebar__count" id="sideCount">Loading…</div>
+    <ul class="sidebar__list" id="postList">
+      <li class="list-empty">Loading…</li>
+    </ul>
   </aside>
 
-  <main class="admin__main">
+  <!-- MAIN -->
+  <div class="main">
 
-    <div class="admin__editor-wrap">
+    <!-- EDITOR -->
+    <div class="editor-col">
 
-      <div class="editor-card">
-        <div class="editor-card__title">Status</div>
-
-        <div class="editor-grid" style="gap:8px;">
+      <!-- Status toggles -->
+      <div class="esec">
+        <div class="esec__title">Status</div>
+        <div class="egrid">
           <div class="toggle-row">
-            <div class="toggle-label">
-              Live / Published
+            <div class="toggle-label-wrap">
+              <div class="toggle-label">Live / Published</div>
               <small>Visible on the front-end blog</small>
             </div>
             <label class="toggle">
-              <input type="checkbox" id="fieldPublished">
-              <span class="toggle-track"></span>
-              <span class="toggle-thumb"></span>
+              <input type="checkbox" id="fPublished" checked>
+              <span class="ttrack"></span>
+              <span class="tthumb"></span>
             </label>
           </div>
-
           <div class="toggle-row">
-            <div class="toggle-label">
-              Pinned
-              <small>Always shows at top of feed</small>
+            <div class="toggle-label-wrap">
+              <div class="toggle-label">Pinned</div>
+              <small>Always shows at the top of the feed</small>
             </div>
             <label class="toggle">
-              <input type="checkbox" id="fieldPinned">
-              <span class="toggle-track"></span>
-              <span class="toggle-thumb"></span>
+              <input type="checkbox" id="fPinned">
+              <span class="ttrack"></span>
+              <span class="tthumb"></span>
             </label>
           </div>
         </div>
       </div>
 
-      <div class="editor-card">
-        <div class="editor-card__title">Match Info</div>
-        <div class="editor-grid">
-          <div class="editor-grid editor-grid--2">
-            <div class="editor-field">
-              <label class="editor-label" for="fieldEvent">Event</label>
-              <input class="editor-input" id="fieldEvent" type="text" placeholder="goal / yellow card / full-time">
-            </div>
-            <div class="editor-field">
-              <label class="editor-label" for="fieldTeam">Team</label>
-              <input class="editor-input" id="fieldTeam" type="text" placeholder="Boreham Wood">
-            </div>
-          </div>
+      <!-- Match info -->
+      <div class="esec">
+        <div class="esec__title">Match Info</div>
+        <div class="egrid">
 
-          <div class="editor-grid editor-grid--2">
-            <div class="editor-field">
-              <label class="editor-label" for="fieldMatchTime">Match time</label>
-              <input class="editor-input" id="fieldMatchTime" type="text" placeholder="12' / HT / FT">
+          <div class="egrid egrid--2">
+            <div class="efield">
+              <label class="elabel">Event</label>
+              <div class="combo" id="comboEvent">
+                <input class="combo__input" id="fEvent" type="text" placeholder="Select or type…" autocomplete="off">
+                <div class="combo__list" id="comboEventList"></div>
+              </div>
             </div>
-            <div class="editor-field">
-              <label class="editor-label" for="fieldClockTime">Clock time</label>
-              <input class="editor-input" id="fieldClockTime" type="text" placeholder="Leave blank to auto-stamp">
-            </div>
-          </div>
-
-          <div class="editor-grid editor-grid--3">
-            <div class="editor-field">
-              <label class="editor-label" for="fieldHome">Home score</label>
-              <input class="editor-input" id="fieldHome" type="text" placeholder="1">
-            </div>
-            <div class="editor-field">
-              <label class="editor-label" for="fieldAway">Away score</label>
-              <input class="editor-input" id="fieldAway" type="text" placeholder="0">
-            </div>
-            <div class="editor-field">
-              <label class="editor-label">Pens</label>
-              <div class="editor-grid editor-grid--2" style="gap:6px;">
-                <input class="editor-input" id="fieldHomePens" type="text" placeholder="H">
-                <input class="editor-input" id="fieldAwayPens" type="text" placeholder="A">
+            <div class="efield">
+              <label class="elabel">Team</label>
+              <div class="combo" id="comboTeam">
+                <input class="combo__input" id="fTeam" type="text" placeholder="Select or leave blank…" autocomplete="off">
+                <div class="combo__list" id="comboTeamList"></div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div class="editor-card">
-        <div class="editor-card__title">Copy</div>
-        <div class="richtext-wrap">
-          <div class="richtext-toolbar">
-            <button class="richtext-btn richtext-btn--b" type="button" data-cmd="bold" title="Bold">B</button>
-            <button class="richtext-btn richtext-btn--i" type="button" data-cmd="italic" title="Italic">I</button>
-            <button class="richtext-btn" type="button" data-cmd="insertParagraph" title="New paragraph">¶</button>
-            <button class="richtext-btn" type="button" data-cmd="insertLineBreak" title="Line break">↵</button>
-            <button class="richtext-btn" type="button" data-cmd="removeFormat" title="Clear formatting" style="margin-left:auto;">✕ fmt</button>
+          <div class="egrid egrid--2">
+            <div class="efield">
+              <label class="elabel">Match time</label>
+              <input class="einput" id="fMatchTime" type="text" placeholder="45' / HT / FT">
+            </div>
+            <div class="efield">
+              <label class="elabel">Clock time</label>
+              <input class="einput" id="fClockTime" type="text" placeholder="Leave blank to auto-stamp">
+            </div>
           </div>
-          <div class="richtext-editor" id="fieldCopy" contenteditable="true" data-placeholder="Post copy here…" spellcheck="true"></div>
+
+          <!-- Goal update -->
+          <div class="esec" style="background:#f8f9fb;border-color:#e4e8ef;margin:0;padding:12px;">
+            <div class="esec__title" style="padding:0 0 8px;margin:0 0 10px;">Goal update — cumulative score</div>
+            <div class="egrid egrid--4">
+              <div class="efield">
+                <label class="elabel">Boreham Wood</label>
+                <input class="einput" id="fHome" type="text" placeholder="0" style="text-align:center;">
+              </div>
+              <div class="efield">
+                <label class="elabel">West Ham</label>
+                <input class="einput" id="fAway" type="text" placeholder="0" style="text-align:center;">
+              </div>
+              <div class="efield">
+                <label class="elabel">Pens H</label>
+                <input class="einput" id="fHomePens" type="text" placeholder="–" style="text-align:center;">
+              </div>
+              <div class="efield">
+                <label class="elabel">Pens A</label>
+                <input class="einput" id="fAwayPens" type="text" placeholder="–" style="text-align:center;">
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
-      <div class="editor-card">
-        <div class="editor-card__title">Media</div>
-        <div class="editor-grid editor-grid--2">
-          <div class="editor-field">
-            <label class="editor-label" for="fieldMediaType">Type</label>
-            <select class="editor-select" id="fieldMediaType">
+      <!-- Copy -->
+      <div class="esec">
+        <div class="esec__title">Post copy</div>
+        <div class="rte-wrap">
+          <div class="rte-bar">
+            <button class="rte-btn rte-btn--b" type="button" data-cmd="bold" title="Bold">B</button>
+            <button class="rte-btn rte-btn--i" type="button" data-cmd="italic" title="Italic">I</button>
+            <div class="rte-sep"></div>
+            <button class="rte-btn" type="button" data-cmd="para" title="New paragraph">¶</button>
+            <button class="rte-btn" type="button" data-cmd="br" title="Line break">↵</button>
+            <div class="rte-sep"></div>
+            <button class="rte-btn" type="button" data-cmd="clear" title="Clear formatting" style="margin-left:auto;font-size:.7rem;">✕ fmt</button>
+          </div>
+          <div class="rte-editor" id="fCopy" contenteditable="true" data-ph="Post copy here…" spellcheck="true"></div>
+        </div>
+      </div>
+
+      <!-- Media -->
+      <div class="esec">
+        <div class="esec__title">Media</div>
+        <div class="egrid egrid--2">
+          <div class="efield">
+            <label class="elabel">Type</label>
+            <select class="eselect" id="fMediaType">
               <option value="">None</option>
               <option value="image">Image</option>
               <option value="video">Video</option>
@@ -786,508 +959,581 @@ html,body{
               <option value="embed">Embed (X / Instagram / YouTube)</option>
             </select>
           </div>
-          <div class="editor-field">
-            <label class="editor-label" for="fieldMediaUrl">URL</label>
-            <input class="editor-input" id="fieldMediaUrl" type="text" placeholder="URL or comma-separated for gallery">
+          <div class="efield">
+            <label class="elabel">URL</label>
+            <input class="einput" id="fMediaUrl" type="text" placeholder="URL or comma-separated for gallery">
           </div>
         </div>
       </div>
 
-      <div class="editor-card" id="fieldIdCard" style="display:none;">
-        <div class="editor-card__title">Post ID</div>
-        <input class="editor-input" id="fieldId" type="text" readonly placeholder="Auto-generated">
+      <!-- Post ID (hidden until editing existing) -->
+      <div class="esec" id="idCard" style="display:none;">
+        <div class="esec__title">Post ID (read only)</div>
+        <input class="einput" id="fId" type="text" readonly style="background:#f8f9fb;color:var(--muted);font-size:.78rem;">
       </div>
 
       <div class="btn-row">
-        <button class="btn btn--blue btn--lg" id="adminSaveBtn" type="button">Save Post</button>
-        <button class="btn btn--ghost btn--lg" id="adminClearBtn" type="button">Clear</button>
-        <button class="btn btn--danger btn--lg" id="adminDeleteBtn" type="button">Delete Post</button>
+        <button class="btn btn--blue btn--lg" id="btnSave" type="button">Save Post</button>
+        <button class="btn btn--ghost btn--lg" id="btnClear" type="button">Clear</button>
+        <button class="btn btn--danger btn--lg" id="btnDelete" type="button">Delete Post</button>
       </div>
 
     </div>
 
-    <div class="admin__preview-wrap">
-      <div class="admin__preview-label">Live preview</div>
-      <div id="adminPreview">
+    <!-- PREVIEW -->
+    <div class="preview-col">
+      <div class="preview-label">Live preview</div>
+      <div id="previewArea">
         <div class="preview-empty">Fill in the form to see a preview.</div>
       </div>
     </div>
 
-  </main>
+  </div>
 </div>
+
+<!-- SUBMISSIONS DRAWER -->
+<div class="drawer-overlay" id="drawerOverlay"></div>
+<aside class="drawer" id="subsDrawer">
+  <div class="drawer__head">
+    <div class="drawer__title">Supporter Submissions</div>
+    <button class="btn btn--ghost btn--sm" id="btnCloseDrawer" type="button">✕ Close</button>
+  </div>
+  <div class="drawer__body" id="drawerBody">
+    <p style="color:var(--muted);font-size:.84rem;">Loading…</p>
+  </div>
+</aside>
 
 <script>
 (function(){
   'use strict';
 
-  /* Live Blog Admin v2.0 */
+  /* Live Blog Admin v2.1 */
 
   const API = 'https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec';
+
+  const EVENT_OPTIONS = [
+    'Goal','Assist','Attempt saved','Miss','Attempt missed','Attempt blocked',
+    'Free kick won','Free kick lost','Offside','Corner','Substitution',
+    'Yellow card','Red card','Lineup',
+    'Kick-off','Half-time','Full-time','Start',
+    'End of first half','End of second half'
+  ];
+
+  const TEAM_OPTIONS = ['Boreham Wood','West Ham United'];
+
+  const TEAM_COLORS = {
+    'Boreham Wood':   { bg:'linear-gradient(105deg,#000 0%,#000 50%,#e6e6e6 75%,#fff 100%)', border:'#e6e6e6' },
+    'West Ham United':{ bg:'linear-gradient(105deg,#8e1d41 0%,#8e1d41 50%,#81c4dd 75%,#fff 100%)', border:'#81c4dd' }
+  };
+
+  const NEUTRAL = { bg:'#223b7c', border:'#9e0000' };
 
   const state = {
     posts: [],
     submissions: [],
-    activePostId: '',
-    activeTab: 'posts'
+    activeId: '',
+    search: ''
   };
 
+  /* ── DOM refs ── */
+  const $ = id => document.getElementById(id);
   const dom = {
-    status: document.getElementById('adminStatus'),
-    counts: document.getElementById('adminCounts'),
-    postList: document.getElementById('adminPostList'),
-    subList: document.getElementById('adminSubList'),
-    preview: document.getElementById('adminPreview'),
-    newPostBtn: document.getElementById('adminNewPostBtn'),
-    reloadBtn: document.getElementById('adminReloadBtn'),
-    saveBtn: document.getElementById('adminSaveBtn'),
-    clearBtn: document.getElementById('adminClearBtn'),
-    deleteBtn: document.getElementById('adminDeleteBtn'),
-    tabPostsBtn: document.getElementById('tabPostsBtn'),
-    tabSubsBtn: document.getElementById('tabSubsBtn'),
-    tabPosts: document.getElementById('tabPosts'),
-    tabSubs: document.getElementById('tabSubs'),
-    fieldId: document.getElementById('fieldId'),
-    fieldIdCard: document.getElementById('fieldIdCard'),
-    fieldPublished: document.getElementById('fieldPublished'),
-    fieldPinned: document.getElementById('fieldPinned'),
-    fieldEvent: document.getElementById('fieldEvent'),
-    fieldTeam: document.getElementById('fieldTeam'),
-    fieldMatchTime: document.getElementById('fieldMatchTime'),
-    fieldClockTime: document.getElementById('fieldClockTime'),
-    fieldHome: document.getElementById('fieldHome'),
-    fieldAway: document.getElementById('fieldAway'),
-    fieldHomePens: document.getElementById('fieldHomePens'),
-    fieldAwayPens: document.getElementById('fieldAwayPens'),
-    fieldCopy: document.getElementById('fieldCopy'),
-    fieldMediaType: document.getElementById('fieldMediaType'),
-    fieldMediaUrl: document.getElementById('fieldMediaUrl')
+    status: $('tStatus'),
+    postList: $('postList'),
+    sideCount: $('sideCount'),
+    sideSearch: $('sideSearch'),
+    subsBadge: $('subsBadge'),
+    previewArea: $('previewArea'),
+    btnNew: $('btnNew'),
+    btnReload: $('btnReload'),
+    btnSave: $('btnSave'),
+    btnClear: $('btnClear'),
+    btnDelete: $('btnDelete'),
+    btnSubs: $('btnSubs'),
+    btnCloseDrawer: $('btnCloseDrawer'),
+    drawerOverlay: $('drawerOverlay'),
+    subsDrawer: $('subsDrawer'),
+    drawerBody: $('drawerBody'),
+    idCard: $('idCard'),
+    fId: $('fId'),
+    fPublished: $('fPublished'),
+    fPinned: $('fPinned'),
+    fEvent: $('fEvent'),
+    fTeam: $('fTeam'),
+    fMatchTime: $('fMatchTime'),
+    fClockTime: $('fClockTime'),
+    fHome: $('fHome'),
+    fAway: $('fAway'),
+    fHomePens: $('fHomePens'),
+    fAwayPens: $('fAwayPens'),
+    fCopy: $('fCopy'),
+    fMediaType: $('fMediaType'),
+    fMediaUrl: $('fMediaUrl')
   };
 
+  /* ── STATUS ── */
   function setStatus(msg, type){
     dom.status.textContent = msg || '';
     dom.status.classList.remove('is-error','is-success');
-    if(type === 'error') dom.status.classList.add('is-error');
-    if(type === 'success') dom.status.classList.add('is-success');
+    if(type) dom.status.classList.add('is-' + type);
   }
 
-  function escapeHtml(str){
-    return String(str || '')
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;')
-      .replace(/'/g,'&#39;');
+  function escHtml(s){
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
-  async function fetchJson(url, options){
-    const res = await fetch(url, options);
+  /* ── FETCH — using form-encoded POST to avoid CORS preflight ── */
+  async function apiFetch(params){
+    const body = new URLSearchParams();
+    Object.entries(params).forEach(([k,v]) => body.append(k, v == null ? '' : String(v)));
+
+    const res = await fetch(API, {
+      method: 'POST',
+      body: body
+    });
+
     const text = await res.text();
-    let data = null;
-    try{ data = JSON.parse(text); }catch(e){ throw new Error('Response was not valid JSON.'); }
-    if(!res.ok) throw new Error((data && data.error) || 'Request failed.');
-    if(data && data.ok === false) throw new Error(data.error || 'Request failed.');
+    let data;
+    try{ data = JSON.parse(text); }
+    catch(e){ throw new Error('Invalid JSON response from API.'); }
+
+    if(data && data.ok === false) throw new Error(data.error || 'API error.');
     return data;
   }
 
-  function updateCounts(){
-    const live = state.posts.filter(p => p.published && !p.deleted).length;
-    const deleted = state.posts.filter(p => p.deleted).length;
-    const pending = state.submissions.filter(s => !s.published).length;
-    dom.counts.textContent = `${live} live · ${deleted} deleted · ${pending} pending subs`;
+  async function apiGet(params){
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch(API + '?' + qs);
+    const text = await res.text();
+    let data;
+    try{ data = JSON.parse(text); }
+    catch(e){ throw new Error('Invalid JSON response from API.'); }
+    if(data && data.ok === false) throw new Error(data.error || 'API error.');
+    return data;
   }
 
-  /* ── TABS ── */
-  function switchTab(tab){
-    state.activeTab = tab;
-    dom.tabPostsBtn.classList.toggle('is-active', tab === 'posts');
-    dom.tabSubsBtn.classList.toggle('is-active', tab === 'subs');
-    dom.tabPosts.style.display = tab === 'posts' ? 'flex' : 'none';
-    dom.tabPosts.style.flexDirection = 'column';
-    dom.tabPosts.style.flex = '1 1 auto';
-    dom.tabPosts.style.overflow = 'hidden';
-    dom.tabSubs.style.display = tab === 'subs' ? 'flex' : 'none';
-    dom.tabSubs.style.flexDirection = 'column';
-    dom.tabSubs.style.flex = '1 1 auto';
-    dom.tabSubs.style.overflow = 'hidden';
-  }
+  /* ── COMBOBOX ── */
+  function buildCombo(inputEl, listEl, options){
+    let focused = -1;
 
-  /* ── POST LIST ── */
-  function renderPostList(){
-    if(!state.posts.length){
-      dom.postList.innerHTML = '<li class="list-empty">No posts yet. Create one with + New Post.</li>';
-      return;
+    function showList(filter){
+      const f = (filter || '').toLowerCase();
+      const filtered = options.filter(o => o.toLowerCase().includes(f));
+      if(!filtered.length){ listEl.classList.remove('is-open'); return; }
+      listEl.innerHTML = filtered.map((o,i) =>
+        `<div class="combo__opt" data-val="${escHtml(o)}">${escHtml(o)}</div>`
+      ).join('');
+      listEl.classList.add('is-open');
+      focused = -1;
+      listEl.querySelectorAll('.combo__opt').forEach(function(el){
+        el.addEventListener('mousedown', function(e){
+          e.preventDefault();
+          inputEl.value = el.getAttribute('data-val');
+          listEl.classList.remove('is-open');
+          updatePreview();
+        });
+      });
     }
 
-    dom.postList.innerHTML = state.posts.map(function(post){
-      const isActive = String(post.id) === String(state.activePostId);
-      const pills = [];
-      if(post.deleted){
-        pills.push('<span class="admin__pill admin__pill--deleted">Deleted</span>');
-      }else if(post.published){
-        pills.push('<span class="admin__pill admin__pill--live">Live</span>');
-      }else{
-        pills.push('<span class="admin__pill">Draft</span>');
+    inputEl.addEventListener('focus', () => showList(inputEl.value));
+    inputEl.addEventListener('input', () => showList(inputEl.value));
+
+    inputEl.addEventListener('keydown', function(e){
+      const opts = listEl.querySelectorAll('.combo__opt');
+      if(e.key === 'ArrowDown'){ e.preventDefault(); focused = Math.min(focused+1, opts.length-1); }
+      else if(e.key === 'ArrowUp'){ e.preventDefault(); focused = Math.max(focused-1, 0); }
+      else if(e.key === 'Enter' && focused >= 0){ e.preventDefault(); inputEl.value = opts[focused].getAttribute('data-val'); listEl.classList.remove('is-open'); updatePreview(); return; }
+      else if(e.key === 'Escape'){ listEl.classList.remove('is-open'); return; }
+      opts.forEach((o,i) => o.classList.toggle('is-focused', i === focused));
+    });
+
+    document.addEventListener('click', function(e){
+      if(!inputEl.contains(e.target) && !listEl.contains(e.target)){
+        listEl.classList.remove('is-open');
       }
-      if(post.pinned) pills.push('<span class="admin__pill admin__pill--pinned">Pinned</span>');
-
-      const team = escapeHtml(post.team || '(No team)');
-      const event = escapeHtml(post.event || '');
-      const matchTime = escapeHtml(post.match_time || '');
-      const clockTime = post.clock_time ? escapeHtml(post.clock_time.slice(11,16)) : '';
-      const metaParts = [matchTime, clockTime].filter(Boolean).join(' · ');
-
-      return `
-        <li class="admin__post-item${isActive ? ' is-active' : ''}${post.deleted ? ' is-deleted' : ''}" data-post-id="${escapeHtml(post.id)}">
-          ${event ? `<div class="admin__post-item-event">${event}</div>` : ''}
-          <div class="admin__post-item-team">${team}</div>
-          ${metaParts ? `<div class="admin__post-item-meta">${metaParts}</div>` : ''}
-          <div class="admin__post-item-pills">${pills.join('')}</div>
-        </li>
-      `;
-    }).join('');
-
-    dom.postList.querySelectorAll('[data-post-id]').forEach(function(el){
-      el.addEventListener('click', function(){
-        const id = el.getAttribute('data-post-id');
-        const post = state.posts.find(p => String(p.id) === String(id));
-        if(post) loadPostIntoEditor(post);
-      });
     });
   }
 
-  /* ── SUBMISSION LIST ── */
-  function renderSubList(){
-    if(!state.submissions.length){
-      dom.subList.innerHTML = '<li class="list-empty">No submissions yet.</li>';
+  /* ── RICH TEXT ── */
+  function bindRTE(){
+    document.querySelectorAll('.rte-btn[data-cmd]').forEach(function(btn){
+      btn.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        const cmd = btn.getAttribute('data-cmd');
+        if(cmd === 'para') document.execCommand('insertHTML', false, '<p><br></p>');
+        else if(cmd === 'br') document.execCommand('insertHTML', false, '<br>');
+        else if(cmd === 'clear') document.execCommand('removeFormat', false, null);
+        else document.execCommand(cmd, false, null);
+        dom.fCopy.focus();
+        syncRTEBar();
+        updatePreview();
+      });
+    });
+
+    dom.fCopy.addEventListener('input', () => { syncRTEBar(); updatePreview(); });
+    dom.fCopy.addEventListener('keyup', syncRTEBar);
+    dom.fCopy.addEventListener('mouseup', syncRTEBar);
+  }
+
+  function syncRTEBar(){
+    ['bold','italic'].forEach(function(cmd){
+      const btn = document.querySelector(`.rte-btn[data-cmd="${cmd}"]`);
+      if(btn) btn.classList.toggle('is-on', document.queryCommandState(cmd));
+    });
+  }
+
+  /* ── TEAM COLORS ── */
+  function getCardColors(team){
+    return TEAM_COLORS[team] || NEUTRAL;
+  }
+
+  /* ── RENDER POST LIST ── */
+  function renderPostList(){
+    const q = state.search.toLowerCase();
+    const filtered = state.posts.filter(p => {
+      if(!q) return true;
+      return (p.team||'').toLowerCase().includes(q)
+        || (p.event||'').toLowerCase().includes(q)
+        || (p.match_time||'').toLowerCase().includes(q);
+    });
+
+    const total = state.posts.filter(p => !p.deleted).length;
+    const live = state.posts.filter(p => p.published && !p.deleted).length;
+    dom.sideCount.textContent = `${live} live of ${total} posts`;
+
+    if(!filtered.length){
+      dom.postList.innerHTML = '<li class="list-empty">No posts found.</li>';
       return;
     }
 
-    dom.subList.innerHTML = state.submissions.map(function(item){
-      const name = escapeHtml(item.name || 'Anonymous');
-      const note = escapeHtml(item.note || '');
-      const time = escapeHtml(item.timestamp ? item.timestamp.slice(0,16).replace('T',' ') : '');
-      const isPublished = item.published;
+    dom.postList.innerHTML = filtered.map(function(post){
+      const isActive = String(post.id) === String(state.activeId);
+      const colors = getCardColors(post.team);
+
+      const pills = [];
+      if(post.deleted) pills.push('<span class="mpill mpill--deleted">Deleted</span>');
+      else if(post.published) pills.push('<span class="mpill mpill--live">Live</span>');
+      else pills.push('<span class="mpill mpill--draft">Draft</span>');
+      if(post.pinned && !post.deleted) pills.push('<span class="mpill mpill--pinned">Pinned</span>');
+
+      const timeLabel = escHtml(post.match_time || (post.clock_time ? post.clock_time.slice(11,16) : ''));
+      const scoreLabel = (post.home !== '' && post.away !== '' && post.home != null && post.away != null)
+        ? escHtml(post.home + ' – ' + post.away) : '';
+
+      // strip html tags from copy for preview
+      const copyText = (post.copy_html || '').replace(/<[^>]+>/g,'').slice(0,80);
 
       return `
-        <li class="admin__sub-item">
-          <div class="admin__sub-item-name">${name}</div>
-          <div class="admin__sub-item-time">${time}</div>
-          <div class="admin__sub-item-note">${note}</div>
-          <div class="admin__sub-item-actions">
-            ${!isPublished
-              ? `<button class="btn btn--success btn--sm" type="button" data-sub-action="publish" data-row="${item.row_id}">Publish</button>`
-              : `<button class="btn btn--ghost btn--sm" type="button" data-sub-action="unpublish" data-row="${item.row_id}">Unpublish</button>`
-            }
+        <li class="mini-card${isActive?' is-active':''}${post.deleted?' is-deleted':''}"
+            data-pid="${escHtml(post.id)}"
+            style="--card-bg:${colors.bg};--card-border:${colors.border}">
+          <div class="mini-card__head">
+            <div class="mini-card__head-left">
+              ${timeLabel ? `<span class="mini-card__time">${timeLabel}</span>` : ''}
+              <div>
+                ${post.team ? `<div class="mini-card__team">${escHtml(post.team)}</div>` : ''}
+                ${post.event ? `<div class="mini-card__event">${escHtml(post.event)}</div>` : ''}
+              </div>
+            </div>
+            ${scoreLabel ? `<span class="mini-card__score">${scoreLabel}</span>` : ''}
+          </div>
+          <div class="mini-card__body">
+            ${copyText ? `<div class="mini-card__copy">${escHtml(copyText)}</div>` : ''}
+            <div class="mini-card__pills">${pills.join('')}</div>
           </div>
         </li>
       `;
     }).join('');
 
-    dom.subList.querySelectorAll('[data-sub-action]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        const action = btn.getAttribute('data-sub-action');
-        const row = btn.getAttribute('data-row');
-        updateSubmission(row, action === 'publish').catch(handleError);
+    dom.postList.querySelectorAll('[data-pid]').forEach(function(el){
+      el.addEventListener('click', function(){
+        const post = state.posts.find(p => String(p.id) === el.getAttribute('data-pid'));
+        if(post) loadPost(post);
       });
     });
   }
 
+  /* ── RENDER SUBMISSIONS DRAWER ── */
+  function renderDrawer(){
+    const pending = state.submissions.filter(s => !s.published).length;
+    dom.subsBadge.textContent = pending ? ` (${pending})` : '';
+
+    if(!state.submissions.length){
+      dom.drawerBody.innerHTML = '<p style="color:var(--muted);font-size:.84rem;">No submissions yet.</p>';
+      return;
+    }
+
+    dom.drawerBody.innerHTML = state.submissions.map(function(item){
+      const name = escHtml(item.name || 'Anonymous');
+      const note = escHtml(item.note || '');
+      const time = item.timestamp ? escHtml(item.timestamp.slice(0,16).replace('T',' ')) : '';
+
+      return `
+        <div class="sub-card">
+          <div class="sub-card__name">${name}</div>
+          <div class="sub-card__time">${time}</div>
+          <div class="sub-card__note">${note}</div>
+          <div class="sub-card__status">
+            <span class="sub-badge ${item.published ? 'sub-badge--live' : 'sub-badge--pending'}">
+              ${item.published ? 'Published' : 'Pending'}
+            </span>
+            <div style="display:flex;gap:6px;">
+              ${!item.published
+                ? `<button class="btn btn--success btn--sm" data-sub="publish" data-row="${item.row_id}">Publish</button>`
+                : `<button class="btn btn--ghost btn--sm" data-sub="unpublish" data-row="${item.row_id}">Unpublish</button>`
+              }
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    dom.drawerBody.querySelectorAll('[data-sub]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        updateSub(btn.getAttribute('data-row'), btn.getAttribute('data-sub') === 'publish').catch(handleErr);
+      });
+    });
+  }
+
+  /* ── DRAWER OPEN/CLOSE ── */
+  function openDrawer(){
+    dom.drawerOverlay.classList.add('is-open');
+    dom.subsDrawer.classList.add('is-open');
+  }
+
+  function closeDrawer(){
+    dom.drawerOverlay.classList.remove('is-open');
+    dom.subsDrawer.classList.remove('is-open');
+  }
+
   /* ── EDITOR ── */
   function clearEditor(){
-    state.activePostId = '';
-    dom.fieldId.value = '';
-    dom.fieldIdCard.style.display = 'none';
-    dom.fieldPublished.checked = true;
-    dom.fieldPinned.checked = false;
-    dom.fieldEvent.value = '';
-    dom.fieldTeam.value = '';
-    dom.fieldMatchTime.value = '';
-    dom.fieldClockTime.value = '';
-    dom.fieldHome.value = '';
-    dom.fieldAway.value = '';
-    dom.fieldHomePens.value = '';
-    dom.fieldAwayPens.value = '';
-    dom.fieldCopy.innerHTML = '';
-    dom.fieldMediaType.value = '';
-    dom.fieldMediaUrl.value = '';
+    state.activeId = '';
+    dom.fId.value = '';
+    dom.idCard.style.display = 'none';
+    dom.fPublished.checked = true;
+    dom.fPinned.checked = false;
+    dom.fEvent.value = '';
+    dom.fTeam.value = '';
+    dom.fMatchTime.value = '';
+    dom.fClockTime.value = '';
+    dom.fHome.value = '';
+    dom.fAway.value = '';
+    dom.fHomePens.value = '';
+    dom.fAwayPens.value = '';
+    dom.fCopy.innerHTML = '';
+    dom.fMediaType.value = '';
+    dom.fMediaUrl.value = '';
     renderPostList();
     updatePreview();
     setStatus('New post ready.');
   }
 
-  function loadPostIntoEditor(post){
-    state.activePostId = post.id || '';
-    dom.fieldId.value = post.id || '';
-    dom.fieldIdCard.style.display = 'block';
-    dom.fieldPublished.checked = !!post.published;
-    dom.fieldPinned.checked = !!post.pinned;
-    dom.fieldEvent.value = post.event || '';
-    dom.fieldTeam.value = post.team || '';
-    dom.fieldMatchTime.value = post.match_time || '';
-    dom.fieldClockTime.value = post.clock_time ? post.clock_time.slice(0,16) : '';
-    dom.fieldHome.value = post.home || '';
-    dom.fieldAway.value = post.away || '';
-    dom.fieldHomePens.value = post.home_pens || '';
-    dom.fieldAwayPens.value = post.away_pens || '';
-    dom.fieldCopy.innerHTML = post.copy_html || '';
-    dom.fieldMediaType.value = post.media_type || '';
-    dom.fieldMediaUrl.value = post.media_url || '';
+  function loadPost(post){
+    state.activeId = post.id || '';
+    dom.fId.value = post.id || '';
+    dom.idCard.style.display = 'block';
+    dom.fPublished.checked = !!post.published;
+    dom.fPinned.checked = !!post.pinned;
+    dom.fEvent.value = post.event || '';
+    dom.fTeam.value = post.team || '';
+    dom.fMatchTime.value = post.match_time || '';
+    dom.fClockTime.value = post.clock_time ? post.clock_time.slice(0,16) : '';
+    dom.fHome.value = post.home != null ? post.home : '';
+    dom.fAway.value = post.away != null ? post.away : '';
+    dom.fHomePens.value = post.home_pens || '';
+    dom.fAwayPens.value = post.away_pens || '';
+    dom.fCopy.innerHTML = post.copy_html || '';
+    dom.fMediaType.value = post.media_type || '';
+    dom.fMediaUrl.value = post.media_url || '';
     renderPostList();
     updatePreview();
     setStatus('Loaded: ' + (post.team || post.event || post.id));
-  }
-
-  function buildPostPayload(){
-    return {
-      action: 'savePost',
-      id: dom.fieldId.value.trim(),
-      published: dom.fieldPublished.checked ? 'TRUE' : 'FALSE',
-      pinned: dom.fieldPinned.checked ? 'TRUE' : 'FALSE',
-      deleted: 'FALSE',
-      event: dom.fieldEvent.value.trim(),
-      team: dom.fieldTeam.value.trim(),
-      match_time: dom.fieldMatchTime.value.trim(),
-      clock_time: dom.fieldClockTime.value.trim(),
-      home: dom.fieldHome.value.trim(),
-      away: dom.fieldAway.value.trim(),
-      home_pens: dom.fieldHomePens.value.trim(),
-      away_pens: dom.fieldAwayPens.value.trim(),
-      copy_html: dom.fieldCopy.innerHTML.trim(),
-      media_type: dom.fieldMediaType.value.trim(),
-      media_url: dom.fieldMediaUrl.value.trim()
-    };
+    // scroll editor to top on mobile
+    document.querySelector('.editor-col').scrollIntoView({behavior:'smooth', block:'start'});
   }
 
   /* ── PREVIEW ── */
   function updatePreview(){
-    const team = dom.fieldTeam.value.trim();
-    const event = dom.fieldEvent.value.trim();
-    const matchTime = dom.fieldMatchTime.value.trim();
-    const clockTime = dom.fieldClockTime.value.trim();
-    const home = dom.fieldHome.value.trim();
-    const away = dom.fieldAway.value.trim();
-    const homePens = dom.fieldHomePens.value.trim();
-    const awayPens = dom.fieldAwayPens.value.trim();
-    const copy = dom.fieldCopy.innerHTML.trim();
+    const team = dom.fTeam.value.trim();
+    const event = dom.fEvent.value.trim();
+    const matchTime = dom.fMatchTime.value.trim();
+    const clockTime = dom.fClockTime.value.trim();
+    const home = dom.fHome.value.trim();
+    const away = dom.fAway.value.trim();
+    const homePens = dom.fHomePens.value.trim();
+    const awayPens = dom.fAwayPens.value.trim();
+    const copy = dom.fCopy.innerHTML.trim();
 
-    const hasContent = team || event || copy;
-
-    if(!hasContent){
-      dom.preview.innerHTML = '<div class="preview-empty">Fill in the form to see a preview.</div>';
+    if(!team && !event && !copy){
+      dom.previewArea.innerHTML = '<div class="preview-empty">Fill in the form to see a preview.</div>';
       return;
     }
 
+    const colors = getCardColors(team);
     const timeLabel = matchTime || (clockTime ? clockTime.slice(11,16) : '');
-    const scoreLabel = (home !== '' && away !== '') ? `${home} – ${away}` : '';
-    const pensLabel = (homePens && awayPens) ? `Pens: ${homePens} – ${awayPens}` : '';
+    const scoreLabel = home !== '' && away !== '' ? `${home} – ${away}` : '';
+    const pensLabel = homePens && awayPens ? `Pens: ${homePens} – ${awayPens}` : '';
 
-    dom.preview.innerHTML = `
-      <div class="preview-card">
-        <div class="preview-card__head">
-          <div class="preview-card__meta">
-            ${timeLabel ? `<span class="preview-card__chip">${escapeHtml(timeLabel)}</span>` : ''}
-            ${scoreLabel ? `<span class="preview-card__score">${escapeHtml(scoreLabel)}</span>` : ''}
-            ${pensLabel ? `<span class="preview-card__chip">${escapeHtml(pensLabel)}</span>` : ''}
+    dom.previewArea.innerHTML = `
+      <div class="pcard" style="--card-bg:${colors.bg};--card-border:${colors.border}">
+        <div class="pcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}">
+          <div class="pcard__row1">
+            ${timeLabel ? `<span class="pcard__chip">${escHtml(timeLabel)}</span>` : ''}
+            ${scoreLabel ? `<span class="pcard__score">${escHtml(scoreLabel)}</span>` : ''}
+            ${pensLabel ? `<span class="pcard__chip">${escHtml(pensLabel)}</span>` : ''}
           </div>
-          ${team ? `<div class="preview-card__team">${escapeHtml(team)}</div>` : ''}
-          ${event ? `<div class="preview-card__event">${escapeHtml(event)}</div>` : ''}
+          ${team ? `<div class="pcard__team">${escHtml(team)}</div>` : ''}
+          ${event ? `<div class="pcard__event">${escHtml(event)}</div>` : ''}
         </div>
-        ${copy ? `<div class="preview-card__body">${copy}</div>` : ''}
+        ${copy ? `<div class="pcard__body">${copy}</div>` : ''}
       </div>
     `;
   }
 
-  /* ── RICH TEXT ── */
-  function bindRichText(){
-    document.querySelectorAll('.richtext-btn[data-cmd]').forEach(function(btn){
-      btn.addEventListener('mousedown', function(e){
-        e.preventDefault();
-        const cmd = btn.getAttribute('data-cmd');
-        if(cmd === 'insertParagraph'){
-          document.execCommand('insertHTML', false, '<p><br></p>');
-        }else if(cmd === 'insertLineBreak'){
-          document.execCommand('insertHTML', false, '<br>');
-        }else{
-          document.execCommand(cmd, false, null);
-        }
-        dom.fieldCopy.focus();
-        updateToolbarState();
-        updatePreview();
-      });
-    });
-
-    dom.fieldCopy.addEventListener('input', function(){
-      updateToolbarState();
-      updatePreview();
-    });
-
-    dom.fieldCopy.addEventListener('keyup', updateToolbarState);
-    dom.fieldCopy.addEventListener('mouseup', updateToolbarState);
-  }
-
-  function updateToolbarState(){
-    document.querySelectorAll('.richtext-btn[data-cmd]').forEach(function(btn){
-      const cmd = btn.getAttribute('data-cmd');
-      if(cmd === 'bold' || cmd === 'italic'){
-        btn.classList.toggle('is-active', document.queryCommandState(cmd));
-      }
-    });
-  }
-
-  /* ── API CALLS ── */
-  async function loadPosts(){
-    const data = await fetchJson(API + '?action=listPosts');
-    state.posts = Array.isArray(data.items) ? data.items : [];
-    renderPostList();
-    updateCounts();
-  }
-
-  async function loadSubmissions(){
-    const data = await fetchJson(API + '?action=listSubmissions');
-    state.submissions = Array.isArray(data.items) ? data.items : [];
-    renderSubList();
-    updateCounts();
-  }
-
-  async function reloadAll(){
-    setStatus('Loading…');
-    await Promise.all([loadPosts(), loadSubmissions()]);
-    setStatus('Loaded.', 'success');
-  }
-
+  /* ── SAVE / DELETE ── */
   async function savePost(){
-    const payload = buildPostPayload();
+    const payload = {
+      action: 'savePost',
+      id: dom.fId.value.trim(),
+      published: dom.fPublished.checked ? 'TRUE' : 'FALSE',
+      pinned: dom.fPinned.checked ? 'TRUE' : 'FALSE',
+      deleted: 'FALSE',
+      event: dom.fEvent.value.trim(),
+      team: dom.fTeam.value.trim(),
+      match_time: dom.fMatchTime.value.trim(),
+      clock_time: dom.fClockTime.value.trim(),
+      home: dom.fHome.value.trim(),
+      away: dom.fAway.value.trim(),
+      home_pens: dom.fHomePens.value.trim(),
+      away_pens: dom.fAwayPens.value.trim(),
+      copy_html: dom.fCopy.innerHTML.trim(),
+      media_type: dom.fMediaType.value.trim(),
+      media_url: dom.fMediaUrl.value.trim()
+    };
 
     if(!payload.event && !payload.team && !payload.copy_html){
-      setStatus('Post needs at least event, team or copy.', 'error');
+      setStatus('Needs at least event, team or copy.', 'error');
       return;
     }
 
     setStatus('Saving…');
-    dom.saveBtn.disabled = true;
+    dom.btnSave.disabled = true;
 
     try{
-      const data = await fetchJson(API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
+      const data = await apiFetch(payload);
       setStatus(data.message || 'Saved.', 'success');
       await loadPosts();
 
       if(data.id){
         const saved = state.posts.find(p => String(p.id) === String(data.id));
-        if(saved){
-          loadPostIntoEditor(saved);
-        }else{
-          dom.fieldId.value = data.id;
-          dom.fieldIdCard.style.display = 'block';
-          state.activePostId = data.id;
+        if(saved) loadPost(saved);
+        else{
+          dom.fId.value = data.id;
+          dom.idCard.style.display = 'block';
+          state.activeId = data.id;
           renderPostList();
         }
       }
     }finally{
-      dom.saveBtn.disabled = false;
+      dom.btnSave.disabled = false;
     }
   }
 
   async function deletePost(){
-    const id = dom.fieldId.value.trim();
-    if(!id){
-      setStatus('No post selected.', 'error');
-      return;
-    }
+    const id = dom.fId.value.trim();
+    if(!id){ setStatus('No post selected.', 'error'); return; }
 
-    if(!window.confirm('Soft-delete this post? It will be hidden from the blog but kept in the sheet.')){
-      return;
-    }
+    if(!window.confirm('Soft-delete this post? It stays in the sheet but disappears from the blog.')) return;
 
     setStatus('Deleting…');
-
-    const data = await fetchJson(API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'deletePost', id: id })
-    });
-
+    const data = await apiFetch({ action: 'deletePost', id: id });
     setStatus(data.message || 'Deleted.', 'success');
     clearEditor();
     await loadPosts();
   }
 
-  async function updateSubmission(rowId, published){
-    setStatus(published ? 'Publishing…' : 'Unpublishing…');
-
+  /* ── SUBMISSIONS ── */
+  async function updateSub(rowId, publish){
     const current = state.submissions.find(s => String(s.row_id) === String(rowId));
-    if(!current){
-      setStatus('Submission not found.', 'error');
-      return;
-    }
+    if(!current){ setStatus('Submission not found.', 'error'); return; }
 
-    const data = await fetchJson(API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'updateSubmission',
-        row_id: Number(rowId),
-        name: current.name || '',
-        note: current.note || '',
-        status: published ? 'published' : 'pending',
-        published: published ? 'TRUE' : 'FALSE'
-      })
+    setStatus(publish ? 'Publishing…' : 'Unpublishing…');
+
+    await apiFetch({
+      action: 'updateSubmission',
+      row_id: rowId,
+      name: current.name || '',
+      note: current.note || '',
+      status: publish ? 'published' : 'pending',
+      published: publish ? 'TRUE' : 'FALSE'
     });
 
-    await loadSubmissions();
-    setStatus(data.message || 'Updated.', 'success');
+    await loadSubs();
+    setStatus('Submission updated.', 'success');
   }
 
-  /* ── LIVE PREVIEW BINDINGS ── */
-  function bindPreviewInputs(){
-    const liveFields = [
-      'fieldEvent','fieldTeam','fieldMatchTime','fieldClockTime',
-      'fieldHome','fieldAway','fieldHomePens','fieldAwayPens',
-      'fieldMediaType','fieldMediaUrl'
-    ];
-
-    liveFields.forEach(function(id){
-      const el = dom[id];
-      if(el) el.addEventListener('input', updatePreview);
-    });
-
-    dom.fieldPublished.addEventListener('change', updatePreview);
-    dom.fieldPinned.addEventListener('change', updatePreview);
+  /* ── API LOAD ── */
+  async function loadPosts(){
+    const data = await apiGet({ action: 'listPosts' });
+    state.posts = Array.isArray(data.items) ? data.items : [];
+    renderPostList();
   }
 
-  function handleError(err){
+  async function loadSubs(){
+    const data = await apiGet({ action: 'listSubmissions' });
+    state.submissions = Array.isArray(data.items) ? data.items : [];
+    renderDrawer();
+  }
+
+  async function reloadAll(){
+    setStatus('Loading…');
+    await Promise.all([loadPosts(), loadSubs()]);
+    setStatus('Loaded.', 'success');
+  }
+
+  /* ── BIND EVENTS ── */
+  function handleErr(err){
     console.error(err);
     setStatus(err && err.message ? err.message : 'Something went wrong.', 'error');
   }
 
-  /* ── INIT ── */
   function bindEvents(){
-    dom.newPostBtn.addEventListener('click', clearEditor);
-    dom.reloadBtn.addEventListener('click', () => reloadAll().catch(handleError));
-    dom.saveBtn.addEventListener('click', () => savePost().catch(handleError));
-    dom.clearBtn.addEventListener('click', clearEditor);
-    dom.deleteBtn.addEventListener('click', () => deletePost().catch(handleError));
-    dom.tabPostsBtn.addEventListener('click', () => switchTab('posts'));
-    dom.tabSubsBtn.addEventListener('click', () => switchTab('subs'));
+    dom.btnNew.addEventListener('click', clearEditor);
+    dom.btnReload.addEventListener('click', () => reloadAll().catch(handleErr));
+    dom.btnSave.addEventListener('click', () => savePost().catch(handleErr));
+    dom.btnClear.addEventListener('click', clearEditor);
+    dom.btnDelete.addEventListener('click', () => deletePost().catch(handleErr));
+    dom.btnSubs.addEventListener('click', openDrawer);
+    dom.btnCloseDrawer.addEventListener('click', closeDrawer);
+    dom.drawerOverlay.addEventListener('click', closeDrawer);
+
+    dom.sideSearch.addEventListener('input', function(){
+      state.search = dom.sideSearch.value;
+      renderPostList();
+    });
+
+    // Live preview on all inputs
+    ['fEvent','fTeam','fMatchTime','fClockTime','fHome','fAway','fHomePens','fAwayPens','fMediaType','fMediaUrl'].forEach(function(id){
+      dom[id].addEventListener('input', updatePreview);
+    });
+    dom.fPublished.addEventListener('change', updatePreview);
+    dom.fPinned.addEventListener('change', updatePreview);
   }
 
+  /* ── INIT ── */
   async function init(){
+    buildCombo(dom.fEvent, $('comboEventList'), EVENT_OPTIONS);
+    buildCombo(dom.fTeam, $('comboTeamList'), TEAM_OPTIONS);
+    bindRTE();
     bindEvents();
-    bindRichText();
-    bindPreviewInputs();
-    switchTab('posts');
     clearEditor();
     await reloadAll();
   }
 
-  init().catch(handleError);
+  init().catch(handleErr);
 
 })();
 </script>
-
 </body>
 </html>
