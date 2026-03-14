@@ -1214,8 +1214,8 @@ html,body{
     dom.fCopy.innerHTML=''; dom.fMediaType.value=''; dom.fMediaUrl.value='';
   }
 
-  function setEditorNew(){
-    state.activeId=''; state.isNew=true; state.isPublished=true;
+function setEditorNew(){
+    state.activeId=''; state.isNew=true; state.isPublished=false;
     state.isPinned=false; state.editSnapshot=null;
 
     dom.editorHead.className='editor-panel__head editor-panel__head--new';
@@ -1503,8 +1503,9 @@ html,body{
         e.stopPropagation();
         const action=btn.getAttribute('data-sub');
         const row=btn.getAttribute('data-row');
-        if(action==='delete'){
+          if(action==='delete'){
           state.hiddenSubs.add(String(row));
+          saveHiddenSubs();
           renderSubRail(); renderFeed();
         } else {
           updateSub(row, action==='publish').catch(handleErr);
@@ -1779,13 +1780,28 @@ function normaliseSubs(items){
   }
 
   /* ── INIT ── */
+function loadHiddenSubs(){
+    try{
+      const raw = localStorage.getItem('nllb-hidden-subs');
+      if(raw) JSON.parse(raw).forEach(id => state.hiddenSubs.add(String(id)));
+    }catch(e){}
+  }
+
+  function saveHiddenSubs(){
+    try{
+      localStorage.setItem('nllb-hidden-subs', JSON.stringify([...state.hiddenSubs]));
+    }catch(e){}
+  }
+
   async function init(){
+    loadHiddenSubs();
     buildCombo(dom.fEvent, $('comboEventList'), EVENT_OPTIONS);
     buildCombo(dom.fTeam, $('comboTeamList'), TEAM_OPTIONS);
     bindRTE();
     bindEvents();
     setEditorNew();
     await reloadAll();
+    window.setInterval(() => loadSubs().catch(handleErr), 30000);
   }
 
   init().catch(handleErr);
