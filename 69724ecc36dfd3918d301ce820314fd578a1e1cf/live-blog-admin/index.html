@@ -1285,19 +1285,9 @@ function setEditorNew(){
     setStatus('Editing: '+(post.team||post.event||post.id));
   }
 
-  function handleCancel(){
-    if(!state.isNew && state.editSnapshot){
-      const s=state.editSnapshot;
-      dom.fEvent.value=s.event; dom.fTeam.value=s.team;
-      dom.fMatchTime.value=s.match_time; dom.fClockTime.value=s.clock_time;
-      dom.fHome.value=s.home; dom.fAway.value=s.away;
-      dom.fHomePens.value=s.home_pens; dom.fAwayPens.value=s.away_pens;
-      dom.fCopy.innerHTML=s.copy_html; dom.fMediaType.value=s.media_type;
-      dom.fMediaUrl.value=s.media_url;
-      state.isPublished=s.published; state.isPinned=s.pinned;
-      syncStatusUI();
-    }
+function handleCancel(){
     closeEditorPanel();
+    clearEditorFields();
     setEditorNew();
     scheduleFeedRender();
   }
@@ -1657,8 +1647,18 @@ function normaliseSubs(items){
           return item;
         }
       }
+      // No publish time — use submitted_at for rail display, zero for feed sort
+      const rawSubmitted = item.timestamp || '';
+      if(rawSubmitted){
+        const d = new Date(rawSubmitted);
+        if(!isNaN(d.getTime())){
+          item.timestamp_ms = 0; // don't sort into feed
+          item.timestamp = rawSubmitted.slice(0,16).replace('T',' ');
+          return item;
+        }
+      }
       item.timestamp_ms = 0;
-      item.timestamp = item.timestamp || '';
+      item.timestamp = '';
       return item;
     });
   }
