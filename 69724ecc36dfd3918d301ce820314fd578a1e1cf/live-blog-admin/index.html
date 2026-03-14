@@ -3,321 +3,946 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin</title>
+<title>Live Blog Admin (v1.1)</title>
 
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 
 <style>
+:root{
+  --nl-red:#9e0000;
+  --nl-blue:#223b7c;
+  --bg:#f4f5f7;
+  --panel:#ffffff;
+  --text:#111111;
+  --muted:#6b7280;
+  --line:#d9dee5;
+  --dark:#111111;
+  --dark-2:#1e1e1e;
+  --success:#0a7d2a;
+  --danger:#b00020;
+}
+
+*{ box-sizing:border-box; }
+
+html,body{
+  margin:0;
+  padding:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:"carbona-variable",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
 
 body{
-font-family:"carbona-variable",system-ui;
-margin:0;
-background:#f5f5f5;
+  min-height:100vh;
 }
 
-#wrap{
-display:grid;
-grid-template-columns:320px 1fr;
-height:100vh;
+.lbadmin{
+  display:grid;
+  grid-template-columns:340px minmax(0,1fr);
+  min-height:100vh;
 }
 
-#list{
-background:#111;
-color:#fff;
-overflow:auto;
+.lbadmin__sidebar{
+  background:var(--dark);
+  color:#fff;
+  border-right:1px solid #000;
+  display:flex;
+  flex-direction:column;
+  min-height:100vh;
 }
 
-.post{
-padding:12px;
-border-bottom:1px solid #333;
-cursor:pointer;
+.lbadmin__sidebar-top{
+  padding:16px 16px 12px;
+  border-bottom:1px solid rgba(255,255,255,.1);
 }
 
-.post:hover{
-background:#222;
+.lbadmin__brand{
+  margin:0 0 10px;
+  font-size:1rem;
+  font-weight:900;
+  letter-spacing:.04em;
+  text-transform:uppercase;
 }
 
-.post.active{
-background:#9e0000;
+.lbadmin__sidebar-actions{
+  display:grid;
+  gap:8px;
 }
 
-#editor{
-padding:20px;
-overflow:auto;
-background:#fff;
+.lbadmin__main{
+  display:grid;
+  grid-template-rows:auto 1fr;
+  min-width:0;
 }
 
-label{
-display:block;
-font-size:12px;
-margin-top:10px;
+.lbadmin__topbar{
+  background:#fff;
+  border-bottom:1px solid var(--line);
+  padding:14px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
 }
 
-input,textarea,select{
-width:100%;
-padding:6px;
-font-size:14px;
-margin-top:4px;
+.lbadmin__status{
+  font-size:.9rem;
+  color:var(--muted);
+  min-height:20px;
 }
 
-textarea{
-height:120px;
+.lbadmin__status.is-error{
+  color:var(--danger);
+  font-weight:700;
 }
 
-.row{
-display:grid;
-grid-template-columns:1fr 1fr;
-gap:10px;
+.lbadmin__status.is-success{
+  color:var(--success);
+  font-weight:700;
 }
 
-button{
-margin-top:10px;
-padding:10px 14px;
-border:0;
-background:#9e0000;
-color:#fff;
-cursor:pointer;
+.lbadmin__content{
+  display:grid;
+  grid-template-columns:340px minmax(0,1fr);
+  min-height:0;
 }
 
-button.secondary{
-background:#555;
+.lbadmin__listcol{
+  border-right:1px solid var(--line);
+  background:#f8f9fb;
+  min-height:0;
+  overflow:auto;
 }
 
-button.delete{
-background:#c40000;
+.lbadmin__editorcol{
+  min-width:0;
+  min-height:0;
+  overflow:auto;
+  padding:18px;
 }
 
-#toolbar{
-margin-bottom:6px;
+.lbadmin__section-head{
+  position:sticky;
+  top:0;
+  z-index:2;
+  background:#f8f9fb;
+  padding:14px 14px 10px;
+  border-bottom:1px solid var(--line);
 }
 
-#toolbar button{
-background:#eee;
-color:#000;
-padding:4px 8px;
-margin-right:4px;
+.lbadmin__section-title{
+  margin:0;
+  font-size:.82rem;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:#111;
 }
 
+.lbadmin__list{
+  padding:0;
+}
+
+.lbadmin__item{
+  padding:12px 14px;
+  border-bottom:1px solid var(--line);
+  cursor:pointer;
+  background:transparent;
+}
+
+.lbadmin__item:hover{
+  background:#eef2f7;
+}
+
+.lbadmin__item.is-active{
+  background:#9e0000;
+  color:#fff;
+}
+
+.lbadmin__item-title{
+  font-size:.92rem;
+  font-weight:900;
+  line-height:1.1;
+  margin:0 0 4px;
+}
+
+.lbadmin__item-meta{
+  font-size:.77rem;
+  opacity:.8;
+}
+
+.lbadmin__item-pillrow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:8px 0 0;
+}
+
+.lbadmin__pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:22px;
+  padding:0 8px;
+  border-radius:999px;
+  background:#e8ecf2;
+  color:#111;
+  font-size:.68rem;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+}
+
+.lbadmin__item.is-active .lbadmin__pill{
+  background:rgba(255,255,255,.18);
+  color:#fff;
+}
+
+.lbadmin__editor-card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:16px;
+  box-shadow:0 4px 16px rgba(0,0,0,.04);
+}
+
+.lbadmin__editor-title{
+  margin:0 0 10px;
+  font-size:1rem;
+  font-weight:900;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+
+.lbadmin__grid{
+  display:grid;
+  gap:12px;
+}
+
+.lbadmin__grid--2{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+.lbadmin__field{
+  display:grid;
+  gap:5px;
+}
+
+.lbadmin__label{
+  font-size:.74rem;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  color:#374151;
+}
+
+.lbadmin__input,
+.lbadmin__textarea,
+.lbadmin__select{
+  width:100%;
+  min-width:0;
+  border:1px solid #cfd6de;
+  border-radius:12px;
+  background:#fff;
+  color:#111;
+  font:inherit;
+  padding:10px 12px;
+  outline:none;
+}
+
+.lbadmin__input:focus,
+.lbadmin__textarea:focus,
+.lbadmin__select:focus{
+  border-color:var(--nl-blue);
+  box-shadow:0 0 0 3px rgba(34,59,124,.10);
+}
+
+.lbadmin__textarea{
+  min-height:170px;
+  resize:vertical;
+}
+
+.lbadmin__toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:0 0 8px;
+}
+
+.lbadmin__toolbar-btn,
+.lbadmin__btn{
+  appearance:none;
+  border:0;
+  border-radius:999px;
+  cursor:pointer;
+  font:inherit;
+  font-weight:900;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+
+.lbadmin__toolbar-btn{
+  min-height:34px;
+  padding:0 12px;
+  background:#eef2f7;
+  color:#111;
+  font-size:.72rem;
+}
+
+.lbadmin__btn{
+  min-height:40px;
+  padding:0 16px;
+  color:#fff;
+  background:var(--nl-red);
+  font-size:.78rem;
+}
+
+.lbadmin__btn--blue{
+  background:var(--nl-blue);
+}
+
+.lbadmin__btn--dark{
+  background:#444;
+}
+
+.lbadmin__btn--danger{
+  background:#b00020;
+}
+
+.lbadmin__btnrow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin:14px 0 0;
+}
+
+.lbadmin__submissions{
+  margin:18px 0 0;
+}
+
+.lbadmin__submissions-card{
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:16px;
+  box-shadow:0 4px 16px rgba(0,0,0,.04);
+}
+
+.lbadmin__submissions-list{
+  display:grid;
+  gap:10px;
+  margin:12px 0 0;
+}
+
+.lbadmin__submission{
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:12px;
+  background:#fafbfc;
+}
+
+.lbadmin__submission-top{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:space-between;
+  gap:8px;
+  margin:0 0 8px;
+}
+
+.lbadmin__submission-name{
+  font-weight:900;
+}
+
+.lbadmin__submission-note{
+  margin:0 0 10px;
+  white-space:pre-wrap;
+}
+
+.lbadmin__submission-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.lbadmin__tiny{
+  font-size:.76rem;
+  color:var(--muted);
+}
+
+@media (max-width:1100px){
+  .lbadmin{
+    grid-template-columns:1fr;
+  }
+
+  .lbadmin__sidebar{
+    min-height:auto;
+  }
+
+  .lbadmin__content{
+    grid-template-columns:1fr;
+  }
+
+  .lbadmin__listcol{
+    max-height:280px;
+    border-right:0;
+    border-bottom:1px solid var(--line);
+  }
+}
+
+@media (max-width:760px){
+  .lbadmin__grid--2{
+    grid-template-columns:1fr;
+  }
+
+  .lbadmin__topbar{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+}
 </style>
 </head>
-
-
 <body>
 
-<div id="wrap">
+<div class="lbadmin">
+  <aside class="lbadmin__sidebar">
+    <div class="lbadmin__sidebar-top">
+      <h1 class="lbadmin__brand">Live Blog Admin</h1>
+      <div class="lbadmin__sidebar-actions">
+        <button class="lbadmin__btn lbadmin__btn--blue" id="lbadminNewPostBtn" type="button">New Post</button>
+        <button class="lbadmin__btn lbadmin__btn--dark" id="lbadminReloadBtn" type="button">Reload All</button>
+      </div>
+    </div>
+  </aside>
 
-<div id="list"></div>
+  <main class="lbadmin__main">
+    <div class="lbadmin__topbar">
+      <div class="lbadmin__status" id="lbadminStatus">Ready.</div>
+      <div class="lbadmin__tiny" id="lbadminCounts">Posts: 0 · Submissions: 0</div>
+    </div>
 
-<div id="editor">
+    <div class="lbadmin__content">
+      <div class="lbadmin__listcol">
+        <div class="lbadmin__section-head">
+          <h2 class="lbadmin__section-title">Posts</h2>
+        </div>
+        <div class="lbadmin__list" id="lbadminPostList"></div>
+      </div>
 
-<h2>Post Editor</h2>
+      <div class="lbadmin__editorcol">
+        <section class="lbadmin__editor-card">
+          <h2 class="lbadmin__editor-title">Post Editor</h2>
 
-<label>ID</label>
-<input id="id">
+          <div class="lbadmin__grid">
+            <div class="lbadmin__field">
+              <label class="lbadmin__label" for="id">ID</label>
+              <input class="lbadmin__input" id="id" type="text" placeholder="Auto-generated for new posts">
+            </div>
 
-<div class="row">
+            <div class="lbadmin__grid lbadmin__grid--2">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="published">Published</label>
+                <select class="lbadmin__select" id="published">
+                  <option value="TRUE">TRUE</option>
+                  <option value="FALSE">FALSE</option>
+                </select>
+              </div>
 
-<div>
-<label>Published</label>
-<select id="published">
-<option>TRUE</option>
-<option>FALSE</option>
-</select>
-</div>
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="pinned">Pinned</label>
+                <select class="lbadmin__select" id="pinned">
+                  <option value="FALSE">FALSE</option>
+                  <option value="TRUE">TRUE</option>
+                </select>
+              </div>
+            </div>
 
-<div>
-<label>Pinned</label>
-<select id="pinned">
-<option>FALSE</option>
-<option>TRUE</option>
-</select>
-</div>
+            <div class="lbadmin__grid lbadmin__grid--2">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="event">Event</label>
+                <input class="lbadmin__input" id="event" type="text" placeholder="goal / yellow card / full-time">
+              </div>
 
-</div>
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="team">Team</label>
+                <input class="lbadmin__input" id="team" type="text" placeholder="Boreham Wood">
+              </div>
+            </div>
 
-<label>Event</label>
-<input id="event">
+            <div class="lbadmin__grid lbadmin__grid--2">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="match_time">Match time</label>
+                <input class="lbadmin__input" id="match_time" type="text" placeholder="12' / HT / FT">
+              </div>
 
-<label>Team</label>
-<input id="team">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="clock_time">Clock time</label>
+                <input class="lbadmin__input" id="clock_time" type="text" placeholder="Leave blank for new posts to auto-stamp">
+              </div>
+            </div>
 
-<div class="row">
+            <div class="lbadmin__grid lbadmin__grid--2">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="home">Home</label>
+                <input class="lbadmin__input" id="home" type="text" placeholder="1">
+              </div>
 
-<div>
-<label>Match time</label>
-<input id="match_time">
-</div>
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="away">Away</label>
+                <input class="lbadmin__input" id="away" type="text" placeholder="0">
+              </div>
+            </div>
 
-<div>
-<label>Clock time</label>
-<input id="clock_time">
-</div>
+            <div class="lbadmin__grid lbadmin__grid--2">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="home_pens">Home pens</label>
+                <input class="lbadmin__input" id="home_pens" type="text" placeholder="">
+              </div>
 
-</div>
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="away_pens">Away pens</label>
+                <input class="lbadmin__input" id="away_pens" type="text" placeholder="">
+              </div>
+            </div>
 
-<div class="row">
+            <div class="lbadmin__field">
+              <label class="lbadmin__label" for="copy_html">Copy HTML</label>
+              <div class="lbadmin__toolbar">
+                <button class="lbadmin__toolbar-btn" type="button" data-tag="strong">Bold</button>
+                <button class="lbadmin__toolbar-btn" type="button" data-tag="em">Italic</button>
+                <button class="lbadmin__toolbar-btn" type="button" data-insert="<p></p>">Paragraph</button>
+                <button class="lbadmin__toolbar-btn" type="button" data-insert="<br>">Line break</button>
+              </div>
+              <textarea class="lbadmin__textarea" id="copy_html" placeholder="<p>Post copy here</p>"></textarea>
+            </div>
 
-<div>
-<label>Home</label>
-<input id="home">
-</div>
+            <div class="lbadmin__grid lbadmin__grid--2">
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="media_type">Media type</label>
+                <select class="lbadmin__select" id="media_type">
+                  <option value="">None</option>
+                  <option value="image">image</option>
+                  <option value="video">video</option>
+                  <option value="gallery">gallery</option>
+                  <option value="embed">embed</option>
+                </select>
+              </div>
 
-<div>
-<label>Away</label>
-<input id="away">
-</div>
+              <div class="lbadmin__field">
+                <label class="lbadmin__label" for="media_url">Media URL</label>
+                <input class="lbadmin__input" id="media_url" type="text" placeholder="URL or comma-separated gallery URLs">
+              </div>
+            </div>
+          </div>
 
-</div>
+          <div class="lbadmin__btnrow">
+            <button class="lbadmin__btn" id="lbadminSaveBtn" type="button">Save Post</button>
+            <button class="lbadmin__btn lbadmin__btn--dark" id="lbadminClearBtn" type="button">Clear Form</button>
+            <button class="lbadmin__btn lbadmin__btn--danger" id="lbadminDeleteBtn" type="button">Delete Post</button>
+          </div>
+        </section>
 
-<div class="row">
-
-<div>
-<label>Home pens</label>
-<input id="home_pens">
-</div>
-
-<div>
-<label>Away pens</label>
-<input id="away_pens">
-</div>
-
-</div>
-
-<label>Copy</label>
-
-<div id="toolbar">
-<button onclick="wrapTag('strong')">B</button>
-<button onclick="wrapTag('em')">I</button>
-</div>
-
-<textarea id="copy_html"></textarea>
-
-<label>Media type</label>
-<input id="media_type">
-
-<label>Media URL</label>
-<input id="media_url">
-
-<div>
-
-<button onclick="savePost()">Save</button>
-<button class="secondary" onclick="newPost()">New</button>
-<button class="delete" onclick="deletePost()">Delete</button>
-
-</div>
-
-</div>
-
+        <section class="lbadmin__submissions">
+          <div class="lbadmin__submissions-card">
+            <h2 class="lbadmin__editor-title">Supporter Submissions</h2>
+            <div class="lbadmin__submissions-list" id="lbadminSubmissionList"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
 </div>
 
 <script>
+(function(){
+  'use strict';
 
-const API="YOUR_SCRIPT_URL";
+  const API = 'https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec';
 
-let POSTS=[]
+  const state = {
+    posts: [],
+    submissions: [],
+    activePostId: ''
+  };
 
-async function loadPosts(){
+  const dom = {
+    status: document.getElementById('lbadminStatus'),
+    counts: document.getElementById('lbadminCounts'),
+    postList: document.getElementById('lbadminPostList'),
+    submissionList: document.getElementById('lbadminSubmissionList'),
+    newPostBtn: document.getElementById('lbadminNewPostBtn'),
+    reloadBtn: document.getElementById('lbadminReloadBtn'),
+    saveBtn: document.getElementById('lbadminSaveBtn'),
+    clearBtn: document.getElementById('lbadminClearBtn'),
+    deleteBtn: document.getElementById('lbadminDeleteBtn'),
+    toolbarButtons: Array.from(document.querySelectorAll('.lbadmin__toolbar-btn'))
+  };
 
-const res=await fetch(API+"?action=listPosts")
-const data=await res.json()
+  const fieldIds = [
+    'id',
+    'published',
+    'pinned',
+    'event',
+    'team',
+    'match_time',
+    'clock_time',
+    'home',
+    'away',
+    'home_pens',
+    'away_pens',
+    'copy_html',
+    'media_type',
+    'media_url'
+  ];
 
-POSTS=data.items||[]
+  function setStatus(message, type){
+    dom.status.textContent = message || '';
+    dom.status.classList.remove('is-error', 'is-success');
+    if(type === 'error') dom.status.classList.add('is-error');
+    if(type === 'success') dom.status.classList.add('is-success');
+  }
 
-const list=document.getElementById("list")
-list.innerHTML=""
+  function escapeHtml(str){
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
-POSTS.forEach(p=>{
+  async function fetchJson(url, options){
+    const res = await fetch(url, options);
+    const text = await res.text();
+    let data = null;
 
-const div=document.createElement("div")
-div.className="post"
+    try{
+      data = JSON.parse(text);
+    }catch(error){
+      throw new Error('Response was not valid JSON.');
+    }
 
-div.innerHTML=
-`<div>${p.team||""}</div>
-<div style="font-size:12px;opacity:.7">${p.event}</div>`
+    if(!res.ok){
+      throw new Error((data && data.error) || 'Request failed.');
+    }
 
-div.onclick=()=>loadPost(p)
+    if(data && data.ok === false){
+      throw new Error(data.error || 'Request failed.');
+    }
 
-list.appendChild(div)
+    return data;
+  }
 
-})
+  function updateCounts(){
+    dom.counts.textContent = `Posts: ${state.posts.length} · Submissions: ${state.submissions.length}`;
+  }
 
-}
+  function getFieldValue(id){
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  }
 
-function loadPost(p){
+  function setFieldValue(id, value){
+    const el = document.getElementById(id);
+    if(el) el.value = value == null ? '' : value;
+  }
 
-for(const k in p){
+  function clearEditor(){
+    fieldIds.forEach(function(id){
+      if(id === 'published'){
+        setFieldValue(id, 'TRUE');
+      }else if(id === 'pinned'){
+        setFieldValue(id, 'FALSE');
+      }else{
+        setFieldValue(id, '');
+      }
+    });
 
-const el=document.getElementById(k)
+    state.activePostId = '';
+    renderPosts();
+    setStatus('New post ready.');
+  }
 
-if(el) el.value=p[k]
+  function buildPostPayload(){
+    const payload = { action:'savePost' };
 
-}
+    fieldIds.forEach(function(id){
+      payload[id] = getFieldValue(id);
+    });
 
-}
+    if(!payload.clock_time){
+      delete payload.clock_time;
+    }
 
-function newPost(){
+    return payload;
+  }
 
-document.querySelectorAll("#editor input,#editor textarea").forEach(el=>{
-el.value=""
-})
+  function loadPostIntoEditor(post){
+    if(!post) return;
 
-}
+    fieldIds.forEach(function(id){
+      setFieldValue(id, post[id] != null ? post[id] : '');
+    });
 
-function wrapTag(tag){
+    state.activePostId = post.id || '';
+    renderPosts();
+    setStatus(`Loaded post ${post.id}.`);
+  }
 
-const textarea=document.getElementById("copy_html")
+  function renderPosts(){
+    if(!state.posts.length){
+      dom.postList.innerHTML = '<div class="lbadmin__item"><div class="lbadmin__item-title">No posts yet</div><div class="lbadmin__item-meta">Create one with New Post.</div></div>';
+      return;
+    }
 
-const start=textarea.selectionStart
-const end=textarea.selectionEnd
+    dom.postList.innerHTML = state.posts.map(function(post){
+      const activeClass = String(post.id) === String(state.activePostId) ? ' is-active' : '';
+      const title = post.team || '(No team)';
+      const meta = [post.event || '(No event)', post.match_time || post.clock_time || ''].filter(Boolean).join(' · ');
+      const pills = [
+        post.published ? 'published' : 'unpublished',
+        post.pinned ? 'pinned' : ''
+      ].filter(Boolean);
 
-const text=textarea.value
+      return `
+        <div class="lbadmin__item${activeClass}" data-post-id="${escapeHtml(post.id)}">
+          <div class="lbadmin__item-title">${escapeHtml(title)}</div>
+          <div class="lbadmin__item-meta">${escapeHtml(meta)}</div>
+          <div class="lbadmin__item-pillrow">
+            ${pills.map(function(pill){
+              return `<span class="lbadmin__pill">${escapeHtml(pill)}</span>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
 
-const selected=text.substring(start,end)
+    Array.from(dom.postList.querySelectorAll('[data-post-id]')).forEach(function(el){
+      el.addEventListener('click', function(){
+        const id = el.getAttribute('data-post-id');
+        const post = state.posts.find(function(item){ return String(item.id) === String(id); });
+        loadPostIntoEditor(post);
+      });
+    });
+  }
 
-const replacement=`<${tag}>${selected}</${tag}>`
+  function renderSubmissions(){
+    if(!state.submissions.length){
+      dom.submissionList.innerHTML = '<div class="lbadmin__tiny">No submissions yet.</div>';
+      return;
+    }
 
-textarea.value=text.substring(0,start)+replacement+text.substring(end)
+    dom.submissionList.innerHTML = state.submissions.map(function(item){
+      return `
+        <div class="lbadmin__submission" data-submission-row="${item.row_id}">
+          <div class="lbadmin__submission-top">
+            <div>
+              <div class="lbadmin__submission-name">${escapeHtml(item.name || 'Anonymous')}</div>
+              <div class="lbadmin__tiny">${escapeHtml(item.timestamp || '')}</div>
+            </div>
+            <div class="lbadmin__item-pillrow">
+              <span class="lbadmin__pill">${item.published ? 'published' : 'hidden'}</span>
+              <span class="lbadmin__pill">${escapeHtml(item.status || 'pending')}</span>
+            </div>
+          </div>
 
-}
+          <div class="lbadmin__submission-note">${escapeHtml(item.note || '')}</div>
 
-async function savePost(){
+          <div class="lbadmin__submission-actions">
+            <button class="lbadmin__btn lbadmin__btn--blue" type="button" data-action="publish" data-row="${item.row_id}">Publish</button>
+            <button class="lbadmin__btn lbadmin__btn--dark" type="button" data-action="unpublish" data-row="${item.row_id}">Unpublish</button>
+          </div>
+        </div>
+      `;
+    }).join('');
 
-const data={action:"savePost"}
+    Array.from(dom.submissionList.querySelectorAll('[data-action="publish"]')).forEach(function(btn){
+      btn.addEventListener('click', function(){
+        updateSubmission(btn.getAttribute('data-row'), true);
+      });
+    });
 
-document.querySelectorAll("#editor input,#editor textarea,#editor select").forEach(el=>{
-data[el.id]=el.value
-})
+    Array.from(dom.submissionList.querySelectorAll('[data-action="unpublish"]')).forEach(function(btn){
+      btn.addEventListener('click', function(){
+        updateSubmission(btn.getAttribute('data-row'), false);
+      });
+    });
+  }
 
-await fetch(API,{
-method:"POST",
-body:JSON.stringify(data)
-})
+  async function loadPosts(){
+    const data = await fetchJson(API + '?action=listPosts');
+    state.posts = Array.isArray(data.items) ? data.items : [];
+    renderPosts();
+    updateCounts();
+  }
 
-loadPosts()
+  async function loadSubmissions(){
+    const data = await fetchJson(API + '?action=listSubmissions');
+    state.submissions = Array.isArray(data.items) ? data.items : [];
+    renderSubmissions();
+    updateCounts();
+  }
 
-}
+  async function reloadAll(){
+    setStatus('Loading…');
+    await Promise.all([loadPosts(), loadSubmissions()]);
+    setStatus('Loaded.', 'success');
+  }
 
-async function deletePost(){
+  async function savePost(){
+    const payload = buildPostPayload();
 
-const id=document.getElementById("id").value
+    if(!payload.event && !payload.team && !payload.copy_html){
+      setStatus('Post needs at least event, team or copy.', 'error');
+      return;
+    }
 
-if(!id) return
+    setStatus('Saving post…');
 
-await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-action:"deletePost",
-id:id
-})
-})
+    const data = await fetchJson(API, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify(payload)
+    });
 
-newPost()
-loadPosts()
+    setStatus(data.message || 'Post saved.', 'success');
+    await loadPosts();
 
-}
+    if(data.id){
+      const saved = state.posts.find(function(item){ return String(item.id) === String(data.id); });
+      if(saved){
+        loadPostIntoEditor(saved);
+      }else{
+        setFieldValue('id', data.id);
+        state.activePostId = data.id;
+      }
+    }
+  }
 
-loadPosts()
+  async function deletePost(){
+    const id = getFieldValue('id');
 
+    if(!id){
+      setStatus('No post selected to delete.', 'error');
+      return;
+    }
+
+    const sure = window.confirm(`Delete post ${id}?`);
+    if(!sure) return;
+
+    setStatus('Deleting post…');
+
+    const data = await fetchJson(API, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({
+        action:'deletePost',
+        id:id
+      })
+    });
+
+    clearEditor();
+    await loadPosts();
+    setStatus(data.message || 'Post deleted.', 'success');
+  }
+
+  async function updateSubmission(rowId, published){
+    setStatus(published ? 'Publishing submission…' : 'Unpublishing submission…');
+
+    const current = state.submissions.find(function(item){
+      return String(item.row_id) === String(rowId);
+    });
+
+    if(!current){
+      setStatus('Submission not found.', 'error');
+      return;
+    }
+
+    const data = await fetchJson(API, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({
+        action:'updateSubmission',
+        row_id:Number(rowId),
+        name:current.name || '',
+        note:current.note || '',
+        status:published ? 'published' : 'pending',
+        published:published ? 'TRUE' : 'FALSE'
+      })
+    });
+
+    await loadSubmissions();
+    setStatus(data.message || 'Submission updated.', 'success');
+  }
+
+  function wrapSelection(tag){
+    const textarea = document.getElementById('copy_html');
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+    const selected = value.slice(start, end);
+    const replacement = `<${tag}>${selected}</${tag}>`;
+
+    textarea.value = value.slice(0, start) + replacement + value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = start + replacement.length;
+    textarea.selectionEnd = start + replacement.length;
+  }
+
+  function insertSnippet(snippet){
+    const textarea = document.getElementById('copy_html');
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+
+    textarea.value = value.slice(0, start) + snippet + value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = start + snippet.length;
+    textarea.selectionEnd = start + snippet.length;
+  }
+
+  function bindEvents(){
+    dom.newPostBtn.addEventListener('click', clearEditor);
+    dom.reloadBtn.addEventListener('click', function(){
+      reloadAll().catch(handleError);
+    });
+    dom.saveBtn.addEventListener('click', function(){
+      savePost().catch(handleError);
+    });
+    dom.clearBtn.addEventListener('click', clearEditor);
+    dom.deleteBtn.addEventListener('click', function(){
+      deletePost().catch(handleError);
+    });
+
+    dom.toolbarButtons.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        const tag = btn.getAttribute('data-tag');
+        const insert = btn.getAttribute('data-insert');
+
+        if(tag){
+          wrapSelection(tag);
+          return;
+        }
+
+        if(insert){
+          insertSnippet(insert);
+        }
+      });
+    });
+  }
+
+  function handleError(error){
+    console.error(error);
+    setStatus(error && error.message ? error.message : 'Something went wrong.', 'error');
+  }
+
+  async function init(){
+    bindEvents();
+    clearEditor();
+    await reloadAll();
+  }
+
+  init().catch(handleError);
+})();
 </script>
 
 </body>
