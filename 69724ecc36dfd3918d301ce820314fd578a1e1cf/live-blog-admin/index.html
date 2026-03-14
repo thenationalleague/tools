@@ -1576,11 +1576,14 @@ html,body{
     }
   }
 
-  async function updateAndClose(){
+async function updateAndClose(){
     await savePost();
+    state.activeId = '';
+    state.isNew = true;
     closeEditorPanel();
     setEditorNew();
     clearEditorFields();
+    renderFeed();
   }
 
   async function deletePost(){
@@ -1595,38 +1598,45 @@ html,body{
   }
 
   /* ── SUBMISSIONS ── */
-  async function updateSub(rowId, publish){
-    const current=state.submissions.find(s=>String(s.row_id)===String(rowId));
-    if(!current){ setStatus('Submission not found.','error'); return; }
+async function updateSub(rowId, publish){
+  const current = state.submissions.find(s => String(s.row_id) === String(rowId));
+  if(!current){ setStatus('Submission not found.', 'error'); return; }
 
-    const prev=current.published;
-    current.published=publish;
+  const prev = { published: current.published, timestamp_ms: current.timestamp_ms, timestamp: current.timestamp };
 
-    if(publish){
-      current.timestamp_ms=Date.now();
-      current.timestamp=new Date().toISOString().slice(0,19).replace('T',' ');
-    } else {
-      current.timestamp_ms=0;
-      current.timestamp='';
-    }
-
-    renderSubRail(); renderFeed();
-
-    try{
-      await apiFetch({
-        action:'updateSubmission', row_id:rowId,
-        name:current.name||'', note:current.note||'',
-        status:publish?'published':'pending',
-        published:publish?'TRUE':'FALSE'
-      });
-      setStatus(publish?'Published.':'Unpublished.','success');
-    }catch(err){
-      current.published=prev;
-      if(!publish) current.timestamp_ms=0;
-      renderSubRail(); renderFeed();
-      handleErr(err);
-    }
+  if(publish){
+    const now = new Date();
+    current.published = true;
+    current.timestamp_ms = now.getTime();
+    current.timestamp = now.toISOString().slice(0,16).replace('T',' ');
+  } else {
+    current.published = false;
+    current.timestamp_ms = 0;
+    current.timestamp = '';
   }
+
+  renderSubRail();
+  renderFeed();
+
+  try{
+    await apiFetch({
+      action: 'updateSubmission',
+      row_id: rowId,
+      name: current.name || '',
+      note: current.note || '',
+      status: publish ? 'published' : 'pending',
+      published: publish ? 'TRUE' : 'FALSE'
+    });
+    setStatus(publish ? 'Published.' : 'Unpublished.', 'success');
+  } catch(err){
+    current.published = prev.published;
+    current.timestamp_ms = prev.timestamp_ms;
+    current.timestamp = prev.timestamp;
+    renderSubRail();
+    renderFeed();
+    handleErr(err);
+  }
+}
 
   /* ── API LOAD ── */
   async function loadPosts(){
@@ -1635,9 +1645,27 @@ html,body{
     renderFeed();
   }
 
+function normaliseSubs(items){
+    return items.map(function(item){
+      if(item.publishtime){
+        const d = new Date(item.publishtime);
+        if(!isNaN(d.getTime())){
+          item.timestamp_ms = d.getTime();
+          item.timestamp = item.publishtime.slice(0,16).replace('T',' ');
+          return item;
+        }
+      }
+      if(!item.published){
+        item.timestamp_ms = 0;
+        item.timestamp = '';
+      }
+      return item;
+    });
+  }
+
   async function loadSubs(){
     const data=await apiGet({ action:'listSubmissions' });
-    state.submissions=Array.isArray(data.items)?data.items:[];
+    state.submissions=normaliseSubs(Array.isArray(data.items)?data.items:[]);
     renderSubRail(); renderFeed();
   }
 
