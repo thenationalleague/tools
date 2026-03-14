@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v4.3</title>
+<title>Live Blog Admin v4.4</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -180,8 +180,11 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   .layout{ grid-template-columns:1fr; padding-bottom:var(--bottombar-h); }
   .sub-rail{ display:none; }
   .editor-wrap{ display:none; }
-  .erow{ flex-direction:column; }
-  .ef--w80,.ef--w120{ width:100%; }
+  .erow{ flex-direction:column !important; }
+  .ef,.ef--grow,.ef--w80,.ef--w120{ width:100% !important; flex:none !important; }
+  .score-strip{ width:100%; }
+  .sheet__body .erow{ flex-direction:column !important; }
+  .sheet__body .ef{ width:100% !important; }
   .topbar__status{ display:none; }
 
   /* tabs */
@@ -233,7 +236,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v4.3</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v4.4</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -299,16 +302,14 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
     </div>
     <div class="feed" id="feedEl"><div class="feed-empty">Loading…</div></div>
 
-    <!-- MOBILE SUBS PANEL -->
-    <div class="mobile-panel" id="panelSubs">
-      <div class="mobile-subs-wrap">
-        <div class="mobile-subs-head">
-          <div class="mobile-subs-title">Fan Submissions</div>
-          <div class="mobile-subs-counts" id="subCountsMobile">Loading…</div>
-        </div>
-        <div class="mobile-subs-body" id="subRailBodyMobile"><div class="rail-empty">Loading…</div></div>
-      </div>
+  <!-- MOBILE SUBS PANEL -->
+  <div id="panelSubs" style="display:none;background:var(--dark2);">
+    <div class="mobile-subs-head">
+      <div class="mobile-subs-title">Fan Submissions</div>
+      <div class="mobile-subs-counts" id="subCountsMobile">Loading…</div>
     </div>
+    <div class="mobile-subs-body" id="subRailBodyMobile"><div class="rail-empty">Loading…</div></div>
+  </div>
 
   </div>
 
@@ -589,11 +590,19 @@ function bindSheetDrag(){ let startY=0,dragging=false; dom.sheetHandle.addEventL
 
 /* ── TABS ── */
 function switchTab(tab){
-  dom.tabFeed.classList.toggle('is-active',tab==='feed');
-  dom.tabSubs.classList.toggle('is-active',tab==='subs');
-  dom.panelSubs.classList.toggle('is-active',tab==='subs');
-  // feed is always rendered in the feed-col, just hidden behind subs panel
-  dom.feedEl.closest('.feed-col').style.display = tab==='subs' ? 'none' : '';
+  dom.tabFeed.classList.toggle('is-active', tab==='feed');
+  dom.tabSubs.classList.toggle('is-active', tab==='subs');
+  if(tab==='subs'){
+    dom.panelSubs.style.display='block';
+    dom.panelSubs.style.minHeight='calc(100vh - '+getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')+' - '+getComputedStyle(document.documentElement).getPropertyValue('--bottombar-h')+')';
+    // hide feed content
+    document.querySelector('.feed-toolbar').style.display='none';
+    dom.feedEl.style.display='none';
+  } else {
+    dom.panelSubs.style.display='none';
+    document.querySelector('.feed-toolbar').style.display='';
+    dom.feedEl.style.display='';
+  }
 }
 
 /* ── HIDDEN SUBS ── */
