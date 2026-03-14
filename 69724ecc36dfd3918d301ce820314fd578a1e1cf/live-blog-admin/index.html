@@ -1044,13 +1044,13 @@ html,body{
 
   const NEUTRAL = { bg:'#223b7c', border:'#9e0000' };
 
-  const state = {
+const state = {
     posts: [],
     submissions: [],
     hiddenSubs: new Set(),
     activeId: '',
     isNew: true,
-    isPublished: true,
+    isPublished: false,
     isPinned: false,
     editorOpen: false,
     search: '',
@@ -1314,7 +1314,7 @@ function setEditorNew(){
 
     const postItems = state.posts
       .filter(p => !p.deleted)
-      .map(p => ({ type:'post', data:p, sort:Number(p.clockSort)||0, id:p.id }));
+      .map(p => ({ type:'post', data:p, sort:Number(p.clockSort)||Number(p.updated_at_ms)||0, id:p.id }));
 
     const subItems = state.submissions
       .filter(s => s.published && !state.hiddenSubs.has(String(s.row_id)))
@@ -1648,18 +1648,17 @@ async function updateSub(rowId, publish){
 
 function normaliseSubs(items){
     return items.map(function(item){
-      if(item.publishtime){
-        const d = new Date(item.publishtime);
+      const rawPubTime = item.publishtime || item.publish_time || '';
+      if(rawPubTime){
+        const d = new Date(rawPubTime);
         if(!isNaN(d.getTime())){
           item.timestamp_ms = d.getTime();
-          item.timestamp = item.publishtime.slice(0,16).replace('T',' ');
+          item.timestamp = rawPubTime.slice(0,16).replace('T',' ');
           return item;
         }
       }
-      if(!item.published){
-        item.timestamp_ms = 0;
-        item.timestamp = '';
-      }
+      item.timestamp_ms = 0;
+      item.timestamp = item.timestamp || '';
       return item;
     });
   }
@@ -1757,8 +1756,13 @@ function normaliseSubs(items){
 dom.btnPublish.addEventListener('click', function(){
       if(state.isNew){
         state.isPublished = true;
-        syncStatusUI();
-        updateAndClose().catch(handleErr);
+        dom.btnPublish.disabled = true;
+        dom.btnPublishLabel.textContent = 'Publishing…';
+        dom.statusLabel.className = 'status-label status-label--published';
+        dom.statusLabel.textContent = 'Publishing…';
+        updateAndClose().catch(handleErr).finally(function(){
+          dom.btnPublish.disabled = false;
+        });
       } else {
         state.isPublished = !state.isPublished;
         syncStatusUI();
