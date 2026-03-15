@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v105 — deleted submissions section: collapsible panel at bottom of sub rail showing deleted items with Restore button; restore sets deleted=FALSE, item returns to original timestamp order; panel auto-collapses when empty
   v104 — fix tweet flickering: renderFeed now diffs DOM instead of full innerHTML replace, preserving rendered tweet iframes across reloads; fix submission delete: delete button now carries data-row so row_id reaches the API correctly
   v103 — admin feed sort: pinned posts always float to top, matching frontend sortItemsForDisplay; pin pill emoji 📌 already consistent with frontend
   v98 — tap-to-edit simplified to single click listener on feedEl; removed all touch/desktop detection logic; click fires naturally on mobile tap after 300ms delay which is acceptable; unpublish button handled first to prevent bubbling
@@ -22,7 +23,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v104</title>
+<title>Live Blog Admin v105</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -192,6 +193,19 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .scard__btn:hover:not(.is-active){ filter:brightness(.95); }
 .rail-empty{ padding:20px 10px; text-align:center; font-size:.84rem; color:var(--muted); }
 
+/* Deleted submissions collapsible */
+.del-section{ border-top:1px solid var(--line); margin-top:4px; flex-shrink:0; }
+.del-section__toggle{ display:flex; align-items:center; gap:8px; padding:10px 10px 8px; cursor:pointer; user-select:none; background:transparent; border:0; width:100%; text-align:left; font:inherit; color:var(--muted); font-size:.72rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; transition:color .15s; }
+.del-section__toggle:hover{ color:var(--text); }
+.del-section__count{ display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:999px; background:#f3f4f6; color:var(--muted); font-size:.64rem; font-weight:900; padding:0 5px; }
+.del-section__chevron{ margin-left:auto; font-size:.7rem; transition:transform .2s; }
+.del-section__chevron.is-open{ transform:rotate(180deg); }
+.del-section__body{ display:none; padding:0 0 8px; display:flex; flex-direction:column; gap:6px; padding:4px 0 8px; }
+.del-section__body.is-hidden{ display:none; }
+.scard--deleted{ opacity:.7; }
+.scard__btn--restore{ background:#f0fdf4; color:#15803d; font-size:.74rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; border:0; padding:8px 0; cursor:pointer; width:100%; transition:background .12s; }
+.scard__btn--restore:hover{ background:#dcfce7; }
+
 @media (max-width:768px){
   .layout{ grid-template-columns:1fr; padding-bottom:var(--bottombar-h); }
   .sub-rail{ display:none; }
@@ -249,7 +263,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v104</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v105</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -420,7 +434,7 @@ const NEUTRAL={bg:'#223b7c',border:'#9e0000'};
 const NEW_SUB_MS=60000;
 
 const state={
-  posts:[],submissions:[],hiddenSubs:new Set(),
+  posts:[],submissions:[],hiddenSubs:new Set(),deletedSubsOpen:false,
   activeId:'',isNew:true,isPublished:true,isPinned:false,
   editorOpen:false,search:'',renderTimer:null,
   pendingNewSubs:0,subTimestamps:new Map(),
@@ -433,7 +447,7 @@ const $=id=>document.getElementById(id);
 const dom={
   status:$('tStatus'),
   feedEl:$('feedEl'),feedTitle:$('feedTitle'),feedSearch:$('feedSearch'),
-  subRailBody:$('subRailBody'),subCounts:$('subCounts'),
+  subRailBody:$('subRailBody'),subCounts:$('subCounts'),delSection:$('delSection'),delSectionBody:$('delSectionBody'),delSectionChevron:$('delSectionChevron'),delSectionCount:$('delSectionCount'),delSectionMobile:$('delSectionMobile'),delSectionBodyMobile:$('delSectionBodyMobile'),delSectionChevronMobile:$('delSectionChevronMobile'),delSectionCountMobile:$('delSectionCountMobile'),
   subRailBodyMobile:$('subRailBodyMobile'),subCountsMobile:$('subCountsMobile'),subBadge:$('subBadge'),
   subNewBanner:$('subNewBanner'),subNewBannerText:$('subNewBannerText'),
   subNewBannerMobile:$('subNewBannerMobile'),subNewBannerMobileText:$('subNewBannerMobileText'),
@@ -649,27 +663,103 @@ function buildSubCardHtml(sub){ const name=escHtml(sub.name||'Anonymous'); const
 
 function subStableId(item){ return String(item.sub_id||item.row_id); }
 
+function buildSubCardHtml_(item, includeDeleted){
+  const name=escHtml(item.name||'Anonymous');
+  const note=escHtml(item.note||'');
+  const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):'';
+  const isPub=!!item.published;
+  const sid=subStableId(item);
+  const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS;
+  if(includeDeleted){
+    return `<div class="scard scard--deleted"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><button class="scard__btn scard__btn--restore" data-sub="restore" data-row="${item.row_id}" data-stable="${sid}" type="button">↩ Restore</button></div>`;
+  }
+  return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" data-row="${item.row_id}" type="button">🗑</button></div></div>`;
+}
+
+function bindSubRailEvents(container){
+  container.querySelectorAll('[data-sub]').forEach(function(btn){
+    btn.addEventListener('click',function(e){
+      e.stopPropagation();
+      const action=btn.getAttribute('data-sub');
+      const row=btn.getAttribute('data-row');
+      const sid=btn.getAttribute('data-stable')||row;
+      if(action==='delete'){
+        apiFetch({
+          action:'updateSubmission', row_id:row,
+          name:state.submissions.find(s=>String(s.row_id)===String(row))?.name||'',
+          note:state.submissions.find(s=>String(s.row_id)===String(row))?.note||'',
+          deleted:'TRUE', published:'FALSE'
+        }).catch(handleErr);
+        // Mark locally as deleted
+        const sub=state.submissions.find(s=>String(s.row_id)===String(row));
+        if(sub) sub.deleted=true;
+        renderSubRail(); renderFeed();
+      } else if(action==='restore'){
+        apiFetch({
+          action:'updateSubmission', row_id:row,
+          name:state.submissions.find(s=>String(s.row_id)===String(row))?.name||'',
+          note:state.submissions.find(s=>String(s.row_id)===String(row))?.note||'',
+          deleted:'FALSE',
+          published:state.submissions.find(s=>String(s.row_id)===String(row))?.published?'TRUE':'FALSE'
+        }).catch(handleErr);
+        // Unmark deleted locally — timestamp preserved so it slots into original order
+        const sub=state.submissions.find(s=>String(s.row_id)===String(row));
+        if(sub){ sub.deleted=false; state.hiddenSubs.delete(String(sid)); saveHiddenSubs(); }
+        // Auto-collapse deleted section if no deleted items remain
+        const remaining=state.submissions.filter(s=>s.deleted);
+        if(!remaining.length) state.deletedSubsOpen=false;
+        renderSubRail(); renderFeed();
+      } else {
+        updateSub(row,action==='publish').catch(handleErr);
+      }
+    });
+  });
+}
+
 function renderSubRail(){
-  const visible=state.submissions.filter(s=>!state.hiddenSubs.has(subStableId(s)));
-  const pending=visible.filter(s=>!s.published).length;
-  const ct=`${visible.length} total · ${pending} pending`;
+  const active=state.submissions.filter(s=>!s.deleted&&!state.hiddenSubs.has(subStableId(s)));
+  const deleted=state.submissions.filter(s=>s.deleted);
+  const pending=active.filter(s=>!s.published).length;
+  const ct=`${active.length} total · ${pending} pending`;
   dom.subCounts.textContent=ct; dom.subCountsMobile.textContent=ct;
   dom.subBadge.textContent=String(pending); dom.subBadge.classList.toggle('is-visible',pending>0);
-  const html=visible.length?visible.map(function(item){ const name=escHtml(item.name||'Anonymous'); const note=escHtml(item.note||''); const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):''; const isPub=!!item.published; const sid=subStableId(item); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" data-row="${item.row_id}" type="button">🗑</button></div></div>`; }).join(''):'<div class="rail-empty">No submissions.</div>';
-  dom.subRailBody.innerHTML=html; dom.subRailBodyMobile.innerHTML=html;
-  [dom.subRailBody,dom.subRailBodyMobile].forEach(function(c){ c.querySelectorAll('[data-sub]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); const action=btn.getAttribute('data-sub'); const row=btn.getAttribute('data-row');         if(action==='delete'){
-          const sid=btn.getAttribute('data-stable')||row;
-          // Write deleted=TRUE to sheet, then hide locally
-          apiFetch({
-            action:'updateSubmission', row_id:row,
-            name:state.submissions.find(s=>String(s.row_id)===String(row))?.name||'',
-            note:state.submissions.find(s=>String(s.row_id)===String(row))?.note||'',
-            deleted:'TRUE', published:'FALSE'
-          }).catch(handleErr);
-          state.hiddenSubs.add(String(sid));
-          saveHiddenSubs();
-          renderSubRail(); renderFeed();
-        } else updateSub(row,action==='publish').catch(handleErr); }); }); });
+
+  const activeHtml=active.length
+    ? active.map(function(item){ return buildSubCardHtml_(item,false); }).join('')
+    : '<div class="rail-empty">No submissions.</div>';
+
+  const deletedHtml=deleted.length
+    ? deleted.map(function(item){ return buildSubCardHtml_(item,true); }).join('')
+    : '<div class="rail-empty" style="font-size:.72rem;">Nothing deleted.</div>';
+
+  const delSectionHtml=`<div class="del-section" id="delSection">
+    <button class="del-section__toggle" id="delToggle" type="button">
+      Deleted <span class="del-section__count" id="delSectionCount">${deleted.length}</span>
+      <span class="del-section__chevron${state.deletedSubsOpen?' is-open':''}" id="delSectionChevron">▾</span>
+    </button>
+    <div class="del-section__body${state.deletedSubsOpen?'':' is-hidden'}" id="delSectionBody">${deletedHtml}</div>
+  </div>`;
+
+  const delSectionMobileHtml=`<div class="del-section" id="delSectionMobile">
+    <button class="del-section__toggle" id="delToggleMobile" type="button">
+      Deleted <span class="del-section__count" id="delSectionCountMobile">${deleted.length}</span>
+      <span class="del-section__chevron${state.deletedSubsOpen?' is-open':''}" id="delSectionChevronMobile">▾</span>
+    </button>
+    <div class="del-section__body${state.deletedSubsOpen?'':' is-hidden'}" id="delSectionBodyMobile">${deletedHtml}</div>
+  </div>`;
+
+  dom.subRailBody.innerHTML=activeHtml+delSectionHtml;
+  dom.subRailBodyMobile.innerHTML=activeHtml+delSectionMobileHtml;
+
+  [dom.subRailBody,dom.subRailBodyMobile].forEach(function(container){
+    bindSubRailEvents(container);
+    // Bind toggle for deleted section
+    const toggle=container.querySelector('.del-section__toggle');
+    if(toggle) toggle.addEventListener('click',function(){
+      state.deletedSubsOpen=!state.deletedSubsOpen;
+      renderSubRail();
+    });
+  });
 }
 
 function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
@@ -713,7 +803,12 @@ async function loadSubs(){
   const prevIds=new Set(state.submissions.map(s=>subStableId(s)));
   let newCount=0;
   incoming.forEach(function(item){ const sid=subStableId(item); if(!prevIds.has(sid)){ state.subTimestamps.set(sid,Date.now()); newCount++; } });
-  state.submissions=incoming;
+  // Preserve local deleted flags if server hasn't caught up yet
+  state.submissions=incoming.map(function(item){
+    const existing=state.submissions.find(function(s){ return String(s.row_id)===String(item.row_id); });
+    if(existing && existing.deleted && !item.deleted) item.deleted=existing.deleted;
+    return item;
+  });
   if(newCount>0){ state.pendingNewSubs+=newCount; const label=`${state.pendingNewSubs} new submission${state.pendingNewSubs>1?'s':''}`; dom.subNewBannerText.textContent=label; dom.subNewBannerMobileText.textContent=label; dom.subNewBanner.classList.add('is-visible'); dom.subNewBannerMobile.classList.add('is-visible'); }
   renderSubRail(); renderFeed();
 }
