@@ -1,0 +1,1360 @@
+<!--
+  NL Transfer Centre — Admin Panel
+  v1 — Initial build: three-column layout (Editor 540px | Feed 1fr | Submissions 320px),
+       mobile breakpoint 1024px with FAB + bottom sheet + tab bar,
+       card type selector, club pickers with crest preview, OG scrape,
+       inline two-stage delete, feed cards mirror frontend visual style,
+       fan submissions rail, tweet/IG embed preservation in DOM diff,
+       icon picker, published/pinned toggles, all card types supported
+
+  Changelog:
+  v1 — Initial build
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transfer Centre Admin</title>
+<link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+<style>
+/* ─── RESET & BASE ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #0a0a0a;
+  --surface:   #111;
+  --surface2:  #1a1a1a;
+  --surface3:  #222;
+  --border:    #2a2a2a;
+  --border2:   #333;
+  --yellow:    #FFD700;
+  --yellow-dim:#B89800;
+  --yellow-bg: #1a1600;
+  --text:      #f0f0f0;
+  --text-dim:  #888;
+  --text-muted:#555;
+  --red:       #e04040;
+  --green:     #50c878;
+  --blue:      #4a9ede;
+  --font:      'carbona-variable', 'carbona', sans-serif;
+  --radius:    5px;
+  --editor-w:  540px;
+  --subs-w:    300px;
+}
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+a { color: inherit; text-decoration: none; }
+img { display: block; }
+button { font-family: var(--font); cursor: pointer; }
+input, textarea, select {
+  font-family: var(--font);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+  font-variation-settings: 'wght' 400;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--yellow); }
+select option { background: var(--surface2); }
+textarea { resize: vertical; min-height: 80px; }
+
+/* ─── APP SHELL ─────────────────────────────────────────────────────────────── */
+.admin-app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ─── TOP BAR ───────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; height: 52px;
+  background: var(--surface); border-bottom: 2px solid var(--yellow);
+  flex-shrink: 0; z-index: 200;
+}
+.topbar__badge {
+  background: var(--yellow); color: #000;
+  font-size: 9px; font-weight: 900; letter-spacing: 0.14em;
+  text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+  font-variation-settings: 'wght' 900;
+}
+.topbar__title {
+  font-size: 16px; font-weight: 800; color: #fff;
+  font-variation-settings: 'wght' 800; flex: 1;
+}
+.topbar__title span { color: var(--yellow); }
+.topbar__status { font-size: 12px; color: var(--text-muted); }
+.topbar__live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--yellow);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+
+/* ─── THREE COLUMN LAYOUT ───────────────────────────────────────────────────── */
+.columns {
+  display: grid;
+  grid-template-columns: var(--editor-w) 1fr var(--subs-w);
+  grid-template-rows: 1fr;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ─── COLUMN SHARED ─────────────────────────────────────────────────────────── */
+.col {
+  display: flex; flex-direction: column;
+  overflow: hidden; border-right: 1px solid var(--border);
+  min-height: 0;
+}
+.col:last-child { border-right: none; }
+
+.col__header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--surface2);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.col__header-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-dim);
+  font-variation-settings: 'wght' 700; flex: 1;
+}
+.col__body { flex: 1; overflow-y: auto; padding: 14px; min-height: 0; }
+.col__body::-webkit-scrollbar { width: 4px; }
+.col__body::-webkit-scrollbar-track { background: transparent; }
+.col__body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ─── EDITOR COL ────────────────────────────────────────────────────────────── */
+.editor-form { display: flex; flex-direction: column; gap: 12px; }
+
+.form-row { display: flex; gap: 8px; }
+.form-row > * { flex: 1; min-width: 0; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-muted);
+  font-variation-settings: 'wght' 700;
+}
+
+/* ─── CARD TYPE SELECTOR ────────────────────────────────────────────────────── */
+.card-type-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
+}
+.card-type-btn {
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text-dim); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 8px 4px; border-radius: var(--radius);
+  text-align: center; cursor: pointer; transition: all 0.15s;
+  font-variation-settings: 'wght' 700; line-height: 1.3;
+}
+.card-type-btn:hover { border-color: var(--border2); color: var(--text); }
+.card-type-btn.active {
+  background: var(--yellow-bg); border-color: var(--yellow); color: var(--yellow);
+}
+.card-type-btn__icon { font-size: 16px; display: block; margin-bottom: 2px; }
+
+/* ─── CLUB PICKER ───────────────────────────────────────────────────────────── */
+.club-picker-wrap { position: relative; }
+.club-picker-preview {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  cursor: pointer; transition: border-color 0.15s; min-height: 38px;
+}
+.club-picker-preview:hover { border-color: var(--yellow); }
+.club-picker-preview img {
+  width: 22px; height: 22px; object-fit: contain; flex-shrink: 0;
+}
+.club-picker-preview span {
+  font-size: 13px; color: var(--text-dim); flex: 1;
+}
+.club-picker-preview .caret { font-size: 10px; color: var(--text-muted); }
+
+.club-picker-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 500;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--radius); box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  display: none; flex-direction: column; max-height: 260px; overflow: hidden;
+}
+.club-picker-dropdown.open { display: flex; }
+
+.club-picker-search {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.club-picker-search input {
+  padding: 6px 10px; font-size: 12px;
+}
+.club-picker-list {
+  overflow-y: auto; flex: 1;
+}
+.club-picker-list::-webkit-scrollbar { width: 4px; }
+.club-picker-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.club-picker-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.club-picker-item:hover { background: var(--surface2); }
+.club-picker-item img { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+.club-picker-item__name { font-size: 12px; color: var(--text); flex: 1; }
+.club-picker-item__div {
+  font-size: 9px; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* ─── OG SCRAPE ─────────────────────────────────────────────────────────────── */
+.og-btn {
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text-dim); font-size: 11px; font-weight: 600;
+  padding: 6px 12px; border-radius: var(--radius); white-space: nowrap;
+  transition: all 0.15s; font-variation-settings: 'wght' 600; flex-shrink: 0;
+}
+.og-btn:hover { border-color: var(--yellow); color: var(--yellow); }
+.og-btn.loading { opacity: 0.6; pointer-events: none; }
+
+/* ─── ICON PICKER ───────────────────────────────────────────────────────────── */
+.icon-picker-wrap { position: relative; }
+.icon-picker-trigger {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  cursor: pointer; font-size: 20px;
+  transition: border-color 0.15s;
+}
+.icon-picker-trigger:hover { border-color: var(--yellow); }
+.icon-picker-grid {
+  position: absolute; top: 100%; left: 0; z-index: 500;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--radius); padding: 8px;
+  display: none; grid-template-columns: repeat(8, 1fr); gap: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); width: 220px;
+}
+.icon-picker-grid.open { display: grid; }
+.icon-picker-grid button {
+  background: none; border: none; font-size: 18px; padding: 4px;
+  border-radius: 3px; transition: background 0.1s;
+}
+.icon-picker-grid button:hover { background: var(--surface2); }
+
+/* ─── TOGGLES ───────────────────────────────────────────────────────────────── */
+.toggle-row { display: flex; align-items: center; gap: 12px; }
+.toggle-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.toggle-item input[type=checkbox] { display: none; }
+.toggle-switch {
+  width: 36px; height: 20px; border-radius: 10px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  position: relative; transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--text-muted); transition: all 0.2s;
+}
+.toggle-item input:checked + .toggle-switch { background: var(--yellow); border-color: var(--yellow); }
+.toggle-item input:checked + .toggle-switch::after {
+  left: calc(100% - 16px); background: #000;
+}
+.toggle-label { font-size: 12px; color: var(--text-dim); }
+
+/* ─── EDITOR ACTIONS ────────────────────────────────────────────────────────── */
+.editor-actions { display: flex; gap: 8px; padding-top: 4px; }
+.btn {
+  border: none; font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 9px 16px; border-radius: var(--radius);
+  font-variation-settings: 'wght' 700; transition: all 0.15s; flex-shrink: 0;
+}
+.btn--primary { background: var(--yellow); color: #000; flex: 1; }
+.btn--primary:hover { opacity: 0.85; }
+.btn--secondary {
+  background: transparent; border: 1px solid var(--border2); color: var(--text-dim);
+}
+.btn--secondary:hover { border-color: var(--text-dim); color: var(--text); }
+.btn--danger { background: transparent; border: 1px solid var(--red); color: var(--red); }
+.btn--danger-confirm { background: var(--red); color: #fff; }
+
+/* ─── FEED COL ──────────────────────────────────────────────────────────────── */
+.feed-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* ─── ADMIN FEED CARD ───────────────────────────────────────────────────────── */
+.admin-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  animation: card-in 0.3s cubic-bezier(0.22,1,0.36,1) both;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.admin-card:hover { border-color: var(--border2); }
+.admin-card.selected { border-color: var(--yellow); box-shadow: 0 0 0 1px var(--yellow); }
+.admin-card--rumour { border-style: dashed; border-color: #333; }
+.admin-card--pinned::before {
+  content: '📌'; display: block; background: var(--yellow);
+  color: #000; font-size: 9px; text-align: center; padding: 2px;
+}
+.admin-card--unpublished { opacity: 0.55; }
+
+@keyframes card-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+.admin-card__gradient-bar { height: 3px; width: 100%; }
+
+.admin-card__header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; background: var(--surface2);
+}
+.admin-card__type-icon { font-size: 13px; flex-shrink: 0; }
+.admin-card__type-label {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; flex: 1; font-variation-settings: 'wght' 800;
+}
+.admin-card__time { font-size: 10px; color: var(--text-muted); }
+
+.admin-card__body { padding: 10px; }
+
+.admin-card__player {
+  font-size: 17px; font-weight: 900; letter-spacing: -0.03em; color: #fff;
+  font-variation-settings: 'wght' 900; margin-bottom: 6px;
+}
+
+.admin-card__transfer {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.admin-card__club {
+  display: flex; align-items: center; gap: 6px; flex: 1;
+}
+.admin-card__crest {
+  width: 24px; height: 24px; object-fit: contain;
+  border-radius: 50%; border: 1px solid var(--border2);
+}
+.admin-card__club-name { font-size: 11px; color: var(--text-dim); }
+.admin-card__arrow { font-size: 16px; color: var(--yellow); flex-shrink: 0; }
+
+.admin-card__copy {
+  font-size: 12px; color: var(--text-dim); line-height: 1.4; margin-bottom: 8px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.admin-card__article-title {
+  font-size: 13px; font-weight: 600; color: var(--text-dim); margin-bottom: 4px;
+  font-variation-settings: 'wght' 600;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.admin-card__source { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+
+.admin-card__actions {
+  display: flex; gap: 6px; padding: 0 10px 10px;
+}
+.admin-card__action {
+  background: transparent; border: 1px solid var(--border2); color: var(--text-muted);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 3px; font-variation-settings: 'wght' 700;
+  transition: all 0.15s;
+}
+.admin-card__action:hover { border-color: var(--text-dim); color: var(--text); }
+.admin-card__action--edit:hover { border-color: var(--yellow); color: var(--yellow); }
+.admin-card__action--delete { margin-left: auto; }
+.admin-card__action--delete:hover { border-color: var(--red); color: var(--red); }
+.admin-card__action--delete-confirm { border-color: var(--red); color: var(--red); }
+.admin-card__action--delete-confirm:hover { background: var(--red); color: #fff; }
+.admin-card__action--publish-toggle.published { border-color: var(--green); color: var(--green); }
+
+/* ─── SUBS COL ──────────────────────────────────────────────────────────────── */
+.subs-list { display: flex; flex-direction: column; gap: 8px; }
+
+.sub-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px;
+  animation: card-in 0.3s cubic-bezier(0.22,1,0.36,1) both;
+}
+.sub-card__player { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; font-variation-settings: 'wght' 700; }
+.sub-card__message { font-size: 12px; color: var(--text-dim); line-height: 1.4; margin-bottom: 8px; }
+.sub-card__meta { font-size: 10px; color: var(--text-muted); margin-bottom: 8px; }
+.sub-card__actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.sub-card__action {
+  background: transparent; border: 1px solid var(--border2); color: var(--text-muted);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 3px; font-variation-settings: 'wght' 700; transition: all 0.15s;
+}
+.sub-card__action:hover { border-color: var(--text-dim); color: var(--text); }
+.sub-card__action--publish:hover { border-color: var(--green); color: var(--green); }
+.sub-card__action--delete:hover  { border-color: var(--red); color: var(--red); }
+.sub-card__status {
+  display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 2px; margin-left: auto;
+  font-variation-settings: 'wght' 700;
+}
+.sub-card__status--published { background: #1a3a1a; color: var(--green); }
+.sub-card__status--hidden    { background: #2a2020; color: var(--red); }
+.sub-card__status--pending   { background: var(--surface2); color: var(--text-muted); }
+
+/* ─── EMPTY STATES ──────────────────────────────────────────────────────────── */
+.col-empty { text-align: center; padding: 40px 0; color: var(--text-muted); font-size: 12px; }
+.col-empty__icon { font-size: 24px; margin-bottom: 8px; }
+
+/* ─── LOADING INLINE ────────────────────────────────────────────────────────── */
+.col-loading { text-align: center; padding: 30px 0; color: var(--text-muted); font-size: 12px; }
+.col-loading__spinner {
+  width: 24px; height: 24px; border: 2px solid var(--border2); border-top-color: var(--yellow);
+  border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 8px;
+}
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* ─── SUBS FILTER ───────────────────────────────────────────────────────────── */
+.subs-filters { display: flex; gap: 4px; flex-shrink: 0; }
+.subs-filter-btn {
+  background: transparent; border: 1px solid var(--border2); color: var(--text-muted);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 10px; font-variation-settings: 'wght' 700; transition: all 0.15s;
+}
+.subs-filter-btn.active { background: var(--yellow-bg); border-color: var(--yellow); color: var(--yellow); }
+
+/* ─── SECTION DIVIDER ───────────────────────────────────────────────────────── */
+.section-divider {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-muted); font-variation-settings: 'wght' 700;
+}
+.section-divider::before, .section-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* ─── MOBILE (≤1024px) ──────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .columns { display: block; overflow-y: auto; }
+  .col { border-right: none; border-bottom: 1px solid var(--border); }
+
+  /* Tab bar */
+  .mobile-tabs {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 300;
+    background: var(--surface); border-top: 1px solid var(--border);
+    height: 56px;
+  }
+  .mobile-tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 3px; background: none; border: none;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-muted); font-variation-settings: 'wght' 700; transition: color 0.15s;
+  }
+  .mobile-tab.active { color: var(--yellow); }
+  .mobile-tab__icon { font-size: 18px; }
+
+  /* Column visibility */
+  .col { display: none; min-height: calc(100vh - 108px); }
+  .col.visible { display: flex; }
+
+  /* FAB */
+  .fab {
+    position: fixed; bottom: 70px; right: 16px; z-index: 300;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--yellow); border: none; color: #000;
+    font-size: 24px; box-shadow: 0 4px 16px rgba(255,215,0,0.3);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s;
+  }
+  .fab:hover { transform: scale(1.05); }
+  .fab.hidden { display: none; }
+
+  /* Bottom sheet */
+  .bottom-sheet {
+    position: fixed; bottom: 56px; left: 0; right: 0; z-index: 400;
+    background: var(--surface); border-top: 2px solid var(--yellow);
+    max-height: 85vh; overflow-y: auto;
+    transform: translateY(100%); transition: transform 0.35s cubic-bezier(0.22,1,0.36,1);
+    border-radius: 16px 16px 0 0;
+  }
+  .bottom-sheet.open { transform: translateY(0); }
+  .bottom-sheet__drag {
+    width: 40px; height: 4px; background: var(--border2); border-radius: 2px;
+    margin: 10px auto 0; flex-shrink: 0;
+  }
+  .bottom-sheet__body { padding: 14px 16px 24px; }
+  .bottom-sheet__close {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.08em; background: none; border: none;
+    padding: 8px 0; font-variation-settings: 'wght' 700;
+  }
+
+  /* Desktop editor hidden on mobile */
+  .col--editor { display: none !important; }
+}
+
+@media (min-width: 1025px) {
+  .mobile-tabs, .fab, .bottom-sheet { display: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="admin-app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar__live-dot"></div>
+    <div class="topbar__badge">NL Admin</div>
+    <div class="topbar__title">Transfer <span>Centre</span></div>
+    <div class="topbar__status" id="topbar-status">Loading…</div>
+  </div>
+
+  <!-- THREE COLUMNS -->
+  <div class="columns">
+
+    <!-- ── EDITOR COL ────────────────────────────────────────────────────── -->
+    <div class="col col--editor" id="col-editor">
+      <div class="col__header">
+        <div class="col__header-title">Editor</div>
+        <button class="btn btn--secondary" id="btn-new" style="padding:4px 12px;font-size:10px;">+ New</button>
+      </div>
+      <div class="col__body">
+        <div class="editor-form" id="editor-form">
+
+          <!-- Card Type -->
+          <div class="field">
+            <label>Card Type</label>
+            <div class="card-type-grid" id="card-type-grid">
+              <button class="card-type-btn" data-type="rumour"><span class="card-type-btn__icon">🔍</span>Rumour</button>
+              <button class="card-type-btn active" data-type="confirmed_signing"><span class="card-type-btn__icon">✅</span>Signing</button>
+              <button class="card-type-btn" data-type="confirmed_departure"><span class="card-type-btn__icon">🚪</span>Departure</button>
+              <button class="card-type-btn" data-type="loan_in"><span class="card-type-btn__icon">📥</span>Loan In</button>
+              <button class="card-type-btn" data-type="loan_out"><span class="card-type-btn__icon">📤</span>Loan Out</button>
+              <button class="card-type-btn" data-type="contract_extension"><span class="card-type-btn__icon">✍️</span>Contract</button>
+              <button class="card-type-btn" data-type="article_link"><span class="card-type-btn__icon">📰</span>Article</button>
+              <button class="card-type-btn" data-type="general_update"><span class="card-type-btn__icon">📢</span>Update</button>
+            </div>
+          </div>
+
+          <!-- Player Name -->
+          <div class="field" id="field-player">
+            <label>Player Name</label>
+            <input type="text" id="input-player" placeholder="e.g. Jake Johnson">
+          </div>
+
+          <!-- From / To Club -->
+          <div class="form-row" id="field-clubs">
+            <div class="field">
+              <label>From Club</label>
+              <div class="club-picker-wrap" id="from-club-wrap">
+                <div class="club-picker-preview" id="from-club-preview" data-field="from">
+                  <span>Select club…</span>
+                  <span class="caret">▾</span>
+                </div>
+                <div class="club-picker-dropdown" id="from-club-dropdown">
+                  <div class="club-picker-search"><input type="text" placeholder="Search clubs…" id="from-club-search"></div>
+                  <div class="club-picker-list" id="from-club-list"></div>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label>To Club</label>
+              <div class="club-picker-wrap" id="to-club-wrap">
+                <div class="club-picker-preview" id="to-club-preview" data-field="to">
+                  <span>Select club…</span>
+                  <span class="caret">▾</span>
+                </div>
+                <div class="club-picker-dropdown" id="to-club-dropdown">
+                  <div class="club-picker-search"><input type="text" placeholder="Search clubs…" id="to-club-search"></div>
+                  <div class="club-picker-list" id="to-club-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fee + Contract -->
+          <div class="form-row" id="field-fee-contract">
+            <div class="field">
+              <label>Fee</label>
+              <input type="text" id="input-fee" placeholder="Free / Undisclosed / £1m">
+            </div>
+            <div class="field">
+              <label>Contract</label>
+              <input type="text" id="input-contract" placeholder="2 years">
+            </div>
+          </div>
+
+          <!-- Article URL -->
+          <div class="field" id="field-article-url">
+            <label>Article URL</label>
+            <div class="form-row" style="gap:6px">
+              <input type="url" id="input-article-url" placeholder="https://…" style="flex:1">
+              <button class="og-btn" id="og-scrape-btn">Fetch OG</button>
+            </div>
+          </div>
+
+          <!-- Article Title + Source -->
+          <div class="form-row" id="field-article-meta">
+            <div class="field">
+              <label>Article Title</label>
+              <input type="text" id="input-article-title" placeholder="Auto-populated or manual">
+            </div>
+            <div class="field">
+              <label>Source</label>
+              <input type="text" id="input-article-source" placeholder="e.g. NonLeaguePaper">
+            </div>
+          </div>
+
+          <!-- Copy / Notes -->
+          <div class="field">
+            <label>Copy / Notes</label>
+            <textarea id="input-copy" placeholder="Copy text — HTML supported"></textarea>
+          </div>
+
+          <!-- Media -->
+          <div class="field">
+            <label>Media Type</label>
+            <div class="form-row">
+              <select id="input-media-type">
+                <option value="">None</option>
+                <option value="twitter">Twitter / X</option>
+                <option value="instagram">Instagram</option>
+                <option value="image">Image</option>
+              </select>
+              <input type="text" id="input-media-url" placeholder="URL or embed URL" style="flex:2">
+            </div>
+          </div>
+
+          <!-- Clock Time -->
+          <div class="field">
+            <label>Display Time</label>
+            <input type="text" id="input-clock" placeholder="e.g. 14:32 or leave blank for auto">
+          </div>
+
+          <!-- Icon Override -->
+          <div class="field">
+            <label>Icon Override (optional)</label>
+            <div class="icon-picker-wrap">
+              <div class="icon-picker-trigger" id="icon-trigger">
+                <span id="icon-display">—</span>
+                <span style="font-size:10px;color:var(--text-muted)">▾</span>
+              </div>
+              <div class="icon-picker-grid" id="icon-grid">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+            <input type="hidden" id="input-icon">
+          </div>
+
+          <!-- Toggles -->
+          <div class="field">
+            <label>Options</label>
+            <div class="toggle-row">
+              <label class="toggle-item">
+                <input type="checkbox" id="toggle-published" checked>
+                <div class="toggle-switch"></div>
+                <span class="toggle-label">Published</span>
+              </label>
+              <label class="toggle-item">
+                <input type="checkbox" id="toggle-pinned">
+                <div class="toggle-switch"></div>
+                <span class="toggle-label">Pinned</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Hidden fields -->
+          <input type="hidden" id="editing-id">
+
+          <!-- Actions -->
+          <div class="editor-actions">
+            <button class="btn btn--secondary" id="btn-clear">Clear</button>
+            <button class="btn btn--primary" id="btn-save">Save Post</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FEED COL ───────────────────────────────────────────────────────── -->
+    <div class="col col--feed visible" id="col-feed">
+      <div class="col__header">
+        <div class="col__header-title">Live Feed</div>
+        <span id="feed-count" style="font-size:11px;color:var(--text-muted)"></span>
+      </div>
+      <div class="col__body">
+        <div class="feed-list" id="admin-feed">
+          <div class="col-loading">
+            <div class="col-loading__spinner"></div>
+            Loading feed…
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SUBMISSIONS COL ────────────────────────────────────────────────── -->
+    <div class="col col--subs" id="col-subs">
+      <div class="col__header">
+        <div class="col__header-title">Submissions</div>
+        <div class="subs-filters" id="subs-filters">
+          <button class="subs-filter-btn active" data-filter="pending">Pending</button>
+          <button class="subs-filter-btn" data-filter="all">All</button>
+        </div>
+      </div>
+      <div class="col__body">
+        <div class="subs-list" id="subs-list">
+          <div class="col-loading">
+            <div class="col-loading__spinner"></div>
+            Loading submissions…
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /columns -->
+
+</div><!-- /admin-app -->
+
+<!-- MOBILE FAB -->
+<button class="fab" id="mobile-fab">+</button>
+
+<!-- MOBILE BOTTOM SHEET EDITOR -->
+<div class="bottom-sheet" id="bottom-sheet">
+  <div class="bottom-sheet__drag"></div>
+  <div class="bottom-sheet__body">
+    <button class="bottom-sheet__close" id="sheet-close">✕ Close Editor</button>
+    <div id="sheet-form-mount"><!-- Editor form cloned here on mobile --></div>
+  </div>
+</div>
+
+<!-- MOBILE TAB BAR -->
+<div class="mobile-tabs">
+  <button class="mobile-tab active" data-tab="feed" id="tab-feed">
+    <span class="mobile-tab__icon">📋</span>Feed
+  </button>
+  <button class="mobile-tab" data-tab="subs" id="tab-subs">
+    <span class="mobile-tab__icon">📨</span>Subs
+  </button>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ─── CONFIG ───────────────────────────────────────────────────────────────
+  var API_URL    = 'https://script.google.com/macros/s/AKfycbxmGpOdK4oKJ8Yvjr0jl5dz-NKoS3S6tTDj4h701W0jqHYIckYZu0WAVWlY5YtHOFzK/exec';
+  var ADMIN_KEY  = 'admin'; // ← Match Apps Script ADMIN_KEY property
+  var CLUBS_URL  = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/data/clubs-meta.json';
+  var CREST_BASE = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/crests/';
+  var POLL_MS    = 8000;
+
+  var ICONS = ['✅','🚪','🔍','📥','📤','✍️','📰','📢','⚽','🏟️','💰','🤝','⏰','🔥','💫','⚡','🎯','🏆','📊','🔔','🚨','💥','📌','🗞️','🔗','🔄','💬','📣'];
+
+  var CARD_TYPES = {
+    rumour:              { icon: '🔍', label: 'Rumour',            css: 'rumour',   labelCss: 'rumour' },
+    confirmed_signing:   { icon: '✅', label: 'Confirmed Signing', css: 'confirmed',labelCss: 'confirmed' },
+    confirmed_departure: { icon: '🚪', label: 'Confirmed Departure',css:'confirmed',labelCss: 'confirmed' },
+    loan_in:             { icon: '📥', label: 'Loan In',           css: 'loan',     labelCss: 'loan' },
+    loan_out:            { icon: '📤', label: 'Loan Out',          css: 'loan',     labelCss: 'loan' },
+    contract_extension:  { icon: '✍️', label: 'Contract Extension',css: 'contract', labelCss: 'contract' },
+    article_link:        { icon: '📰', label: 'Article',           css: 'article',  labelCss: 'article' },
+    general_update:      { icon: '📢', label: 'Update',            css: 'general',  labelCss: 'general' }
+  };
+
+  // ─── STATE ────────────────────────────────────────────────────────────────
+  var state = {
+    posts:       [],
+    clubs:       {},
+    clubsList:   [],
+    subsFilter:  'pending',
+    editingId:   null,
+    fromClub:    null,
+    toClub:      null,
+    cardType:    'confirmed_signing',
+    deleteConfirm: {},
+    isMobile:    false
+  };
+
+  // ─── HELPERS ──────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function hexToRgb(hex) {
+    hex = (hex||'').replace('#','');
+    if (hex.length===3) hex=hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+    return { r:parseInt(hex.substr(0,2),16)||0, g:parseInt(hex.substr(2,2),16)||0, b:parseInt(hex.substr(4,2),16)||0 };
+  }
+  function pickTextColor(hex) {
+    var c=hexToRgb(hex);
+    return ((0.299*c.r+0.587*c.g+0.114*c.b)/255)>0.5?'#000':'#fff';
+  }
+  function getTeamPalette(name) {
+    var c=state.clubs[name];
+    if(!c) return {primary:'#1a1a1a',secondary:'#333',tertiary:'#333'};
+    return c.colors;
+  }
+  function crestUrl(name) { return name ? CREST_BASE+encodeURIComponent(name)+'.png' : ''; }
+
+  function formatTime(val) {
+    if (!val) return '';
+    if (isNaN(Date.parse(val))) return val;
+    var d=new Date(val), now=new Date(), diff=now-d;
+    if (diff<60000) return 'Just now';
+    if (diff<3600000) return Math.floor(diff/60000)+'m ago';
+    if (diff<86400000) return Math.floor(diff/3600000)+'h ago';
+    return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  }
+
+  function setStatus(msg) { document.getElementById('topbar-status').textContent = msg; }
+
+  // ─── CLUBS LOAD ───────────────────────────────────────────────────────────
+  function loadClubs() {
+    return fetch(CLUBS_URL+'?cb='+Date.now())
+      .then(function(r){return r.json();})
+      .then(function(data){
+        (data.clubs||[]).forEach(function(c){ state.clubs[c.name]=c; });
+        state.clubsList = data.clubs || [];
+        renderClubLists();
+      }).catch(function(){});
+  }
+
+  // ─── CLUB PICKER ──────────────────────────────────────────────────────────
+  function renderClubLists() {
+    renderClubList('from-club-list', state.clubsList, 'from');
+    renderClubList('to-club-list',   state.clubsList, 'to');
+  }
+
+  function renderClubList(listId, clubs, field, filter) {
+    var el = document.getElementById(listId);
+    if (!el) return;
+    var filtered = filter
+      ? clubs.filter(function(c){ return c.name.toLowerCase().indexOf(filter.toLowerCase())!==-1; })
+      : clubs;
+    el.innerHTML = filtered.map(function(c){
+      return '<div class="club-picker-item" data-name="'+esc(c.name)+'" data-field="'+field+'">' +
+        '<img src="'+crestUrl(c.name)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
+        '<span class="club-picker-item__name">'+esc(c.name)+'</span>' +
+        '<span class="club-picker-item__div">'+esc(c.division||'')+'</span>' +
+        '</div>';
+    }).join('');
+    el.querySelectorAll('.club-picker-item').forEach(function(item){
+      item.addEventListener('click', function(){
+        selectClub(item.dataset.field, item.dataset.name);
+      });
+    });
+  }
+
+  function selectClub(field, name) {
+    var pal = getTeamPalette(name);
+    if (field === 'from') {
+      state.fromClub = name;
+      updateClubPreview('from-club-preview', name, pal);
+      document.getElementById('from-club-dropdown').classList.remove('open');
+    } else {
+      state.toClub = name;
+      updateClubPreview('to-club-preview', name, pal);
+      document.getElementById('to-club-dropdown').classList.remove('open');
+    }
+  }
+
+  function updateClubPreview(previewId, name, pal) {
+    var el = document.getElementById(previewId);
+    el.innerHTML = name
+      ? '<img src="'+crestUrl(name)+'" style="width:22px;height:22px;object-fit:contain" onerror="this.style.display=\'none\'">' +
+        '<span style="color:var(--text);font-weight:600;font-variation-settings:\'wght\' 600">'+esc(name)+'</span>' +
+        '<span class="caret">▾</span>'
+      : '<span>Select club…</span><span class="caret">▾</span>';
+  }
+
+  function initClubPicker(previewId, dropdownId, searchId, listId, field) {
+    var preview  = document.getElementById(previewId);
+    var dropdown = document.getElementById(dropdownId);
+    var search   = document.getElementById(searchId);
+
+    preview.addEventListener('click', function(e){
+      e.stopPropagation();
+      dropdown.classList.toggle('open');
+    });
+    search.addEventListener('input', function(){
+      renderClubList(listId, state.clubsList, field, search.value);
+    });
+    document.addEventListener('click', function(){
+      dropdown.classList.remove('open');
+    });
+    dropdown.addEventListener('click', function(e){ e.stopPropagation(); });
+  }
+
+  // ─── CARD TYPE ────────────────────────────────────────────────────────────
+  function initCardTypeGrid() {
+    document.getElementById('card-type-grid').addEventListener('click', function(e){
+      var btn = e.target.closest('.card-type-btn');
+      if (!btn) return;
+      document.querySelectorAll('.card-type-btn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.cardType = btn.dataset.type;
+      updateFieldVisibility();
+    });
+  }
+
+  function updateFieldVisibility() {
+    var isTransfer = ['confirmed_signing','confirmed_departure','loan_in','loan_out','rumour'].indexOf(state.cardType) !== -1;
+    var isArticle  = state.cardType === 'article_link';
+
+    document.getElementById('field-player').style.display       = (state.cardType !== 'article_link' && state.cardType !== 'general_update') ? '' : 'none';
+    document.getElementById('field-clubs').style.display        = isTransfer ? '' : 'none';
+    document.getElementById('field-fee-contract').style.display = isTransfer ? '' : 'none';
+    document.getElementById('field-article-url').style.display  = isArticle ? '' : 'none';
+    document.getElementById('field-article-meta').style.display = isArticle ? '' : 'none';
+  }
+
+  // ─── ICON PICKER ──────────────────────────────────────────────────────────
+  function initIconPicker() {
+    var grid    = document.getElementById('icon-grid');
+    var trigger = document.getElementById('icon-trigger');
+    var display = document.getElementById('icon-display');
+    var input   = document.getElementById('input-icon');
+
+    grid.innerHTML = ICONS.map(function(ic){
+      return '<button data-icon="'+ic+'" title="'+ic+'">'+ic+'</button>';
+    }).join('');
+
+    trigger.addEventListener('click', function(e){
+      e.stopPropagation(); grid.classList.toggle('open');
+    });
+    grid.addEventListener('click', function(e){
+      var btn = e.target.closest('button[data-icon]');
+      if (!btn) return;
+      input.value  = btn.dataset.icon;
+      display.textContent = btn.dataset.icon;
+      grid.classList.remove('open');
+    });
+    document.addEventListener('click', function(){ grid.classList.remove('open'); });
+    grid.addEventListener('click', function(e){ e.stopPropagation(); });
+  }
+
+  // ─── OG SCRAPE ────────────────────────────────────────────────────────────
+  function initOgScrape() {
+    document.getElementById('og-scrape-btn').addEventListener('click', function(){
+      var url = document.getElementById('input-article-url').value.trim();
+      if (!url) return;
+      var btn = document.getElementById('og-scrape-btn');
+      btn.classList.add('loading'); btn.textContent = 'Fetching…';
+      fetch(API_URL+'?action=og&url='+encodeURIComponent(url)+'&cb='+Date.now())
+        .then(function(r){return r.json();})
+        .then(function(data){
+          if (data.title)       document.getElementById('input-article-title').value  = data.title;
+          if (data.site_name)   document.getElementById('input-article-source').value = data.site_name;
+          if (data.image)       document.getElementById('input-media-url').value      = data.image;
+        })
+        .catch(function(){})
+        .finally(function(){
+          btn.classList.remove('loading'); btn.textContent = 'Fetch OG';
+        });
+    });
+  }
+
+  // ─── EDITOR CLEAR / LOAD ─────────────────────────────────────────────────
+  function clearEditor() {
+    state.editingId = null;
+    state.fromClub  = null;
+    state.toClub    = null;
+    state.cardType  = 'confirmed_signing';
+
+    document.getElementById('editing-id').value     = '';
+    document.getElementById('input-player').value   = '';
+    document.getElementById('input-fee').value      = '';
+    document.getElementById('input-contract').value = '';
+    document.getElementById('input-article-url').value   = '';
+    document.getElementById('input-article-title').value = '';
+    document.getElementById('input-article-source').value= '';
+    document.getElementById('input-copy').value     = '';
+    document.getElementById('input-media-type').value  = '';
+    document.getElementById('input-media-url').value   = '';
+    document.getElementById('input-clock').value    = '';
+    document.getElementById('input-icon').value     = '';
+    document.getElementById('icon-display').textContent = '—';
+    document.getElementById('toggle-published').checked = true;
+    document.getElementById('toggle-pinned').checked    = false;
+
+    updateClubPreview('from-club-preview', null, null);
+    updateClubPreview('to-club-preview',   null, null);
+
+    document.querySelectorAll('.card-type-btn').forEach(function(b){
+      b.classList.toggle('active', b.dataset.type === 'confirmed_signing');
+    });
+
+    updateFieldVisibility();
+    document.getElementById('btn-save').textContent = 'Save Post';
+
+    // Deselect feed cards
+    document.querySelectorAll('.admin-card.selected').forEach(function(c){ c.classList.remove('selected'); });
+  }
+
+  function loadPostIntoEditor(post) {
+    state.editingId = post.id;
+    state.cardType  = post.card_type || 'confirmed_signing';
+    state.fromClub  = post.from_club || null;
+    state.toClub    = post.to_club   || null;
+
+    document.getElementById('editing-id').value     = post.id;
+    document.getElementById('input-player').value   = post.player_name || '';
+    document.getElementById('input-fee').value      = post.fee         || '';
+    document.getElementById('input-contract').value = post.contract    || '';
+    document.getElementById('input-article-url').value   = post.article_url    || '';
+    document.getElementById('input-article-title').value = post.article_title  || '';
+    document.getElementById('input-article-source').value= post.article_source || '';
+    document.getElementById('input-copy').value     = post.copy_html   || '';
+    document.getElementById('input-media-type').value  = post.media_type || '';
+    document.getElementById('input-media-url').value   = post.media_url  || '';
+    document.getElementById('input-clock').value    = post.clock_time   || '';
+    document.getElementById('toggle-published').checked = post.published;
+    document.getElementById('toggle-pinned').checked    = post.pinned;
+
+    if (post.from_club) updateClubPreview('from-club-preview', post.from_club, getTeamPalette(post.from_club));
+    if (post.to_club)   updateClubPreview('to-club-preview',   post.to_club,   getTeamPalette(post.to_club));
+
+    document.querySelectorAll('.card-type-btn').forEach(function(b){
+      b.classList.toggle('active', b.dataset.type === state.cardType);
+    });
+
+    updateFieldVisibility();
+    document.getElementById('btn-save').textContent = 'Update Post';
+
+    // On mobile, open bottom sheet
+    if (state.isMobile) openSheet();
+
+    // Highlight selected card
+    document.querySelectorAll('.admin-card.selected').forEach(function(c){ c.classList.remove('selected'); });
+    var card = document.querySelector('.admin-card[data-id="'+post.id+'"]');
+    if (card) card.classList.add('selected');
+  }
+
+  // ─── SAVE ─────────────────────────────────────────────────────────────────
+  function savePost() {
+    var btn = document.getElementById('btn-save');
+    btn.textContent = 'Saving…'; btn.disabled = true;
+
+    var payload = {
+      action:         'save',
+      id:             document.getElementById('editing-id').value || '',
+      card_type:      state.cardType,
+      player_name:    document.getElementById('input-player').value.trim(),
+      from_club:      state.fromClub || '',
+      to_club:        state.toClub   || '',
+      fee:            document.getElementById('input-fee').value.trim(),
+      contract:       document.getElementById('input-contract').value.trim(),
+      article_url:    document.getElementById('input-article-url').value.trim(),
+      article_title:  document.getElementById('input-article-title').value.trim(),
+      article_source: document.getElementById('input-article-source').value.trim(),
+      copy_html:      document.getElementById('input-copy').value,
+      media_type:     document.getElementById('input-media-type').value,
+      media_url:      document.getElementById('input-media-url').value.trim(),
+      clock_time:     document.getElementById('input-clock').value.trim(),
+      published:      document.getElementById('toggle-published').checked ? 'TRUE' : 'FALSE',
+      pinned:         document.getElementById('toggle-pinned').checked    ? 'TRUE' : 'FALSE',
+      deleted:        'FALSE'
+    };
+
+    fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if (data.success) {
+        setStatus('Saved ✓ ' + new Date().toLocaleTimeString('en-GB'));
+        clearEditor();
+        if (state.isMobile) closeSheet();
+        pollFeed();
+      } else {
+        setStatus('Error: ' + (data.error||'Unknown'));
+      }
+    })
+    .catch(function(e){ setStatus('Network error'); })
+    .finally(function(){ btn.textContent = state.editingId ? 'Update Post' : 'Save Post'; btn.disabled = false; });
+  }
+
+  // ─── DELETE ───────────────────────────────────────────────────────────────
+  function deletePost(id, btn) {
+    if (!state.deleteConfirm[id]) {
+      state.deleteConfirm[id] = true;
+      btn.textContent = 'Confirm?';
+      btn.classList.add('admin-card__action--delete-confirm');
+      setTimeout(function(){
+        if (state.deleteConfirm[id]) {
+          delete state.deleteConfirm[id];
+          btn.textContent = 'Delete';
+          btn.classList.remove('admin-card__action--delete-confirm');
+        }
+      }, 3000);
+      return;
+    }
+    delete state.deleteConfirm[id];
+    btn.textContent = 'Deleting…'; btn.disabled = true;
+
+    fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'delete', id: id }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if (data.success) {
+        if (state.editingId === id) clearEditor();
+        pollFeed();
+        setStatus('Deleted ✓');
+      }
+    })
+    .catch(function(){});
+  }
+
+  // ─── FEED ─────────────────────────────────────────────────────────────────
+  function pollFeed() {
+    fetch(API_URL+'?action=feed&admin='+encodeURIComponent(ADMIN_KEY)+'&cb='+Date.now())
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if (data.posts) {
+          state.posts = data.posts;
+          diffRenderFeed(data.posts);
+          document.getElementById('feed-count').textContent = data.posts.length + ' posts';
+          setStatus('Updated ' + new Date().toLocaleTimeString('en-GB'));
+        }
+      })
+      .catch(function(){});
+  }
+
+  function diffRenderFeed(posts) {
+    var feed = document.getElementById('admin-feed');
+    var rendered = {};
+    feed.querySelectorAll('.admin-card[data-id]').forEach(function(el){
+      rendered[el.dataset.id] = el;
+    });
+
+    if (posts.length === 0) {
+      feed.innerHTML = '<div class="col-empty"><div class="col-empty__icon">📭</div>No posts yet.</div>';
+      return;
+    }
+
+    var frag = document.createDocumentFragment();
+    posts.forEach(function(post, idx){
+      var el = rendered[post.id];
+      var preserveEmbed = el && (post.media_type === 'twitter' || post.media_type === 'instagram');
+      if (el && !preserveEmbed) {
+        var prev = el.dataset.updated || '';
+        if (prev !== post.updated_at) {
+          var newEl = buildAdminCard(post);
+          el.replaceWith(newEl);
+          el = newEl;
+        }
+      } else if (!el) {
+        el = buildAdminCard(post);
+      }
+      el.style.order = idx;
+      frag.appendChild(el);
+    });
+    feed.innerHTML = '';
+    feed.appendChild(frag);
+  }
+
+  function buildAdminCard(post) {
+    var el = document.createElement('div');
+    var tc = CARD_TYPES[post.card_type] || CARD_TYPES['general_update'];
+    var isConfirmed = post.card_type === 'confirmed_signing' || post.card_type === 'confirmed_departure';
+    var isTransfer  = ['confirmed_signing','confirmed_departure','loan_in','loan_out','rumour'].indexOf(post.card_type) !== -1;
+
+    el.className = 'admin-card admin-card--' + tc.css
+      + (post.pinned ? ' admin-card--pinned' : '')
+      + (!post.published ? ' admin-card--unpublished' : '');
+    el.dataset.id      = post.id;
+    el.dataset.updated = post.updated_at || '';
+
+    var html = '';
+
+    // Gradient bar
+    if (isConfirmed && post.from_club && post.to_club) {
+      var fp = getTeamPalette(post.from_club);
+      var tp = getTeamPalette(post.to_club);
+      html += '<div class="admin-card__gradient-bar" style="background:linear-gradient(90deg,'+fp.primary+' 0%,'+tp.primary+' 100%)"></div>';
+    }
+
+    // Header
+    html += '<div class="admin-card__header">' +
+      '<span class="admin-card__type-icon">'+(post.card_type==='article_link'&&post.article_source?'📰':tc.icon)+'</span>' +
+      '<span class="admin-card__type-label" style="color:'+(tc.labelCss==='confirmed'?'var(--yellow)':tc.labelCss==='loan'?'var(--green)':tc.labelCss==='contract'?'var(--blue)':'var(--text-muted)')+'">' + tc.label + '</span>' +
+      '<span class="admin-card__time">'+formatTime(post.clock_time||post.created_at)+'</span>' +
+      '</div>';
+
+    html += '<div class="admin-card__body">';
+
+    if (post.card_type === 'article_link') {
+      html += '<div class="admin-card__article-title">'+(post.article_title||post.copy_html||'(no title)')+'</div>';
+      if (post.article_source) html += '<div class="admin-card__source">'+esc(post.article_source)+'</div>';
+    } else {
+      if (post.player_name) html += '<div class="admin-card__player">'+esc(post.player_name)+'</div>';
+      if (isTransfer && (post.from_club || post.to_club)) {
+        html += '<div class="admin-card__transfer">';
+        if (post.from_club) {
+          html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.from_club)+'" alt="" onerror="this.style.display=\'none\'"><span class="admin-card__club-name">'+esc(post.from_club)+'</span></div>';
+        }
+        html += '<div class="admin-card__arrow">→</div>';
+        if (post.to_club) {
+          html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.to_club)+'" alt="" onerror="this.style.display=\'none\'"><span class="admin-card__club-name">'+esc(post.to_club)+'</span></div>';
+        }
+        html += '</div>';
+      }
+      if (post.copy_html) html += '<div class="admin-card__copy">'+post.copy_html+'</div>';
+    }
+
+    html += '</div>'; // /body
+
+    // Actions
+    html += '<div class="admin-card__actions">' +
+      '<button class="admin-card__action admin-card__action--edit" data-action="edit" data-id="'+post.id+'">Edit</button>' +
+      '<button class="admin-card__action admin-card__action--publish-toggle'+(post.published?' published':'') +'" data-action="toggle-publish" data-id="'+post.id+'" data-published="'+post.published+'">'+
+        (post.published?'Unpublish':'Publish')+'</button>' +
+      '<button class="admin-card__action admin-card__action--delete" data-action="delete" data-id="'+post.id+'">Delete</button>' +
+      '</div>';
+
+    el.innerHTML = html;
+
+    // Events
+    el.querySelector('[data-action=edit]').addEventListener('click', function(e){
+      e.stopPropagation();
+      var p = state.posts.find(function(x){return x.id===post.id;});
+      if (p) loadPostIntoEditor(p);
+    });
+
+    el.querySelector('[data-action=toggle-publish]').addEventListener('click', function(e){
+      e.stopPropagation();
+      var btn = e.currentTarget;
+      var isPublished = btn.dataset.published === 'true';
+      fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action:'save', id:post.id, published: isPublished?'FALSE':'TRUE' }),
+        headers: {'Content-Type':'application/json'}
+      }).then(function(){pollFeed();});
+    });
+
+    el.querySelector('[data-action=delete]').addEventListener('click', function(e){
+      e.stopPropagation();
+      deletePost(post.id, e.currentTarget);
+    });
+
+    el.addEventListener('click', function(){
+      var p = state.posts.find(function(x){return x.id===post.id;});
+      if (p) loadPostIntoEditor(p);
+    });
+
+    return el;
+  }
+
+  // ─── SUBMISSIONS ──────────────────────────────────────────────────────────
+  function pollSubs() {
+    fetch(API_URL+'?action=submissions&filter='+state.subsFilter+'&admin='+encodeURIComponent(ADMIN_KEY)+'&cb='+Date.now())
+      .then(function(r){return r.json();})
+      .then(function(data){
+        renderSubs(data.submissions||[]);
+      }).catch(function(){});
+  }
+
+  function renderSubs(subs) {
+    var list = document.getElementById('subs-list');
+    if (subs.length === 0) {
+      list.innerHTML = '<div class="col-empty"><div class="col-empty__icon">📭</div>No submissions.</div>';
+      return;
+    }
+    list.innerHTML = subs.map(function(s){
+      var statusCss = s.status==='published'?'published':s.status==='hidden'?'hidden':'pending';
+      return '<div class="sub-card">' +
+        (s.player_name ? '<div class="sub-card__player">Re: '+esc(s.player_name)+'</div>' : '') +
+        '<div class="sub-card__message">'+esc(s.message||'(no message)')+'</div>' +
+        '<div class="sub-card__meta">'+formatTime(s.submitted_at)+'</div>' +
+        '<div class="sub-card__actions">' +
+          (s.status!=='published' ? '<button class="sub-card__action sub-card__action--publish" data-id="'+s.id+'" data-action="publish">Publish</button>' : '') +
+          (s.status!=='hidden'    ? '<button class="sub-card__action" data-id="'+s.id+'" data-action="hide">Hide</button>' : '') +
+          (s.status!=='pending'   ? '<button class="sub-card__action" data-id="'+s.id+'" data-action="restore">Restore</button>' : '') +
+          '<button class="sub-card__action sub-card__action--delete" data-id="'+s.id+'" data-action="delete">Delete</button>' +
+          '<span class="sub-card__status sub-card__status--'+statusCss+'">'+s.status+'</span>' +
+        '</div></div>';
+    }).join('');
+
+    list.querySelectorAll('[data-action]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action:'submission_mod', id:btn.dataset.id, mod_action:btn.dataset.action }),
+          headers: {'Content-Type':'application/json'}
+        }).then(function(){pollSubs();});
+      });
+    });
+  }
+
+  // ─── MOBILE ───────────────────────────────────────────────────────────────
+  function openSheet() {
+    document.getElementById('bottom-sheet').classList.add('open');
+  }
+  function closeSheet() {
+    document.getElementById('bottom-sheet').classList.remove('open');
+  }
+
+  function initMobile() {
+    state.isMobile = window.innerWidth <= 1024;
+
+    document.getElementById('mobile-fab').addEventListener('click', function(){
+      clearEditor();
+      openSheet();
+    });
+    document.getElementById('sheet-close').addEventListener('click', closeSheet);
+
+    // Tab bar
+    document.querySelectorAll('.mobile-tab').forEach(function(tab){
+      tab.addEventListener('click', function(){
+        document.querySelectorAll('.mobile-tab').forEach(function(t){ t.classList.remove('active'); });
+        tab.classList.add('active');
+        var target = tab.dataset.tab;
+        document.getElementById('col-feed').classList.toggle('visible', target==='feed');
+        document.getElementById('col-subs').classList.toggle('visible', target==='subs');
+      });
+    });
+
+    // Mount editor form into bottom sheet
+    var sheetMount = document.getElementById('sheet-form-mount');
+    var editorForm = document.getElementById('editor-form');
+    if (state.isMobile && sheetMount && editorForm) {
+      sheetMount.appendChild(editorForm);
+    }
+  }
+
+  // ─── SUBS FILTER ──────────────────────────────────────────────────────────
+  function initSubsFilter() {
+    document.getElementById('subs-filters').addEventListener('click', function(e){
+      var btn = e.target.closest('.subs-filter-btn');
+      if (!btn) return;
+      document.querySelectorAll('.subs-filter-btn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.subsFilter = btn.dataset.filter;
+      pollSubs();
+    });
+  }
+
+  // ─── INIT ─────────────────────────────────────────────────────────────────
+  function init() {
+    initMobile();
+    initCardTypeGrid();
+    initIconPicker();
+    initOgScrape();
+    initSubsFilter();
+
+    initClubPicker('from-club-preview','from-club-dropdown','from-club-search','from-club-list','from');
+    initClubPicker('to-club-preview',  'to-club-dropdown',  'to-club-search',  'to-club-list',  'to');
+
+    document.getElementById('btn-save').addEventListener('click', savePost);
+    document.getElementById('btn-clear').addEventListener('click', clearEditor);
+    document.getElementById('btn-new').addEventListener('click', clearEditor);
+
+    updateFieldVisibility();
+
+    loadClubs().then(function(){
+      pollFeed();
+      pollSubs();
+      setInterval(pollFeed, POLL_MS);
+      setInterval(pollSubs, POLL_MS * 3);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+}());
+</script>
+</body>
+</html>
