@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v109 — inline delete confirmation: Delete button changes to "Sure?" + Cancel inline, no browser dialog; works in both desktop editor and mobile sheet
   v108 — submission card timestamps: show HH:mm only, matching frontend
   v107 — fix "No posts yet" stuck at bottom of feed: feed-empty node has no data-feed-key so DOM diff never removes it; now explicitly cleared before diff runs
   v106 — fix desktop layout: sheet now display:none on desktop (transform alone doesn't remove from flow); fix stuck Loading tweet card: added 8s timeout fallback showing link
@@ -26,7 +27,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v108</title>
+<title>Live Blog Admin v109</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -131,6 +132,8 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .btn--blue{ background:var(--blue); color:#fff; }
 .btn--ghost{ background:#eef2f7; color:#111; }
 .btn--danger{ background:var(--danger); color:#fff; }
+.btn--confirm{ background:#7f1d1d; color:#fff; animation:confirmPulse .6s ease-in-out infinite; }
+@keyframes confirmPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.75; } }
 
 .feed-toolbar{ padding:10px 16px; display:flex; align-items:center; gap:10px; }
 .feed-toolbar__title{ font-size:.84rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); flex:1 1 auto; }
@@ -266,7 +269,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v108</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v109</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -586,7 +589,7 @@ function openEditEditor(post){
   if(isMobile()) openSheet(); else { openEditorPanel(); scheduleFeedRender(); }
 }
 
-function handleCancel(){ closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
+function handleCancel(){ disarmDeleteBtn(); closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
 function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTimer); state.renderTimer=setTimeout(renderFeed,150); }
 
 function buildFeedSignature(item){
@@ -813,7 +816,51 @@ async function pinPost(pinned){
   }catch(err){ handleErr(err); }
 }
 
-async function deletePost(){ if(!state.activeId){ setStatus('No post selected.','error'); return; } if(!window.confirm('Soft-delete this post?')) return; setStatus('Deleting…'); const data=await apiFetch({action:'deletePost',id:state.activeId}); setStatus(data.message||'Deleted.','success'); closeEditorPanel(); closeSheet(); setEditorNew(); clearDesktop(); clearSheet(); await loadPosts(); }
+function armDeleteBtn(){
+  // Desktop
+  const btn=dom.btnDelete; const sfBtn=dom.sfBtnDelete;
+  [btn,sfBtn].forEach(function(b){
+    if(!b) return;
+    b.classList.add('btn--confirm');
+    b.textContent='Sure?';
+    // insert cancel next to button
+    const cancel=document.createElement('button');
+    cancel.className='btn btn--ghost btn--md'; cancel.textContent='Cancel'; cancel.type='button';
+    cancel.dataset.deleteCancel='1';
+    b.parentNode.insertBefore(cancel,b.nextSibling);
+    cancel.addEventListener('click',function(){ disarmDeleteBtn(); });
+  });
+}
+
+function disarmDeleteBtn(){
+  [dom.btnDelete,dom.sfBtnDelete].forEach(function(b){
+    if(!b) return;
+    b.classList.remove('btn--confirm');
+    b.textContent='Delete';
+  });
+  document.querySelectorAll('[data-delete-cancel]').forEach(function(el){ el.remove(); });
+}
+
+async function confirmDeletePost(){
+  if(!state.activeId){ setStatus('No post selected.','error'); return; }
+  setStatus('Deleting…');
+  disarmDeleteBtn();
+  try{
+    const data=await apiFetch({action:'deletePost',id:state.activeId});
+    setStatus(data.message||'Deleted.','success');
+    closeEditorPanel(); closeSheet(); setEditorNew(); clearDesktop(); clearSheet();
+    await loadPosts();
+  }catch(err){ handleErr(err); }
+}
+
+// Two-stage delete: first click arms, second confirms
+function handleDeleteClick(){
+  if(dom.btnDelete.classList.contains('btn--confirm')){
+    confirmDeletePost().catch(handleErr);
+  } else {
+    armDeleteBtn();
+  }
+}
 
 async function updateSub(rowId,publish){ const current=state.submissions.find(s=>String(s.row_id)===String(rowId)); if(!current){ setStatus('Submission not found.','error'); return; } const prev={published:current.published,timestamp_ms:current.timestamp_ms,timestamp:current.timestamp}; if(publish){ const now=new Date(); current.published=true; current.timestamp_ms=now.getTime(); current.timestamp=now.toISOString().slice(0,16).replace('T',' '); } else{ current.published=false; current.timestamp_ms=0; current.timestamp=''; } renderSubRail(); renderFeed(); try{ await apiFetch({action:'updateSubmission',row_id:rowId,name:current.name||'',note:current.note||'',status:publish?'published':'pending',published:publish?'TRUE':'FALSE'}); setStatus(publish?'Published.':'Unpublished.','success'); } catch(err){ current.published=prev.published; current.timestamp_ms=prev.timestamp_ms; current.timestamp=prev.timestamp; renderSubRail(); renderFeed(); handleErr(err); } }
 
@@ -917,12 +964,12 @@ async function init(){
   dom.sfPinToggle.addEventListener('click',handlePinToggle);
   bindBtn(dom.btnUpdate,function(){ updateAndClose(false).catch(handleErr); });
   dom.btnCancel.addEventListener('click',handleCancel);
-  dom.btnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
+  dom.btnDelete.addEventListener('click',handleDeleteClick);
   [dom.fMatchTime,dom.fHome,dom.fAway,dom.fHomePens,dom.fAwayPens,dom.fMediaUrl].forEach(function(el){ el.addEventListener('input',scheduleFeedRender); });
   dom.fMediaType.addEventListener('change',scheduleFeedRender);
   bindBtn(dom.sfBtnUpdate,function(){ updateAndClose(true).catch(handleErr); });
   dom.sfBtnCancel.addEventListener('click',handleCancel);
-  dom.sfBtnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
+  dom.sfBtnDelete.addEventListener('click',handleDeleteClick);
   dom.fab.addEventListener('click',function(){ if(dom.sheet.classList.contains('is-open')){ handleCancel(); } else { setEditorNew(); clearSheet(); openSheet(); } });
   dom.sheetClose.addEventListener('click',handleCancel);
   dom.sheetBackdrop.addEventListener('click',handleCancel);
