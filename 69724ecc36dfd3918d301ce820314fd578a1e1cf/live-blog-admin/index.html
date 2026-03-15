@@ -1,6 +1,6 @@
 <!--
   CHANGELOG
-  v93 — tweet flicker fixed with keyed DOM update in renderFeed() — cards only re-rendered when sig changes, tweet widgets preserved across polls; pinned pill now shows 📌 Pinned in feed cards; sub-rail scroll fixed with min-height:0 on flex container
+  v94 — submission delete now writes deleted=TRUE to sheet via API instead of just hiding locally; matches new Apps Script v15 deleted column structure
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
@@ -20,7 +20,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v93</title>
+<title>Live Blog Admin v94</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -245,7 +245,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v93</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v94</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -629,7 +629,19 @@ function renderSubRail(){
   dom.subBadge.textContent=String(pending); dom.subBadge.classList.toggle('is-visible',pending>0);
   const html=visible.length?visible.map(function(item){ const name=escHtml(item.name||'Anonymous'); const note=escHtml(item.note||''); const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):''; const isPub=!!item.published; const sid=subStableId(item); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" type="button">🗑</button></div></div>`; }).join(''):'<div class="rail-empty">No submissions.</div>';
   dom.subRailBody.innerHTML=html; dom.subRailBodyMobile.innerHTML=html;
-  [dom.subRailBody,dom.subRailBodyMobile].forEach(function(c){ c.querySelectorAll('[data-sub]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); const action=btn.getAttribute('data-sub'); const row=btn.getAttribute('data-row'); if(action==='delete'){ const sid=btn.getAttribute('data-stable')||row; state.hiddenSubs.add(String(sid)); saveHiddenSubs(); renderSubRail(); renderFeed(); } else updateSub(row,action==='publish').catch(handleErr); }); }); });
+  [dom.subRailBody,dom.subRailBodyMobile].forEach(function(c){ c.querySelectorAll('[data-sub]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); const action=btn.getAttribute('data-sub'); const row=btn.getAttribute('data-row');         if(action==='delete'){
+          const sid=btn.getAttribute('data-stable')||row;
+          // Write deleted=TRUE to sheet, then hide locally
+          apiFetch({
+            action:'updateSubmission', row_id:row,
+            name:state.submissions.find(s=>String(s.row_id)===String(row))?.name||'',
+            note:state.submissions.find(s=>String(s.row_id)===String(row))?.note||'',
+            deleted:'TRUE', published:'FALSE'
+          }).catch(handleErr);
+          state.hiddenSubs.add(String(sid));
+          saveHiddenSubs();
+          renderSubRail(); renderFeed();
+        } else updateSub(row,action==='publish').catch(handleErr); }); }); });
 }
 
 function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
