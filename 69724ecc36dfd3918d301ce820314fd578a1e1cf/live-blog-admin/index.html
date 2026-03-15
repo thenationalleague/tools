@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v117 — fix icon override: iconHtml was computed but never used in card HTML (getEventIcon called twice, second call ignoring override); fix operator precedence bug in iconOverride ternary
   v116 — substitution icon shown in natural colour (green/red arrows) matching yellow/red card treatment
   v115 — icon palette operates independently from event text; selected icon stored in state, rendered in card regardless of event text value; yellow card icon stays yellow, red card stays red (no invert filter for colour icons)
   v114 — mobile breakpoint raised from 768px to 1024px; phones and tablets in any orientation stay in mobile layout
@@ -34,7 +35,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v116</title>
+<title>Live Blog Admin v117</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -324,7 +325,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v116</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v117</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -841,12 +842,15 @@ function buildPostCardHtml(post){
   const pe=hp&&ap?escHtml(hp+' – '+ap+' pens'):'';
   const crest=post.team?(TEAM_CRESTS[post.team]||CUP_LOGO):CUP_LOGO;
   const pin=post.pinned?pinPill():'';
-  const iconHtml=getEventIcon(post.event, post._iconOverride||state.selectedIcon&&String(post.id)===String(state.activeId)?state.selectedIcon:'');
+  // Use selectedIcon override if this is the active post being edited, else use event text lookup
+  const isActive=String(post.id)===String(state.activeId);
+  const iconOverride=(isActive&&state.selectedIcon)?state.selectedIcon:(post._iconOverride||'');
+  const iconHtml=getEventIcon(post.event, iconOverride);
   const heading=`<div class="fcard__heading"><div class="fcard__heading-top">${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}</div>${pin}${post.event?`<div class="fcard__event${post.team?'':' fcard__event--solo'}">${escHtml(post.event)}</div>`:''}</div>`;
   const pills=[];
   if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>');
   if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>');
-  return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="--card-border:${colors.border}"><div class="fcard__head" style="background:${colors.bg}"><div class="fcard__head-inner"><div class="fcard__head-left"><span class="fcard__chip">${tl?stopwatchIcon():''}<span>${tl}</span></span><div class="fcard__head-main"><div class="fcard__crest-wrap"><img class="fcard__crest" src="${escHtml(crest)}" alt=""></div><div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 auto;">${getEventIcon(post.event)}${heading}</div></div></div><div class="fcard__score-wrap">${sc?`<div class="fcard__score">${sc}</div>`:''}${pe?`<div class="fcard__pens">${pe}</div>`:''}</div></div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div><div class="fcard__pin-bar"></div></div>`;
+  return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="--card-border:${colors.border}"><div class="fcard__head" style="background:${colors.bg}"><div class="fcard__head-inner"><div class="fcard__head-left"><span class="fcard__chip">${tl?stopwatchIcon():''}<span>${tl}</span></span><div class="fcard__head-main"><div class="fcard__crest-wrap"><img class="fcard__crest" src="${escHtml(crest)}" alt=""></div><div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 auto;">${iconHtml}${heading}</div></div></div><div class="fcard__score-wrap">${sc?`<div class="fcard__score">${sc}</div>`:''}${pe?`<div class="fcard__pens">${pe}</div>`:''}</div></div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div><div class="fcard__pin-bar"></div></div>`;
 }
 
 function buildSubCardHtml(sub){
