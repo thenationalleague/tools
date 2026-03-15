@@ -1,5 +1,7 @@
 <!--
   CHANGELOG
+  v116 — substitution icon shown in natural colour (green/red arrows) matching yellow/red card treatment
+  v115 — icon palette operates independently from event text; selected icon stored in state, rendered in card regardless of event text value; yellow card icon stays yellow, red card stays red (no invert filter for colour icons)
   v114 — mobile breakpoint raised from 768px to 1024px; phones and tablets in any orientation stay in mobile layout
   v113 — event field: combo dropdown removed, replaced with free text input + clickable icon palette below; icons shown dark on white; selecting icon sets event text; click again or ✕ to clear; deduped icon set
   v112 — search input placeholder added
@@ -32,7 +34,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v114</title>
+<title>Live Blog Admin v116</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -322,7 +324,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v114</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v116</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -518,7 +520,7 @@ const state={
   activeId:'',isNew:true,isPublished:true,isPinned:false,
   editorOpen:false,search:'',renderTimer:null,
   pendingNewSubs:0,subTimestamps:new Map(),
-  saveInFlight:false
+  saveInFlight:false,selectedIcon:''
 };
 
 const $=id=>document.getElementById(id);
@@ -560,7 +562,23 @@ function isMobile(){ return window.innerWidth<=1024; }
 function setStatus(msg,type){ dom.status.textContent=msg||''; dom.status.classList.remove('is-error','is-success'); if(type) dom.status.classList.add('is-'+type); }
 function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function getColors(team){ return TEAM_COLORS[team]||NEUTRAL; }
-function getEventIcon(event){ if(!event) return ''; const url=ICON_MAP[(event||'').toLowerCase()]; if(!url) return ''; return `<span class="fcard__icon"><img src="${escHtml(url)}" alt="" width="22" height="22"></span>`; }
+function getEventIcon(event, iconOverride){
+  // Use iconOverride (selected palette icon) if set, else fall back to event text lookup
+  const key=iconOverride?iconOverride.toLowerCase():(event||'').toLowerCase();
+  const url=ICON_MAP[key]||'';
+  if(!url) return '';
+  const colourFilter=getIconFilter(key);
+  return `<span class="fcard__icon"><img src="${escHtml(url)}" alt="" width="22" height="22" style="filter:${colourFilter};"></span>`;
+}
+
+function getIconFilter(key){
+  // Yellow/red cards keep their natural colour — no invert
+  if(key==='yellow card') return 'none';
+  if(key==='red card') return 'none';
+  if(key==='substitution') return 'none';
+  // Everything else inverts to white for coloured card heads
+  return 'invert(1) drop-shadow(0 1px 2px rgba(0,0,0,.28))';
+}
 
 function isTweetUrl(url){ const s=String(url||'').trim(); if(/^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s)) return true; if(/^https?:\/\/(www\.)?x\.com\/(i\/|i\/web\/)/i.test(s)) return true; return false; }
 function getTweetId(url){ const m=String(url||'').trim().match(/\/status\/(\d+)/i); return m?m[1]:''; }
@@ -659,10 +677,10 @@ function toggleEditorPanel(){ state.editorOpen=!state.editorOpen; dom.editorPane
 function openEditorPanel(){ state.editorOpen=true; dom.editorPanel.classList.add('is-open'); dom.collapsedChevron.classList.add('is-open'); }
 function closeEditorPanel(){ state.editorOpen=false; dom.editorPanel.classList.remove('is-open'); dom.collapsedChevron.classList.remove('is-open'); }
 
-function clearDesktop(){ dom.fEvent.value=''; syncAllPalettes(); dom.fTeam.value=''; dom.fMatchTime.value=''; dom.fClockTime.value=''; dom.fHome.value=''; dom.fAway.value=''; dom.fHomePens.value=''; dom.fAwayPens.value=''; dom.fCopy.innerHTML=''; dom.fMediaType.value=''; dom.fMediaUrl.value=''; }
-function clearSheet(){ dom.sfEvent.value=''; syncAllPalettes(); dom.sfTeam.value=''; dom.sfMatchTime.value=''; dom.sfClockTime.value=''; dom.sfHome.value=''; dom.sfAway.value=''; dom.sfHomePens.value=''; dom.sfAwayPens.value=''; dom.sfCopy.innerHTML=''; dom.sfMediaType.value=''; dom.sfMediaUrl.value=''; }
-function fillDesktop(p){ dom.fEvent.value=p.event||''; syncAllPalettes(); dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
-function fillSheet(p){ dom.sfEvent.value=p.event||''; syncAllPalettes(); dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
+function clearDesktop(){ dom.fEvent.value=''; state.selectedIcon=''; syncAllPalettes(); dom.fTeam.value=''; dom.fMatchTime.value=''; dom.fClockTime.value=''; dom.fHome.value=''; dom.fAway.value=''; dom.fHomePens.value=''; dom.fAwayPens.value=''; dom.fCopy.innerHTML=''; dom.fMediaType.value=''; dom.fMediaUrl.value=''; }
+function clearSheet(){ dom.sfEvent.value=''; state.selectedIcon=''; syncAllPalettes(); dom.sfTeam.value=''; dom.sfMatchTime.value=''; dom.sfClockTime.value=''; dom.sfHome.value=''; dom.sfAway.value=''; dom.sfHomePens.value=''; dom.sfAwayPens.value=''; dom.sfCopy.innerHTML=''; dom.sfMediaType.value=''; dom.sfMediaUrl.value=''; }
+function fillDesktop(p){ dom.fEvent.value=p.event||''; state.selectedIcon=ICON_MAP[(p.event||'').toLowerCase()]?p.event:''; syncAllPalettes(); dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
+function fillSheet(p){ dom.sfEvent.value=p.event||''; state.selectedIcon=ICON_MAP[(p.event||'').toLowerCase()]?p.event:''; syncAllPalettes(); dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
 
 function setEditorNew(){
   state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false;
@@ -823,6 +841,7 @@ function buildPostCardHtml(post){
   const pe=hp&&ap?escHtml(hp+' – '+ap+' pens'):'';
   const crest=post.team?(TEAM_CRESTS[post.team]||CUP_LOGO):CUP_LOGO;
   const pin=post.pinned?pinPill():'';
+  const iconHtml=getEventIcon(post.event, post._iconOverride||state.selectedIcon&&String(post.id)===String(state.activeId)?state.selectedIcon:'');
   const heading=`<div class="fcard__heading"><div class="fcard__heading-top">${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}</div>${pin}${post.event?`<div class="fcard__event${post.team?'':' fcard__event--solo'}">${escHtml(post.event)}</div>`:''}</div>`;
   const pills=[];
   if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>');
@@ -940,7 +959,7 @@ function renderSubRail(){
   });
 }
 
-function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
+function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), _iconOverride:state.selectedIcon, team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
 
 async function savePost(isSheet){
   if(state.saveInFlight) return;
@@ -1044,24 +1063,21 @@ function bindRTE(){
   dom.fCopy.addEventListener('input',scheduleFeedRender);
 }
 
-function buildIconPalette(inputEl, paletteEl){
+function buildIconPalette(paletteEl){
   if(!paletteEl) return;
-  // Build palette buttons
   ICON_PALETTE.forEach(function(entry){
     const label=entry[0], value=entry[1], file=entry[2];
     const btn=document.createElement('button');
     btn.type='button';
     btn.className='icon-palette__btn';
-    btn.dataset.value=value;
-    btn.innerHTML=`<img class="icon-palette__img" src="${ICON_BASE+file}" alt="${label}"><span class="icon-palette__name">${label}</span>`;
+    btn.dataset.iconValue=value;
+    btn.dataset.iconFile=file;
+    const paletteFilter=(['yellow-card.svg','red-card.svg','substitution.svg'].includes(file))?'none':'brightness(0)';
+    btn.innerHTML=`<img class="icon-palette__img" src="${ICON_BASE+file}" alt="${label}" style="filter:${paletteFilter}"><span class="icon-palette__name">${label}</span>`;
     btn.addEventListener('click',function(){
-      if(inputEl.value.trim().toLowerCase()===value.toLowerCase()){
-        // clicking selected — clear
-        inputEl.value='';
-      } else {
-        inputEl.value=value;
-      }
-      syncPaletteSelection(inputEl,paletteEl);
+      // Toggle: clicking selected icon clears it
+      state.selectedIcon=(state.selectedIcon===value)?'':value;
+      syncAllPalettes();
       scheduleFeedRender();
     });
     paletteEl.appendChild(btn);
@@ -1072,30 +1088,21 @@ function buildIconPalette(inputEl, paletteEl){
   clr.className='icon-palette__clear';
   clr.innerHTML='✕ None';
   clr.addEventListener('click',function(){
-    inputEl.value='';
-    syncPaletteSelection(inputEl,paletteEl);
+    state.selectedIcon='';
+    syncAllPalettes();
     scheduleFeedRender();
   });
   paletteEl.appendChild(clr);
-  // Sync on text input
-  inputEl.addEventListener('input',function(){
-    syncPaletteSelection(inputEl,paletteEl);
-  });
-  // Initial sync
-  syncPaletteSelection(inputEl,paletteEl);
-}
-
-function syncPaletteSelection(inputEl, paletteEl){
-  const cur=(inputEl.value||'').trim().toLowerCase();
-  paletteEl.querySelectorAll('.icon-palette__btn').forEach(function(btn){
-    btn.classList.toggle('is-selected', btn.dataset.value.toLowerCase()===cur);
-  });
 }
 
 function syncAllPalettes(){
-  // Keep both palettes in sync when editor is loaded
-  syncPaletteSelection(dom.fEvent, document.getElementById('fIconPalette'));
-  syncPaletteSelection(dom.sfEvent, document.getElementById('sfIconPalette'));
+  ['fIconPalette','sfIconPalette'].forEach(function(id){
+    const pal=document.getElementById(id);
+    if(!pal) return;
+    pal.querySelectorAll('.icon-palette__btn').forEach(function(btn){
+      btn.classList.toggle('is-selected', btn.dataset.iconValue===state.selectedIcon);
+    });
+  });
 }
 
 function buildCombo(inputEl,listEl,options){ let focused=-1; function showList(f){ const ff=(f||'').toLowerCase(); const filtered=options.filter(o=>o.toLowerCase().includes(ff)); if(!filtered.length){ listEl.classList.remove('is-open'); return; } listEl.innerHTML=filtered.map(o=>`<div class="combo__opt" data-val="${escHtml(o)}">${escHtml(o)}</div>`).join(''); listEl.classList.add('is-open'); focused=-1; listEl.querySelectorAll('.combo__opt').forEach(function(el){ el.addEventListener('mousedown',function(e){ e.preventDefault(); inputEl.value=el.getAttribute('data-val'); listEl.classList.remove('is-open'); scheduleFeedRender(); }); }); } inputEl.addEventListener('focus',function(){ showList(inputEl.value); }); inputEl.addEventListener('input',function(){ showList(inputEl.value); scheduleFeedRender(); }); inputEl.addEventListener('keydown',function(e){ const opts=listEl.querySelectorAll('.combo__opt'); if(e.key==='ArrowDown'){ e.preventDefault(); focused=Math.min(focused+1,opts.length-1); } else if(e.key==='ArrowUp'){ e.preventDefault(); focused=Math.max(focused-1,0); } else if(e.key==='Enter'&&focused>=0){ e.preventDefault(); inputEl.value=opts[focused].getAttribute('data-val'); listEl.classList.remove('is-open'); scheduleFeedRender(); return; } else if(e.key==='Escape'){ listEl.classList.remove('is-open'); return; } opts.forEach(function(o,i){ o.classList.toggle('is-focused',i===focused); }); }); document.addEventListener('click',function(e){ if(!inputEl.contains(e.target)&&!listEl.contains(e.target)) listEl.classList.remove('is-open'); }); }
@@ -1110,8 +1117,8 @@ function handleErr(err){ console.error(err); setStatus(err&&err.message?err.mess
 
 async function init(){
   loadHiddenSubs();
-  buildIconPalette(dom.fEvent, document.getElementById('fIconPalette'));
-  buildIconPalette(dom.sfEvent, document.getElementById('sfIconPalette'));
+  buildIconPalette(document.getElementById('fIconPalette'));
+  buildIconPalette(document.getElementById('sfIconPalette'));
   buildCombo(dom.fTeam,$('comboTeamList'),TEAM_OPTIONS);
   buildCombo(dom.sfTeam,$('sfComboTeamList'),TEAM_OPTIONS);
   bindRTE();
