@@ -896,25 +896,27 @@ textarea { resize: vertical; min-height: 80px; }
     img.onload = function() {
       try {
         var canvas = document.createElement('canvas');
-        var SIZE = 48;
+        var SIZE = 64;
         canvas.width = SIZE; canvas.height = SIZE;
         var ctx = canvas.getContext('2d');
-        // Fill white so transparent PNG areas don't corrupt colour sampling
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, SIZE, SIZE);
+        ctx.clearRect(0, 0, SIZE, SIZE);
         ctx.drawImage(img, 0, 0, SIZE, SIZE);
         var data = ctx.getImageData(0, 0, SIZE, SIZE).data;
 
         var counts = {};
         for (var i = 0; i < data.length; i += 4) {
-          var r = data[i], g = data[i+1], b = data[i+2];
+          var r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+          if (a < 200) continue;
           var bright = (r + g + b) / 3;
-          if (bright > 210) continue; // skip near-white (bg fill)
-          if (bright < 30)  continue; // skip near-black
-          // Coarser quantisation reduces edge noise artefacts
-          r = Math.round(r / 32) * 32;
-          g = Math.round(g / 32) * 32;
-          b = Math.round(b / 32) * 32;
+          if (bright < 40 || bright > 220) continue;
+          // Require meaningful saturation — filters muddy interpolated edge pixels
+          var max = Math.max(r, g, b);
+          var min = Math.min(r, g, b);
+          var sat = max === 0 ? 0 : (max - min) / max;
+          if (sat < 0.25) continue;
+          r = Math.round(r / 40) * 40;
+          g = Math.round(g / 40) * 40;
+          b = Math.round(b / 40) * 40;
           var key = r + ',' + g + ',' + b;
           counts[key] = (counts[key] || 0) + 1;
         }
