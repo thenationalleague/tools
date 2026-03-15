@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v120 — score label renamed to SCORE UPDATE; pens label renamed to SHOOT-OUT UPDATE; editor column doubled to 720px; icon palette replaced with compact dropdown menu button
   v119 — icon and event fully decoupled: icon stored in state.selectedIcon only, never derived from event text; getEventIcon only uses selectedIcon (active post) or post.icon field (saved posts); fillDesktop/fillSheet load post.icon not event; payload sends icon field; sheet needs icon column
   v118 — desktop three-column layout: editor left (sticky, full height), posts middle, submissions right; all roughly equal width; editor no longer sits above feed
   v117 — fix icon override: iconHtml was computed but never used in card HTML (getEventIcon called twice, second call ignoring override); fix operator precedence bug in iconOverride ternary
@@ -37,7 +38,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v119</title>
+<title>Live Blog Admin v120</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -51,7 +52,7 @@
   --dark:#111;
   --dark2:#1c1c1c;
   --danger:#b00020;
-  --editor-w:360px;
+  --editor-w:540px;
   --rail-w:320px;
   --topbar-h:58px;
   --bottombar-h:68px;
@@ -119,24 +120,47 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .score-strip__sep{ font-size:.9rem; font-weight:900; color:#ccc; }
 .score-input{ width:32px; height:22px; text-align:center; padding:0 3px; border:1px solid #cfd6de; border-radius:5px; background:#fff; color:#111; font:inherit; font-size:.82rem; font-weight:900; outline:none; }
 .score-input:focus{ border-color:var(--blue); box-shadow:0 0 0 2px rgba(34,59,124,.1); }
-.icon-palette{ display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 0; }
+/* v120: icon picker — compact trigger button + dropdown */
+.icon-picker{ position:relative; margin:4px 0 0; }
+.icon-picker__trigger{
+  appearance:none; border:1px solid #cfd6de; border-radius:7px;
+  background:#fff; cursor:pointer; padding:5px 10px 5px 7px;
+  display:inline-flex; align-items:center; gap:7px;
+  font:inherit; font-size:.76rem; font-weight:700; color:#374151;
+  transition:border-color .15s, background .15s;
+  height:32px; min-width:120px;
+}
+.icon-picker__trigger:hover{ border-color:var(--blue); background:#f8faff; }
+.icon-picker__trigger.is-open{ border-color:var(--blue); box-shadow:0 0 0 3px rgba(34,59,124,.1); }
+.icon-picker__preview{ width:18px; height:18px; object-fit:contain; display:block; flex-shrink:0; }
+.icon-picker__label{ flex:1 1 auto; text-align:left; }
+.icon-picker__chevron{ font-size:.6rem; color:#9ca3af; margin-left:auto; transition:transform .2s; }
+.icon-picker__trigger.is-open .icon-picker__chevron{ transform:rotate(180deg); }
+.icon-picker__menu{
+  position:absolute; top:calc(100% + 4px); left:0; z-index:400;
+  background:#fff; border:1px solid var(--blue); border-radius:10px;
+  box-shadow:0 8px 24px rgba(0,0,0,.12);
+  display:none; flex-wrap:wrap; gap:4px; padding:8px;
+  width:260px;
+}
+.icon-picker__menu.is-open{ display:flex; }
 .icon-palette__btn{
-  appearance:none; border:1px solid #cfd6de; border-radius:8px;
-  background:#fff; cursor:pointer; padding:5px;
-  display:inline-flex; flex-direction:column; align-items:center; gap:3px;
-  transition:border-color .15s, background .15s, box-shadow .15s;
-  min-width:46px;
+  appearance:none; border:1px solid #e5e7eb; border-radius:7px;
+  background:#fff; cursor:pointer; padding:5px 6px;
+  display:inline-flex; flex-direction:column; align-items:center; gap:2px;
+  transition:border-color .15s, background .15s;
+  width:50px;
 }
 .icon-palette__btn:hover{ border-color:var(--blue); background:#eef2f7; }
 .icon-palette__btn.is-selected{ border-color:var(--blue); background:#dbeafe; box-shadow:0 0 0 2px rgba(34,59,124,.2); }
-.icon-palette__img{ width:22px; height:22px; object-fit:contain; display:block; filter:brightness(0); }
-.icon-palette__name{ font-size:.52rem; font-weight:900; letter-spacing:.03em; text-transform:uppercase; color:#555; white-space:nowrap; line-height:1; }
+.icon-palette__img{ width:20px; height:20px; object-fit:contain; display:block; }
+.icon-palette__name{ font-size:.48rem; font-weight:900; letter-spacing:.03em; text-transform:uppercase; color:#555; white-space:nowrap; line-height:1; }
 .icon-palette__clear{
-  appearance:none; border:1px solid #cfd6de; border-radius:8px;
-  background:#f9fafb; cursor:pointer; padding:5px 8px;
-  font-size:.62rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase;
+  appearance:none; border:1px solid #e5e7eb; border-radius:7px;
+  background:#f9fafb; cursor:pointer; padding:5px 6px;
+  font-size:.48rem; font-weight:900; letter-spacing:.03em; text-transform:uppercase;
   color:#9ca3af; transition:border-color .15s, color .15s;
-  display:inline-flex; align-items:center; gap:4px; min-height:46px;
+  display:inline-flex; align-items:center; justify-content:center; width:50px; min-height:44px;
 }
 .icon-palette__clear:hover{ border-color:#ef4444; color:#ef4444; background:#fff5f5; }
 .rte-wrap{ border:1px solid #cfd6de; border-radius:8px; overflow:hidden; transition:border-color .15s,box-shadow .15s; }
@@ -343,7 +367,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v119</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v120</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -371,14 +395,14 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
         </div>
         <div class="editor-body">
           <div class="erow">
-            <div class="ef" style="width:100%;"><label class="elabel">Event</label><input class="einput" id="fEvent" type="text" autocomplete="off" placeholder="Event label…"><div class="icon-palette" id="fIconPalette"></div></div>
+            <div class="ef" style="width:100%;"><label class="elabel">Event</label><input class="einput" id="fEvent" type="text" autocomplete="off" placeholder="Event label…"><div class="icon-picker" id="fIconPicker"><button class="icon-picker__trigger" id="fIconTrigger" type="button"><img class="icon-picker__preview" id="fIconPreview" src="" alt="" style="display:none;"><span class="icon-picker__label" id="fIconLabel">No icon</span><span class="icon-picker__chevron">▾</span></button><div class="icon-picker__menu" id="fIconPalette"></div></div></div>
             <div class="ef" style="width:180px;"><label class="elabel">Team</label><div class="combo"><input class="combo__input" id="fTeam" type="text" autocomplete="off"><div class="combo__list" id="comboTeamList"></div></div></div>
             <div class="ef ef--w80"><label class="elabel">Match time</label><input class="einput" id="fMatchTime" type="text"></div>
             <div class="ef ef--w120" id="clockTimeField" style="display:none;"><label class="elabel">Clock time</label><input class="einput" id="fClockTime" type="text"></div>
           </div>
           <div class="erow">
-            <div class="ef" style="flex-shrink:0;"><label class="elabel">Score (BHW – WHU)</label><div class="score-strip"><span class="score-strip__label">Score</span><input class="score-input" id="fHome" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="fAway" type="text"></div></div>
-            <div class="ef" style="flex-shrink:0;"><label class="elabel">Penalties</label><div class="score-strip"><span class="score-strip__label">Pens</span><input class="score-input" id="fHomePens" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="fAwayPens" type="text"></div></div>
+            <div class="ef" style="flex-shrink:0;"><label class="elabel">Score Update</label><div class="score-strip"><span class="score-strip__label">Score</span><input class="score-input" id="fHome" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="fAway" type="text"></div></div>
+            <div class="ef" style="flex-shrink:0;"><label class="elabel">Shoot-out Update</label><div class="score-strip"><span class="score-strip__label">Pens</span><input class="score-input" id="fHomePens" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="fAwayPens" type="text"></div></div>
             <div class="ef" style="width:120px;"><label class="elabel">Media type</label><select class="eselect" id="fMediaType"><option value="">None</option><option value="image">Image</option><option value="video">Video</option><option value="gallery">Gallery</option><option value="embed">Embed</option></select></div>
             <div class="ef ef--grow"><label class="elabel">Media URL</label><input class="einput" id="fMediaUrl" type="text"></div>
           </div>
@@ -470,7 +494,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   </div>
   <div class="sheet__body">
     <div class="erow">
-      <div class="ef ef--grow"><label class="elabel">Event</label><input class="einput" id="sfEvent" type="text" autocomplete="off" placeholder="Event label…"><div class="icon-palette" id="sfIconPalette"></div></div>
+      <div class="ef ef--grow"><label class="elabel">Event</label><input class="einput" id="sfEvent" type="text" autocomplete="off" placeholder="Event label…"><div class="icon-picker" id="sfIconPicker"><button class="icon-picker__trigger" id="sfIconTrigger" type="button"><img class="icon-picker__preview" id="sfIconPreview" src="" alt="" style="display:none;"><span class="icon-picker__label" id="sfIconLabel">No icon</span><span class="icon-picker__chevron">▾</span></button><div class="icon-picker__menu" id="sfIconPalette"></div></div></div>
       <div class="ef ef--grow"><label class="elabel">Team</label><div class="combo"><input class="combo__input" id="sfTeam" type="text" autocomplete="off"><div class="combo__list" id="sfComboTeamList"></div></div></div>
     </div>
     <div class="erow">
@@ -478,8 +502,8 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
       <div class="ef ef--grow" id="sfClockTimeField" style="display:none;"><label class="elabel">Clock time</label><input class="einput" id="sfClockTime" type="text"></div>
     </div>
     <div class="erow">
-      <div class="ef ef--grow"><label class="elabel">Score (BHW – WHU)</label><div class="score-strip" style="width:100%;"><span class="score-strip__label">Score</span><input class="score-input" id="sfHome" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="sfAway" type="text"></div></div>
-      <div class="ef ef--grow"><label class="elabel">Penalties</label><div class="score-strip" style="width:100%;"><span class="score-strip__label">Pens</span><input class="score-input" id="sfHomePens" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="sfAwayPens" type="text"></div></div>
+      <div class="ef ef--grow"><label class="elabel">Score Update</label><div class="score-strip" style="width:100%;"><span class="score-strip__label">Score</span><input class="score-input" id="sfHome" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="sfAway" type="text"></div></div>
+      <div class="ef ef--grow"><label class="elabel">Shoot-out Update</label><div class="score-strip" style="width:100%;"><span class="score-strip__label">Pens</span><input class="score-input" id="sfHomePens" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="sfAwayPens" type="text"></div></div>
     </div>
     <div class="erow">
       <div class="ef" style="width:130px;"><label class="elabel">Media type</label><select class="eselect" id="sfMediaType"><option value="">None</option><option value="image">Image</option><option value="video">Video</option><option value="gallery">Gallery</option><option value="embed">Embed</option></select></div>
@@ -1098,6 +1122,31 @@ function bindRTE(){
 
 function buildIconPalette(paletteEl){
   if(!paletteEl) return;
+  const picker=paletteEl.closest('.icon-picker');
+  const trigger=picker?picker.querySelector('.icon-picker__trigger'):null;
+  const menu=paletteEl;
+
+  // Toggle menu open/close
+  if(trigger){
+    trigger.addEventListener('click',function(e){
+      e.stopPropagation();
+      const isOpen=menu.classList.contains('is-open');
+      // Close all other menus first
+      document.querySelectorAll('.icon-picker__menu.is-open').forEach(function(m){ m.classList.remove('is-open'); });
+      document.querySelectorAll('.icon-picker__trigger.is-open').forEach(function(t){ t.classList.remove('is-open'); });
+      if(!isOpen){
+        menu.classList.add('is-open');
+        trigger.classList.add('is-open');
+      }
+    });
+  }
+
+  // Close menu on outside click
+  document.addEventListener('click',function(){
+    menu.classList.remove('is-open');
+    if(trigger) trigger.classList.remove('is-open');
+  });
+
   ICON_PALETTE.forEach(function(entry){
     const label=entry[0], value=entry[1], file=entry[2];
     const btn=document.createElement('button');
@@ -1107,21 +1156,27 @@ function buildIconPalette(paletteEl){
     btn.dataset.iconFile=file;
     const paletteFilter=(['yellow-card.svg','red-card.svg','substitution.svg'].includes(file))?'none':'brightness(0)';
     btn.innerHTML=`<img class="icon-palette__img" src="${ICON_BASE+file}" alt="${label}" style="filter:${paletteFilter}"><span class="icon-palette__name">${label}</span>`;
-    btn.addEventListener('click',function(){
-      // Toggle: clicking selected icon clears it
+    btn.addEventListener('click',function(e){
+      e.stopPropagation();
       state.selectedIcon=(state.selectedIcon===value)?'':value;
+      menu.classList.remove('is-open');
+      if(trigger) trigger.classList.remove('is-open');
       syncAllPalettes();
       scheduleFeedRender();
     });
     paletteEl.appendChild(btn);
   });
-  // Clear button
+
   const clr=document.createElement('button');
   clr.type='button';
   clr.className='icon-palette__clear';
-  clr.innerHTML='✕ None';
-  clr.addEventListener('click',function(){
+  clr.innerHTML='✕';
+  clr.title='No icon';
+  clr.addEventListener('click',function(e){
+    e.stopPropagation();
     state.selectedIcon='';
+    menu.classList.remove('is-open');
+    if(trigger) trigger.classList.remove('is-open');
     syncAllPalettes();
     scheduleFeedRender();
   });
@@ -1135,6 +1190,26 @@ function syncAllPalettes(){
     pal.querySelectorAll('.icon-palette__btn').forEach(function(btn){
       btn.classList.toggle('is-selected', btn.dataset.iconValue===state.selectedIcon);
     });
+    // Update trigger preview
+    const picker=pal.closest('.icon-picker');
+    if(!picker) return;
+    const preview=picker.querySelector('.icon-picker__preview');
+    const labelEl=picker.querySelector('.icon-picker__label');
+    if(state.selectedIcon){
+      const entry=ICON_PALETTE.find(function(e){ return e[1]===state.selectedIcon; });
+      if(entry){
+        const file=entry[2];
+        const colourFilter=(['yellow-card.svg','red-card.svg','substitution.svg'].includes(file))?'none':'brightness(0)';
+        preview.src=ICON_BASE+file;
+        preview.style.filter=colourFilter;
+        preview.style.display='block';
+        if(labelEl) labelEl.textContent=entry[0];
+      }
+    } else {
+      preview.style.display='none';
+      preview.src='';
+      if(labelEl) labelEl.textContent='No icon';
+    }
   });
 }
 
