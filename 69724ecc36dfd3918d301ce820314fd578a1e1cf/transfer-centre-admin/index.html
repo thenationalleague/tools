@@ -462,7 +462,7 @@ textarea { resize: vertical; min-height: 80px; }
     position: fixed; bottom: 56px; left: 0; right: 0; z-index: 400;
     background: var(--surface); border-top: 2px solid var(--yellow);
     max-height: 85vh; overflow-y: auto;
-    transform: translateY(100%); transition: transform 0.35s cubic-bezier(0.22,1,0.36,1);
+    transform: translateY(calc(100% + 60px)); transition: transform 0.35s cubic-bezier(0.22,1,0.36,1);
     border-radius: 16px 16px 0 0;
   }
   .bottom-sheet.open { transform: translateY(0); }
@@ -530,8 +530,8 @@ textarea { resize: vertical; min-height: 80px; }
 
           <!-- From / To Club -->
           <div class="form-row" id="field-clubs">
-            <div class="field">
-              <label>From Club</label>
+            <div class="field" id="field-from-club">
+              <label id="label-from-club">From Club</label>
               <div class="club-picker-wrap" id="from-club-wrap">
                 <div class="club-picker-preview" id="from-club-preview" data-field="from">
                   <span>Select club…</span>
@@ -544,7 +544,7 @@ textarea { resize: vertical; min-height: 80px; }
               </div>
             </div>
             <div class="field">
-              <label>To Club</label>
+              <label id="label-to-club">To Club</label>
               <div class="club-picker-wrap" id="to-club-wrap">
                 <div class="club-picker-preview" id="to-club-preview" data-field="to">
                   <span>Select club…</span>
@@ -1002,14 +1002,21 @@ textarea { resize: vertical; min-height: 80px; }
   }
 
   function updateFieldVisibility() {
-    var isTransfer = state.cardType === 'confirmed_signing' || state.cardType === 'loan_in';
-    var isArticle  = state.cardType === 'article_link';
+    var isTransfer  = state.cardType === 'confirmed_signing' || state.cardType === 'loan_in';
+    var isContract  = state.cardType === 'contract_extension';
+    var isArticle   = state.cardType === 'article_link';
+    var needsClubs  = isTransfer || isContract;
 
-    document.getElementById('field-player').style.display       = isArticle ? 'none' : '';
-    document.getElementById('field-clubs').style.display        = isTransfer ? '' : 'none';
-    document.getElementById('field-fee-contract').style.display = isTransfer ? '' : 'none';
-    document.getElementById('field-article-url').style.display  = isArticle ? '' : 'none';
-    document.getElementById('field-article-meta').style.display = isArticle ? '' : 'none';
+    document.getElementById('field-player').style.display         = isArticle ? 'none' : '';
+    document.getElementById('field-clubs').style.display          = needsClubs ? '' : 'none';
+    document.getElementById('field-from-club').style.display      = isContract ? 'none' : '';
+    document.getElementById('field-fee-contract').style.display   = isTransfer ? '' : 'none';
+    document.getElementById('field-article-url').style.display    = isArticle ? '' : 'none';
+    document.getElementById('field-article-meta').style.display   = isArticle ? '' : 'none';
+
+    // Relabel to-club for contracts
+    var toLabel = document.getElementById('label-to-club');
+    if (toLabel) toLabel.textContent = isContract ? 'Club' : 'To Club';
   }
 
   // ─── ICON PICKER ──────────────────────────────────────────────────────────
@@ -1097,6 +1104,10 @@ textarea { resize: vertical; min-height: 80px; }
 
     updateClubPreview('from-club-preview', null, null);
     updateClubPreview('to-club-preview',   null, null);
+    var fs = document.getElementById('from-club-search');
+    var ts = document.getElementById('to-club-search');
+    if (fs) fs.value = '';
+    if (ts) ts.value = '';
 
     document.querySelectorAll('.card-type-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === 'confirmed_signing');
@@ -1104,6 +1115,9 @@ textarea { resize: vertical; min-height: 80px; }
 
     updateFieldVisibility();
     document.getElementById('btn-save').textContent = 'Save Post';
+
+    // On mobile, close the sheet when clearing (Cancel action)
+    if (state.isMobile) closeSheet();
 
     // Deselect feed cards
     document.querySelectorAll('.admin-card.selected').forEach(function(c){ c.classList.remove('selected'); });
@@ -1418,7 +1432,9 @@ textarea { resize: vertical; min-height: 80px; }
       clearEditor();
       openSheet();
     });
-    document.getElementById('sheet-close').addEventListener('click', closeSheet);
+    document.getElementById('sheet-close').addEventListener('click', function(){
+      clearEditor(); // resets state and closes sheet
+    });
 
     // Tab bar
     document.querySelectorAll('.mobile-tab').forEach(function(tab){
