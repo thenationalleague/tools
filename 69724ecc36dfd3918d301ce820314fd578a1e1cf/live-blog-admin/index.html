@@ -13,7 +13,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v79</title>
+<title>Live Blog Admin v81</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -43,7 +43,8 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 /* TOPBAR */
 .topbar{ position:fixed; top:0; left:0; right:0; height:var(--topbar-h); background:var(--dark); color:#fff; display:flex; align-items:center; padding:0 14px; gap:10px; border-bottom:2px solid var(--red); z-index:100; }
 .topbar__brand{ font-size:.84rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
-.topbar__version{ font-size:.64rem; opacity:.3; font-weight:400; margin-left:5px; }
+/* TODO v80: change .topbar__version color to #fff (currently too dim) */
+.topbar__version{ font-size:.64rem; color:#fff; font-weight:400; margin-left:5px; }
 .topbar__sep{ width:1px; height:22px; background:rgba(255,255,255,.12); flex-shrink:0; }
 .topbar__right{ display:flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
 .topbar__status{ font-size:.74rem; color:rgba(255,255,255,.45); white-space:nowrap; }
@@ -275,7 +276,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v79</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v81</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -449,8 +450,8 @@ const state={
   posts:[],submissions:[],hiddenSubs:new Set(),
   activeId:'',isNew:true,isPublished:true,isPinned:false,
   editorOpen:false,search:'',renderTimer:null,
-  pendingNewSubs:0, // unseen new submissions since last view
-  subTimestamps:new Map() // sub stable id → first seen timestamp
+  pendingNewSubs:0,subTimestamps:new Map(),
+  saveInFlight:false  // guard against duplicate saves
 };
 
 const $=id=>document.getElementById(id);
@@ -607,9 +608,53 @@ function renderFeed(){
     }
   });
   dom.feedEl.querySelectorAll('[data-sub-unpub]').forEach(btn=>{ btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); }); });
+  hydrateTweets(dom.feedEl);
 }
 
-function buildMediaPreview(post){ const type=String(post.media_type||'').toLowerCase(); const url=String(post.media_url||'').trim(); if(!url) return ''; if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`; if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`; if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; } if(type==='embed') return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`; return ''; }
+function isTweetUrl(url){ const s=String(url||'').trim(); if(/^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s)) return true; if(/^https?:\/\/(www\.)?x\.com\/(i\/|i\/web\/)/i.test(s)) return true; return false; }
+function getTweetId(url){ const s=String(url||'').trim(); const m=s.match(/\/status\/(\d+)/i); return m?m[1]:''; }
+
+let xWidgetsPromise=null;
+function loadXWidgets(){
+  if(window.twttr&&window.twttr.widgets) return Promise.resolve(window.twttr);
+  if(xWidgetsPromise) return xWidgetsPromise;
+  xWidgetsPromise=new Promise(function(resolve,reject){ const s=document.createElement('script'); s.async=true; s.src='https://platform.x.com/widgets.js'; s.charset='utf-8'; s.onload=function(){ resolve(window.twttr); }; s.onerror=reject; document.head.appendChild(s); });
+  return xWidgetsPromise;
+}
+
+async function hydrateTweets(root){
+  const placeholders=Array.from((root||document).querySelectorAll('.admin-tweet-placeholder[data-tweet-url]'));
+  if(!placeholders.length) return;
+  try{
+    const twttr=await loadXWidgets();
+    if(!twttr||!twttr.widgets||typeof twttr.widgets.createTweet!=='function') throw new Error('X widgets unavailable');
+    for(const ph of placeholders){
+      const url=ph.dataset.tweetUrl;
+      const id=getTweetId(url);
+      if(ph.dataset.rendered==='1') continue;
+      ph.dataset.rendered='1';
+      if(!id){ ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;">${escHtml(url)}</a>`; continue; }
+      try{ await twttr.widgets.createTweet(id,ph,{align:'center',dnt:true,theme:'light'}); }
+      catch(e){ ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;">${escHtml(url)}</a>`; }
+    }
+  }catch(e){ console.warn('X widget load failed',e); }
+}
+
+function buildMediaPreview(post){
+  const type=String(post.media_type||'').toLowerCase();
+  const url=String(post.media_url||'').trim();
+  if(!url) return '';
+  if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`;
+  if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`;
+  if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; }
+  if(type==='embed'||type==='x'||type==='tweet'){
+    if(isTweetUrl(url)){
+      return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:80px;display:flex;align-items:center;justify-content:center;color:#888;font-size:.8rem;">Loading tweet…</div></div>`;
+    }
+    return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`;
+  }
+  return '';
+}
 
 function buildPostCardHtml(post){ const colors=getColors(post.team); const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):'')); const h=String(post.home??'').trim(); const a=String(post.away??'').trim(); const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim(); const sc=h!==''&&a!==''?escHtml(h+' – '+a):''; const pe=hp&&ap?escHtml('('+hp+' – '+ap+' pens)'):''; const pills=[]; if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>'); if(post.pinned) pills.push('<span class="fpill fpill--pinned">Pinned</span>'); if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>'); return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="cursor:pointer;"><div class="fcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}"><div class="fcard__head-left">${tl?`<span class="fcard__chip">${tl}</span>`:''}${getEventIcon(post.event)}<div>${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}${post.event?`<div class="fcard__event">${escHtml(post.event)}</div>`:''}</div></div><div class="fcard__score-wrap">${sc?`<span class="fcard__score">${sc}</span>`:''}${pe?`<span class="fcard__pens">${pe}</span>`:''}</div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div></div>`; }
 
@@ -644,14 +689,17 @@ function renderSubRail(){
 function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
 
 async function savePost(isSheet){
+  if(state.saveInFlight){ return; } // prevent double-tap duplicate
+  state.saveInFlight=true;
   const payload=getPayload(isSheet);
-  if(!payload.event&&!payload.team&&!payload.copy_text){ setStatus('Needs event, team or copy.','error'); return; }
+  if(!payload.event&&!payload.team&&!payload.copy_text){ setStatus('Needs event, team or copy.','error'); state.saveInFlight=false; return; }
   const updBtn=isSheet?dom.sfBtnUpdate:dom.btnUpdate;
   const prevLabel=updBtn.textContent;
   updBtn.disabled=true; updBtn.textContent='Saving…';
   setStatus('Saving…');
   try{ const data=await apiFetch(payload); setStatus(data.message||'Saved.','success'); await loadPosts(); }
-  finally{ updBtn.disabled=false; updBtn.textContent=prevLabel; }
+  catch(err){ handleErr(err); }
+  finally{ updBtn.disabled=false; updBtn.textContent=prevLabel; state.saveInFlight=false; }
 }
 
 async function updateAndClose(isSheet){ await savePost(isSheet); closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); renderFeed(); }
@@ -731,15 +779,30 @@ async function init(){
   buildCombo(dom.sfEvent,$('sfComboEventList'),EVENT_OPTIONS);
   buildCombo(dom.sfTeam,$('sfComboTeamList'),TEAM_OPTIONS);
   bindRTE(); bindSheetDrag();
+  function bindBtn(el, handler){
+    var lastTap=0;
+    el.addEventListener('touchend',function(e){
+      e.preventDefault();
+      const now=Date.now();
+      if(now-lastTap<800){ return; } // ignore rapid double-tap
+      lastTap=now;
+      handler();
+    });
+    el.addEventListener('click',function(e){
+      if('ontouchstart' in window) return; // skip synthetic click on touch devices
+      handler();
+    });
+  }
+
   dom.editorCollapsed.addEventListener('click',toggleEditorPanel);
   dom.btnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); scheduleFeedRender(); });
-  dom.btnUpdate.addEventListener('click',function(){ updateAndClose(false).catch(handleErr); });
+  bindBtn(dom.btnUpdate, function(){ updateAndClose(false).catch(handleErr); });
   dom.btnCancel.addEventListener('click',handleCancel);
   dom.btnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
   [dom.fMatchTime,dom.fHome,dom.fAway,dom.fHomePens,dom.fAwayPens,dom.fMediaUrl].forEach(function(el){ el.addEventListener('input',scheduleFeedRender); });
   dom.fMediaType.addEventListener('change',scheduleFeedRender);
   dom.sfBtnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); });
-  dom.sfBtnUpdate.addEventListener('click',function(){ updateAndClose(true).catch(handleErr); });
+  bindBtn(dom.sfBtnUpdate, function(){ updateAndClose(true).catch(handleErr); });
   dom.sfBtnCancel.addEventListener('click',handleCancel);
   dom.sfBtnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
   dom.fab.addEventListener('click',function(){ if(dom.sheet.classList.contains('is-open')){ handleCancel(); } else { setEditorNew(); clearSheet(); openSheet(); } });
