@@ -1,6 +1,6 @@
 <!--
   CHANGELOG
-  v94 — submission delete now writes deleted=TRUE to sheet via API instead of just hiding locally; matches new Apps Script v15 deleted column structure
+  v96 — mobile tap-to-edit fixed: click/touch handler now bound once on wrapper element creation rather than inside sig-change block; handler reads data-pid from inner fcard dynamically so always works even after re-renders; full-width inline styles moved to element creation
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
@@ -20,7 +20,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v94</title>
+<title>Live Blog Admin v96</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -245,7 +245,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v94</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v96</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -581,6 +581,30 @@ function renderFeed(){
       el=document.createElement('div');
       el.dataset.feedId=id;
       el.dataset.sig='';
+      el.style.width='100%';
+      el.style.display='flex';
+      el.style.flexDirection='column';
+      el.style.alignItems='center';
+
+      // Bind tap/click once on creation — reads pid from inner fcard when fired
+      if(item.type==='post'){
+        function makeHandler(wrappedEl){
+          function handler(){
+            const fcard=wrappedEl.querySelector('.fcard[data-pid]');
+            if(!fcard) return;
+            const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid'));
+            if(post) openEditEditor(post);
+          }
+          if('ontouchstart' in window){
+            var sx=0,sy=0;
+            wrappedEl.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+            wrappedEl.addEventListener('touchend',function(e){ if(Math.abs(e.changedTouches[0].clientX-sx)<10&&Math.abs(e.changedTouches[0].clientY-sy)<10) handler(); });
+          } else {
+            wrappedEl.addEventListener('click',function(e){ if(!e.target.closest('[data-sub-unpub]')) handler(); });
+          }
+        }
+        makeHandler(el);
+      }
     }
 
     // Only re-render if content signature changed
@@ -589,17 +613,7 @@ function renderFeed(){
       const html=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
       el.innerHTML=html;
 
-      // Bind click handlers
-      const fcard=el.querySelector('.fcard[data-pid]');
-      if(fcard){
-        if('ontouchstart' in window){
-          var sx=0,sy=0;
-          fcard.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
-          fcard.addEventListener('touchend',function(e){ if(Math.abs(e.changedTouches[0].clientX-sx)<10&&Math.abs(e.changedTouches[0].clientY-sy)<10){ const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid')); if(post) openEditEditor(post); } });
-        } else {
-          fcard.addEventListener('click',function(){ const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid')); if(post) openEditEditor(post); });
-        }
-      }
+      // Bind unpublish button on sub cards (re-bind on each render as row_id may change)
       const unpub=el.querySelector('[data-sub-unpub]');
       if(unpub){ unpub.addEventListener('click',function(e){ e.stopPropagation(); updateSub(unpub.getAttribute('data-sub-unpub'),false).catch(handleErr); }); }
 
