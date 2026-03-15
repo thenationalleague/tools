@@ -1,6 +1,6 @@
 <!--
   CHANGELOG
-  v92 — reverted to v84 stable base; tweet flicker fixed by checking data-rendered before hydrating; no DOM diffing (caused v86-v91 breakage); all v84 functionality restored
+  v93 — tweet flicker fixed with keyed DOM update in renderFeed() — cards only re-rendered when sig changes, tweet widgets preserved across polls; pinned pill now shows 📌 Pinned in feed cards; sub-rail scroll fixed with min-height:0 on flex container
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
@@ -20,7 +20,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v92</title>
+<title>Live Blog Admin v93</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -167,7 +167,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .sub-rail__head{ padding:12px 14px 10px; border-bottom:1px solid var(--line); flex-shrink:0; display:flex; align-items:center; gap:8px; }
 .sub-rail__title{ font-size:1rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:#333; flex:1 1 auto; }
 .sub-rail__counts{ font-size:.78rem; color:var(--muted); }
-.sub-rail__body{ flex:1 1 auto; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; }
+.sub-rail__body{ flex:1 1 auto; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:0; }
 .sub-rail__body::-webkit-scrollbar{ width:3px; }
 .sub-rail__body::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
 .sub-new-banner{ display:none; align-items:center; justify-content:center; gap:8px; padding:8px 14px; background:var(--blue); color:#fff; font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.15); animation:subBannerPulse 2s ease-in-out infinite; }
@@ -245,7 +245,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v92</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v93</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -553,27 +553,69 @@ function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTi
 
 function renderFeed(){
   const q=state.search.toLowerCase();
-  const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
+  const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:String(p.id)}));
   const subItems=state.submissions.filter(s=>s.published&&!state.hiddenSubs.has(String(s.sub_id||s.row_id))).map(s=>({type:'sub',data:s,sort:s.timestamp_ms||0,id:'sub-'+(s.sub_id||s.row_id)}));
   let all=[...postItems,...subItems].sort((a,b)=>b.sort!==a.sort?b.sort-a.sort:String(b.id).localeCompare(String(a.id)));
   if(q) all=all.filter(item=>{ const d=item.data; return (d.team||'').toLowerCase().includes(q)||(d.event||'').toLowerCase().includes(q)||(d.match_time||'').toLowerCase().includes(q)||(d.name||'').toLowerCase().includes(q)||(d.note||'').toLowerCase().includes(q)||(d.copy_html||'').replace(/<[^>]+>/g,'').toLowerCase().includes(q); });
   const total=state.posts.filter(p=>!p.deleted).length; const live=state.posts.filter(p=>p.published&&!p.deleted).length;
   dom.feedTitle.textContent=`Live feed — ${live} live of ${total} posts`;
-  let html=''; all.forEach(item=>{ html+=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data); });
-  if(!html){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
-  dom.feedEl.innerHTML=html;
-  dom.feedEl.querySelectorAll('.fcard[data-pid]').forEach(function(el){
-    function handler(e){ e.preventDefault(); e.stopPropagation(); const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid')); if(post) openEditEditor(post); }
-    if('ontouchstart' in window){ var sx=0,sy=0; el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true}); el.addEventListener('touchend',function(e){ if(Math.abs(e.changedTouches[0].clientX-sx)<10&&Math.abs(e.changedTouches[0].clientY-sy)<10) handler(e); }); } else { el.addEventListener('click',handler); }
+
+  if(!all.length){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
+
+  // Keyed DOM update — preserve existing nodes to avoid destroying rendered tweets
+  const existing=new Map();
+  Array.from(dom.feedEl.querySelectorAll('[data-feed-id]')).forEach(function(el){ existing.set(el.dataset.feedId,el); });
+
+  // Remove nodes not in new list
+  const nextIds=new Set(all.map(item=>item.id));
+  existing.forEach(function(el,id){ if(!nextIds.has(id)){ el.remove(); } });
+
+  all.forEach(function(item,index){
+    const id=item.id;
+    const sig=item.type==='sub'
+      ? [id,item.data.published,item.data.timestamp].join('|')
+      : [id,item.data.published,item.data.pinned,item.data.copy_html,item.data.media_url,String(id)===String(state.activeId)].join('|');
+
+    let el=existing.get(id);
+    if(!el){
+      el=document.createElement('div');
+      el.dataset.feedId=id;
+      el.dataset.sig='';
+    }
+
+    // Only re-render if content signature changed
+    if(el.dataset.sig!==sig){
+      el.dataset.sig=sig;
+      const html=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
+      el.innerHTML=html;
+
+      // Bind click handlers
+      const fcard=el.querySelector('.fcard[data-pid]');
+      if(fcard){
+        if('ontouchstart' in window){
+          var sx=0,sy=0;
+          fcard.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+          fcard.addEventListener('touchend',function(e){ if(Math.abs(e.changedTouches[0].clientX-sx)<10&&Math.abs(e.changedTouches[0].clientY-sy)<10){ const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid')); if(post) openEditEditor(post); } });
+        } else {
+          fcard.addEventListener('click',function(){ const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid')); if(post) openEditEditor(post); });
+        }
+      }
+      const unpub=el.querySelector('[data-sub-unpub]');
+      if(unpub){ unpub.addEventListener('click',function(e){ e.stopPropagation(); updateSub(unpub.getAttribute('data-sub-unpub'),false).catch(handleErr); }); }
+
+      // Hydrate tweets only on freshly rendered cards
+      hydrateTweets(el);
+    }
+
+    // Reorder
+    const cur=dom.feedEl.children[index];
+    if(cur!==el) dom.feedEl.insertBefore(el,cur||null);
   });
-  dom.feedEl.querySelectorAll('[data-sub-unpub]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); }); });
-  /* Only hydrate tweet placeholders that haven't been rendered — prevents flicker */
-  hydrateTweets(dom.feedEl);
 }
 
 function buildMediaPreview(post){ const type=String(post.media_type||'').toLowerCase(); const url=String(post.media_url||'').trim(); if(!url) return ''; if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`; if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`; if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; } if(type==='embed'||type==='x'||type==='tweet'){ if(isTweetUrl(url)) return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:60px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:.78rem;">Loading tweet…</div></div>`; return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`; } return ''; }
 
-function buildPostCardHtml(post){ const colors=getColors(post.team); const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):'')); const h=String(post.home??'').trim(); const a=String(post.away??'').trim(); const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim(); const sc=h!==''&&a!==''?escHtml(h+' – '+a):''; const pe=hp&&ap?escHtml('('+hp+' – '+ap+' pens)'):''; const pills=[]; if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>'); if(post.pinned) pills.push('<span class="fpill fpill--pinned">Pinned</span>'); if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>'); return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="cursor:pointer;"><div class="fcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}"><div class="fcard__head-left">${tl?`<span class="fcard__chip">${tl}</span>`:''}${getEventIcon(post.event)}<div>${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}${post.event?`<div class="fcard__event">${escHtml(post.event)}</div>`:''}</div></div><div class="fcard__score-wrap">${sc?`<span class="fcard__score">${sc}</span>`:''}${pe?`<span class="fcard__pens">${pe}</span>`:''}</div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div></div>`; }
+function buildPostCardHtml(post){ const colors=getColors(post.team); const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):'')); const h=String(post.home??'').trim(); const a=String(post.away??'').trim(); const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim(); const sc=h!==''&&a!==''?escHtml(h+' – '+a):''; const pe=hp&&ap?escHtml('('+hp+' – '+ap+' pens)'):''; const pills=[]; if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>'); if(post.pinned) pills.push('<span class="fpill fpill--pinned">📌 Pinned</span>'); if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>'); return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="cursor:pointer;"><div class="fcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}"><div class="fcard__head-left">${tl?`<span class="fcard__chip">${tl}</span>`:''}${getEventIcon(post.event)}<div>${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}${post.event?`<div class="fcard__event">${escHtml(post.event)}</div>`:''}</div></div><div class="fcard__score-wrap">${sc?`<span class="fcard__score">${sc}</span>`:''}${pe?`<span class="fcard__pens">${pe}</span>`:''}</div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div></div>`; }
 
 function buildSubCardHtml(sub){ const name=escHtml(sub.name||'Anonymous'); const note=escHtml(sub.note||''); const time=sub.timestamp?escHtml(sub.timestamp.slice(0,16).replace('T',' ')):''; const sid=String(sub.sub_id||sub.row_id); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="fcard fcard--sub${isNew?' scard-new-feed':''}"><div class="fcard__main">${time?`<div class="fan-time">${time}</div>`:''}<div class="fan-quote">${note}</div><div class="fan-byline">— ${name}</div></div><div class="fcard__strip"><span class="fcard__strip-label">Fan note</span><button class="btn btn--sm" style="background:rgba(255,255,255,.15);color:#fff;font-size:.62rem;" data-sub-unpub="${sub.row_id}" type="button">Unpublish</button></div></div>`; }
 
