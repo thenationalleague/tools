@@ -1,17 +1,12 @@
 <!--
   NL Transfer Centre — Admin Panel
-  v2 — Fix all API fetch calls: switch from JSON.stringify POST to
-       URLSearchParams form-encoded POST matching live blog pattern;
-       fix action names (save→savePost, delete→deletePost,
-       feed→listPosts, submissions→listSubmissions,
-       submission_mod→updateSubmission); fix response check ok not success;
-       fix pollFeed to read data.items not data.posts;
-       fix pollSubs to read data.items not data.submissions
+  v3 — Add CTA link button fields (cta_text, cta_url) to editor form;
+       wired into clearEditor, loadPostIntoEditor, savePost payload
 
   Changelog:
   v1 — Initial build
-  v2 — URLSearchParams POST throughout; action names aligned to GAS v3;
-       response checks use data.ok; pollFeed reads data.items
+  v2 — URLSearchParams POST throughout; action names aligned to GAS v3
+  v3 — CTA text + URL fields added to editor
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -616,6 +611,15 @@ textarea { resize: vertical; min-height: 80px; }
             </div>
           </div>
 
+          <!-- CTA Button -->
+          <div class="field">
+            <label>Link Button (optional — appears on any card)</label>
+            <div class="form-row" style="gap:6px">
+              <input type="text" id="input-cta-text" placeholder="Button text e.g. Read more" style="flex:1">
+              <input type="url" id="input-cta-url" placeholder="https://…" style="flex:2">
+            </div>
+          </div>
+
           <!-- Clock Time -->
           <div class="field">
             <label>Display Time</label>
@@ -972,9 +976,11 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('input-article-title').value = '';
     document.getElementById('input-article-source').value= '';
     document.getElementById('input-copy').value     = '';
-    document.getElementById('input-media-type').value  = '';
-    document.getElementById('input-media-url').value   = '';
-    document.getElementById('input-clock').value    = '';
+    document.getElementById('input-media-type').value   = '';
+    document.getElementById('input-media-url').value    = '';
+    document.getElementById('input-cta-text').value     = '';
+    document.getElementById('input-cta-url').value      = '';
+    document.getElementById('input-clock').value        = '';
     document.getElementById('input-icon').value     = '';
     document.getElementById('icon-display').textContent = '—';
     document.getElementById('toggle-published').checked = true;
@@ -1008,9 +1014,11 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('input-article-title').value = post.article_title  || '';
     document.getElementById('input-article-source').value= post.article_source || '';
     document.getElementById('input-copy').value     = post.copy_html   || '';
-    document.getElementById('input-media-type').value  = post.media_type || '';
-    document.getElementById('input-media-url').value   = post.media_url  || '';
-    document.getElementById('input-clock').value    = post.clock_time   || '';
+    document.getElementById('input-media-type').value   = post.media_type  || '';
+    document.getElementById('input-media-url').value    = post.media_url   || '';
+    document.getElementById('input-cta-text').value     = post.cta_text    || '';
+    document.getElementById('input-cta-url').value      = post.cta_url     || '';
+    document.getElementById('input-clock').value        = post.clock_time  || '';
     document.getElementById('toggle-published').checked = post.published;
     document.getElementById('toggle-pinned').checked    = post.pinned;
 
@@ -1053,6 +1061,8 @@ textarea { resize: vertical; min-height: 80px; }
       copy_html:      document.getElementById('input-copy').value,
       media_type:     document.getElementById('input-media-type').value,
       media_url:      document.getElementById('input-media-url').value.trim(),
+      cta_text:       document.getElementById('input-cta-text').value.trim(),
+      cta_url:        document.getElementById('input-cta-url').value.trim(),
       clock_time:     document.getElementById('input-clock').value.trim(),
       published:      document.getElementById('toggle-published').checked ? 'TRUE' : 'FALSE',
       pinned:         document.getElementById('toggle-pinned').checked    ? 'TRUE' : 'FALSE',
