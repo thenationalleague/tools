@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v56</title>
+<title>Live Blog Admin v70</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -17,14 +17,14 @@
   --dark:#111;
   --dark2:#1c1c1c;
   --danger:#b00020;
-  --rail-w:290px;
-  --topbar-h:52px;
+  --rail-w:340px;
+  --topbar-h:58px;
   --bottombar-h:56px;
-  --feed-max:800px;
+  --feed-max:860px;
 }
 
 *{ box-sizing:border-box; margin:0; padding:0; }
-html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"carbona-variable",system-ui,-apple-system,"Segoe UI",sans-serif; font-size:14px; line-height:1.45; }
+html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"carbona-variable",system-ui,-apple-system,"Segoe UI",sans-serif; font-size:17px; line-height:1.45; }
 
 @media (max-width:768px){
   html,body{ font-size:20px !important; }
@@ -106,6 +106,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .status-label--draft{ background:#f3f4f6; color:#6b7280; }
 .status-label--published{ background:#dcfce7; color:#15803d; }
 .status-label--unpublished{ background:#fee2e2; color:#b91c1c; }
+.status-label--editing{ background:#fef3c7; color:#92400e; }
 .btn{ appearance:none; border:0; border-radius:999px; cursor:pointer; font:inherit; font-weight:900; letter-spacing:.04em; text-transform:uppercase; display:inline-flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap; transition:filter .15s,opacity .15s; flex-shrink:0; }
 .btn:hover:not(:disabled){ filter:brightness(.9); }
 .btn:disabled{ opacity:.45; cursor:default; }
@@ -253,7 +254,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v56</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v70</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -300,13 +301,12 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
           </div>
         </div>
         <div class="editor-actions">
-          <span class="status-label status-label--draft" id="statusLabel">Draft</span>
-          <button class="status-btn status-btn--publish" id="btnPublish" type="button"><span class="status-btn__dot"></span><span id="btnPublishLabel">Publish</span></button>
+          <span class="status-label status-label--editing" id="statusLabel">Editing — not saved</span>
           <button class="status-btn status-btn--pin" id="btnPin" type="button"><span class="status-btn__dot"></span><span id="btnPinLabel">Pin</span></button>
           <div style="flex:1 1 auto;"></div>
-          <button class="btn btn--blue btn--md" id="btnUpdate" type="button" style="display:none;">Update &amp; Close</button>
           <button class="btn btn--ghost btn--md" id="btnCancel" type="button">Cancel</button>
-          <button class="btn btn--danger btn--md" id="btnDelete" type="button" style="display:none;">Delete Post</button>
+          <button class="btn btn--danger btn--md" id="btnDelete" type="button" style="display:none;">Delete</button>
+          <button class="btn btn--blue btn--md" id="btnUpdate" type="button">Save &amp; Publish</button>
         </div>
       </div>
     </div>
@@ -383,13 +383,12 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
     </div>
   </div>
   <div class="sheet__actions">
-    <span class="status-label status-label--draft" id="sfStatusLabel">Draft</span>
-    <button class="status-btn status-btn--publish" id="sfBtnPublish" type="button"><span class="status-btn__dot"></span><span id="sfBtnPublishLabel">Publish</span></button>
+    <span class="status-label status-label--editing" id="sfStatusLabel">Editing — not saved</span>
     <button class="status-btn status-btn--pin" id="sfBtnPin" type="button"><span class="status-btn__dot"></span><span id="sfBtnPinLabel">Pin</span></button>
     <div style="flex:1 1 auto;"></div>
-    <button class="btn btn--blue btn--md" id="sfBtnUpdate" type="button" style="display:none;">Update</button>
     <button class="btn btn--ghost btn--md" id="sfBtnCancel" type="button">Cancel</button>
     <button class="btn btn--danger btn--md" id="sfBtnDelete" type="button" style="display:none;">Delete</button>
+    <button class="btn btn--blue btn--md" id="sfBtnUpdate" type="button">Save &amp; Publish</button>
   </div>
 </div>
 
@@ -414,10 +413,10 @@ const dom={
   subRailBodyMobile:$('subRailBodyMobile'),subCountsMobile:$('subCountsMobile'),subBadge:$('subBadge'),
   editorCollapsed:$('editorCollapsed'),collapsedTitle:$('collapsedTitle'),collapsedSub:$('collapsedSub'),collapsedChevron:$('collapsedChevron'),
   editorPanel:$('editorPanel'),editorHead:$('editorHead'),editorTitle:$('editorTitle'),editorSubtitle:$('editorSubtitle'),editorId:$('editorId'),clockTimeField:$('clockTimeField'),
-  statusLabel:$('statusLabel'),btnPublish:$('btnPublish'),btnPublishLabel:$('btnPublishLabel'),btnPin:$('btnPin'),btnPinLabel:$('btnPinLabel'),btnUpdate:$('btnUpdate'),btnCancel:$('btnCancel'),btnDelete:$('btnDelete'),
+  statusLabel:$('statusLabel'),btnPin:$('btnPin'),btnPinLabel:$('btnPinLabel'),btnUpdate:$('btnUpdate'),btnCancel:$('btnCancel'),btnDelete:$('btnDelete'),
   fEvent:$('fEvent'),fTeam:$('fTeam'),fMatchTime:$('fMatchTime'),fClockTime:$('fClockTime'),fHome:$('fHome'),fAway:$('fAway'),fHomePens:$('fHomePens'),fAwayPens:$('fAwayPens'),fCopy:$('fCopy'),fMediaType:$('fMediaType'),fMediaUrl:$('fMediaUrl'),
   fab:$('fab'),sheet:$('sheet'),sheetBackdrop:$('sheetBackdrop'),sheetHead:$('sheetHead'),sheetTitle:$('sheetTitle'),sheetSubtitle:$('sheetSubtitle'),sheetId:$('sheetId'),sheetClose:$('sheetClose'),sheetHandle:$('sheetHandle'),
-  sfStatusLabel:$('sfStatusLabel'),sfBtnPublish:$('sfBtnPublish'),sfBtnPublishLabel:$('sfBtnPublishLabel'),sfBtnPin:$('sfBtnPin'),sfBtnPinLabel:$('sfBtnPinLabel'),sfBtnUpdate:$('sfBtnUpdate'),sfBtnCancel:$('sfBtnCancel'),sfBtnDelete:$('sfBtnDelete'),
+  sfStatusLabel:$('sfStatusLabel'),sfBtnPin:$('sfBtnPin'),sfBtnPinLabel:$('sfBtnPinLabel'),sfBtnUpdate:$('sfBtnUpdate'),sfBtnCancel:$('sfBtnCancel'),sfBtnDelete:$('sfBtnDelete'),
   sfEvent:$('sfEvent'),sfTeam:$('sfTeam'),sfMatchTime:$('sfMatchTime'),sfClockTime:$('sfClockTime'),sfClockTimeField:$('sfClockTimeField'),sfHome:$('sfHome'),sfAway:$('sfAway'),sfHomePens:$('sfHomePens'),sfAwayPens:$('sfAwayPens'),sfCopy:$('sfCopy'),sfMediaType:$('sfMediaType'),sfMediaUrl:$('sfMediaUrl'),
   tabFeed:$('tabFeed'),tabSubs:$('tabSubs'),panelSubs:$('panelSubs')
 };
@@ -444,18 +443,17 @@ function sanitiseRteHtml(el){
 }
 
 function syncStatusUI(){
-  const pub=state.isPublished; const pin=state.isPinned; const hasId=!!state.activeId;
-  [
-    {lbl:dom.statusLabel,pub:dom.btnPublish,pubL:dom.btnPublishLabel,pin:dom.btnPin,pinL:dom.btnPinLabel},
-    {lbl:dom.sfStatusLabel,pub:dom.sfBtnPublish,pubL:dom.sfBtnPublishLabel,pin:dom.sfBtnPin,pinL:dom.sfBtnPinLabel}
-  ].forEach(r=>{
-    r.lbl.className='status-label';
-    if(!hasId){ r.lbl.textContent='Draft'; r.lbl.classList.add('status-label--draft'); }
-    else if(pub){ r.lbl.textContent='Published'; r.lbl.classList.add('status-label--published'); }
-    else{ r.lbl.textContent='Unpublished'; r.lbl.classList.add('status-label--unpublished'); }
-    r.pub.classList.toggle('is-on',pub); r.pubL.textContent=pub?'Published':'Publish';
-    r.pin.classList.toggle('is-on',pin); r.pinL.textContent=pin?'Pinned':'Pin';
-  });
+  const pin=state.isPinned;
+  // Desktop
+  dom.statusLabel.className='status-label status-label--editing';
+  dom.statusLabel.textContent='Editing — not saved';
+  dom.btnPin.classList.toggle('is-on',pin);
+  dom.btnPinLabel.textContent=pin?'Pinned':'Pin';
+  // Sheet
+  dom.sfStatusLabel.className='status-label status-label--editing';
+  dom.sfStatusLabel.textContent='Editing — not saved';
+  dom.sfBtnPin.classList.toggle('is-on',pin);
+  dom.sfBtnPinLabel.textContent=pin?'Pinned':'Pin';
 }
 
 function openSheet(){ dom.sheet.classList.add('is-open'); dom.sheetBackdrop.classList.add('is-open'); dom.fab.classList.add('is-editing'); document.body.style.overflow='hidden'; }
@@ -470,33 +468,33 @@ function fillDesktop(p){ dom.fEvent.value=p.event||''; dom.fTeam.value=p.team||'
 function fillSheet(p){ dom.sfEvent.value=p.event||''; dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
 
 function setEditorNew(){
-  state.activeId=''; state.isNew=true; state.isPublished=false; state.isPinned=false;
+  state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false;
   dom.editorHead.className='editor-panel__head editor-panel__head--new'; dom.editorHead.style.background=''; dom.editorHead.style.borderBottomColor='';
   dom.editorTitle.textContent='New post'; dom.editorSubtitle.textContent='Compose a new live blog entry';
   dom.editorId.style.display='none'; dom.clockTimeField.style.display='none';
-  dom.btnDelete.style.display='none'; dom.btnUpdate.style.display='none';
+  dom.btnDelete.style.display='none'; dom.btnUpdate.textContent='Save & Publish';
   dom.collapsedTitle.textContent='+ New Post'; dom.collapsedSub.textContent='Click to compose · or click a post to edit';
   dom.sheetHead.className='sheet__head sheet__head--new'; dom.sheetHead.style.background=''; dom.sheetHead.style.borderBottomColor='';
   dom.sheetTitle.textContent='New post'; dom.sheetSubtitle.textContent='Compose a new entry';
   dom.sheetId.style.display='none'; dom.sfClockTimeField.style.display='none';
-  dom.sfBtnDelete.style.display='none'; dom.sfBtnUpdate.style.display='none';
+  dom.sfBtnDelete.style.display='none'; dom.sfBtnUpdate.textContent='Save & Publish';
   dom.fab.classList.remove('is-editing');
   syncStatusUI();
 }
 
 function openEditEditor(post){
   state.activeId=post.id||''; state.isNew=false; state.isPublished=!!post.published; state.isPinned=!!post.pinned;
-  const colors=getColors(post.team);
+  state.isPublished=true; // always publish on save
   const label='Editing: '+(post.team||post.event||post.id||'');
   const sub=post.match_time||(post.clock_time?post.clock_time.slice(11,16):'');
   fillDesktop(post); fillSheet(post);
   dom.editorHead.className='editor-panel__head editor-panel__head--edit'; dom.editorHead.style.background=colors.bg; dom.editorHead.style.borderBottomColor=colors.border;
   dom.editorTitle.textContent=label; dom.editorSubtitle.textContent=sub; dom.editorId.textContent='ID: '+post.id; dom.editorId.style.display='block';
-  dom.clockTimeField.style.display='flex'; dom.btnDelete.style.display='inline-flex'; dom.btnUpdate.style.display='inline-flex';
+  dom.clockTimeField.style.display='flex'; dom.btnDelete.style.display='inline-flex'; dom.btnUpdate.textContent='Save & Publish';
   dom.collapsedTitle.textContent=label; dom.collapsedSub.textContent='Click to expand editor';
   dom.sheetHead.className='sheet__head sheet__head--edit'; dom.sheetHead.style.background=colors.bg; dom.sheetHead.style.borderBottomColor=colors.border;
   dom.sheetTitle.textContent=label; dom.sheetSubtitle.textContent=sub; dom.sheetId.textContent='ID: '+post.id; dom.sheetId.style.display='block';
-  dom.sfClockTimeField.style.display='flex'; dom.sfBtnDelete.style.display='inline-flex'; dom.sfBtnUpdate.style.display='inline-flex';
+  dom.sfClockTimeField.style.display='flex'; dom.sfBtnDelete.style.display='inline-flex'; dom.sfBtnUpdate.textContent='Save & Publish';
   syncStatusUI(); scheduleFeedRender();
   if(isMobile()) openSheet(); else openEditorPanel();
   setStatus('Editing: '+(post.team||post.event||post.id));
@@ -630,14 +628,12 @@ async function init(){
   buildCombo(dom.sfTeam,$('sfComboTeamList'),TEAM_OPTIONS);
   bindRTE(); bindSheetDrag();
   dom.editorCollapsed.addEventListener('click',toggleEditorPanel);
-  dom.btnPublish.addEventListener('click',function(){ if(state.isNew){ state.isPublished=true; syncStatusUI(); updateAndClose(false).catch(handleErr); } else{ state.isPublished=!state.isPublished; syncStatusUI(); scheduleFeedRender(); } });
   dom.btnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); scheduleFeedRender(); });
   dom.btnUpdate.addEventListener('click',()=>updateAndClose(false).catch(handleErr));
   dom.btnCancel.addEventListener('click',handleCancel);
   dom.btnDelete.addEventListener('click',()=>deletePost().catch(handleErr));
   [dom.fMatchTime,dom.fHome,dom.fAway,dom.fHomePens,dom.fAwayPens,dom.fMediaUrl].forEach(el=>el.addEventListener('input',scheduleFeedRender));
   dom.fMediaType.addEventListener('change',scheduleFeedRender);
-  dom.sfBtnPublish.addEventListener('click',function(){ if(state.isNew){ state.isPublished=true; syncStatusUI(); updateAndClose(true).catch(handleErr); } else{ state.isPublished=!state.isPublished; syncStatusUI(); } });
   dom.sfBtnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); });
   dom.sfBtnUpdate.addEventListener('click',()=>updateAndClose(true).catch(handleErr));
   dom.sfBtnCancel.addEventListener('click',handleCancel);
