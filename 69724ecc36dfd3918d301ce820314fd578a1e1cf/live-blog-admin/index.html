@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v103 — admin feed sort: pinned posts always float to top, matching frontend sortItemsForDisplay; pin pill emoji 📌 already consistent with frontend
   v98 — tap-to-edit simplified to single click listener on feedEl; removed all touch/desktop detection logic; click fires naturally on mobile tap after 300ms delay which is acceptable; unpublish button handled first to prevent bubbling
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
@@ -20,7 +21,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v102</title>
+<title>Live Blog Admin v103</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -247,7 +248,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v102</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v103</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -557,7 +558,7 @@ function renderFeed(){
   const q=state.search.toLowerCase();
   const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
   const subItems=state.submissions.filter(s=>s.published&&!state.hiddenSubs.has(String(s.sub_id||s.row_id))).map(s=>({type:'sub',data:s,sort:s.timestamp_ms||0,id:'sub-'+(s.sub_id||s.row_id)}));
-  let all=[...postItems,...subItems].sort((a,b)=>b.sort!==a.sort?b.sort-a.sort:String(b.id).localeCompare(String(a.id)));
+  let all=[...postItems,...subItems].sort((a,b)=>{ if(!!a.data.pinned!==!!b.data.pinned) return a.data.pinned?-1:1; if(b.sort!==a.sort) return b.sort-a.sort; return String(b.id).localeCompare(String(a.id)); });
   if(q) all=all.filter(item=>{ const d=item.data; return (d.team||'').toLowerCase().includes(q)||(d.event||'').toLowerCase().includes(q)||(d.match_time||'').toLowerCase().includes(q)||(d.name||'').toLowerCase().includes(q)||(d.note||'').toLowerCase().includes(q)||(d.copy_html||'').replace(/<[^>]+>/g,'').toLowerCase().includes(q); });
   const total=state.posts.filter(p=>!p.deleted).length;
   const live=state.posts.filter(p=>p.published&&!p.deleted).length;
