@@ -7,6 +7,9 @@
   v1 — Initial build
   v2 — URLSearchParams POST throughout; action names aligned to GAS v3
   v3 — CTA text + URL fields added to editor
+  v4 — Free-text club picker: accepts any team name, shows meta clubs as
+       suggestions, custom entry option, crest from /assets/crests/ always
+       attempted, colour extraction from crest via canvas for unknown clubs
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -538,7 +541,7 @@ textarea { resize: vertical; min-height: 80px; }
                   <span class="caret">▾</span>
                 </div>
                 <div class="club-picker-dropdown" id="from-club-dropdown">
-                  <div class="club-picker-search"><input type="text" placeholder="Search clubs…" id="from-club-search"></div>
+                  <div class="club-picker-search"><input type="text" placeholder="Search or type any club…" id="from-club-search"></div>
                   <div class="club-picker-list" id="from-club-list"></div>
                 </div>
               </div>
@@ -551,7 +554,7 @@ textarea { resize: vertical; min-height: 80px; }
                   <span class="caret">▾</span>
                 </div>
                 <div class="club-picker-dropdown" id="to-club-dropdown">
-                  <div class="club-picker-search"><input type="text" placeholder="Search clubs…" id="to-club-search"></div>
+                  <div class="club-picker-search"><input type="text" placeholder="Search or type any club…" id="to-club-search"></div>
                   <div class="club-picker-list" id="to-club-list"></div>
                 </div>
               </div>
@@ -823,16 +826,31 @@ textarea { resize: vertical; min-height: 80px; }
   function renderClubList(listId, clubs, field, filter) {
     var el = document.getElementById(listId);
     if (!el) return;
-    var filtered = filter
-      ? clubs.filter(function(c){ return c.name.toLowerCase().indexOf(filter.toLowerCase())!==-1; })
+    var q = (filter || '').toLowerCase().trim();
+    var filtered = q
+      ? clubs.filter(function(c){ return c.name.toLowerCase().indexOf(q) !== -1; })
       : clubs;
-    el.innerHTML = filtered.map(function(c){
+
+    var html = '';
+
+    // If typed text doesn't match any club exactly, show "use as typed" option at top
+    if (q && !clubs.find(function(c){ return c.name.toLowerCase() === q; })) {
+      html += '<div class="club-picker-item club-picker-item--custom" data-name="'+esc(filter)+'" data-field="'+field+'" style="border-bottom:1px solid var(--yellow);background:var(--yellow-bg)">' +
+        '<span style="font-size:16px;flex-shrink:0">✏️</span>' +
+        '<span class="club-picker-item__name" style="color:var(--yellow)">Use "'+esc(filter)+'"</span>' +
+        '<span class="club-picker-item__div" style="color:var(--yellow-dim)">Custom</span>' +
+        '</div>';
+    }
+
+    html += filtered.map(function(c){
       return '<div class="club-picker-item" data-name="'+esc(c.name)+'" data-field="'+field+'">' +
         '<img src="'+crestUrl(c.name)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
         '<span class="club-picker-item__name">'+esc(c.name)+'</span>' +
         '<span class="club-picker-item__div">'+esc(c.division||'')+'</span>' +
         '</div>';
     }).join('');
+
+    el.innerHTML = html;
     el.querySelectorAll('.club-picker-item').forEach(function(item){
       item.addEventListener('click', function(){
         selectClub(item.dataset.field, item.dataset.name);
@@ -844,22 +862,88 @@ textarea { resize: vertical; min-height: 80px; }
     var pal = getTeamPalette(name);
     if (field === 'from') {
       state.fromClub = name;
-      updateClubPreview('from-club-preview', name, pal);
+      updateClubPreview('from-club-preview', name);
       document.getElementById('from-club-dropdown').classList.remove('open');
+      document.getElementById('from-club-search').value = name;
     } else {
       state.toClub = name;
-      updateClubPreview('to-club-preview', name, pal);
+      updateClubPreview('to-club-preview', name);
       document.getElementById('to-club-dropdown').classList.remove('open');
+      document.getElementById('to-club-search').value = name;
+    }
+    // If not in meta, try to extract colours from crest
+    if (!state.clubs[name]) {
+      extractCrestColours(name);
     }
   }
 
-  function updateClubPreview(previewId, name, pal) {
+  function updateClubPreview(previewId, name) {
     var el = document.getElementById(previewId);
+    var url = crestUrl(name);
     el.innerHTML = name
-      ? '<img src="'+crestUrl(name)+'" style="width:22px;height:22px;object-fit:contain" onerror="this.style.display=\'none\'">' +
+      ? '<img src="'+url+'" style="width:22px;height:22px;object-fit:contain" onerror="this.style.display=\'none\'">' +
         '<span style="color:var(--text);font-weight:600;font-variation-settings:\'wght\' 600">'+esc(name)+'</span>' +
         '<span class="caret">▾</span>'
-      : '<span>Select club…</span><span class="caret">▾</span>';
+      : '<span>Select or type club…</span><span class="caret">▾</span>';
+  }
+
+  // Extract dominant colours from a crest image using canvas
+  function extractCrestColours(name) {
+    var url = crestUrl(name);
+    if (!url) return;
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      try {
+        var canvas = document.createElement('canvas');
+        var SIZE = 32; // sample at 32x32
+        canvas.width = SIZE; canvas.height = SIZE;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, SIZE, SIZE);
+        var data = ctx.getImageData(0, 0, SIZE, SIZE).data;
+
+        // Count colours, skip near-white, near-black, near-transparent
+        var counts = {};
+        for (var i = 0; i < data.length; i += 4) {
+          var r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+          if (a < 80) continue; // skip transparent
+          var bright = (r + g + b) / 3;
+          if (bright > 230) continue; // skip near-white
+          if (bright < 25) continue;  // skip near-black
+          // Quantise to reduce noise
+          r = Math.round(r / 24) * 24;
+          g = Math.round(g / 24) * 24;
+          b = Math.round(b / 24) * 24;
+          var key = r + ',' + g + ',' + b;
+          counts[key] = (counts[key] || 0) + 1;
+        }
+
+        var sorted = Object.keys(counts).sort(function(a, b){ return counts[b] - counts[a]; });
+        if (!sorted.length) return;
+
+        function toHex(k) {
+          var p = k.split(',');
+          return '#' + p.map(function(v){ return ('0'+parseInt(v).toString(16)).slice(-2); }).join('');
+        }
+
+        var primary   = toHex(sorted[0]);
+        var secondary = sorted[1] ? toHex(sorted[1]) : primary;
+        var tertiary  = sorted[2] ? toHex(sorted[2]) : secondary;
+
+        // Store extracted colours in state.clubs for sting use
+        state.clubs[name] = {
+          name: name,
+          colors: { primary: primary, secondary: secondary, tertiary: tertiary },
+          _extracted: true
+        };
+
+        setStatus('Colours extracted for ' + name);
+      } catch(e) {
+        // CORS or canvas error — silently ignore, sting will use fallback grey
+      }
+    };
+    img.onerror = function() {};
+    img.src = url;
   }
 
   function initClubPicker(previewId, dropdownId, searchId, listId, field) {
@@ -870,14 +954,42 @@ textarea { resize: vertical; min-height: 80px; }
     preview.addEventListener('click', function(e){
       e.stopPropagation();
       dropdown.classList.toggle('open');
+      if (dropdown.classList.contains('open')) {
+        setTimeout(function(){ search.focus(); }, 50);
+      }
     });
+
+    // As user types, filter list AND update the club value live
     search.addEventListener('input', function(){
-      renderClubList(listId, state.clubsList, field, search.value);
+      var val = search.value.trim();
+      renderClubList(listId, state.clubsList, field, val);
+      dropdown.classList.toggle('open', val.length > 0 || document.activeElement === search);
+      // Update state immediately so typed value is used even without selecting
+      if (field === 'from') {
+        state.fromClub = val || null;
+        updateClubPreview('from-club-preview', val);
+      } else {
+        state.toClub = val || null;
+        updateClubPreview('to-club-preview', val);
+      }
+      if (val && !state.clubs[val]) extractCrestColours(val);
     });
+
+    search.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') { dropdown.classList.remove('open'); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var first = dropdown.querySelector('.club-picker-item');
+        if (first) { selectClub(field, first.dataset.name); }
+        else if (search.value.trim()) { selectClub(field, search.value.trim()); }
+      }
+    });
+
     document.addEventListener('click', function(){
       dropdown.classList.remove('open');
     });
     dropdown.addEventListener('click', function(e){ e.stopPropagation(); });
+    search.addEventListener('click', function(e){ e.stopPropagation(); });
   }
 
   // ─── CARD TYPE ────────────────────────────────────────────────────────────
