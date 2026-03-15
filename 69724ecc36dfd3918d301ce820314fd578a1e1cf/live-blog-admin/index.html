@@ -1,6 +1,6 @@
 <!--
   CHANGELOG
-  v96 — mobile tap-to-edit fixed: click/touch handler now bound once on wrapper element creation rather than inside sig-change block; handler reads data-pid from inner fcard dynamically so always works even after re-renders; full-width inline styles moved to element creation
+  v97 — tap-to-edit fixed properly: single delegated touchend/click listener on dom.feedEl survives all re-renders; uses e.target.closest() to find tapped card; no per-card binding needed; unpublish button also delegated
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
@@ -20,7 +20,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v96</title>
+<title>Live Blog Admin v97</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -245,7 +245,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v96</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v97</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -585,26 +585,6 @@ function renderFeed(){
       el.style.display='flex';
       el.style.flexDirection='column';
       el.style.alignItems='center';
-
-      // Bind tap/click once on creation — reads pid from inner fcard when fired
-      if(item.type==='post'){
-        function makeHandler(wrappedEl){
-          function handler(){
-            const fcard=wrappedEl.querySelector('.fcard[data-pid]');
-            if(!fcard) return;
-            const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid'));
-            if(post) openEditEditor(post);
-          }
-          if('ontouchstart' in window){
-            var sx=0,sy=0;
-            wrappedEl.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
-            wrappedEl.addEventListener('touchend',function(e){ if(Math.abs(e.changedTouches[0].clientX-sx)<10&&Math.abs(e.changedTouches[0].clientY-sy)<10) handler(); });
-          } else {
-            wrappedEl.addEventListener('click',function(e){ if(!e.target.closest('[data-sub-unpub]')) handler(); });
-          }
-        }
-        makeHandler(el);
-      }
     }
 
     // Only re-render if content signature changed
@@ -612,12 +592,6 @@ function renderFeed(){
       el.dataset.sig=sig;
       const html=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
       el.innerHTML=html;
-
-      // Bind unpublish button on sub cards (re-bind on each render as row_id may change)
-      const unpub=el.querySelector('[data-sub-unpub]');
-      if(unpub){ unpub.addEventListener('click',function(e){ e.stopPropagation(); updateSub(unpub.getAttribute('data-sub-unpub'),false).catch(handleErr); }); }
-
-      // Hydrate tweets only on freshly rendered cards
       hydrateTweets(el);
     }
 
@@ -735,6 +709,36 @@ async function init(){
   function bindBtn(el,handler){ var last=0; el.addEventListener('touchend',function(e){ e.preventDefault(); const now=Date.now(); if(now-last<800) return; last=now; handler(); }); el.addEventListener('click',function(e){ if('ontouchstart' in window) return; handler(); }); }
 
   function handlePinToggle(){ state.isPinned=!state.isPinned; syncStatusUI(); scheduleFeedRender(); pinPost(state.isPinned).catch(handleErr); }
+
+  // Single delegated listener for feed card taps — survives all re-renders
+  var touchStartX=0, touchStartY=0;
+  dom.feedEl.addEventListener('touchstart',function(e){
+    touchStartX=e.touches[0].clientX;
+    touchStartY=e.touches[0].clientY;
+  },{passive:true});
+  dom.feedEl.addEventListener('touchend',function(e){
+    const dx=Math.abs(e.changedTouches[0].clientX-touchStartX);
+    const dy=Math.abs(e.changedTouches[0].clientY-touchStartY);
+    if(dx>10||dy>10) return; // was a scroll, not a tap
+    const fcard=e.target.closest('.fcard[data-pid]');
+    if(!fcard) return;
+    const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid'));
+    if(post) openEditEditor(post);
+  },{passive:true});
+  dom.feedEl.addEventListener('click',function(e){
+    if('ontouchstart' in window) return;
+    const fcard=e.target.closest('.fcard[data-pid]');
+    if(!fcard||e.target.closest('[data-sub-unpub]')) return;
+    const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid'));
+    if(post) openEditEditor(post);
+  });
+  // Delegated unpublish for fan subs
+  dom.feedEl.addEventListener('click',function(e){
+    const btn=e.target.closest('[data-sub-unpub]');
+    if(!btn) return;
+    e.stopPropagation();
+    updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr);
+  });
 
   dom.editorCollapsed.addEventListener('click',toggleEditorPanel);
   dom.pinToggle.addEventListener('click',handlePinToggle);
