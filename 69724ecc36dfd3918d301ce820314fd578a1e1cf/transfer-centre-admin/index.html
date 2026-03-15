@@ -1,14 +1,17 @@
 <!--
   NL Transfer Centre — Admin Panel
-  v1 — Initial build: three-column layout (Editor 540px | Feed 1fr | Submissions 320px),
-       mobile breakpoint 1024px with FAB + bottom sheet + tab bar,
-       card type selector, club pickers with crest preview, OG scrape,
-       inline two-stage delete, feed cards mirror frontend visual style,
-       fan submissions rail, tweet/IG embed preservation in DOM diff,
-       icon picker, published/pinned toggles, all card types supported
+  v2 — Fix all API fetch calls: switch from JSON.stringify POST to
+       URLSearchParams form-encoded POST matching live blog pattern;
+       fix action names (save→savePost, delete→deletePost,
+       feed→listPosts, submissions→listSubmissions,
+       submission_mod→updateSubmission); fix response check ok not success;
+       fix pollFeed to read data.items not data.posts;
+       fix pollSubs to read data.items not data.submissions
 
   Changelog:
   v1 — Initial build
+  v2 — URLSearchParams POST throughout; action names aligned to GAS v3;
+       response checks use data.ok; pollFeed reads data.items
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -921,6 +924,19 @@ textarea { resize: vertical; min-height: 80px; }
     grid.addEventListener('click', function(e){ e.stopPropagation(); });
   }
 
+  function apiFetch(params) {
+    var body = new URLSearchParams();
+    Object.keys(params).forEach(function(k) { body.append(k, params[k] == null ? '' : String(params[k])); });
+    return fetch(API_URL, { method: 'POST', body: body })
+      .then(function(r) { return r.json(); });
+  }
+
+  function apiGet(params) {
+    var qs = new URLSearchParams(params).toString();
+    return fetch(API_URL + '?' + qs + '&cb=' + Date.now())
+      .then(function(r) { return r.json(); });
+  }
+
   // ─── OG SCRAPE ────────────────────────────────────────────────────────────
   function initOgScrape() {
     document.getElementById('og-scrape-btn').addEventListener('click', function(){
@@ -928,8 +944,7 @@ textarea { resize: vertical; min-height: 80px; }
       if (!url) return;
       var btn = document.getElementById('og-scrape-btn');
       btn.classList.add('loading'); btn.textContent = 'Fetching…';
-      fetch(API_URL+'?action=og&url='+encodeURIComponent(url)+'&cb='+Date.now())
-        .then(function(r){return r.json();})
+      apiGet({ action: 'og', url: url })
         .then(function(data){
           if (data.title)       document.getElementById('input-article-title').value  = data.title;
           if (data.site_name)   document.getElementById('input-article-source').value = data.site_name;
@@ -1024,7 +1039,7 @@ textarea { resize: vertical; min-height: 80px; }
     btn.textContent = 'Saving…'; btn.disabled = true;
 
     var payload = {
-      action:         'save',
+      action:         'savePost',
       id:             document.getElementById('editing-id').value || '',
       card_type:      state.cardType,
       player_name:    document.getElementById('input-player').value.trim(),
@@ -1044,14 +1059,9 @@ textarea { resize: vertical; min-height: 80px; }
       deleted:        'FALSE'
     };
 
-    fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      headers: { 'Content-Type': 'application/json' }
-    })
-    .then(function(r){return r.json();})
+    apiFetch(payload)
     .then(function(data){
-      if (data.success) {
+      if (data.ok) {
         setStatus('Saved ✓ ' + new Date().toLocaleTimeString('en-GB'));
         clearEditor();
         if (state.isMobile) closeSheet();
@@ -1082,14 +1092,9 @@ textarea { resize: vertical; min-height: 80px; }
     delete state.deleteConfirm[id];
     btn.textContent = 'Deleting…'; btn.disabled = true;
 
-    fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'delete', id: id }),
-      headers: { 'Content-Type': 'application/json' }
-    })
-    .then(function(r){return r.json();})
+    apiFetch({ action: 'deletePost', id: id })
     .then(function(data){
-      if (data.success) {
+      if (data.ok) {
         if (state.editingId === id) clearEditor();
         pollFeed();
         setStatus('Deleted ✓');
@@ -1100,13 +1105,12 @@ textarea { resize: vertical; min-height: 80px; }
 
   // ─── FEED ─────────────────────────────────────────────────────────────────
   function pollFeed() {
-    fetch(API_URL+'?action=feed&admin='+encodeURIComponent(ADMIN_KEY)+'&cb='+Date.now())
-      .then(function(r){return r.json();})
+    apiGet({ action: 'listPosts' })
       .then(function(data){
-        if (data.posts) {
-          state.posts = data.posts;
-          diffRenderFeed(data.posts);
-          document.getElementById('feed-count').textContent = data.posts.length + ' posts';
+        if (data.items) {
+          state.posts = data.items;
+          diffRenderFeed(data.items);
+          document.getElementById('feed-count').textContent = data.items.length + ' posts';
           setStatus('Updated ' + new Date().toLocaleTimeString('en-GB'));
         }
       })
@@ -1218,11 +1222,8 @@ textarea { resize: vertical; min-height: 80px; }
       e.stopPropagation();
       var btn = e.currentTarget;
       var isPublished = btn.dataset.published === 'true';
-      fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action:'save', id:post.id, published: isPublished?'FALSE':'TRUE' }),
-        headers: {'Content-Type':'application/json'}
-      }).then(function(){pollFeed();});
+      apiFetch({ action: 'savePost', id: post.id, published: isPublished ? 'FALSE' : 'TRUE' })
+        .then(function(){ pollFeed(); });
     });
 
     el.querySelector('[data-action=delete]').addEventListener('click', function(e){
@@ -1240,20 +1241,20 @@ textarea { resize: vertical; min-height: 80px; }
 
   // ─── SUBMISSIONS ──────────────────────────────────────────────────────────
   function pollSubs() {
-    fetch(API_URL+'?action=submissions&filter='+state.subsFilter+'&admin='+encodeURIComponent(ADMIN_KEY)+'&cb='+Date.now())
-      .then(function(r){return r.json();})
+    apiGet({ action: 'listSubmissions' })
       .then(function(data){
-        renderSubs(data.submissions||[]);
+        renderSubs(data.items || []);
       }).catch(function(){});
   }
 
   function renderSubs(subs) {
     var list = document.getElementById('subs-list');
-    if (subs.length === 0) {
+    var active = subs.filter(function(s){ return !s.deleted; });
+    if (active.length === 0) {
       list.innerHTML = '<div class="col-empty"><div class="col-empty__icon">📭</div>No submissions.</div>';
       return;
     }
-    list.innerHTML = subs.map(function(s){
+    list.innerHTML = active.map(function(s){
       var statusCss = s.status==='published'?'published':s.status==='hidden'?'hidden':'pending';
       return '<div class="sub-card">' +
         (s.player_name ? '<div class="sub-card__player">Re: '+esc(s.player_name)+'</div>' : '') +
@@ -1270,11 +1271,15 @@ textarea { resize: vertical; min-height: 80px; }
 
     list.querySelectorAll('[data-action]').forEach(function(btn){
       btn.addEventListener('click', function(){
-        fetch(API_URL, {
-          method: 'POST',
-          body: JSON.stringify({ action:'submission_mod', id:btn.dataset.id, mod_action:btn.dataset.action }),
-          headers: {'Content-Type':'application/json'}
-        }).then(function(){pollSubs();});
+        var action = btn.dataset.action;
+        var newStatus = action === 'publish'  ? 'published'
+                      : action === 'hide'     ? 'hidden'
+                      : action === 'restore'  ? 'pending'
+                      : action === 'delete'   ? 'deleted'
+                      : '';
+        var payload = { action: 'updateSubmission', id: btn.dataset.id, status: newStatus };
+        if (action === 'delete') payload.deleted = 'TRUE';
+        apiFetch(payload).then(function(){ pollSubs(); });
       });
     });
   }
