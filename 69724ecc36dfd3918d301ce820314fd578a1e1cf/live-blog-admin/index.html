@@ -1,5 +1,7 @@
 <!--
   CHANGELOG
+  v119 — icon and event fully decoupled: icon stored in state.selectedIcon only, never derived from event text; getEventIcon only uses selectedIcon (active post) or post.icon field (saved posts); fillDesktop/fillSheet load post.icon not event; payload sends icon field; sheet needs icon column
+  v118 — desktop three-column layout: editor left (sticky, full height), posts middle, submissions right; all roughly equal width; editor no longer sits above feed
   v117 — fix icon override: iconHtml was computed but never used in card HTML (getEventIcon called twice, second call ignoring override); fix operator precedence bug in iconOverride ternary
   v116 — substitution icon shown in natural colour (green/red arrows) matching yellow/red card treatment
   v115 — icon palette operates independently from event text; selected icon stored in state, rendered in card regardless of event text value; yellow card icon stays yellow, red card stays red (no invert filter for colour icons)
@@ -35,7 +37,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v117</title>
+<title>Live Blog Admin v119</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -49,10 +51,11 @@
   --dark:#111;
   --dark2:#1c1c1c;
   --danger:#b00020;
-  --rail-w:340px;
+  --editor-w:360px;
+  --rail-w:320px;
   --topbar-h:58px;
   --bottombar-h:68px;
-  --feed-max:860px;
+  --feed-max:680px;
 }
 
 *{ box-sizing:border-box; margin:0; padding:0; }
@@ -68,10 +71,16 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .topbar__status.is-error{ color:#f87171; font-weight:700; }
 .topbar__status.is-success{ color:#4ade80; font-weight:700; }
 
-.layout{ display:grid; grid-template-columns:1fr var(--rail-w); min-height:100vh; padding-top:var(--topbar-h); }
+.layout{ display:grid; grid-template-columns:var(--editor-w) 1fr var(--rail-w); min-height:100vh; padding-top:var(--topbar-h); }
 .feed-col{ min-width:0; display:flex; flex-direction:column; }
 
-.editor-wrap{ position:sticky; top:var(--topbar-h); z-index:50; background:var(--bg); border-bottom:2px solid var(--line); box-shadow:0 4px 14px rgba(0,0,0,.07); }
+/* v118: editor is now its own sticky left column */
+.editor-col{ min-width:0; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; height:calc(100vh - var(--topbar-h)); position:sticky; top:var(--topbar-h); overflow-y:auto; }
+.editor-col::-webkit-scrollbar{ width:4px; }
+.editor-col::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
+.editor-wrap{ background:var(--bg); flex:1 1 auto; display:flex; flex-direction:column; }
+.editor-panel.is-open{ flex:1 1 auto; display:flex; flex-direction:column; }
+.editor-body{ flex:1 1 auto; overflow-y:auto; }
 .editor-collapsed{ display:flex; align-items:center; gap:10px; padding:8px 16px; background:var(--dark2); cursor:pointer; transition:background .15s; user-select:none; }
 .editor-collapsed:hover{ background:#242424; }
 .editor-collapsed__info{ flex:1 1 auto; min-width:0; }
@@ -88,6 +97,9 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .editor-panel__id{ font-size:.62rem; opacity:.4; margin:3px 0 0; font-family:monospace; word-break:break-all; }
 .editor-body{ padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
 .erow{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; }
+.editor-col .erow{ flex-direction:column; }
+.editor-col .ef,.editor-col .ef--grow,.editor-col .ef--w80,.editor-col .ef--w120{ width:100% !important; flex:none !important; }
+.editor-col .score-strip{ width:100%; }
 .ef{ display:flex; flex-direction:column; gap:3px; min-width:0; }
 .ef--grow{ flex:1 1 auto; }
 .ef--w80{ width:80px; flex-shrink:0; }
@@ -140,7 +152,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .rte-editor:empty::before{ content:attr(data-ph); color:#bbb; pointer-events:none; }
 .rte-editor p{ margin:0 0 .4em; }
 .rte-editor p:last-child{ margin:0; }
-.editor-actions{ padding:10px 16px; border-top:1px solid var(--line); background:#f8f9fb; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.editor-actions{ padding:10px 16px; border-top:1px solid var(--line); background:#f8f9fb; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:auto; }
 .status-label{ display:inline-flex; align-items:center; min-height:22px; padding:0 9px; border-radius:999px; font-size:.64rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; }
 .status-label--editing{ background:#fef3c7; color:#92400e; }
 
@@ -270,7 +282,9 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 
 @media (max-width:1024px){
   .layout{ grid-template-columns:1fr; padding-bottom:var(--bottombar-h); }
+  .editor-col{ position:static; height:auto; }
   .sub-rail{ display:none; }
+  .editor-col{ display:none; }
   .editor-wrap{ display:none; }
   .erow{ flex-direction:column !important; }
   .ef,.ef--grow,.ef--w80,.ef--w120{ width:100% !important; flex:none !important; }
@@ -319,13 +333,17 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   .mobile-tabs,.fab,.mobile-panel{ display:none !important; }
   .sheet{ display:none !important; }
   .sheet-backdrop{ display:none !important; }
+  /* v118: editor always open in sidebar — collapsed toggle hidden */
+  .editor-collapsed{ display:none !important; }
+  .editor-panel{ display:flex !important; flex-direction:column; flex:1 1 auto; }
+  .editor-panel.is-open,.editor-panel:not(.is-open){ display:flex !important; }
 }
 </style>
 </head>
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v117</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v119</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -334,8 +352,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 </header>
 
 <div class="layout">
-  <div class="feed-col">
-
+  <div class="editor-col" id="editorCol">
     <div class="editor-wrap" id="editorWrap">
       <div class="editor-collapsed" id="editorCollapsed">
         <div class="editor-collapsed__info">
@@ -385,6 +402,9 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
       </div>
     </div>
 
+  </div><!-- /editor-col -->
+
+  <div class="feed-col">
     <div class="feed-toolbar">
       <div class="feed-toolbar__title" id="feedTitle">Live feed</div>
       <input type="search" id="feedSearch" placeholder="Search posts…" style="height:28px;padding:0 10px;border:1px solid var(--line);border-radius:999px;font:inherit;font-size:.76rem;outline:none;width:160px;">
@@ -405,7 +425,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
       </div>
     </div>
 
-  </div>
+  </div><!-- /feed-col -->
 
   <aside class="sub-rail">
     <div class="sub-rail__head">
@@ -563,9 +583,10 @@ function isMobile(){ return window.innerWidth<=1024; }
 function setStatus(msg,type){ dom.status.textContent=msg||''; dom.status.classList.remove('is-error','is-success'); if(type) dom.status.classList.add('is-'+type); }
 function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function getColors(team){ return TEAM_COLORS[team]||NEUTRAL; }
-function getEventIcon(event, iconOverride){
-  // Use iconOverride (selected palette icon) if set, else fall back to event text lookup
-  const key=iconOverride?iconOverride.toLowerCase():(event||'').toLowerCase();
+function getEventIcon(iconKey){
+  // Icon is ALWAYS explicit — never derived from event text
+  const key=String(iconKey||'').trim().toLowerCase();
+  if(!key) return '';
   const url=ICON_MAP[key]||'';
   if(!url) return '';
   const colourFilter=getIconFilter(key);
@@ -680,8 +701,8 @@ function closeEditorPanel(){ state.editorOpen=false; dom.editorPanel.classList.r
 
 function clearDesktop(){ dom.fEvent.value=''; state.selectedIcon=''; syncAllPalettes(); dom.fTeam.value=''; dom.fMatchTime.value=''; dom.fClockTime.value=''; dom.fHome.value=''; dom.fAway.value=''; dom.fHomePens.value=''; dom.fAwayPens.value=''; dom.fCopy.innerHTML=''; dom.fMediaType.value=''; dom.fMediaUrl.value=''; }
 function clearSheet(){ dom.sfEvent.value=''; state.selectedIcon=''; syncAllPalettes(); dom.sfTeam.value=''; dom.sfMatchTime.value=''; dom.sfClockTime.value=''; dom.sfHome.value=''; dom.sfAway.value=''; dom.sfHomePens.value=''; dom.sfAwayPens.value=''; dom.sfCopy.innerHTML=''; dom.sfMediaType.value=''; dom.sfMediaUrl.value=''; }
-function fillDesktop(p){ dom.fEvent.value=p.event||''; state.selectedIcon=ICON_MAP[(p.event||'').toLowerCase()]?p.event:''; syncAllPalettes(); dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
-function fillSheet(p){ dom.sfEvent.value=p.event||''; state.selectedIcon=ICON_MAP[(p.event||'').toLowerCase()]?p.event:''; syncAllPalettes(); dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
+function fillDesktop(p){ dom.fEvent.value=p.event||''; state.selectedIcon=p.icon||''; syncAllPalettes(); dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
+function fillSheet(p){ dom.sfEvent.value=p.event||''; state.selectedIcon=p.icon||''; syncAllPalettes(); dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
 
 function setEditorNew(){
   state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false;
@@ -725,7 +746,7 @@ function buildFeedSignature(item){
     return 'sub|'+String(s.sub_id||s.row_id)+'|'+String(s.published)+'|'+String(s.name||'')+'|'+String(s.note||'');
   }
   const p=item.data;
-  return 'post|'+p.id+'|'+String(p.published)+'|'+String(p.pinned)+'|'+String(p.match_time||'')+'|'+String(p.home||'')+'|'+String(p.away||'')+'|'+String(p.copy_html||'').slice(0,80)+'|'+String(p.media_url||'')+'|'+(String(p.id)===String(state.activeId)?'1':'0');
+  return 'post|'+p.id+'|'+String(p.published)+'|'+String(p.pinned)+'|'+String(p.match_time||'')+'|'+String(p.home||'')+'|'+String(p.away||'')+'|'+String(p.copy_html||'').slice(0,80)+'|'+String(p.media_url||'')+'|'+String(p.icon||'')+'|'+(String(p.id)===String(state.activeId)?'1':'0')+String(state.activeId==='new'?state.selectedIcon:'');
 }
 
 function renderFeed(){
@@ -842,10 +863,10 @@ function buildPostCardHtml(post){
   const pe=hp&&ap?escHtml(hp+' – '+ap+' pens'):'';
   const crest=post.team?(TEAM_CRESTS[post.team]||CUP_LOGO):CUP_LOGO;
   const pin=post.pinned?pinPill():'';
-  // Use selectedIcon override if this is the active post being edited, else use event text lookup
+  // Icon is always explicit: use selectedIcon for active post being edited, else post.icon
   const isActive=String(post.id)===String(state.activeId);
-  const iconOverride=(isActive&&state.selectedIcon)?state.selectedIcon:(post._iconOverride||'');
-  const iconHtml=getEventIcon(post.event, iconOverride);
+  const iconKey=isActive?state.selectedIcon:(post.icon||'');
+  const iconHtml=getEventIcon(iconKey);
   const heading=`<div class="fcard__heading"><div class="fcard__heading-top">${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}</div>${pin}${post.event?`<div class="fcard__event${post.team?'':' fcard__event--solo'}">${escHtml(post.event)}</div>`:''}</div>`;
   const pills=[];
   if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>');
@@ -963,7 +984,7 @@ function renderSubRail(){
   });
 }
 
-function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), _iconOverride:state.selectedIcon, team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
+function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), icon:state.selectedIcon, team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
 
 async function savePost(isSheet){
   if(state.saveInFlight) return;
@@ -1039,7 +1060,15 @@ function handleDeleteClick(){
 
 async function updateSub(rowId,publish){ const current=state.submissions.find(s=>String(s.row_id)===String(rowId)); if(!current){ setStatus('Submission not found.','error'); return; } const prev={published:current.published,timestamp_ms:current.timestamp_ms,timestamp:current.timestamp}; if(publish){ const now=new Date(); current.published=true; current.timestamp_ms=now.getTime(); current.timestamp=now.toISOString().slice(0,16).replace('T',' '); } else{ current.published=false; current.timestamp_ms=0; current.timestamp=''; } renderSubRail(); renderFeed(); try{ await apiFetch({action:'updateSubmission',row_id:rowId,name:current.name||'',note:current.note||'',status:publish?'published':'pending',published:publish?'TRUE':'FALSE'}); setStatus(publish?'Published.':'Unpublished.','success'); } catch(err){ current.published=prev.published; current.timestamp_ms=prev.timestamp_ms; current.timestamp=prev.timestamp; renderSubRail(); renderFeed(); handleErr(err); } }
 
-async function loadPosts(){ const data=await apiGet({action:'listPosts'}); state.posts=Array.isArray(data.items)?data.items:[]; renderFeed(); }
+async function loadPosts(){
+  const data=await apiGet({action:'listPosts'});
+  state.posts=(Array.isArray(data.items)?data.items:[]).map(function(p){
+    // Ensure icon field exists (may be absent from older posts)
+    if(!p.icon) p.icon='';
+    return p;
+  });
+  renderFeed();
+}
 function normaliseSubs(items){ return items.map(function(item){ const rp=item.publishtime||item.publish_time||''; if(rp){ const d=new Date(rp); if(!isNaN(d.getTime())){ item.timestamp_ms=d.getTime(); item.timestamp=rp.slice(0,16).replace('T',' '); return item; } } const rs=item.timestamp||''; if(rs){ const d=new Date(rs); if(!isNaN(d.getTime())){ item.timestamp_ms=0; item.timestamp=rs.slice(0,16).replace('T',' '); return item; } } item.timestamp_ms=0; item.timestamp=''; return item; }); }
 
 async function loadSubs(){
