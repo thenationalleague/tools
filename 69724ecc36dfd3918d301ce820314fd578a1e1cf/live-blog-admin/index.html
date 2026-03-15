@@ -1,5 +1,7 @@
 <!--
   CHANGELOG
+  v111 — Instagram embeds: full frontend-parity implementation — isInstagramUrl(), normaliseInstagramUrl(), loadInstagramEmbeds(), hydrateInstagramEmbeds(); buildMediaPreview handles Instagram URLs; DOM diff preserves rendered IG embeds; preload on init
+  v110 — admin feed cards fully replicated to match frontend: 22px radius, 4px head border, crest in header, stopwatch timechip, scorebox/pensbox pills matching frontend, pin bar at bottom, text-shadow on head text, body padding/line-height matching, fan note card matches frontend exactly (large italic quote, blue strip, same font sizes)
   v109 — inline delete confirmation: Delete button changes to "Sure?" + Cancel inline, no browser dialog; works in both desktop editor and mobile sheet
   v108 — submission card timestamps: show HH:mm only, matching frontend
   v107 — fix "No posts yet" stuck at bottom of feed: feed-empty node has no data-feed-key so DOM diff never removes it; now explicitly cleared before diff runs
@@ -27,7 +29,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v109</title>
+<title>Live Blog Admin v111</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -138,38 +140,66 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .feed-toolbar{ padding:10px 16px; display:flex; align-items:center; gap:10px; }
 .feed-toolbar__title{ font-size:.84rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); flex:1 1 auto; }
 .feed{ padding:0 16px 24px; display:flex; flex-direction:column; gap:10px; align-items:center; }
-.fcard{ width:100%; max-width:var(--feed-max); border-radius:18px; overflow:hidden; border:1px solid var(--line); box-shadow:0 3px 14px rgba(0,0,0,.05); cursor:pointer; transition:box-shadow .2s,transform .15s; position:relative; }
-.fcard:hover{ box-shadow:0 6px 22px rgba(0,0,0,.1); transform:translateY(-1px); }
+/* v110: fcard CSS fully matches frontend card styles */
+.fcard{ width:100%; max-width:var(--feed-max); border-radius:22px; overflow:hidden; border:1px solid #e6e6e6; box-shadow:0 4px 16px rgba(0,0,0,.04); cursor:pointer; transition:transform .25s ease,box-shadow .28s ease,border-color .28s ease; position:relative; transform-origin:top center; }
+.fcard:hover{ box-shadow:0 10px 24px rgba(0,0,0,.08); }
 .fcard.is-editing{ box-shadow:0 0 0 3px var(--blue),0 6px 22px rgba(0,0,0,.1); transform:none; }
-.fcard.is-pinned{ border-color:rgba(216,162,29,.5); }
+.fcard.is-pinned{ border-color:rgba(216,162,29,.55); box-shadow:0 10px 30px rgba(216,162,29,.10),0 6px 18px rgba(0,0,0,.06); }
+.fcard.is-pinned .fcard__body{ background:linear-gradient(180deg,#fffdf7 0%,#ffffff 100%); }
 .fcard--sub{ cursor:default; }
-.fcard--sub:hover{ transform:none; box-shadow:0 3px 14px rgba(0,0,0,.05); }
-.fcard__head{ padding:11px 14px; color:#fff; border-bottom:3px solid #9e0000; display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
-.fcard__head-left{ display:flex; align-items:center; gap:9px; min-width:0; flex:1 1 auto; }
-.fcard__chip{ display:inline-flex; align-items:center; min-height:24px; padding:0 10px; border-radius:999px; background:rgba(255,255,255,.15); font-size:.74rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; flex-shrink:0; }
-.fcard__team{ font-size:1.05rem; font-weight:900; text-transform:uppercase; letter-spacing:.02em; line-height:1.05; }
-.fcard__event{ font-size:.78rem; font-weight:900; letter-spacing:.07em; text-transform:uppercase; opacity:.8; margin:2px 0 0; }
-.fcard__score-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
-.fcard__score{ display:inline-flex; align-items:center; min-height:32px; padding:0 14px; border-radius:999px; background:#fff; color:#111; font-size:1rem; font-weight:900; letter-spacing:.04em; }
-.fcard__pens{ display:inline-flex; align-items:center; min-height:20px; padding:0 8px; border-radius:999px; background:rgba(255,255,255,.15); color:#fff; font-size:.6rem; font-weight:900; letter-spacing:.04em; white-space:nowrap; }
-.fcard__body{ padding:13px 16px; font-size:1rem; line-height:1.6; background:#fff; color:#111; }
-.fcard__body p{ margin:0 0 .5em; }
-.fcard__body p:last-child{ margin:0; }
+.fcard--sub:hover{ transform:none; box-shadow:0 4px 16px rgba(0,0,0,.04); }
+/* card head — matches nllb__card-head */
+.fcard__head{ position:relative; padding:12px 14px; color:#fff; border-bottom:4px solid var(--card-border,#9e0000); }
+.fcard__head,
+.fcard__team,
+.fcard__event{ text-shadow:0 1px 2px rgba(0,0,0,.35); }
+.fcard__head::after{ content:""; position:absolute; inset:auto 0 0 0; height:1px; background:rgba(255,255,255,.18); }
+.fcard__head-inner{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.fcard__head-left{ display:flex; align-items:flex-start; gap:10px; min-width:0; flex:1 1 auto; }
+.fcard__head-main{ display:flex; align-items:center; gap:12px; min-width:0; flex:1 1 auto; }
+/* crest — matches nllb__card-crest-wrap */
+.fcard__crest-wrap{ width:44px; height:44px; border-radius:12px; overflow:hidden; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.18); }
+.fcard__crest{ width:34px; height:34px; object-fit:contain; display:block; }
+/* heading */
+.fcard__heading{ min-width:0; display:flex; flex-direction:column; gap:4px; flex:1 1 auto; }
+.fcard__heading-top{ display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+.fcard__team{ font-size:1rem; line-height:1.05; font-weight:950; text-transform:uppercase; letter-spacing:.03em; word-break:break-word; }
+.fcard__event{ font-size:.76rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; opacity:.92; word-break:break-word; }
+.fcard__event--solo{ font-size:1rem; line-height:1.05; font-weight:950; letter-spacing:.03em; opacity:1; }
+/* timechip — matches nllb__timechip */
+.fcard__chip{ display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:31px; padding:0 11px; border-radius:999px; font-size:.76rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; background:rgba(255,255,255,.92); color:#111; flex-shrink:0; }
+.fcard__chip svg{ width:14px; height:14px; display:block; flex:0 0 auto; }
+/* event icon — matches nllb__event-icon */
+.fcard__icon{ width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.fcard__icon img{ display:block; width:28px; height:28px; object-fit:contain; filter:invert(1) drop-shadow(0 1px 2px rgba(0,0,0,.28)); }
+/* score/pens — matches nllb__scorebox / nllb__pensbox */
+.fcard__score-wrap{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex:0 0 auto; }
+.fcard__score{ display:inline-flex; align-items:center; justify-content:center; min-height:38px; min-width:88px; padding:0 14px; border-radius:999px; background:#ffffff; color:#111111; border:1px solid rgba(255,255,255,.35); font-size:1rem; font-weight:950; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+.fcard__pens{ display:inline-flex; align-items:center; justify-content:center; min-height:28px; padding:0 10px; border-radius:999px; background:#ffffff; color:#111111; border:1px solid rgba(255,255,255,.35); font-size:.74rem; font-weight:950; letter-spacing:.04em; white-space:nowrap; }
+/* body — matches nllb__body / nllb__copy */
+.fcard__body{ padding:16px 16px 18px; font-size:1rem; line-height:1.45; background:#fff; color:#111; }
+.fcard__body p{ margin:0 0 .8em; }
+.fcard__body p:last-child{ margin-bottom:0; }
+.fcard__body strong,.fcard__body b{ font-weight:800 !important; }
+.fcard__body em,.fcard__body i{ font-style:italic !important; }
+/* footer pills — kept for admin context */
 .fcard__footer{ padding:8px 16px 10px; background:#fff; border-top:1px solid #f0f2f5; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .fpill{ display:inline-flex; align-items:center; min-height:22px; padding:0 9px; border-radius:999px; font-size:.72rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; }
 .fpill--live{ background:#dcfce7; color:#15803d; }
 .fpill--draft{ background:#f3f4f6; color:#6b7280; }
 .fpill--pinned{ background:#fef9c3; color:#854d0e; }
 .fpill--editing{ background:#dbeafe; color:#1e40af; }
-.fcard__icon{ width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
-.fcard__icon img{ display:block; width:22px; height:22px; object-fit:contain; filter:invert(1) drop-shadow(0 1px 2px rgba(0,0,0,.28)); }
-.fcard--sub{ background:radial-gradient(circle at top left,rgba(34,59,124,.07) 0%,rgba(34,59,124,0) 34%),radial-gradient(circle at bottom right,rgba(158,0,0,.06) 0%,rgba(158,0,0,0) 34%),#fbfbfc; border-color:#dbe2f3; display:flex; flex-direction:column; min-height:160px; }
+/* pin bar — matches frontend */
+.fcard__pin-bar{ display:none; height:8px; background:#d8a21d; }
+.fcard.is-pinned .fcard__pin-bar{ display:block; }
+/* fan note card — matches nllb__fan-note */
+.fcard--sub{ background:radial-gradient(circle at top left,rgba(34,59,124,.07) 0%,rgba(34,59,124,0) 34%),radial-gradient(circle at bottom right,rgba(158,0,0,.06) 0%,rgba(158,0,0,0) 34%),#fbfbfc; border-color:#dbe2f3; display:flex; flex-direction:column; min-height:220px; border-radius:22px; box-shadow:0 8px 24px rgba(0,0,0,.05); }
 .fcard--sub .fcard__main{ padding:18px 18px 10px; text-align:center; flex:1 1 auto; }
-.fcard--sub .fan-time{ display:inline-flex; align-items:center; justify-content:center; min-height:24px; padding:0 10px; margin:0 0 10px; border-radius:999px; background:#fff; color:#223b7c; border:1px solid rgba(34,59,124,.12); font-size:.7rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }
-.fcard--sub .fan-quote{ margin:0 0 10px; color:#1c2330; font-size:1.3rem; line-height:1.3; font-weight:400; font-style:italic; font-family:"Viktorie","Times New Roman",serif; }
-.fcard--sub .fan-byline{ color:#4e5a6d; font-size:.86rem; font-weight:500; }
-.fcard--sub .fcard__strip{ background:#223b7c; padding:8px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.fcard--sub .fcard__strip-label{ font-size:.72rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; color:rgba(255,255,255,.6); }
+.fcard--sub .fan-time{ display:inline-flex; align-items:center; justify-content:center; min-height:28px; padding:0 11px; margin:0 0 12px; border-radius:999px; background:#fff; color:#223b7c; border:1px solid rgba(34,59,124,.14); font-size:.74rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+.fcard--sub .fan-quote{ margin:0 0 10px; color:#1c2330; font-size:3.75rem; line-height:1.24; font-weight:400; font-style:italic; font-family:"Viktorie","Times New Roman",serif; letter-spacing:.01em; }
+.fcard--sub .fan-byline{ color:#4e5a6d; font-size:.92rem; line-height:1.3; font-weight:500; font-style:normal; letter-spacing:.01em; }
+.fcard--sub .fcard__strip{ background:#223b7c; min-height:46px; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:auto; }
+.fcard--sub .fcard__strip-label{ font-size:.83rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; color:rgba(255,255,255,.6); }
 .feed-empty{ width:100%; max-width:var(--feed-max); padding:40px 20px; text-align:center; color:var(--muted); font-size:.84rem; border:1px dashed var(--line); border-radius:16px; background:#fff; }
 
 .sub-rail{ background:#f7f8fa; border-left:1px solid var(--line); display:flex; flex-direction:column; height:calc(100vh - var(--topbar-h)); position:sticky; top:var(--topbar-h); overflow:hidden; }
@@ -269,7 +299,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v109</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v111</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -437,6 +467,10 @@ const EVENT_OPTIONS=['Goal','Assist','Attempt saved','Miss','Attempt missed','At
 const TEAM_OPTIONS=['Boreham Wood','West Ham United'];
 const TEAM_COLORS={'Boreham Wood':{bg:'linear-gradient(105deg,#000 0%,#000 50%,#e6e6e6 75%,#fff 100%)',border:'#555'},'West Ham United':{bg:'linear-gradient(105deg,#8e1d41 0%,#8e1d41 50%,#81c4dd 75%,#fff 100%)',border:'#81c4dd'}};
 const NEUTRAL={bg:'#223b7c',border:'#9e0000'};
+const TEAM_CRESTS={'Boreham Wood':'https://images.gc.nationalleagueservices.co.uk/a6ec79d0-6bba-11f0-82ea-7b9dcc8be154.png','West Ham United':'https://images.gc.nationalleagueservices.co.uk/b2bffa00-1ed1-11f1-b1ec-2fccb08b5159.png'};
+const CUP_LOGO='https://images.gc.nationalleagueservices.co.uk/d2115f90-1ed4-11f1-968e-396935dd0686.png';
+function stopwatchIcon(){ return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;flex:0 0 auto;"><path fill="currentColor" d="M15 1H9v2h6V1Zm-3 5a7 7 0 1 0 7 7a7.008 7.008 0 0 0-7-7Zm2.65 9.24l-3.4-1.97V9h1.5v3.41l2.65 1.53Z"/></svg>'; }
+function pinPill(){ return '<span style="display:inline-flex;align-items:center;gap:4px;align-self:flex-start;min-height:22px;padding:0 9px;border-radius:999px;background:#fef9c3;color:#854d0e;font-size:.68rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;">📌 Pinned</span>'; }
 const NEW_SUB_MS=60000;
 
 const state={
@@ -492,11 +526,44 @@ function isTweetUrl(url){ const s=String(url||'').trim(); if(/^https?:\/\/(www\.
 function getTweetId(url){ const m=String(url||'').trim().match(/\/status\/(\d+)/i); return m?m[1]:''; }
 
 let xWidgetsPromise=null;
+let igWidgetsPromise=null;
 function loadXWidgets(){ if(window.twttr&&window.twttr.widgets) return Promise.resolve(window.twttr); if(xWidgetsPromise) return xWidgetsPromise; xWidgetsPromise=new Promise(function(res,rej){ const s=document.createElement('script'); s.async=true; s.src='https://platform.x.com/widgets.js'; s.charset='utf-8'; s.onload=function(){ res(window.twttr); }; s.onerror=rej; document.head.appendChild(s); }); return xWidgetsPromise; }
 
 function tweetFallback(ph){
   const url=ph.dataset.tweetUrl||'';
   ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;word-break:break-all;">${escHtml(url)}</a>`;
+}
+
+function isInstagramUrl(url){ return /^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i.test(String(url||'').trim()); }
+function normaliseInstagramUrl(url){ const m=String(url||'').trim().match(/^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i); return m?m[0]+'/':String(url||'').trim(); }
+
+function loadInstagramEmbeds(){
+  if(window.instgrm&&window.instgrm.Embeds) return Promise.resolve(window.instgrm);
+  if(igWidgetsPromise) return igWidgetsPromise;
+  igWidgetsPromise=new Promise(function(resolve,reject){
+    const s=document.createElement('script'); s.async=true;
+    s.src='https://www.instagram.com/embed.js';
+    s.onload=function(){ resolve(window.instgrm); };
+    s.onerror=reject;
+    document.head.appendChild(s);
+  });
+  return igWidgetsPromise;
+}
+
+async function hydrateInstagramEmbeds(root){
+  const scope=root||document;
+  const embeds=Array.from(scope.querySelectorAll('blockquote.instagram-media[data-instgrm-permalink]:not([data-ig-rendered="1"])'));
+  if(!embeds.length) return;
+  embeds.forEach(function(em){ em.dataset.igRendered='1'; });
+  try{
+    const ig=await loadInstagramEmbeds();
+    if(ig&&ig.Embeds&&typeof ig.Embeds.process==='function') ig.Embeds.process();
+  }catch(err){
+    embeds.forEach(function(em){
+      const url=em.getAttribute('data-instgrm-permalink')||'';
+      em.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;word-break:break-all;">${escHtml(url)}</a>`;
+    });
+  }
 }
 
 async function hydrateTweets(root){
@@ -677,15 +744,60 @@ function renderFeed(){
   // Remove stale nodes
   existing.forEach(function(el,key){ if(!nextKeys.has(key)&&el.parentNode===dom.feedEl) dom.feedEl.removeChild(el); });
 
-  // Only hydrate new/unrendered tweet placeholders
+  // Only hydrate new/unrendered tweet and Instagram placeholders
   hydrateTweets(dom.feedEl);
+  hydrateInstagramEmbeds(dom.feedEl);
 }
 
-function buildMediaPreview(post){ const type=String(post.media_type||'').toLowerCase(); const url=String(post.media_url||'').trim(); if(!url) return ''; if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`; if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`; if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; } if(type==='embed'||type==='x'||type==='tweet'){ if(isTweetUrl(url)) return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:60px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:.78rem;">Loading tweet…</div></div>`; return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`; } return ''; }
+function buildMediaPreview(post){
+  const type=String(post.media_type||'').toLowerCase();
+  const url=String(post.media_url||'').trim();
+  if(!url) return '';
+  if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`;
+  if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`;
+  if(type==='gallery'){
+    const urls=url.split(',').map(u=>u.trim()).filter(Boolean);
+    if(!urls.length) return '';
+    return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`;
+  }
+  if(type==='embed'||type==='x'||type==='tweet'){
+    if(isTweetUrl(url)) return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:60px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:.78rem;">Loading tweet…</div></div>`;
+    if(isInstagramUrl(url)){
+      const ig=normaliseInstagramUrl(url);
+      return `<div style="padding:12px;background:#f6f7f9;"><blockquote class="instagram-media" data-instgrm-permalink="${escHtml(ig)}" data-instgrm-version="14" style="margin:0 auto;max-width:540px;width:100%;border:0;"></blockquote></div>`;
+    }
+    if(/^https?:\/\/www\.youtube\.com\/embed\//i.test(url)||/^https?:\/\/player\.vimeo\.com\/video\//i.test(url)){
+      return `<div style="padding:10px;background:#f6f7f9;"><iframe src="${escHtml(url)}" loading="lazy" style="width:100%;aspect-ratio:16/9;border:0;display:block;" allow="autoplay;encrypted-media" allowfullscreen></iframe></div>`;
+    }
+    return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`;
+  }
+  return '';
+}
 
-function buildPostCardHtml(post){ const colors=getColors(post.team); const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):'')); const h=String(post.home??'').trim(); const a=String(post.away??'').trim(); const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim(); const sc=h!==''&&a!==''?escHtml(h+' – '+a):''; const pe=hp&&ap?escHtml('('+hp+' – '+ap+' pens)'):''; const pills=[]; if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>'); if(post.pinned) pills.push('<span class="fpill fpill--pinned">📌 Pinned</span>'); if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>'); return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="cursor:pointer;"><div class="fcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}"><div class="fcard__head-left">${tl?`<span class="fcard__chip">${tl}</span>`:''}${getEventIcon(post.event)}<div>${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}${post.event?`<div class="fcard__event">${escHtml(post.event)}</div>`:''}</div></div><div class="fcard__score-wrap">${sc?`<span class="fcard__score">${sc}</span>`:''}${pe?`<span class="fcard__pens">${pe}</span>`:''}</div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div></div>`; }
+function buildPostCardHtml(post){
+  const colors=getColors(post.team);
+  const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):''));
+  const h=String(post.home??'').trim(); const a=String(post.away??'').trim();
+  const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim();
+  const sc=h!==''&&a!==''?escHtml(h+' – '+a):'';
+  const pe=hp&&ap?escHtml(hp+' – '+ap+' pens'):'';
+  const crest=post.team?(TEAM_CRESTS[post.team]||CUP_LOGO):CUP_LOGO;
+  const pin=post.pinned?pinPill():'';
+  const heading=`<div class="fcard__heading"><div class="fcard__heading-top">${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}</div>${pin}${post.event?`<div class="fcard__event${post.team?'':' fcard__event--solo'}">${escHtml(post.event)}</div>`:''}</div>`;
+  const pills=[];
+  if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>');
+  if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>');
+  return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="--card-border:${colors.border}"><div class="fcard__head" style="background:${colors.bg}"><div class="fcard__head-inner"><div class="fcard__head-left"><span class="fcard__chip">${tl?stopwatchIcon():''}<span>${tl}</span></span><div class="fcard__head-main"><div class="fcard__crest-wrap"><img class="fcard__crest" src="${escHtml(crest)}" alt=""></div><div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 auto;">${getEventIcon(post.event)}${heading}</div></div></div><div class="fcard__score-wrap">${sc?`<div class="fcard__score">${sc}</div>`:''}${pe?`<div class="fcard__pens">${pe}</div>`:''}</div></div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div><div class="fcard__pin-bar"></div></div>`;
+}
 
-function buildSubCardHtml(sub){ const name=escHtml(sub.name||'Anonymous'); const note=escHtml(sub.note||''); const time=sub.timestamp?escHtml(sub.timestamp.replace('T',' ').slice(11,16)):''; const sid=String(sub.sub_id||sub.row_id); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="fcard fcard--sub${isNew?' scard-new-feed':''}"><div class="fcard__main">${time?`<div class="fan-time">${time}</div>`:''}<div class="fan-quote">${note}</div><div class="fan-byline">— ${name}</div></div><div class="fcard__strip"><span class="fcard__strip-label">Fan note</span><button class="btn btn--sm" style="background:rgba(255,255,255,.15);color:#fff;font-size:.62rem;" data-sub-unpub="${sub.row_id}" type="button">Unpublish</button></div></div>`; }
+function buildSubCardHtml(sub){
+  const name=escHtml(sub.name||'Anonymous');
+  const note=escHtml(sub.note||'');
+  const time=sub.timestamp?escHtml(sub.timestamp.replace('T',' ').slice(11,16)):'';
+  const sid=String(sub.sub_id||sub.row_id);
+  const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS;
+  return `<div class="fcard fcard--sub${isNew?' is-new':''}"><div class="fcard__main">${time?`<div class="fan-time">${time}</div>`:''}<div class="fan-quote">${note}</div><div class="fan-byline">— <span style="font-family:inherit;">${name}</span></div></div><div class="fcard__strip"><span class="fcard__strip-label">Fan note</span><button class="btn btn--sm" style="background:rgba(255,255,255,.15);color:#fff;font-size:.62rem;" data-sub-unpub="${sub.row_id}" type="button">Unpublish</button></div></div>`;
+}
 
 function subStableId(item){ return String(item.sub_id||item.row_id); }
 
@@ -980,6 +1092,7 @@ async function init(){
   $('btnReload').addEventListener('click',function(){ reloadAll().catch(handleErr); });
   dom.feedSearch.addEventListener('input',function(){ state.search=dom.feedSearch.value; renderFeed(); });
 
+  loadInstagramEmbeds();
   setEditorNew();
   await reloadAll();
   window.setInterval(function(){ loadSubs().catch(handleErr); },15000);
