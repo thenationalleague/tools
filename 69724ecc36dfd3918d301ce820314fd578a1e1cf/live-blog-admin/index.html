@@ -1,5 +1,7 @@
 <!--
   CHANGELOG
+  v108 — submission card timestamps: show HH:mm only, matching frontend
+  v107 — fix "No posts yet" stuck at bottom of feed: feed-empty node has no data-feed-key so DOM diff never removes it; now explicitly cleared before diff runs
   v106 — fix desktop layout: sheet now display:none on desktop (transform alone doesn't remove from flow); fix stuck Loading tweet card: added 8s timeout fallback showing link
   v105 — deleted submissions section: collapsible panel at bottom of sub rail showing deleted items with Restore button; restore sets deleted=FALSE, item returns to original timestamp order; panel auto-collapses when empty
   v104 — fix tweet flickering: renderFeed now diffs DOM instead of full innerHTML replace, preserving rendered tweet iframes across reloads; fix submission delete: delete button now carries data-row so row_id reaches the API correctly
@@ -24,7 +26,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v106</title>
+<title>Live Blog Admin v108</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -264,7 +266,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v106</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v108</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -609,6 +611,9 @@ function renderFeed(){
 
   if(!all.length){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
 
+  // Clear any keyless nodes (e.g. feed-empty placeholder) before diff
+  Array.from(dom.feedEl.children).forEach(function(el){ if(!el.dataset.feedKey) dom.feedEl.removeChild(el); });
+
   // DOM diff — preserve existing nodes where content unchanged (keeps tweet iframes alive)
   const existing=new Map();
   Array.from(dom.feedEl.children).forEach(function(el){
@@ -677,14 +682,14 @@ function buildMediaPreview(post){ const type=String(post.media_type||'').toLower
 
 function buildPostCardHtml(post){ const colors=getColors(post.team); const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):'')); const h=String(post.home??'').trim(); const a=String(post.away??'').trim(); const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim(); const sc=h!==''&&a!==''?escHtml(h+' – '+a):''; const pe=hp&&ap?escHtml('('+hp+' – '+ap+' pens)'):''; const pills=[]; if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>'); if(post.pinned) pills.push('<span class="fpill fpill--pinned">📌 Pinned</span>'); if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>'); return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="cursor:pointer;"><div class="fcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}"><div class="fcard__head-left">${tl?`<span class="fcard__chip">${tl}</span>`:''}${getEventIcon(post.event)}<div>${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}${post.event?`<div class="fcard__event">${escHtml(post.event)}</div>`:''}</div></div><div class="fcard__score-wrap">${sc?`<span class="fcard__score">${sc}</span>`:''}${pe?`<span class="fcard__pens">${pe}</span>`:''}</div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div></div>`; }
 
-function buildSubCardHtml(sub){ const name=escHtml(sub.name||'Anonymous'); const note=escHtml(sub.note||''); const time=sub.timestamp?escHtml(sub.timestamp.slice(0,16).replace('T',' ')):''; const sid=String(sub.sub_id||sub.row_id); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="fcard fcard--sub${isNew?' scard-new-feed':''}"><div class="fcard__main">${time?`<div class="fan-time">${time}</div>`:''}<div class="fan-quote">${note}</div><div class="fan-byline">— ${name}</div></div><div class="fcard__strip"><span class="fcard__strip-label">Fan note</span><button class="btn btn--sm" style="background:rgba(255,255,255,.15);color:#fff;font-size:.62rem;" data-sub-unpub="${sub.row_id}" type="button">Unpublish</button></div></div>`; }
+function buildSubCardHtml(sub){ const name=escHtml(sub.name||'Anonymous'); const note=escHtml(sub.note||''); const time=sub.timestamp?escHtml(sub.timestamp.replace('T',' ').slice(11,16)):''; const sid=String(sub.sub_id||sub.row_id); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="fcard fcard--sub${isNew?' scard-new-feed':''}"><div class="fcard__main">${time?`<div class="fan-time">${time}</div>`:''}<div class="fan-quote">${note}</div><div class="fan-byline">— ${name}</div></div><div class="fcard__strip"><span class="fcard__strip-label">Fan note</span><button class="btn btn--sm" style="background:rgba(255,255,255,.15);color:#fff;font-size:.62rem;" data-sub-unpub="${sub.row_id}" type="button">Unpublish</button></div></div>`; }
 
 function subStableId(item){ return String(item.sub_id||item.row_id); }
 
 function buildSubCardHtml_(item, includeDeleted){
   const name=escHtml(item.name||'Anonymous');
   const note=escHtml(item.note||'');
-  const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):'';
+  const time=item.timestamp?escHtml(item.timestamp.replace('T',' ').slice(11,16)):'';
   const isPub=!!item.published;
   const sid=subStableId(item);
   const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS;
