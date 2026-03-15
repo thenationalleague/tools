@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v104 — fix tweet flickering: renderFeed now diffs DOM instead of full innerHTML replace, preserving rendered tweet iframes across reloads; fix submission delete: delete button now carries data-row so row_id reaches the API correctly
   v103 — admin feed sort: pinned posts always float to top, matching frontend sortItemsForDisplay; pin pill emoji 📌 already consistent with frontend
   v98 — tap-to-edit simplified to single click listener on feedEl; removed all touch/desktop detection logic; click fires naturally on mobile tap after 300ms delay which is acceptable; unpublish button handled first to prevent bubbling
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
@@ -21,7 +22,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v103</title>
+<title>Live Blog Admin v104</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -248,7 +249,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v103</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v104</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -554,6 +555,16 @@ function openEditEditor(post){
 function handleCancel(){ closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
 function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTimer); state.renderTimer=setTimeout(renderFeed,150); }
 
+function buildFeedSignature(item){
+  // Stable key representing the rendered content of a feed item — used for DOM diffing
+  if(item.type==='sub'){
+    const s=item.data;
+    return 'sub|'+String(s.sub_id||s.row_id)+'|'+String(s.published)+'|'+String(s.name||'')+'|'+String(s.note||'');
+  }
+  const p=item.data;
+  return 'post|'+p.id+'|'+String(p.published)+'|'+String(p.pinned)+'|'+String(p.match_time||'')+'|'+String(p.home||'')+'|'+String(p.away||'')+'|'+String(p.copy_html||'').slice(0,80)+'|'+String(p.media_url||'')+'|'+(String(p.id)===String(state.activeId)?'1':'0');
+}
+
 function renderFeed(){
   const q=state.search.toLowerCase();
   const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
@@ -563,27 +574,70 @@ function renderFeed(){
   const total=state.posts.filter(p=>!p.deleted).length;
   const live=state.posts.filter(p=>p.published&&!p.deleted).length;
   dom.feedTitle.textContent=`Live feed — ${live} live of ${total} posts`;
-  let html='';
-  all.forEach(item=>{ html+=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data); });
-  if(!html){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
-  dom.feedEl.innerHTML=html;
-  // Per-card touch binding — same as v84
-  dom.feedEl.querySelectorAll('.fcard[data-pid]').forEach(function(el){
-    var sx=0,sy=0;
-    el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
-    el.addEventListener('touchend',function(e){
-      const dx=Math.abs(e.changedTouches[0].clientX-sx);
-      const dy=Math.abs(e.changedTouches[0].clientY-sy);
-      if(dx<10&&dy<10){
-        e.preventDefault();
-        const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid'));
-        if(post) openEditEditor(post);
+
+  if(!all.length){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
+
+  // DOM diff — preserve existing nodes where content unchanged (keeps tweet iframes alive)
+  const existing=new Map();
+  Array.from(dom.feedEl.children).forEach(function(el){
+    const key=el.dataset.feedKey;
+    if(key) existing.set(key,el);
+  });
+  const nextKeys=new Set();
+  all.forEach(function(item,idx){
+    const key=item.id;
+    const sig=buildFeedSignature(item);
+    nextKeys.add(key);
+    let el=existing.get(key);
+    if(!el){
+      // New card — create from HTML
+      const tmp=document.createElement('div');
+      tmp.innerHTML=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
+      el=tmp.firstElementChild;
+      el.dataset.feedKey=key;
+      el.dataset.feedSig=sig;
+      // Bind touch for post cards
+      if(item.type==='post'){
+        var sx=0,sy=0;
+        el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+        el.addEventListener('touchend',function(e){
+          const dx=Math.abs(e.changedTouches[0].clientX-sx);
+          const dy=Math.abs(e.changedTouches[0].clientY-sy);
+          if(dx<10&&dy<10){
+            e.preventDefault();
+            const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid'));
+            if(post) openEditEditor(post);
+          }
+        });
       }
-    });
+      if(item.type==='sub'){
+        el.querySelectorAll('[data-sub-unpub]').forEach(function(btn){
+          btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); });
+        });
+      }
+    } else if(el.dataset.feedSig!==sig){
+      // Content changed — replace innerHTML but keep the node (preserves position)
+      const tmp=document.createElement('div');
+      tmp.innerHTML=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
+      const fresh=tmp.firstElementChild;
+      el.innerHTML=fresh.innerHTML;
+      el.className=fresh.className;
+      el.dataset.feedSig=sig;
+      // Re-bind unpublish if sub
+      if(item.type==='sub'){
+        el.querySelectorAll('[data-sub-unpub]').forEach(function(btn){
+          btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); });
+        });
+      }
+    }
+    // Ensure correct position in DOM
+    const cur=dom.feedEl.children[idx];
+    if(cur!==el) dom.feedEl.insertBefore(el,cur||null);
   });
-  dom.feedEl.querySelectorAll('[data-sub-unpub]').forEach(function(btn){
-    btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); });
-  });
+  // Remove stale nodes
+  existing.forEach(function(el,key){ if(!nextKeys.has(key)&&el.parentNode===dom.feedEl) dom.feedEl.removeChild(el); });
+
+  // Only hydrate new/unrendered tweet placeholders
   hydrateTweets(dom.feedEl);
 }
 
@@ -601,7 +655,7 @@ function renderSubRail(){
   const ct=`${visible.length} total · ${pending} pending`;
   dom.subCounts.textContent=ct; dom.subCountsMobile.textContent=ct;
   dom.subBadge.textContent=String(pending); dom.subBadge.classList.toggle('is-visible',pending>0);
-  const html=visible.length?visible.map(function(item){ const name=escHtml(item.name||'Anonymous'); const note=escHtml(item.note||''); const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):''; const isPub=!!item.published; const sid=subStableId(item); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" type="button">🗑</button></div></div>`; }).join(''):'<div class="rail-empty">No submissions.</div>';
+  const html=visible.length?visible.map(function(item){ const name=escHtml(item.name||'Anonymous'); const note=escHtml(item.note||''); const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):''; const isPub=!!item.published; const sid=subStableId(item); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" data-row="${item.row_id}" type="button">🗑</button></div></div>`; }).join(''):'<div class="rail-empty">No submissions.</div>';
   dom.subRailBody.innerHTML=html; dom.subRailBodyMobile.innerHTML=html;
   [dom.subRailBody,dom.subRailBodyMobile].forEach(function(c){ c.querySelectorAll('[data-sub]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); const action=btn.getAttribute('data-sub'); const row=btn.getAttribute('data-row');         if(action==='delete'){
           const sid=btn.getAttribute('data-stable')||row;
