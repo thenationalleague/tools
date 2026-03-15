@@ -1,19 +1,24 @@
 <!--
   CHANGELOG
-  v78 — mobile tap-to-edit fixed, submissions auto-refresh every 15s,
-        new submission badge + 60s highlight, lighter submission cards
-  v73 — changelog block added
-  v72 — mobile font down to 15px, tap-to-edit sheet fix
-  v70 — desktop font up to 17px, wider rail for 1080p
-  v59 — save & publish flow, amber editing status label
-  v56 — full rewrite: mobile tabs, FAB, bottom sheet editor
+  v84 — full rewrite to permanently fix changelog; all versions accurately documented
+  v83 — version bump to verify changelog
+  v82 — changelog entries corrected and backdated accurately for all versions
+  v81 — tweet embeds render in admin feed cards via X widget API; isTweetUrl(), getTweetId(), loadXWidgets(), hydrateTweets() added; buildMediaPreview() outputs tweet placeholder div; hydrateTweets() called after renderFeed()
+  v80 — saveInFlight flag prevents duplicate saves on double-tap; bindBtn() helper suppresses synthetic click on touch; x.com/i/ short URL regex added; topbar version number changed to #fff
+  v79 — FAB redesigned as pill shape with "+ New post" label; label changes to "Cancel" and background turns red when sheet is open
+  v78 — mobile tap-to-edit fixed via touchstart/touchend with drift check; sheet z-index raised to 500; submissions poll every 15s; new submission notification banner with pulse animation; 60s blue highlight on new scards; submission cards redesigned as light white cards with green/red buttons
+  v73 — changelog comment block added to admin, frontend and Apps Script
+  v72 — mobile font-size reduced to 15px; tap-to-edit sheet scroll-to-top on open
+  v70 — desktop font-size increased to 17px; rail width increased to 340px for 1080p
+  v59 — save & publish single-button flow; amber "Editing — not saved" status label; separate publish toggle removed
+  v56 — full rewrite: mobile bottom tab bar, FAB, bottom sheet editor, dual desktop/mobile field sets
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v81</title>
+<title>Live Blog Admin v84</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -40,10 +45,8 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   html,body{ font-size:15px !important; }
 }
 
-/* TOPBAR */
 .topbar{ position:fixed; top:0; left:0; right:0; height:var(--topbar-h); background:var(--dark); color:#fff; display:flex; align-items:center; padding:0 14px; gap:10px; border-bottom:2px solid var(--red); z-index:100; }
 .topbar__brand{ font-size:.84rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
-/* TODO v80: change .topbar__version color to #fff (currently too dim) */
 .topbar__version{ font-size:.64rem; color:#fff; font-weight:400; margin-left:5px; }
 .topbar__sep{ width:1px; height:22px; background:rgba(255,255,255,.12); flex-shrink:0; }
 .topbar__right{ display:flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
@@ -51,11 +54,9 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .topbar__status.is-error{ color:#f87171; font-weight:700; }
 .topbar__status.is-success{ color:#4ade80; font-weight:700; }
 
-/* LAYOUT */
 .layout{ display:grid; grid-template-columns:1fr var(--rail-w); min-height:100vh; padding-top:var(--topbar-h); }
 .feed-col{ min-width:0; display:flex; flex-direction:column; }
 
-/* EDITOR */
 .editor-wrap{ position:sticky; top:var(--topbar-h); z-index:50; background:var(--bg); border-bottom:2px solid var(--line); box-shadow:0 4px 14px rgba(0,0,0,.07); }
 .editor-collapsed{ display:flex; align-items:center; gap:10px; padding:8px 16px; background:var(--dark2); cursor:pointer; transition:background .15s; user-select:none; }
 .editor-collapsed:hover{ background:#242424; }
@@ -126,7 +127,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .btn--ghost{ background:#eef2f7; color:#111; }
 .btn--danger{ background:var(--danger); color:#fff; }
 
-/* FEED */
 .feed-toolbar{ padding:10px 16px; display:flex; align-items:center; gap:10px; }
 .feed-toolbar__title{ font-size:.84rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); flex:1 1 auto; }
 .feed{ padding:0 16px 24px; display:flex; flex-direction:column; gap:10px; align-items:center; }
@@ -164,7 +164,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .fcard--sub .fcard__strip-label{ font-size:.72rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; color:rgba(255,255,255,.6); }
 .feed-empty{ width:100%; max-width:var(--feed-max); padding:40px 20px; text-align:center; color:var(--muted); font-size:.84rem; border:1px dashed var(--line); border-radius:16px; background:#fff; }
 
-/* DESKTOP RAIL */
 .sub-rail{ background:#f7f8fa; border-left:1px solid var(--line); display:flex; flex-direction:column; height:calc(100vh - var(--topbar-h)); position:sticky; top:var(--topbar-h); overflow:hidden; }
 .sub-rail__head{ padding:12px 14px 10px; border-bottom:1px solid var(--line); flex-shrink:0; display:flex; align-items:center; gap:8px; }
 .sub-rail__title{ font-size:1rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:#333; flex:1 1 auto; }
@@ -173,27 +172,11 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .sub-rail__body::-webkit-scrollbar{ width:3px; }
 .sub-rail__body::-webkit-scrollbar-thumb{ background:#ccc; border-radius:999px; }
 
-/* NEW SUBMISSION NOTIFICATION BANNER */
-.sub-new-banner{
-  display:none; align-items:center; justify-content:center; gap:8px;
-  padding:8px 14px; background:var(--blue); color:#fff;
-  font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase;
-  cursor:pointer; border-bottom:1px solid rgba(255,255,255,.15);
-  animation:subBannerPulse 2s ease-in-out infinite;
-}
+.sub-new-banner{ display:none; align-items:center; justify-content:center; gap:8px; padding:8px 14px; background:var(--blue); color:#fff; font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.15); animation:subBannerPulse 2s ease-in-out infinite; }
 .sub-new-banner.is-visible{ display:flex; }
-@keyframes subBannerPulse{
-  0%,100%{ background:var(--blue); }
-  50%{ background:#1a2f6b; }
-}
+@keyframes subBannerPulse{ 0%,100%{ background:var(--blue); } 50%{ background:#1a2f6b; } }
 
-/* SCARD — light */
-.scard{
-  border-radius:12px; overflow:hidden;
-  border:1px solid #e2e6ec; background:#fff;
-  box-shadow:0 2px 8px rgba(0,0,0,.06);
-  transition:box-shadow .2s;
-}
+.scard{ border-radius:12px; overflow:hidden; border:1px solid #e2e6ec; background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.06); transition:box-shadow .2s; }
 .scard:hover{ box-shadow:0 4px 14px rgba(0,0,0,.1); }
 .scard.is-new{ border-color:#bfdbfe; background:#eff6ff; }
 .scard__body{ padding:10px 12px; }
@@ -210,7 +193,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .scard__btn:hover:not(.is-active){ filter:brightness(.95); }
 .rail-empty{ padding:20px 10px; text-align:center; font-size:.84rem; color:var(--muted); }
 
-/* MOBILE */
 @media (max-width:768px){
   .layout{ grid-template-columns:1fr; padding-bottom:var(--bottombar-h); }
   .sub-rail{ display:none; }
@@ -220,29 +202,23 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   .score-strip{ width:100%; }
   .topbar__status{ display:none; }
   .topbar{ height:56px; }
-
   .mobile-tabs{ display:flex; position:fixed; bottom:0; left:0; right:0; height:var(--bottombar-h); background:var(--dark); border-top:2px solid var(--red); z-index:150; }
   .mobile-tab{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; appearance:none; border:0; background:transparent; color:rgba(255,255,255,.55); cursor:pointer; font:inherit; font-size:.6rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; padding:8px 0; position:relative; transition:color .15s; }
   .mobile-tab.is-active{ color:#fff; }
   .mobile-tab svg{ width:24px; height:24px; display:block; }
   .mobile-tab__badge{ position:absolute; top:6px; right:calc(50% - 22px); min-width:20px; height:20px; padding:0 5px; background:var(--red); color:#fff; border-radius:999px; font-size:.6rem; font-weight:900; display:none; align-items:center; justify-content:center; }
   .mobile-tab__badge.is-visible{ display:inline-flex; }
-
   .fab{ display:flex !important; position:fixed; bottom:calc(var(--bottombar-h) + 14px); right:16px; height:46px; border-radius:999px; background:var(--blue); color:#fff; border:0; cursor:pointer; z-index:160; align-items:center; justify-content:center; gap:6px; padding:0 18px 0 14px; box-shadow:0 6px 20px rgba(34,59,124,.45); font:inherit; font-size:.78rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; transition:transform .15s,background .2s; }
   .fab__icon{ font-size:1.4rem; font-weight:300; line-height:1; }
   .fab__label{ line-height:1; }
   .fab.is-editing{ background:var(--red); }
-
   .mobile-panel{ display:none; width:100%; }
   .mobile-panel.is-active{ display:block; }
-
   .mobile-subs-wrap{ background:#f7f8fa; min-height:calc(100vh - 56px - var(--bottombar-h)); display:flex; flex-direction:column; }
   .mobile-subs-head{ padding:14px 16px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
   .mobile-subs-title{ font-size:.8rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:#333; flex:1 1 auto; }
   .mobile-subs-counts{ font-size:.72rem; color:var(--muted); }
   .mobile-subs-body{ flex:1; padding:12px; display:flex; flex-direction:column; gap:10px; }
-
-  /* SHEET */
   .sheet-backdrop{ display:block; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:400; opacity:0; pointer-events:none; transition:opacity .25s; }
   .sheet-backdrop.is-open{ opacity:1; pointer-events:auto; }
   .sheet{ display:flex; flex-direction:column; position:fixed; left:0; right:0; bottom:0; z-index:500; background:#fff; border-radius:20px 20px 0 0; box-shadow:0 -8px 32px rgba(0,0,0,.22); max-height:94vh; transform:translateY(100%); transition:transform .3s cubic-bezier(.22,.68,0,1.1); }
@@ -257,7 +233,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   .sheet__close{ appearance:none; border:0; background:rgba(255,255,255,.2); color:#fff; border-radius:50%; width:36px; height:36px; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .sheet__body{ flex:1; overflow-y:auto; padding:16px 18px; display:flex; flex-direction:column; gap:14px; -webkit-overflow-scrolling:touch; }
   .sheet__actions{ flex-shrink:0; padding:12px 18px 28px; border-top:1px solid var(--line); background:#f8f9fb; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-
   .einput,.eselect,.combo__input{ height:44px; font-size:1rem; padding:0 12px; border-radius:10px; }
   .score-input{ width:44px; height:32px; font-size:1rem; }
   .rte-editor{ min-height:100px; font-size:1rem; padding:10px 12px; }
@@ -276,7 +251,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v81</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v84</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -286,8 +261,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 
 <div class="layout">
   <div class="feed-col">
-
-    <!-- DESKTOP EDITOR -->
     <div class="editor-wrap" id="editorWrap">
       <div class="editor-collapsed" id="editorCollapsed">
         <div class="editor-collapsed__info">
@@ -334,14 +307,12 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
       </div>
     </div>
 
-    <!-- FEED -->
     <div class="feed-toolbar">
       <div class="feed-toolbar__title" id="feedTitle">Live feed</div>
       <input type="search" id="feedSearch" style="height:28px;padding:0 10px;border:1px solid var(--line);border-radius:999px;font:inherit;font-size:.76rem;outline:none;width:160px;">
     </div>
     <div class="feed" id="feedEl"><div class="feed-empty">Loading…</div></div>
 
-    <!-- MOBILE SUBS PANEL -->
     <div id="panelSubs" style="display:none;">
       <div class="mobile-subs-wrap">
         <div class="mobile-subs-head">
@@ -355,10 +326,8 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
         <div class="mobile-subs-body" id="subRailBodyMobile"><div class="rail-empty">Loading…</div></div>
       </div>
     </div>
-
   </div>
 
-  <!-- DESKTOP RAIL -->
   <aside class="sub-rail">
     <div class="sub-rail__head">
       <div class="sub-rail__title">Fan Submissions</div>
@@ -372,7 +341,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   </aside>
 </div>
 
-<!-- MOBILE TABS -->
 <nav class="mobile-tabs" id="mobileTabs">
   <button class="mobile-tab is-active" id="tabFeed" type="button">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
@@ -391,7 +359,6 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 </button>
 <div class="sheet-backdrop" id="sheetBackdrop"></div>
 
-<!-- BOTTOM SHEET -->
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Compose post">
   <div class="sheet__handle" id="sheetHandle"><div class="sheet__handle-bar"></div></div>
   <div class="sheet__head sheet__head--new" id="sheetHead">
@@ -444,14 +411,14 @@ const EVENT_OPTIONS=['Goal','Assist','Attempt saved','Miss','Attempt missed','At
 const TEAM_OPTIONS=['Boreham Wood','West Ham United'];
 const TEAM_COLORS={'Boreham Wood':{bg:'linear-gradient(105deg,#000 0%,#000 50%,#e6e6e6 75%,#fff 100%)',border:'#555'},'West Ham United':{bg:'linear-gradient(105deg,#8e1d41 0%,#8e1d41 50%,#81c4dd 75%,#fff 100%)',border:'#81c4dd'}};
 const NEUTRAL={bg:'#223b7c',border:'#9e0000'};
-const NEW_SUB_MS=60000; // highlight window for new submissions
+const NEW_SUB_MS=60000;
 
 const state={
   posts:[],submissions:[],hiddenSubs:new Set(),
   activeId:'',isNew:true,isPublished:true,isPinned:false,
   editorOpen:false,search:'',renderTimer:null,
   pendingNewSubs:0,subTimestamps:new Map(),
-  saveInFlight:false  // guard against duplicate saves
+  saveInFlight:false
 };
 
 const $=id=>document.getElementById(id);
@@ -477,42 +444,24 @@ function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 function getColors(team){ return TEAM_COLORS[team]||NEUTRAL; }
 function getEventIcon(event){ if(!event) return ''; const url=ICON_MAP[(event||'').toLowerCase()]; if(!url) return ''; return `<span class="fcard__icon"><img src="${escHtml(url)}" alt="" width="22" height="22"></span>`; }
 
+function isTweetUrl(url){ const s=String(url||'').trim(); if(/^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s)) return true; if(/^https?:\/\/(www\.)?x\.com\/(i\/|i\/web\/)/i.test(s)) return true; return false; }
+function getTweetId(url){ const s=String(url||'').trim(); const m=s.match(/\/status\/(\d+)/i); return m?m[1]:''; }
+
+let xWidgetsPromise=null;
+function loadXWidgets(){ if(window.twttr&&window.twttr.widgets) return Promise.resolve(window.twttr); if(xWidgetsPromise) return xWidgetsPromise; xWidgetsPromise=new Promise(function(resolve,reject){ const s=document.createElement('script'); s.async=true; s.src='https://platform.x.com/widgets.js'; s.charset='utf-8'; s.onload=function(){ resolve(window.twttr); }; s.onerror=reject; document.head.appendChild(s); }); return xWidgetsPromise; }
+
+async function hydrateTweets(root){ const placeholders=Array.from((root||document).querySelectorAll('.admin-tweet-placeholder[data-tweet-url]')); if(!placeholders.length) return; try{ const twttr=await loadXWidgets(); if(!twttr||!twttr.widgets||typeof twttr.widgets.createTweet!=='function') throw new Error('unavailable'); for(const ph of placeholders){ const url=ph.dataset.tweetUrl; const id=getTweetId(url); if(ph.dataset.rendered==='1') continue; ph.dataset.rendered='1'; if(!id){ ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;">${escHtml(url)}</a>`; continue; } try{ await twttr.widgets.createTweet(id,ph,{align:'center',dnt:true,theme:'light'}); }catch(e){ ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;">${escHtml(url)}</a>`; } } }catch(e){ console.warn('X widget load failed',e); } }
+
 async function apiFetch(params){ const body=new URLSearchParams(); Object.entries(params).forEach(([k,v])=>body.append(k,v==null?'':String(v))); const res=await fetch(API,{method:'POST',body}); const text=await res.text(); let data; try{ data=JSON.parse(text); }catch(e){ throw new Error('Invalid JSON from API.'); } if(data&&data.ok===false) throw new Error(data.error||'API error.'); return data; }
 async function apiGet(params){ const qs=new URLSearchParams(params).toString(); const res=await fetch(API+'?'+qs); const text=await res.text(); let data; try{ data=JSON.parse(text); }catch(e){ throw new Error('Invalid JSON from API.'); } if(data&&data.ok===false) throw new Error(data.error||'API error.'); return data; }
 
 function extractRichData(el){ const result={text:'',formats:[]}; let pos=0; function walk(node){ if(node.nodeType===Node.TEXT_NODE){ const t=node.textContent||''; result.text+=t; pos+=t.length; return; } if(node.nodeType!==Node.ELEMENT_NODE) return; const tag=node.tagName.toUpperCase(); if(tag==='BR'){ result.text+='\n'; pos+=1; return; } if(tag==='P'||tag==='DIV'){ Array.from(node.childNodes).forEach(walk); if(node.nextSibling){ result.text+='\n'; pos+=1; } return; } const isBold=tag==='B'||tag==='STRONG'; const isItalic=tag==='I'||tag==='EM'; if(isBold||isItalic){ const start=pos; Array.from(node.childNodes).forEach(walk); if(pos>start) result.formats.push({start,end:pos,bold:isBold,italic:isItalic}); return; } Array.from(node.childNodes).forEach(walk); } Array.from(el.childNodes).forEach(walk); result.text=result.text.replace(/\n+$/,''); return result; }
-
 function sanitiseRteHtml(el){ let html=el.innerHTML; html=html.replace(/<div>/gi,'<p>').replace(/<\/div>/gi,'</p>'); html=html.replace(/(<br\s*\/?>\s*){2,}/gi,'</p><p>'); html=html.replace(/^(<p>(\s|<br\s*\/?>)*<\/p>)+/gi,''); html=html.replace(/(<p>(\s|<br\s*\/?>)*<\/p>)+$/gi,''); if(html&&!html.match(/^<(p|ul|ol|h[1-6])/i)) html='<p>'+html+'</p>'; return html.trim(); }
 
-function syncStatusUI(){
-  const pin=state.isPinned;
-  dom.statusLabel.className='status-label status-label--editing'; dom.statusLabel.textContent='Editing — not saved';
-  dom.btnPin.classList.toggle('is-on',pin); dom.btnPinLabel.textContent=pin?'Pinned':'Pin';
-  dom.sfStatusLabel.className='status-label status-label--editing'; dom.sfStatusLabel.textContent='Editing — not saved';
-  dom.sfBtnPin.classList.toggle('is-on',pin); dom.sfBtnPinLabel.textContent=pin?'Pinned':'Pin';
-}
+function syncStatusUI(){ const pin=state.isPinned; dom.statusLabel.className='status-label status-label--editing'; dom.statusLabel.textContent='Editing — not saved'; dom.btnPin.classList.toggle('is-on',pin); dom.btnPinLabel.textContent=pin?'Pinned':'Pin'; dom.sfStatusLabel.className='status-label status-label--editing'; dom.sfStatusLabel.textContent='Editing — not saved'; dom.sfBtnPin.classList.toggle('is-on',pin); dom.sfBtnPinLabel.textContent=pin?'Pinned':'Pin'; }
 
-/* SHEET */
-function openSheet(){
-  dom.sheet.classList.add('is-open');
-  dom.sheetBackdrop.classList.add('is-open');
-  dom.fab.classList.add('is-editing');
-  document.getElementById('fabLabel').textContent='Cancel';
-  document.body.style.overflow='hidden';
-  requestAnimationFrame(function(){
-    const body=dom.sheet.querySelector('.sheet__body');
-    if(body) body.scrollTop=0;
-  });
-}
-
-function closeSheet(){
-  dom.sheet.classList.remove('is-open');
-  dom.sheetBackdrop.classList.remove('is-open');
-  dom.fab.classList.remove('is-editing');
-  document.getElementById('fabLabel').textContent='New post';
-  document.body.style.overflow='';
-}
-
+function openSheet(){ dom.sheet.classList.add('is-open'); dom.sheetBackdrop.classList.add('is-open'); dom.fab.classList.add('is-editing'); document.getElementById('fabLabel').textContent='Cancel'; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ const body=dom.sheet.querySelector('.sheet__body'); if(body) body.scrollTop=0; }); }
+function closeSheet(){ dom.sheet.classList.remove('is-open'); dom.sheetBackdrop.classList.remove('is-open'); dom.fab.classList.remove('is-editing'); document.getElementById('fabLabel').textContent='New post'; document.body.style.overflow=''; }
 function toggleEditorPanel(){ state.editorOpen=!state.editorOpen; dom.editorPanel.classList.toggle('is-open',state.editorOpen); dom.collapsedChevron.classList.toggle('is-open',state.editorOpen); }
 function openEditorPanel(){ state.editorOpen=true; dom.editorPanel.classList.add('is-open'); dom.collapsedChevron.classList.add('is-open'); }
 function closeEditorPanel(){ state.editorOpen=false; dom.editorPanel.classList.remove('is-open'); dom.collapsedChevron.classList.remove('is-open'); }
@@ -522,57 +471,11 @@ function clearSheet(){ dom.sfEvent.value=''; dom.sfTeam.value=''; dom.sfMatchTim
 function fillDesktop(p){ dom.fEvent.value=p.event||''; dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
 function fillSheet(p){ dom.sfEvent.value=p.event||''; dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
 
-function setEditorNew(){
-  state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false;
-  dom.editorHead.className='editor-panel__head editor-panel__head--new'; dom.editorHead.style.background=''; dom.editorHead.style.borderBottomColor='';
-  dom.editorTitle.textContent='New post'; dom.editorSubtitle.textContent='Compose a new live blog entry';
-  dom.editorId.style.display='none'; dom.clockTimeField.style.display='none';
-  dom.btnDelete.style.display='none'; dom.btnUpdate.textContent='Save & Publish';
-  dom.collapsedTitle.textContent='+ New Post'; dom.collapsedSub.textContent='Click to compose · or click a post to edit';
-  dom.sheetHead.className='sheet__head sheet__head--new'; dom.sheetHead.style.background=''; dom.sheetHead.style.borderBottomColor='';
-  dom.sheetTitle.textContent='New post'; dom.sheetSubtitle.textContent='Compose a new entry';
-  dom.sheetId.style.display='none'; dom.sfClockTimeField.style.display='none';
-  dom.sfBtnDelete.style.display='none'; dom.sfBtnUpdate.textContent='Save & Publish';
-  dom.fab.classList.remove('is-editing');
-  syncStatusUI();
-}
+function setEditorNew(){ state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false; dom.editorHead.className='editor-panel__head editor-panel__head--new'; dom.editorHead.style.background=''; dom.editorHead.style.borderBottomColor=''; dom.editorTitle.textContent='New post'; dom.editorSubtitle.textContent='Compose a new live blog entry'; dom.editorId.style.display='none'; dom.clockTimeField.style.display='none'; dom.btnDelete.style.display='none'; dom.btnUpdate.textContent='Save & Publish'; dom.collapsedTitle.textContent='+ New Post'; dom.collapsedSub.textContent='Click to compose · or click a post to edit'; dom.sheetHead.className='sheet__head sheet__head--new'; dom.sheetHead.style.background=''; dom.sheetHead.style.borderBottomColor=''; dom.sheetTitle.textContent='New post'; dom.sheetSubtitle.textContent='Compose a new entry'; dom.sheetId.style.display='none'; dom.sfClockTimeField.style.display='none'; dom.sfBtnDelete.style.display='none'; dom.sfBtnUpdate.textContent='Save & Publish'; dom.fab.classList.remove('is-editing'); syncStatusUI(); }
 
-function openEditEditor(post){
-  state.activeId=post.id||''; state.isNew=false; state.isPublished=true; state.isPinned=!!post.pinned;
-  const colors=getColors(post.team);
-  const label='Editing: '+(post.team||post.event||post.id||'');
-  const sub=post.match_time||(post.clock_time?post.clock_time.slice(11,16):'');
-  // Fill both editors first
-  fillDesktop(post); fillSheet(post);
-  // Desktop
-  dom.editorHead.className='editor-panel__head editor-panel__head--edit';
-  dom.editorHead.style.background=colors.bg; dom.editorHead.style.borderBottomColor=colors.border;
-  dom.editorTitle.textContent=label; dom.editorSubtitle.textContent=sub;
-  dom.editorId.textContent='ID: '+post.id; dom.editorId.style.display='block';
-  dom.clockTimeField.style.display='flex'; dom.btnDelete.style.display='inline-flex';
-  dom.btnUpdate.textContent='Save & Publish';
-  dom.collapsedTitle.textContent=label; dom.collapsedSub.textContent='Click to expand editor';
-  // Sheet
-  dom.sheetHead.className='sheet__head sheet__head--edit';
-  dom.sheetHead.style.background=colors.bg; dom.sheetHead.style.borderBottomColor=colors.border;
-  dom.sheetTitle.textContent=label; dom.sheetSubtitle.textContent=sub;
-  dom.sheetId.textContent='ID: '+post.id; dom.sheetId.style.display='block';
-  dom.sfClockTimeField.style.display='flex';
-  dom.sfBtnDelete.style.display='inline-flex';
-  dom.sfBtnUpdate.textContent='Save & Publish';
-  syncStatusUI();
-  setStatus('Editing: '+(post.team||post.event||post.id));
-  // Open correct UI — on mobile always use sheet
-  if(isMobile()){
-    openSheet();
-  } else {
-    openEditorPanel();
-    scheduleFeedRender();
-  }
-}
+function openEditEditor(post){ state.activeId=post.id||''; state.isNew=false; state.isPublished=true; state.isPinned=!!post.pinned; const colors=getColors(post.team); const label='Editing: '+(post.team||post.event||post.id||''); const sub=post.match_time||(post.clock_time?post.clock_time.slice(11,16):''); fillDesktop(post); fillSheet(post); dom.editorHead.className='editor-panel__head editor-panel__head--edit'; dom.editorHead.style.background=colors.bg; dom.editorHead.style.borderBottomColor=colors.border; dom.editorTitle.textContent=label; dom.editorSubtitle.textContent=sub; dom.editorId.textContent='ID: '+post.id; dom.editorId.style.display='block'; dom.clockTimeField.style.display='flex'; dom.btnDelete.style.display='inline-flex'; dom.btnUpdate.textContent='Save & Publish'; dom.collapsedTitle.textContent=label; dom.collapsedSub.textContent='Click to expand editor'; dom.sheetHead.className='sheet__head sheet__head--edit'; dom.sheetHead.style.background=colors.bg; dom.sheetHead.style.borderBottomColor=colors.border; dom.sheetTitle.textContent=label; dom.sheetSubtitle.textContent=sub; dom.sheetId.textContent='ID: '+post.id; dom.sheetId.style.display='block'; dom.sfClockTimeField.style.display='flex'; dom.sfBtnDelete.style.display='inline-flex'; dom.sfBtnUpdate.textContent='Save & Publish'; syncStatusUI(); setStatus('Editing: '+(post.team||post.event||post.id)); if(isMobile()){ openSheet(); } else { openEditorPanel(); scheduleFeedRender(); } }
 
 function handleCancel(){ closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
-
 function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTimer); state.renderTimer=setTimeout(renderFeed,150); }
 
 function renderFeed(){
@@ -587,80 +490,20 @@ function renderFeed(){
   all.forEach(item=>{ if(item.type==='sub') html+=buildSubCardHtml(item.data); else html+=buildPostCardHtml(item.data); });
   if(!html){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
   dom.feedEl.innerHTML=html;
-  // Bind card clicks — use touchend on mobile to avoid delay
   dom.feedEl.querySelectorAll('.fcard[data-pid]').forEach(function(el){
-    function handler(e){
-      e.preventDefault();
-      e.stopPropagation();
-      const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid'));
-      if(post) openEditEditor(post);
-    }
-    if('ontouchstart' in window){
-      var sx=0,sy=0;
-      el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
-      el.addEventListener('touchend',function(e){
-        const dx=Math.abs(e.changedTouches[0].clientX-sx);
-        const dy=Math.abs(e.changedTouches[0].clientY-sy);
-        if(dx<10&&dy<10) handler(e);
-      });
-    } else {
-      el.addEventListener('click',handler);
-    }
+    function handler(e){ e.preventDefault(); e.stopPropagation(); const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid')); if(post) openEditEditor(post); }
+    if('ontouchstart' in window){ var sx=0,sy=0; el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true}); el.addEventListener('touchend',function(e){ const dx=Math.abs(e.changedTouches[0].clientX-sx); const dy=Math.abs(e.changedTouches[0].clientY-sy); if(dx<10&&dy<10) handler(e); }); } else { el.addEventListener('click',handler); }
   });
   dom.feedEl.querySelectorAll('[data-sub-unpub]').forEach(btn=>{ btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); }); });
   hydrateTweets(dom.feedEl);
 }
 
-function isTweetUrl(url){ const s=String(url||'').trim(); if(/^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s)) return true; if(/^https?:\/\/(www\.)?x\.com\/(i\/|i\/web\/)/i.test(s)) return true; return false; }
-function getTweetId(url){ const s=String(url||'').trim(); const m=s.match(/\/status\/(\d+)/i); return m?m[1]:''; }
-
-let xWidgetsPromise=null;
-function loadXWidgets(){
-  if(window.twttr&&window.twttr.widgets) return Promise.resolve(window.twttr);
-  if(xWidgetsPromise) return xWidgetsPromise;
-  xWidgetsPromise=new Promise(function(resolve,reject){ const s=document.createElement('script'); s.async=true; s.src='https://platform.x.com/widgets.js'; s.charset='utf-8'; s.onload=function(){ resolve(window.twttr); }; s.onerror=reject; document.head.appendChild(s); });
-  return xWidgetsPromise;
-}
-
-async function hydrateTweets(root){
-  const placeholders=Array.from((root||document).querySelectorAll('.admin-tweet-placeholder[data-tweet-url]'));
-  if(!placeholders.length) return;
-  try{
-    const twttr=await loadXWidgets();
-    if(!twttr||!twttr.widgets||typeof twttr.widgets.createTweet!=='function') throw new Error('X widgets unavailable');
-    for(const ph of placeholders){
-      const url=ph.dataset.tweetUrl;
-      const id=getTweetId(url);
-      if(ph.dataset.rendered==='1') continue;
-      ph.dataset.rendered='1';
-      if(!id){ ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;">${escHtml(url)}</a>`; continue; }
-      try{ await twttr.widgets.createTweet(id,ph,{align:'center',dnt:true,theme:'light'}); }
-      catch(e){ ph.innerHTML=`<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);font-size:.82rem;">${escHtml(url)}</a>`; }
-    }
-  }catch(e){ console.warn('X widget load failed',e); }
-}
-
-function buildMediaPreview(post){
-  const type=String(post.media_type||'').toLowerCase();
-  const url=String(post.media_url||'').trim();
-  if(!url) return '';
-  if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`;
-  if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`;
-  if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; }
-  if(type==='embed'||type==='x'||type==='tweet'){
-    if(isTweetUrl(url)){
-      return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:80px;display:flex;align-items:center;justify-content:center;color:#888;font-size:.8rem;">Loading tweet…</div></div>`;
-    }
-    return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`;
-  }
-  return '';
-}
+function buildMediaPreview(post){ const type=String(post.media_type||'').toLowerCase(); const url=String(post.media_url||'').trim(); if(!url) return ''; if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`; if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`; if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; } if(type==='embed'||type==='x'||type==='tweet'){ if(isTweetUrl(url)){ return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:80px;display:flex;align-items:center;justify-content:center;color:#888;font-size:.8rem;">Loading tweet…</div></div>`; } return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`; } return ''; }
 
 function buildPostCardHtml(post){ const colors=getColors(post.team); const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):'')); const h=String(post.home??'').trim(); const a=String(post.away??'').trim(); const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim(); const sc=h!==''&&a!==''?escHtml(h+' – '+a):''; const pe=hp&&ap?escHtml('('+hp+' – '+ap+' pens)'):''; const pills=[]; if(post.published) pills.push('<span class="fpill fpill--live">Live</span>'); else pills.push('<span class="fpill fpill--draft">Draft</span>'); if(post.pinned) pills.push('<span class="fpill fpill--pinned">Pinned</span>'); if(String(post.id)===String(state.activeId)) pills.push('<span class="fpill fpill--editing">Editing</span>'); return `<div class="fcard${post.pinned?' is-pinned':''}${String(post.id)===String(state.activeId)?' is-editing':''}" data-pid="${escHtml(post.id)}" style="cursor:pointer;"><div class="fcard__head" style="background:${colors.bg};border-bottom-color:${colors.border}"><div class="fcard__head-left">${tl?`<span class="fcard__chip">${tl}</span>`:''}${getEventIcon(post.event)}<div>${post.team?`<div class="fcard__team">${escHtml(post.team)}</div>`:''}${post.event?`<div class="fcard__event">${escHtml(post.event)}</div>`:''}</div></div><div class="fcard__score-wrap">${sc?`<span class="fcard__score">${sc}</span>`:''}${pe?`<span class="fcard__pens">${pe}</span>`:''}</div></div>${buildMediaPreview(post)}${post.copy_html?`<div class="fcard__body">${post.copy_html}</div>`:''}<div class="fcard__footer">${pills.join('')}</div></div>`; }
 
 function buildSubCardHtml(sub){ const name=escHtml(sub.name||'Anonymous'); const note=escHtml(sub.note||''); const time=sub.timestamp?escHtml(sub.timestamp.slice(0,16).replace('T',' ')):''; const stableId=String(sub.sub_id||sub.row_id); const isNew=state.subTimestamps.has(stableId)&&(Date.now()-state.subTimestamps.get(stableId))<NEW_SUB_MS; return `<div class="fcard fcard--sub${isNew?' scard-new-feed':''}"><div class="fcard__main">${time?`<div class="fan-time">${time}</div>`:''}<div class="fan-quote">${note}</div><div class="fan-byline">— ${name}</div></div><div class="fcard__strip"><span class="fcard__strip-label">Fan note</span><button class="btn btn--sm" style="background:rgba(255,255,255,.15);color:#fff;font-size:.62rem;" data-sub-unpub="${sub.row_id}" type="button">Unpublish</button></div></div>`; }
 
-/* SUBMISSIONS */
 function subStableId(item){ return String(item.sub_id||item.row_id); }
 
 function renderSubRail(){
@@ -669,81 +512,35 @@ function renderSubRail(){
   const countText=`${visible.length} total · ${pending} pending`;
   dom.subCounts.textContent=countText; dom.subCountsMobile.textContent=countText;
   dom.subBadge.textContent=String(pending); dom.subBadge.classList.toggle('is-visible',pending>0);
-
-  const html=visible.length?visible.map(function(item){
-    const name=escHtml(item.name||'Anonymous'); const note=escHtml(item.note||'');
-    const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):'';
-    const isPub=!!item.published; const sid=subStableId(item);
-    const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS;
-    return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" type="button">🗑</button></div></div>`;
-  }).join(''):'<div class="rail-empty">No submissions.</div>';
-
+  const html=visible.length?visible.map(function(item){ const name=escHtml(item.name||'Anonymous'); const note=escHtml(item.note||''); const time=item.timestamp?escHtml(item.timestamp.slice(0,16).replace('T',' ')):''; const isPub=!!item.published; const sid=subStableId(item); const isNew=state.subTimestamps.has(sid)&&(Date.now()-state.subTimestamps.get(sid))<NEW_SUB_MS; return `<div class="scard${isNew?' is-new':''}"><div class="scard__body"><div class="scard__name">${name}</div><div class="scard__time">${time}</div><div class="scard__note">${note}</div></div><div class="scard__actions"><button class="scard__btn scard__btn--pub${isPub?' is-active':''}" data-sub="publish" data-row="${item.row_id}" type="button">✓ Publish</button><button class="scard__btn scard__btn--hide${!isPub?' is-active':''}" data-sub="unpublish" data-row="${item.row_id}" type="button">✕ Hide</button><button class="scard__btn scard__btn--del" data-sub="delete" data-stable="${sid}" type="button">🗑</button></div></div>`; }).join(''):'<div class="rail-empty">No submissions.</div>';
   dom.subRailBody.innerHTML=html; dom.subRailBodyMobile.innerHTML=html;
-  [dom.subRailBody,dom.subRailBodyMobile].forEach(function(container){
-    container.querySelectorAll('[data-sub]').forEach(function(btn){
-      btn.addEventListener('click',function(e){ e.stopPropagation(); const action=btn.getAttribute('data-sub'); const row=btn.getAttribute('data-row'); if(action==='delete'){ const sid=btn.getAttribute('data-stable')||row; state.hiddenSubs.add(String(sid)); saveHiddenSubs(); renderSubRail(); renderFeed(); } else updateSub(row,action==='publish').catch(handleErr); });
-    });
-  });
+  [dom.subRailBody,dom.subRailBodyMobile].forEach(function(container){ container.querySelectorAll('[data-sub]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); const action=btn.getAttribute('data-sub'); const row=btn.getAttribute('data-row'); if(action==='delete'){ const sid=btn.getAttribute('data-stable')||row; state.hiddenSubs.add(String(sid)); saveHiddenSubs(); renderSubRail(); renderFeed(); } else updateSub(row,action==='publish').catch(handleErr); }); }); });
 }
 
 function getPayload(isSheet){ const ev=isSheet?dom.sfEvent:dom.fEvent; const team=isSheet?dom.sfTeam:dom.fTeam; const mt=isSheet?dom.sfMatchTime:dom.fMatchTime; const ct=isSheet?dom.sfClockTime:dom.fClockTime; const h=isSheet?dom.sfHome:dom.fHome; const a=isSheet?dom.sfAway:dom.fAway; const hp=isSheet?dom.sfHomePens:dom.fHomePens; const ap=isSheet?dom.sfAwayPens:dom.fAwayPens; const copy=isSheet?dom.sfCopy:dom.fCopy; const mt2=isSheet?dom.sfMediaType:dom.fMediaType; const mu=isSheet?dom.sfMediaUrl:dom.fMediaUrl; const richData=extractRichData(copy); const cleanHtml=sanitiseRteHtml(copy); return { action:'savePost', id:state.activeId||'', published:'TRUE', pinned:state.isPinned?'TRUE':'FALSE', deleted:'FALSE', event:ev.value.trim(), team:team.value.trim(), match_time:mt.value.trim(), clock_time:ct.value.trim(), home:h.value.trim(), away:a.value.trim(), home_pens:hp.value.trim(), away_pens:ap.value.trim(), copy_text:richData.text, copy_html:cleanHtml, copy_formats:JSON.stringify(richData.formats), media_type:mt2.value.trim(), media_url:mu.value.trim() }; }
 
-async function savePost(isSheet){
-  if(state.saveInFlight){ return; } // prevent double-tap duplicate
-  state.saveInFlight=true;
-  const payload=getPayload(isSheet);
-  if(!payload.event&&!payload.team&&!payload.copy_text){ setStatus('Needs event, team or copy.','error'); state.saveInFlight=false; return; }
-  const updBtn=isSheet?dom.sfBtnUpdate:dom.btnUpdate;
-  const prevLabel=updBtn.textContent;
-  updBtn.disabled=true; updBtn.textContent='Saving…';
-  setStatus('Saving…');
-  try{ const data=await apiFetch(payload); setStatus(data.message||'Saved.','success'); await loadPosts(); }
-  catch(err){ handleErr(err); }
-  finally{ updBtn.disabled=false; updBtn.textContent=prevLabel; state.saveInFlight=false; }
-}
+async function savePost(isSheet){ if(state.saveInFlight){ return; } state.saveInFlight=true; const payload=getPayload(isSheet); if(!payload.event&&!payload.team&&!payload.copy_text){ setStatus('Needs event, team or copy.','error'); state.saveInFlight=false; return; } const updBtn=isSheet?dom.sfBtnUpdate:dom.btnUpdate; const prevLabel=updBtn.textContent; updBtn.disabled=true; updBtn.textContent='Saving…'; setStatus('Saving…'); try{ const data=await apiFetch(payload); setStatus(data.message||'Saved.','success'); await loadPosts(); } catch(err){ handleErr(err); } finally{ updBtn.disabled=false; updBtn.textContent=prevLabel; state.saveInFlight=false; } }
 
 async function updateAndClose(isSheet){ await savePost(isSheet); closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); renderFeed(); }
-
 async function deletePost(){ if(!state.activeId){ setStatus('No post selected.','error'); return; } if(!window.confirm('Soft-delete this post?')) return; setStatus('Deleting…'); const data=await apiFetch({action:'deletePost',id:state.activeId}); setStatus(data.message||'Deleted.','success'); closeEditorPanel(); closeSheet(); setEditorNew(); clearDesktop(); clearSheet(); await loadPosts(); }
 
 async function updateSub(rowId,publish){ const current=state.submissions.find(s=>String(s.row_id)===String(rowId)); if(!current){ setStatus('Submission not found.','error'); return; } const prev={published:current.published,timestamp_ms:current.timestamp_ms,timestamp:current.timestamp}; if(publish){ const now=new Date(); current.published=true; current.timestamp_ms=now.getTime(); current.timestamp=now.toISOString().slice(0,16).replace('T',' '); } else{ current.published=false; current.timestamp_ms=0; current.timestamp=''; } renderSubRail(); renderFeed(); try{ await apiFetch({action:'updateSubmission',row_id:rowId,name:current.name||'',note:current.note||'',status:publish?'published':'pending',published:publish?'TRUE':'FALSE'}); setStatus(publish?'Published.':'Unpublished.','success'); } catch(err){ current.published=prev.published; current.timestamp_ms=prev.timestamp_ms; current.timestamp=prev.timestamp; renderSubRail(); renderFeed(); handleErr(err); } }
 
 async function loadPosts(){ const data=await apiGet({action:'listPosts'}); state.posts=Array.isArray(data.items)?data.items:[]; renderFeed(); }
-
 function normaliseSubs(items){ return items.map(function(item){ const rawPubTime=item.publishtime||item.publish_time||''; if(rawPubTime){ const d=new Date(rawPubTime); if(!isNaN(d.getTime())){ item.timestamp_ms=d.getTime(); item.timestamp=rawPubTime.slice(0,16).replace('T',' '); return item; } } const rawSubmitted=item.timestamp||''; if(rawSubmitted){ const d=new Date(rawSubmitted); if(!isNaN(d.getTime())){ item.timestamp_ms=0; item.timestamp=rawSubmitted.slice(0,16).replace('T',' '); return item; } } item.timestamp_ms=0; item.timestamp=''; return item; }); }
 
 async function loadSubs(){
   const data=await apiGet({action:'listSubmissions'});
   const incoming=normaliseSubs(Array.isArray(data.items)?data.items:[]);
-  // Detect new submissions not previously seen
   const prevIds=new Set(state.submissions.map(s=>subStableId(s)));
   let newCount=0;
-  incoming.forEach(function(item){
-    const sid=subStableId(item);
-    if(!prevIds.has(sid)){
-      state.subTimestamps.set(sid,Date.now());
-      newCount++;
-    }
-  });
+  incoming.forEach(function(item){ const sid=subStableId(item); if(!prevIds.has(sid)){ state.subTimestamps.set(sid,Date.now()); newCount++; } });
   state.submissions=incoming;
-  // Show notification banner if new subs arrived and we're not looking at them
-  if(newCount>0){
-    state.pendingNewSubs+=newCount;
-    const label=`${state.pendingNewSubs} new submission${state.pendingNewSubs>1?'s':''}`;
-    dom.subNewBannerText.textContent=label;
-    dom.subNewBannerMobileText.textContent=label;
-    dom.subNewBanner.classList.add('is-visible');
-    dom.subNewBannerMobile.classList.add('is-visible');
-  }
-  renderSubRail();
-  renderFeed();
+  if(newCount>0){ state.pendingNewSubs+=newCount; const label=`${state.pendingNewSubs} new submission${state.pendingNewSubs>1?'s':''}`; dom.subNewBannerText.textContent=label; dom.subNewBannerMobileText.textContent=label; dom.subNewBanner.classList.add('is-visible'); dom.subNewBannerMobile.classList.add('is-visible'); }
+  renderSubRail(); renderFeed();
 }
 
-function dismissNewSubBanner(){
-  state.pendingNewSubs=0;
-  dom.subNewBanner.classList.remove('is-visible');
-  dom.subNewBannerMobile.classList.remove('is-visible');
-}
+function dismissNewSubBanner(){ state.pendingNewSubs=0; dom.subNewBanner.classList.remove('is-visible'); dom.subNewBannerMobile.classList.remove('is-visible'); }
 
 async function reloadAll(){ setStatus('Loading…'); try{ await Promise.all([loadPosts(),loadSubs()]); setStatus('Loaded.','success'); } catch(err){ handleErr(err); dom.feedEl.innerHTML='<div class="feed-empty">Could not load — check API URL.</div>'; } }
 
@@ -753,20 +550,7 @@ function buildCombo(inputEl,listEl,options){ let focused=-1; function showList(f
 
 function bindSheetDrag(){ let startY=0,dragging=false; dom.sheetHandle.addEventListener('touchstart',function(e){ startY=e.touches[0].clientY; dragging=true; },{passive:true}); document.addEventListener('touchend',function(e){ if(!dragging) return; dragging=false; if(e.changedTouches[0].clientY-startY>80) handleCancel(); },{passive:true}); }
 
-function switchTab(tab){
-  dom.tabFeed.classList.toggle('is-active',tab==='feed');
-  dom.tabSubs.classList.toggle('is-active',tab==='subs');
-  if(tab==='subs'){
-    dom.panelSubs.style.display='block';
-    document.querySelector('.feed-toolbar').style.display='none';
-    dom.feedEl.style.display='none';
-    dismissNewSubBanner();
-  } else {
-    dom.panelSubs.style.display='none';
-    document.querySelector('.feed-toolbar').style.display='';
-    dom.feedEl.style.display='';
-  }
-}
+function switchTab(tab){ dom.tabFeed.classList.toggle('is-active',tab==='feed'); dom.tabSubs.classList.toggle('is-active',tab==='subs'); if(tab==='subs'){ dom.panelSubs.style.display='block'; document.querySelector('.feed-toolbar').style.display='none'; dom.feedEl.style.display='none'; dismissNewSubBanner(); } else { dom.panelSubs.style.display='none'; document.querySelector('.feed-toolbar').style.display=''; dom.feedEl.style.display=''; } }
 
 function loadHiddenSubs(){ try{ const raw=localStorage.getItem('nllb-hidden-subs'); if(raw) JSON.parse(raw).forEach(function(id){ state.hiddenSubs.add(String(id)); }); }catch(e){} }
 function saveHiddenSubs(){ try{ localStorage.setItem('nllb-hidden-subs',JSON.stringify([...state.hiddenSubs])); }catch(e){} }
@@ -779,30 +563,18 @@ async function init(){
   buildCombo(dom.sfEvent,$('sfComboEventList'),EVENT_OPTIONS);
   buildCombo(dom.sfTeam,$('sfComboTeamList'),TEAM_OPTIONS);
   bindRTE(); bindSheetDrag();
-  function bindBtn(el, handler){
-    var lastTap=0;
-    el.addEventListener('touchend',function(e){
-      e.preventDefault();
-      const now=Date.now();
-      if(now-lastTap<800){ return; } // ignore rapid double-tap
-      lastTap=now;
-      handler();
-    });
-    el.addEventListener('click',function(e){
-      if('ontouchstart' in window) return; // skip synthetic click on touch devices
-      handler();
-    });
-  }
+
+  function bindBtn(el,handler){ var lastTap=0; el.addEventListener('touchend',function(e){ e.preventDefault(); const now=Date.now(); if(now-lastTap<800){ return; } lastTap=now; handler(); }); el.addEventListener('click',function(e){ if('ontouchstart' in window) return; handler(); }); }
 
   dom.editorCollapsed.addEventListener('click',toggleEditorPanel);
   dom.btnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); scheduleFeedRender(); });
-  bindBtn(dom.btnUpdate, function(){ updateAndClose(false).catch(handleErr); });
+  bindBtn(dom.btnUpdate,function(){ updateAndClose(false).catch(handleErr); });
   dom.btnCancel.addEventListener('click',handleCancel);
   dom.btnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
   [dom.fMatchTime,dom.fHome,dom.fAway,dom.fHomePens,dom.fAwayPens,dom.fMediaUrl].forEach(function(el){ el.addEventListener('input',scheduleFeedRender); });
   dom.fMediaType.addEventListener('change',scheduleFeedRender);
   dom.sfBtnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); });
-  bindBtn(dom.sfBtnUpdate, function(){ updateAndClose(true).catch(handleErr); });
+  bindBtn(dom.sfBtnUpdate,function(){ updateAndClose(true).catch(handleErr); });
   dom.sfBtnCancel.addEventListener('click',handleCancel);
   dom.sfBtnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
   dom.fab.addEventListener('click',function(){ if(dom.sheet.classList.contains('is-open')){ handleCancel(); } else { setEditorNew(); clearSheet(); openSheet(); } });
@@ -816,7 +588,6 @@ async function init(){
   dom.feedSearch.addEventListener('input',function(){ state.search=dom.feedSearch.value; renderFeed(); });
   setEditorNew();
   await reloadAll();
-  // Poll submissions every 15s
   window.setInterval(function(){ loadSubs().catch(handleErr); },15000);
 }
 
