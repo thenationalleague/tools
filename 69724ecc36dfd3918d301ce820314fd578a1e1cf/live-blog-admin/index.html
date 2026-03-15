@@ -1,6 +1,7 @@
 <!--
   CHANGELOG
-  v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality (save, delete, ordering, submissions) unchanged
+  v87 — fixed "Cannot read properties of undefined" error on load; label elements replaced with div+role=button for pin toggles; null safety check added to init() to surface missing DOM elements; DOM-diff renderFeed() retained from v86
+  v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
   v82 — changelog entries corrected and backdated accurately for all versions
@@ -33,7 +34,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v85</title>
+<title>Live Blog Admin v87</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -274,7 +275,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v85</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v87</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -321,10 +322,10 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
         </div>
         <div class="editor-actions">
           <span class="status-label status-label--editing" id="statusLabel">Editing — not saved</span>
-          <label class="pin-toggle" id="pinToggle" title="Pin to top">
+          <div class="pin-toggle" id="pinToggle" role="button" tabindex="0" title="Pin to top">
             <div class="pin-toggle__track" id="pinTrack"><div class="pin-toggle__thumb"></div></div>
             <span class="pin-toggle__label" id="pinLabel">Pin</span>
-          </label>
+          </div>
           <div style="flex:1 1 auto;"></div>
           <button class="btn btn--ghost btn--md" id="btnCancel" type="button">Cancel</button>
           <button class="btn btn--danger btn--md" id="btnDelete" type="button" style="display:none;">Delete</button>
@@ -418,10 +419,10 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   </div>
   <div class="sheet__actions">
     <span class="status-label status-label--editing" id="sfStatusLabel">Editing — not saved</span>
-    <label class="pin-toggle" id="sfPinToggle" title="Pin to top">
+    <div class="pin-toggle" id="sfPinToggle" role="button" tabindex="0" title="Pin to top">
       <div class="pin-toggle__track" id="sfPinTrack"><div class="pin-toggle__thumb"></div></div>
       <span class="pin-toggle__label" id="sfPinLabel">Pin</span>
-    </label>
+    </div>
     <div style="flex:1 1 auto;"></div>
     <button class="btn btn--ghost btn--md" id="sfBtnCancel" type="button">Cancel</button>
     <button class="btn btn--danger btn--md" id="sfBtnDelete" type="button" style="display:none;">Delete</button>
@@ -552,6 +553,16 @@ function openEditEditor(post){ state.activeId=post.id||''; state.isNew=false; st
 function handleCancel(){ closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
 function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTimer); state.renderTimer=setTimeout(renderFeed,150); }
 
+function cardSignature(item){
+  if(item.type==='post'){
+    const p=item.data;
+    return [p.id,p.team,p.event,p.match_time,p.clock_time,p.home,p.away,p.home_pens,p.away_pens,p.copy_html,p.media_type,p.media_url,p.published,p.pinned,String(p.id)===String(state.activeId)].join('|');
+  } else {
+    const s=item.data;
+    return ['sub',s.row_id,s.name,s.note,s.published,s.timestamp].join('|');
+  }
+}
+
 function renderFeed(){
   const q=state.search.toLowerCase();
   const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
@@ -560,16 +571,57 @@ function renderFeed(){
   if(q) all=all.filter(item=>{ const d=item.data; return (d.team||'').toLowerCase().includes(q)||(d.event||'').toLowerCase().includes(q)||(d.match_time||'').toLowerCase().includes(q)||(d.name||'').toLowerCase().includes(q)||(d.note||'').toLowerCase().includes(q)||(d.copy_html||'').replace(/<[^>]+>/g,'').toLowerCase().includes(q); });
   const total=state.posts.filter(p=>!p.deleted).length; const live=state.posts.filter(p=>p.published&&!p.deleted).length;
   dom.feedTitle.textContent=`Live feed — ${live} live of ${total} posts`;
-  let html='';
-  all.forEach(item=>{ if(item.type==='sub') html+=buildSubCardHtml(item.data); else html+=buildPostCardHtml(item.data); });
-  if(!html){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
-  dom.feedEl.innerHTML=html;
-  dom.feedEl.querySelectorAll('.fcard[data-pid]').forEach(function(el){
-    function handler(e){ e.preventDefault(); e.stopPropagation(); const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid')); if(post) openEditEditor(post); }
-    if('ontouchstart' in window){ var sx=0,sy=0; el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true}); el.addEventListener('touchend',function(e){ const dx=Math.abs(e.changedTouches[0].clientX-sx); const dy=Math.abs(e.changedTouches[0].clientY-sy); if(dx<10&&dy<10) handler(e); }); } else { el.addEventListener('click',handler); }
+
+  if(!all.length){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
+
+  // Build map of existing DOM nodes by id
+  const existingNodes=new Map();
+  Array.from(dom.feedEl.children).forEach(function(el){ if(el.dataset&&el.dataset.cardId) existingNodes.set(el.dataset.cardId,el); });
+
+  const nextIds=new Set(all.map(item=>String(item.id)));
+
+  // Remove nodes no longer in the list
+  existingNodes.forEach(function(el,id){ if(!nextIds.has(id)){ el.remove(); existingNodes.delete(id); } });
+
+  // Insert/update/reorder
+  all.forEach(function(item,index){
+    const id=String(item.id);
+    const sig=cardSignature(item);
+    let el=existingNodes.get(id);
+
+    if(!el){
+      // Create new card
+      el=document.createElement('div');
+      el.dataset.cardId=id;
+      el.dataset.sig='';
+      dom.feedEl.appendChild(el);
+      existingNodes.set(id,el);
+    }
+
+    // Only re-render HTML if content changed
+    if(el.dataset.sig!==sig){
+      el.dataset.sig=sig;
+      const html=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
+      el.innerHTML=html;
+      el.className=''; // reset wrapper class — card sets its own class inside
+
+      // Bind events on new/updated cards
+      const fcard=el.querySelector('.fcard[data-pid]');
+      if(fcard){
+        function handler(e){ e.preventDefault(); e.stopPropagation(); const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid')); if(post) openEditEditor(post); }
+        if('ontouchstart' in window){ var sx=0,sy=0; fcard.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true}); fcard.addEventListener('touchend',function(e){ const dx=Math.abs(e.changedTouches[0].clientX-sx); const dy=Math.abs(e.changedTouches[0].clientY-sy); if(dx<10&&dy<10) handler(e); }); } else { fcard.addEventListener('click',handler); }
+      }
+      const unpubBtn=el.querySelector('[data-sub-unpub]');
+      if(unpubBtn){ unpubBtn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(unpubBtn.getAttribute('data-sub-unpub'),false).catch(handleErr); }); }
+
+      // Hydrate tweets only on newly rendered cards
+      hydrateTweets(el);
+    }
+
+    // Reorder if needed
+    const currentEl=dom.feedEl.children[index];
+    if(currentEl!==el) dom.feedEl.insertBefore(el,currentEl||null);
   });
-  dom.feedEl.querySelectorAll('[data-sub-unpub]').forEach(btn=>{ btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); }); });
-  hydrateTweets(dom.feedEl);
 }
 
 function buildMediaPreview(post){ const type=String(post.media_type||'').toLowerCase(); const url=String(post.media_url||'').trim(); if(!url) return ''; if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`; if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`; if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; } if(type==='embed'||type==='x'||type==='tweet'){ if(isTweetUrl(url)){ return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:80px;display:flex;align-items:center;justify-content:center;color:#888;font-size:.8rem;">Loading tweet…</div></div>`; } return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`; } return ''; }
@@ -631,6 +683,10 @@ function saveHiddenSubs(){ try{ localStorage.setItem('nllb-hidden-subs',JSON.str
 function handleErr(err){ console.error(err); setStatus(err&&err.message?err.message:'Something went wrong.','error'); }
 
 async function init(){
+  // Safety check — catch any missing DOM elements before binding
+  const missing=Object.entries(dom).filter(([k,v])=>!v).map(([k])=>k);
+  if(missing.length){ console.error('Missing DOM elements:',missing); setStatus('Init error: missing '+missing.join(', '),'error'); return; }
+
   loadHiddenSubs();
   buildCombo(dom.fEvent,$('comboEventList'),EVENT_OPTIONS);
   buildCombo(dom.fTeam,$('comboTeamList'),TEAM_OPTIONS);
