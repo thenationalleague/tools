@@ -20,7 +20,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v99</title>
+<title>Live Blog Admin v100</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -245,7 +245,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v99</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v100</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -532,7 +532,6 @@ function setEditorNew(){
 }
 
 function openEditEditor(post){
-  setStatus('Opening: '+(post.team||post.event||post.id));
   state.activeId=post.id||''; state.isNew=false; state.isPublished=true; state.isPinned=!!post.pinned;
   const colors=getColors(post.team);
   const label='Editing: '+(post.team||post.event||post.id||'');
@@ -545,16 +544,8 @@ function openEditEditor(post){
   dom.sheetHead.className='sheet__head sheet__head--edit'; dom.sheetHead.style.background=colors.bg; dom.sheetHead.style.borderBottomColor=colors.border;
   dom.sheetTitle.textContent=label; dom.sheetSubtitle.textContent=sub; dom.sheetId.textContent='ID: '+post.id; dom.sheetId.style.display='block';
   dom.sfClockTimeField.style.display='flex'; dom.sfBtnDelete.style.display='inline-flex'; dom.sfBtnUpdate.textContent='Save & Publish';
-  syncStatusUI();
-  const mobile=isMobile();
-  setStatus('isMobile='+mobile+' w='+window.innerWidth);
-  if(mobile){
-    setStatus('calling openSheet');
-    openSheet();
-  } else {
-    openEditorPanel();
-    scheduleFeedRender();
-  }
+  syncStatusUI(); setStatus('Editing: '+(post.team||post.event||post.id));
+  if(isMobile()) openSheet(); else { openEditorPanel(); scheduleFeedRender(); }
 }
 
 function handleCancel(){ closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
@@ -562,52 +553,18 @@ function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTi
 
 function renderFeed(){
   const q=state.search.toLowerCase();
-  const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:String(p.id)}));
+  const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
   const subItems=state.submissions.filter(s=>s.published&&!state.hiddenSubs.has(String(s.sub_id||s.row_id))).map(s=>({type:'sub',data:s,sort:s.timestamp_ms||0,id:'sub-'+(s.sub_id||s.row_id)}));
   let all=[...postItems,...subItems].sort((a,b)=>b.sort!==a.sort?b.sort-a.sort:String(b.id).localeCompare(String(a.id)));
   if(q) all=all.filter(item=>{ const d=item.data; return (d.team||'').toLowerCase().includes(q)||(d.event||'').toLowerCase().includes(q)||(d.match_time||'').toLowerCase().includes(q)||(d.name||'').toLowerCase().includes(q)||(d.note||'').toLowerCase().includes(q)||(d.copy_html||'').replace(/<[^>]+>/g,'').toLowerCase().includes(q); });
-  const total=state.posts.filter(p=>!p.deleted).length; const live=state.posts.filter(p=>p.published&&!p.deleted).length;
+  const total=state.posts.filter(p=>!p.deleted).length;
+  const live=state.posts.filter(p=>p.published&&!p.deleted).length;
   dom.feedTitle.textContent=`Live feed — ${live} live of ${total} posts`;
-
-  if(!all.length){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
-
-  // Keyed DOM update — preserve existing nodes to avoid destroying rendered tweets
-  const existing=new Map();
-  Array.from(dom.feedEl.querySelectorAll('[data-feed-id]')).forEach(function(el){ existing.set(el.dataset.feedId,el); });
-
-  // Remove nodes not in new list
-  const nextIds=new Set(all.map(item=>item.id));
-  existing.forEach(function(el,id){ if(!nextIds.has(id)){ el.remove(); } });
-
-  all.forEach(function(item,index){
-    const id=item.id;
-    const sig=item.type==='sub'
-      ? [id,item.data.published,item.data.timestamp].join('|')
-      : [id,item.data.published,item.data.pinned,item.data.copy_html,item.data.media_url,String(id)===String(state.activeId)].join('|');
-
-    let el=existing.get(id);
-    if(!el){
-      el=document.createElement('div');
-      el.dataset.feedId=id;
-      el.dataset.sig='';
-      el.style.width='100%';
-      el.style.display='flex';
-      el.style.flexDirection='column';
-      el.style.alignItems='center';
-    }
-
-    // Only re-render if content signature changed
-    if(el.dataset.sig!==sig){
-      el.dataset.sig=sig;
-      const html=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data);
-      el.innerHTML=html;
-      hydrateTweets(el);
-    }
-
-    // Reorder
-    const cur=dom.feedEl.children[index];
-    if(cur!==el) dom.feedEl.insertBefore(el,cur||null);
-  });
+  let html='';
+  all.forEach(item=>{ html+=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data); });
+  if(!html){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
+  dom.feedEl.innerHTML=html;
+  hydrateTweets(dom.feedEl);
 }
 
 function buildMediaPreview(post){ const type=String(post.media_type||'').toLowerCase(); const url=String(post.media_url||'').trim(); if(!url) return ''; if(type==='image') return `<div style="width:100%;background:#000;"><img src="${escHtml(url)}" alt="" style="display:block;width:100%;max-height:320px;object-fit:cover;"></div>`; if(type==='video') return `<div style="width:100%;background:#000;"><video controls preload="metadata" playsinline style="display:block;width:100%;max-height:320px;"><source src="${escHtml(url)}"></video></div>`; if(type==='gallery'){ const urls=url.split(',').map(u=>u.trim()).filter(Boolean); if(!urls.length) return ''; return `<div style="display:flex;gap:4px;padding:6px;background:#f6f7f9;overflow-x:auto;">${urls.map(u=>`<img src="${escHtml(u)}" alt="" style="height:80px;border-radius:6px;object-fit:cover;flex-shrink:0;">`).join('')}</div>`; } if(type==='embed'||type==='x'||type==='tweet'){ if(isTweetUrl(url)) return `<div style="padding:10px;background:#f6f7f9;"><div class="admin-tweet-placeholder" data-tweet-url="${escHtml(url)}" style="min-height:60px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:.78rem;">Loading tweet…</div></div>`; return `<div style="padding:8px 14px;background:#f6f7f9;font-size:.74rem;color:#555;">Embed: <a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--blue);">${escHtml(url.slice(0,60))}${url.length>60?'…':''}</a></div>`; } return ''; }
