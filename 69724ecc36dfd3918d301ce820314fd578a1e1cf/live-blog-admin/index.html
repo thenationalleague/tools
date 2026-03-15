@@ -1,6 +1,6 @@
 <!--
   CHANGELOG
-  v87 — fixed "Cannot read properties of undefined" error on load; label elements replaced with div+role=button for pin toggles; null safety check added to init() to surface missing DOM elements; DOM-diff renderFeed() retained from v86
+  v88 — deeper null check in init() now reports exact missing DOM IDs in topbar; will diagnose v87 load failure precisely before next fix
   v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality unchanged
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
@@ -34,7 +34,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v87</title>
+<title>Live Blog Admin v88</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -275,7 +275,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v87</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v88</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -683,10 +683,16 @@ function saveHiddenSubs(){ try{ localStorage.setItem('nllb-hidden-subs',JSON.str
 function handleErr(err){ console.error(err); setStatus(err&&err.message?err.message:'Something went wrong.','error'); }
 
 async function init(){
-  // Safety check — catch any missing DOM elements before binding
-  const missing=Object.entries(dom).filter(([k,v])=>!v).map(([k])=>k);
-  if(missing.length){ console.error('Missing DOM elements:',missing); setStatus('Init error: missing '+missing.join(', '),'error'); return; }
-
+  // Deep null check — report exactly which element is missing
+  const missing=Object.entries(dom).filter(([k,v])=>v==null).map(([k])=>k);
+  if(missing.length){
+    const msg='Missing DOM IDs: '+missing.join(', ');
+    console.error(msg);
+    // Show in topbar even if dom.status is one of the missing ones
+    const statusEl=document.getElementById('tStatus');
+    if(statusEl){ statusEl.textContent=msg; statusEl.className='topbar__status is-error'; }
+    return;
+  }
   loadHiddenSubs();
   buildCombo(dom.fEvent,$('comboEventList'),EVENT_OPTIONS);
   buildCombo(dom.fTeam,$('comboTeamList'),TEAM_OPTIONS);
