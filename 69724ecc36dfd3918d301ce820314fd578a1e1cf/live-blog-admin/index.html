@@ -20,7 +20,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v100</title>
+<title>Live Blog Admin v102</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -238,14 +238,16 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   .status-label{ font-size:.72rem; min-height:28px; padding:0 12px; }
 }
 @media (min-width:769px){
-  .mobile-tabs,.fab,.sheet,.sheet-backdrop,.mobile-panel{ display:none !important; }
+  .mobile-tabs,.fab,.mobile-panel{ display:none !important; }
+  .sheet{ transform:translateY(100%) !important; pointer-events:none !important; }
+  .sheet-backdrop{ display:none !important; }
 }
 </style>
 </head>
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v100</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v102</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -564,6 +566,23 @@ function renderFeed(){
   all.forEach(item=>{ html+=item.type==='sub'?buildSubCardHtml(item.data):buildPostCardHtml(item.data); });
   if(!html){ dom.feedEl.innerHTML='<div class="feed-empty">No posts yet.</div>'; return; }
   dom.feedEl.innerHTML=html;
+  // Per-card touch binding — same as v84
+  dom.feedEl.querySelectorAll('.fcard[data-pid]').forEach(function(el){
+    var sx=0,sy=0;
+    el.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+    el.addEventListener('touchend',function(e){
+      const dx=Math.abs(e.changedTouches[0].clientX-sx);
+      const dy=Math.abs(e.changedTouches[0].clientY-sy);
+      if(dx<10&&dy<10){
+        e.preventDefault();
+        const post=state.posts.find(p=>String(p.id)===el.getAttribute('data-pid'));
+        if(post) openEditEditor(post);
+      }
+    });
+  });
+  dom.feedEl.querySelectorAll('[data-sub-unpub]').forEach(function(btn){
+    btn.addEventListener('click',function(e){ e.stopPropagation(); updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr); });
+  });
   hydrateTweets(dom.feedEl);
 }
 
@@ -704,6 +723,20 @@ async function init(){
     if(!btn) return;
     e.stopPropagation();
     updateSub(btn.getAttribute('data-sub-unpub'),false).catch(handleErr);
+  });
+
+  // Single delegated listener — click works on both desktop and mobile (tap fires click)
+  dom.feedEl.addEventListener('click',function(e){
+    const unpubBtn=e.target.closest('[data-sub-unpub]');
+    if(unpubBtn){
+      e.stopPropagation();
+      updateSub(unpubBtn.getAttribute('data-sub-unpub'),false).catch(handleErr);
+      return;
+    }
+    const fcard=e.target.closest('.fcard[data-pid]');
+    if(!fcard) return;
+    const post=state.posts.find(p=>String(p.id)===fcard.getAttribute('data-pid'));
+    if(post) openEditEditor(post);
   });
 
   dom.editorCollapsed.addEventListener('click',toggleEditorPanel);
