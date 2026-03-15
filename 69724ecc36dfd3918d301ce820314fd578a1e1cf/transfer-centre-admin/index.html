@@ -896,24 +896,25 @@ textarea { resize: vertical; min-height: 80px; }
     img.onload = function() {
       try {
         var canvas = document.createElement('canvas');
-        var SIZE = 32; // sample at 32x32
+        var SIZE = 48;
         canvas.width = SIZE; canvas.height = SIZE;
         var ctx = canvas.getContext('2d');
+        // Fill white so transparent PNG areas don't corrupt colour sampling
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, SIZE, SIZE);
         ctx.drawImage(img, 0, 0, SIZE, SIZE);
         var data = ctx.getImageData(0, 0, SIZE, SIZE).data;
 
-        // Count colours, skip near-white, near-black, near-transparent
         var counts = {};
         for (var i = 0; i < data.length; i += 4) {
-          var r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
-          if (a < 80) continue; // skip transparent
+          var r = data[i], g = data[i+1], b = data[i+2];
           var bright = (r + g + b) / 3;
-          if (bright > 230) continue; // skip near-white
-          if (bright < 25) continue;  // skip near-black
-          // Quantise to reduce noise
-          r = Math.round(r / 24) * 24;
-          g = Math.round(g / 24) * 24;
-          b = Math.round(b / 24) * 24;
+          if (bright > 210) continue; // skip near-white (bg fill)
+          if (bright < 30)  continue; // skip near-black
+          // Coarser quantisation reduces edge noise artefacts
+          r = Math.round(r / 32) * 32;
+          g = Math.round(g / 32) * 32;
+          b = Math.round(b / 32) * 32;
           var key = r + ',' + g + ',' + b;
           counts[key] = (counts[key] || 0) + 1;
         }
