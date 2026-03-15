@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v113 — event field: combo dropdown removed, replaced with free text input + clickable icon palette below; icons shown dark on white; selecting icon sets event text; click again or ✕ to clear; deduped icon set
   v112 — search input placeholder added
   v111 — Instagram embeds: full frontend-parity implementation — isInstagramUrl(), normaliseInstagramUrl(), loadInstagramEmbeds(), hydrateInstagramEmbeds(); buildMediaPreview handles Instagram URLs; DOM diff preserves rendered IG embeds; preload on init
   v110 — admin feed cards fully replicated to match frontend: 22px radius, 4px head border, crest in header, stopwatch timechip, scorebox/pensbox pills matching frontend, pin bar at bottom, text-shadow on head text, body padding/line-height matching, fan note card matches frontend exactly (large italic quote, blue strip, same font sizes)
@@ -30,7 +31,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v112</title>
+<title>Live Blog Admin v113</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -102,6 +103,26 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .score-strip__sep{ font-size:.9rem; font-weight:900; color:#ccc; }
 .score-input{ width:32px; height:22px; text-align:center; padding:0 3px; border:1px solid #cfd6de; border-radius:5px; background:#fff; color:#111; font:inherit; font-size:.82rem; font-weight:900; outline:none; }
 .score-input:focus{ border-color:var(--blue); box-shadow:0 0 0 2px rgba(34,59,124,.1); }
+.icon-palette{ display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 0; }
+.icon-palette__btn{
+  appearance:none; border:1px solid #cfd6de; border-radius:8px;
+  background:#fff; cursor:pointer; padding:5px;
+  display:inline-flex; flex-direction:column; align-items:center; gap:3px;
+  transition:border-color .15s, background .15s, box-shadow .15s;
+  min-width:46px;
+}
+.icon-palette__btn:hover{ border-color:var(--blue); background:#eef2f7; }
+.icon-palette__btn.is-selected{ border-color:var(--blue); background:#dbeafe; box-shadow:0 0 0 2px rgba(34,59,124,.2); }
+.icon-palette__img{ width:22px; height:22px; object-fit:contain; display:block; filter:brightness(0); }
+.icon-palette__name{ font-size:.52rem; font-weight:900; letter-spacing:.03em; text-transform:uppercase; color:#555; white-space:nowrap; line-height:1; }
+.icon-palette__clear{
+  appearance:none; border:1px solid #cfd6de; border-radius:8px;
+  background:#f9fafb; cursor:pointer; padding:5px 8px;
+  font-size:.62rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase;
+  color:#9ca3af; transition:border-color .15s, color .15s;
+  display:inline-flex; align-items:center; gap:4px; min-height:46px;
+}
+.icon-palette__clear:hover{ border-color:#ef4444; color:#ef4444; background:#fff5f5; }
 .rte-wrap{ border:1px solid #cfd6de; border-radius:8px; overflow:hidden; transition:border-color .15s,box-shadow .15s; }
 .rte-wrap:focus-within{ border-color:var(--blue); box-shadow:0 0 0 3px rgba(34,59,124,.1); }
 .rte-bar{ display:flex; align-items:center; gap:2px; padding:4px 7px; background:#f8f9fb; border-bottom:1px solid #e8ecf2; }
@@ -300,7 +321,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v112</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v113</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -329,7 +350,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
         </div>
         <div class="editor-body">
           <div class="erow">
-            <div class="ef" style="width:200px;"><label class="elabel">Event</label><div class="combo"><input class="combo__input" id="fEvent" type="text" autocomplete="off"><div class="combo__list" id="comboEventList"></div></div></div>
+            <div class="ef" style="width:100%;"><label class="elabel">Event</label><input class="einput" id="fEvent" type="text" autocomplete="off" placeholder="Event label…"><div class="icon-palette" id="fIconPalette"></div></div>
             <div class="ef" style="width:180px;"><label class="elabel">Team</label><div class="combo"><input class="combo__input" id="fTeam" type="text" autocomplete="off"><div class="combo__list" id="comboTeamList"></div></div></div>
             <div class="ef ef--w80"><label class="elabel">Match time</label><input class="einput" id="fMatchTime" type="text"></div>
             <div class="ef ef--w120" id="clockTimeField" style="display:none;"><label class="elabel">Clock time</label><input class="einput" id="fClockTime" type="text"></div>
@@ -425,7 +446,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   </div>
   <div class="sheet__body">
     <div class="erow">
-      <div class="ef ef--grow"><label class="elabel">Event</label><div class="combo"><input class="combo__input" id="sfEvent" type="text" autocomplete="off"><div class="combo__list" id="sfComboEventList"></div></div></div>
+      <div class="ef ef--grow"><label class="elabel">Event</label><input class="einput" id="sfEvent" type="text" autocomplete="off" placeholder="Event label…"><div class="icon-palette" id="sfIconPalette"></div></div>
       <div class="ef ef--grow"><label class="elabel">Team</label><div class="combo"><input class="combo__input" id="sfTeam" type="text" autocomplete="off"><div class="combo__list" id="sfComboTeamList"></div></div></div>
     </div>
     <div class="erow">
@@ -463,6 +484,23 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 
 const API='https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec';
 const ICON_BASE='https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/icons/';
+const ICON_PALETTE=[
+  ['Goal',       'Goal',              'goal.svg'],
+  ['Assist',     'Assist',            'goal.svg'],
+  ['Saved',      'Attempt saved',     'save.svg'],
+  ['Blocked',    'Attempt blocked',   'block.svg'],
+  ['Miss',       'Attempt missed',    'miss.svg'],
+  ['Free kick',  'Free kick won',     'free-kick.svg'],
+  ['Offside',    'Offside',           'offside.svg'],
+  ['Corner',     'Corner',            'corner.svg'],
+  ['Sub',        'Substitution',      'substitution.svg'],
+  ['Yellow',     'Yellow card',       'yellow-card.svg'],
+  ['Red card',   'Red card',          'red-card.svg'],
+  ['Lineup',     'Lineup',            'lineup.svg'],
+  ['Kick-off',   'Kick-off',          'play.svg'],
+  ['Half-time',  'Half-time',         'stop.svg'],
+  ['Full-time',  'Full-time',         'stop.svg'],
+];
 const ICON_MAP={'goal':ICON_BASE+'goal.svg','assist':ICON_BASE+'goal.svg','yellow card':ICON_BASE+'yellow-card.svg','red card':ICON_BASE+'red-card.svg','substitution':ICON_BASE+'substitution.svg','corner':ICON_BASE+'corner.svg','offside':ICON_BASE+'offside.svg','free kick won':ICON_BASE+'free-kick.svg','free kick lost':ICON_BASE+'free-kick.svg','attempt saved':ICON_BASE+'save.svg','miss':ICON_BASE+'miss.svg','attempt missed':ICON_BASE+'miss.svg','attempt blocked':ICON_BASE+'block.svg','lineup':ICON_BASE+'lineup.svg','kick-off':ICON_BASE+'play.svg','start':ICON_BASE+'play.svg','half-time':ICON_BASE+'stop.svg','full-time':ICON_BASE+'stop.svg','end of first half':ICON_BASE+'stop.svg','end of second half':ICON_BASE+'stop.svg'};
 const EVENT_OPTIONS=['Goal','Assist','Attempt saved','Miss','Attempt missed','Attempt blocked','Free kick won','Free kick lost','Offside','Corner','Substitution','Yellow card','Red card','Lineup','Kick-off','Half-time','Full-time','Start','End of first half','End of second half'];
 const TEAM_OPTIONS=['Boreham Wood','West Ham United'];
@@ -620,10 +658,10 @@ function toggleEditorPanel(){ state.editorOpen=!state.editorOpen; dom.editorPane
 function openEditorPanel(){ state.editorOpen=true; dom.editorPanel.classList.add('is-open'); dom.collapsedChevron.classList.add('is-open'); }
 function closeEditorPanel(){ state.editorOpen=false; dom.editorPanel.classList.remove('is-open'); dom.collapsedChevron.classList.remove('is-open'); }
 
-function clearDesktop(){ dom.fEvent.value=''; dom.fTeam.value=''; dom.fMatchTime.value=''; dom.fClockTime.value=''; dom.fHome.value=''; dom.fAway.value=''; dom.fHomePens.value=''; dom.fAwayPens.value=''; dom.fCopy.innerHTML=''; dom.fMediaType.value=''; dom.fMediaUrl.value=''; }
-function clearSheet(){ dom.sfEvent.value=''; dom.sfTeam.value=''; dom.sfMatchTime.value=''; dom.sfClockTime.value=''; dom.sfHome.value=''; dom.sfAway.value=''; dom.sfHomePens.value=''; dom.sfAwayPens.value=''; dom.sfCopy.innerHTML=''; dom.sfMediaType.value=''; dom.sfMediaUrl.value=''; }
-function fillDesktop(p){ dom.fEvent.value=p.event||''; dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
-function fillSheet(p){ dom.sfEvent.value=p.event||''; dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
+function clearDesktop(){ dom.fEvent.value=''; syncAllPalettes(); dom.fTeam.value=''; dom.fMatchTime.value=''; dom.fClockTime.value=''; dom.fHome.value=''; dom.fAway.value=''; dom.fHomePens.value=''; dom.fAwayPens.value=''; dom.fCopy.innerHTML=''; dom.fMediaType.value=''; dom.fMediaUrl.value=''; }
+function clearSheet(){ dom.sfEvent.value=''; syncAllPalettes(); dom.sfTeam.value=''; dom.sfMatchTime.value=''; dom.sfClockTime.value=''; dom.sfHome.value=''; dom.sfAway.value=''; dom.sfHomePens.value=''; dom.sfAwayPens.value=''; dom.sfCopy.innerHTML=''; dom.sfMediaType.value=''; dom.sfMediaUrl.value=''; }
+function fillDesktop(p){ dom.fEvent.value=p.event||''; syncAllPalettes(); dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
+function fillSheet(p){ dom.sfEvent.value=p.event||''; syncAllPalettes(); dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
 
 function setEditorNew(){
   state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false;
@@ -1005,6 +1043,60 @@ function bindRTE(){
   dom.fCopy.addEventListener('input',scheduleFeedRender);
 }
 
+function buildIconPalette(inputEl, paletteEl){
+  if(!paletteEl) return;
+  // Build palette buttons
+  ICON_PALETTE.forEach(function(entry){
+    const label=entry[0], value=entry[1], file=entry[2];
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='icon-palette__btn';
+    btn.dataset.value=value;
+    btn.innerHTML=`<img class="icon-palette__img" src="${ICON_BASE+file}" alt="${label}"><span class="icon-palette__name">${label}</span>`;
+    btn.addEventListener('click',function(){
+      if(inputEl.value.trim().toLowerCase()===value.toLowerCase()){
+        // clicking selected — clear
+        inputEl.value='';
+      } else {
+        inputEl.value=value;
+      }
+      syncPaletteSelection(inputEl,paletteEl);
+      scheduleFeedRender();
+    });
+    paletteEl.appendChild(btn);
+  });
+  // Clear button
+  const clr=document.createElement('button');
+  clr.type='button';
+  clr.className='icon-palette__clear';
+  clr.innerHTML='✕ None';
+  clr.addEventListener('click',function(){
+    inputEl.value='';
+    syncPaletteSelection(inputEl,paletteEl);
+    scheduleFeedRender();
+  });
+  paletteEl.appendChild(clr);
+  // Sync on text input
+  inputEl.addEventListener('input',function(){
+    syncPaletteSelection(inputEl,paletteEl);
+  });
+  // Initial sync
+  syncPaletteSelection(inputEl,paletteEl);
+}
+
+function syncPaletteSelection(inputEl, paletteEl){
+  const cur=(inputEl.value||'').trim().toLowerCase();
+  paletteEl.querySelectorAll('.icon-palette__btn').forEach(function(btn){
+    btn.classList.toggle('is-selected', btn.dataset.value.toLowerCase()===cur);
+  });
+}
+
+function syncAllPalettes(){
+  // Keep both palettes in sync when editor is loaded
+  syncPaletteSelection(dom.fEvent, document.getElementById('fIconPalette'));
+  syncPaletteSelection(dom.sfEvent, document.getElementById('sfIconPalette'));
+}
+
 function buildCombo(inputEl,listEl,options){ let focused=-1; function showList(f){ const ff=(f||'').toLowerCase(); const filtered=options.filter(o=>o.toLowerCase().includes(ff)); if(!filtered.length){ listEl.classList.remove('is-open'); return; } listEl.innerHTML=filtered.map(o=>`<div class="combo__opt" data-val="${escHtml(o)}">${escHtml(o)}</div>`).join(''); listEl.classList.add('is-open'); focused=-1; listEl.querySelectorAll('.combo__opt').forEach(function(el){ el.addEventListener('mousedown',function(e){ e.preventDefault(); inputEl.value=el.getAttribute('data-val'); listEl.classList.remove('is-open'); scheduleFeedRender(); }); }); } inputEl.addEventListener('focus',function(){ showList(inputEl.value); }); inputEl.addEventListener('input',function(){ showList(inputEl.value); scheduleFeedRender(); }); inputEl.addEventListener('keydown',function(e){ const opts=listEl.querySelectorAll('.combo__opt'); if(e.key==='ArrowDown'){ e.preventDefault(); focused=Math.min(focused+1,opts.length-1); } else if(e.key==='ArrowUp'){ e.preventDefault(); focused=Math.max(focused-1,0); } else if(e.key==='Enter'&&focused>=0){ e.preventDefault(); inputEl.value=opts[focused].getAttribute('data-val'); listEl.classList.remove('is-open'); scheduleFeedRender(); return; } else if(e.key==='Escape'){ listEl.classList.remove('is-open'); return; } opts.forEach(function(o,i){ o.classList.toggle('is-focused',i===focused); }); }); document.addEventListener('click',function(e){ if(!inputEl.contains(e.target)&&!listEl.contains(e.target)) listEl.classList.remove('is-open'); }); }
 
 function bindSheetDrag(){ let startY=0,dragging=false; dom.sheetHandle.addEventListener('touchstart',function(e){ startY=e.touches[0].clientY; dragging=true; },{passive:true}); document.addEventListener('touchend',function(e){ if(!dragging) return; dragging=false; if(e.changedTouches[0].clientY-startY>80) handleCancel(); },{passive:true}); }
@@ -1017,9 +1109,9 @@ function handleErr(err){ console.error(err); setStatus(err&&err.message?err.mess
 
 async function init(){
   loadHiddenSubs();
-  buildCombo(dom.fEvent,$('comboEventList'),EVENT_OPTIONS);
+  buildIconPalette(dom.fEvent, document.getElementById('fIconPalette'));
+  buildIconPalette(dom.sfEvent, document.getElementById('sfIconPalette'));
   buildCombo(dom.fTeam,$('comboTeamList'),TEAM_OPTIONS);
-  buildCombo(dom.sfEvent,$('sfComboEventList'),EVENT_OPTIONS);
   buildCombo(dom.sfTeam,$('sfComboTeamList'),TEAM_OPTIONS);
   bindRTE();
   bindSheetDrag();
