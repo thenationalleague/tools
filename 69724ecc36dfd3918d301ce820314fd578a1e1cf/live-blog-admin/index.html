@@ -1,5 +1,20 @@
 <!--
   CHANGELOG
+  v85 — pin toggle redesigned as immediate-effect slider pill (green=pinned, grey=unpinned); pinning fires instant API call without requiring Save & Publish; admin feed reorders immediately; all other functionality (save, delete, ordering, submissions) unchanged
+  v84 — full rewrite to permanently fix changelog; all versions accurately documented
+  v83 — version bump to verify changelog
+  v82 — changelog entries corrected and backdated accurately for all versions
+  v81 — tweet embeds render in admin feed cards via X widget API; isTweetUrl(), getTweetId(), loadXWidgets(), hydrateTweets() added; buildMediaPreview() outputs tweet placeholder div; hydrateTweets() called after renderFeed()
+  v80 — saveInFlight flag prevents duplicate saves on double-tap; bindBtn() helper suppresses synthetic click on touch; x.com/i/ short URL regex added; topbar version number changed to #fff
+  v79 — FAB redesigned as pill shape with "+ New post" label; label changes to "Cancel" and background turns red when sheet is open
+  v78 — mobile tap-to-edit fixed via touchstart/touchend with drift check; sheet z-index raised to 500; submissions poll every 15s; new submission notification banner with pulse animation; 60s blue highlight on new scards; submission cards redesigned as light white cards with green/red buttons
+  v73 — changelog comment block added to admin, frontend and Apps Script
+  v72 — mobile font-size reduced to 15px; tap-to-edit sheet scroll-to-top on open
+  v70 — desktop font-size increased to 17px; rail width increased to 340px for 1080p
+  v59 — save & publish single-button flow; amber "Editing — not saved" status label; separate publish toggle removed
+  v56 — full rewrite: mobile bottom tab bar, FAB, bottom sheet editor, dual desktop/mobile field sets
+--><!--
+  CHANGELOG
   v84 — full rewrite to permanently fix changelog; all versions accurately documented
   v83 — version bump to verify changelog
   v82 — changelog entries corrected and backdated accurately for all versions
@@ -18,7 +33,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v84</title>
+<title>Live Blog Admin v85</title>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -118,6 +133,14 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .status-label--published{ background:#dcfce7; color:#15803d; }
 .status-label--unpublished{ background:#fee2e2; color:#b91c1c; }
 .status-label--editing{ background:#fef3c7; color:#92400e; }
+
+/* PIN TOGGLE SLIDER */
+.pin-toggle{ display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; flex-shrink:0; }
+.pin-toggle__track{ position:relative; width:44px; height:24px; border-radius:999px; background:#d1d5db; transition:background .2s; flex-shrink:0; }
+.pin-toggle__track.is-on{ background:#15803d; }
+.pin-toggle__thumb{ position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.2); transition:transform .2s; }
+.pin-toggle__track.is-on .pin-toggle__thumb{ transform:translateX(20px); }
+.pin-toggle__label{ font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); white-space:nowrap; }
 .btn{ appearance:none; border:0; border-radius:999px; cursor:pointer; font:inherit; font-weight:900; letter-spacing:.04em; text-transform:uppercase; display:inline-flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap; transition:filter .15s,opacity .15s; flex-shrink:0; }
 .btn:hover:not(:disabled){ filter:brightness(.9); }
 .btn:disabled{ opacity:.45; cursor:default; }
@@ -251,7 +274,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v84</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v85</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -298,7 +321,10 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
         </div>
         <div class="editor-actions">
           <span class="status-label status-label--editing" id="statusLabel">Editing — not saved</span>
-          <button class="status-btn status-btn--pin" id="btnPin" type="button"><span class="status-btn__dot"></span><span id="btnPinLabel">Pin</span></button>
+          <label class="pin-toggle" id="pinToggle" title="Pin to top">
+            <div class="pin-toggle__track" id="pinTrack"><div class="pin-toggle__thumb"></div></div>
+            <span class="pin-toggle__label" id="pinLabel">Pin</span>
+          </label>
           <div style="flex:1 1 auto;"></div>
           <button class="btn btn--ghost btn--md" id="btnCancel" type="button">Cancel</button>
           <button class="btn btn--danger btn--md" id="btnDelete" type="button" style="display:none;">Delete</button>
@@ -392,7 +418,10 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   </div>
   <div class="sheet__actions">
     <span class="status-label status-label--editing" id="sfStatusLabel">Editing — not saved</span>
-    <button class="status-btn status-btn--pin" id="sfBtnPin" type="button"><span class="status-btn__dot"></span><span id="sfBtnPinLabel">Pin</span></button>
+    <label class="pin-toggle" id="sfPinToggle" title="Pin to top">
+      <div class="pin-toggle__track" id="sfPinTrack"><div class="pin-toggle__thumb"></div></div>
+      <span class="pin-toggle__label" id="sfPinLabel">Pin</span>
+    </label>
     <div style="flex:1 1 auto;"></div>
     <button class="btn btn--ghost btn--md" id="sfBtnCancel" type="button">Cancel</button>
     <button class="btn btn--danger btn--md" id="sfBtnDelete" type="button" style="display:none;">Delete</button>
@@ -430,10 +459,14 @@ const dom={
   subNewBannerMobile:$('subNewBannerMobile'),subNewBannerMobileText:$('subNewBannerMobileText'),
   editorCollapsed:$('editorCollapsed'),collapsedTitle:$('collapsedTitle'),collapsedSub:$('collapsedSub'),collapsedChevron:$('collapsedChevron'),
   editorPanel:$('editorPanel'),editorHead:$('editorHead'),editorTitle:$('editorTitle'),editorSubtitle:$('editorSubtitle'),editorId:$('editorId'),clockTimeField:$('clockTimeField'),
-  statusLabel:$('statusLabel'),btnPin:$('btnPin'),btnPinLabel:$('btnPinLabel'),btnUpdate:$('btnUpdate'),btnCancel:$('btnCancel'),btnDelete:$('btnDelete'),
+  statusLabel:$('statusLabel'),
+  pinToggle:$('pinToggle'),pinTrack:$('pinTrack'),pinLabel:$('pinLabel'),
+  btnUpdate:$('btnUpdate'),btnCancel:$('btnCancel'),btnDelete:$('btnDelete'),
   fEvent:$('fEvent'),fTeam:$('fTeam'),fMatchTime:$('fMatchTime'),fClockTime:$('fClockTime'),fHome:$('fHome'),fAway:$('fAway'),fHomePens:$('fHomePens'),fAwayPens:$('fAwayPens'),fCopy:$('fCopy'),fMediaType:$('fMediaType'),fMediaUrl:$('fMediaUrl'),
   fab:$('fab'),sheet:$('sheet'),sheetBackdrop:$('sheetBackdrop'),sheetHead:$('sheetHead'),sheetTitle:$('sheetTitle'),sheetSubtitle:$('sheetSubtitle'),sheetId:$('sheetId'),sheetClose:$('sheetClose'),sheetHandle:$('sheetHandle'),
-  sfStatusLabel:$('sfStatusLabel'),sfBtnPin:$('sfBtnPin'),sfBtnPinLabel:$('sfBtnPinLabel'),sfBtnUpdate:$('sfBtnUpdate'),sfBtnCancel:$('sfBtnCancel'),sfBtnDelete:$('sfBtnDelete'),
+  sfStatusLabel:$('sfStatusLabel'),
+  sfPinToggle:$('sfPinToggle'),sfPinTrack:$('sfPinTrack'),sfPinLabel:$('sfPinLabel'),
+  sfBtnUpdate:$('sfBtnUpdate'),sfBtnCancel:$('sfBtnCancel'),sfBtnDelete:$('sfBtnDelete'),
   sfEvent:$('sfEvent'),sfTeam:$('sfTeam'),sfMatchTime:$('sfMatchTime'),sfClockTime:$('sfClockTime'),sfClockTimeField:$('sfClockTimeField'),sfHome:$('sfHome'),sfAway:$('sfAway'),sfHomePens:$('sfHomePens'),sfAwayPens:$('sfAwayPens'),sfCopy:$('sfCopy'),sfMediaType:$('sfMediaType'),sfMediaUrl:$('sfMediaUrl'),
   tabFeed:$('tabFeed'),tabSubs:$('tabSubs'),panelSubs:$('panelSubs')
 };
@@ -458,7 +491,42 @@ async function apiGet(params){ const qs=new URLSearchParams(params).toString(); 
 function extractRichData(el){ const result={text:'',formats:[]}; let pos=0; function walk(node){ if(node.nodeType===Node.TEXT_NODE){ const t=node.textContent||''; result.text+=t; pos+=t.length; return; } if(node.nodeType!==Node.ELEMENT_NODE) return; const tag=node.tagName.toUpperCase(); if(tag==='BR'){ result.text+='\n'; pos+=1; return; } if(tag==='P'||tag==='DIV'){ Array.from(node.childNodes).forEach(walk); if(node.nextSibling){ result.text+='\n'; pos+=1; } return; } const isBold=tag==='B'||tag==='STRONG'; const isItalic=tag==='I'||tag==='EM'; if(isBold||isItalic){ const start=pos; Array.from(node.childNodes).forEach(walk); if(pos>start) result.formats.push({start,end:pos,bold:isBold,italic:isItalic}); return; } Array.from(node.childNodes).forEach(walk); } Array.from(el.childNodes).forEach(walk); result.text=result.text.replace(/\n+$/,''); return result; }
 function sanitiseRteHtml(el){ let html=el.innerHTML; html=html.replace(/<div>/gi,'<p>').replace(/<\/div>/gi,'</p>'); html=html.replace(/(<br\s*\/?>\s*){2,}/gi,'</p><p>'); html=html.replace(/^(<p>(\s|<br\s*\/?>)*<\/p>)+/gi,''); html=html.replace(/(<p>(\s|<br\s*\/?>)*<\/p>)+$/gi,''); if(html&&!html.match(/^<(p|ul|ol|h[1-6])/i)) html='<p>'+html+'</p>'; return html.trim(); }
 
-function syncStatusUI(){ const pin=state.isPinned; dom.statusLabel.className='status-label status-label--editing'; dom.statusLabel.textContent='Editing — not saved'; dom.btnPin.classList.toggle('is-on',pin); dom.btnPinLabel.textContent=pin?'Pinned':'Pin'; dom.sfStatusLabel.className='status-label status-label--editing'; dom.sfStatusLabel.textContent='Editing — not saved'; dom.sfBtnPin.classList.toggle('is-on',pin); dom.sfBtnPinLabel.textContent=pin?'Pinned':'Pin'; }
+function syncStatusUI(){
+  const pin=state.isPinned;
+  dom.statusLabel.className='status-label status-label--editing';
+  dom.statusLabel.textContent='Editing — not saved';
+  dom.pinTrack.classList.toggle('is-on',pin);
+  dom.pinLabel.textContent=pin?'Pinned':'Pin';
+  dom.sfStatusLabel.className='status-label status-label--editing';
+  dom.sfStatusLabel.textContent='Editing — not saved';
+  dom.sfPinTrack.classList.toggle('is-on',pin);
+  dom.sfPinLabel.textContent=pin?'Pinned':'Pin';
+}
+
+async function pinPost(pinned){
+  // Only fires if we have an existing post to pin
+  if(!state.activeId) return;
+  const post=state.posts.find(p=>String(p.id)===String(state.activeId));
+  if(!post) return;
+  try{
+    setStatus(pinned?'Pinning…':'Unpinning…');
+    await apiFetch({
+      action:'savePost', id:state.activeId,
+      published:post.published?'TRUE':'FALSE',
+      pinned:pinned?'TRUE':'FALSE',
+      deleted:'FALSE',
+      event:post.event||'', team:post.team||'',
+      match_time:post.match_time||'', clock_time:post.clock_time||'',
+      home:post.home||'', away:post.away||'',
+      home_pens:post.home_pens||'', away_pens:post.away_pens||'',
+      copy_text:post.copy_html||'', copy_html:post.copy_html||'',
+      copy_formats:'[]',
+      media_type:post.media_type||'', media_url:post.media_url||''
+    });
+    setStatus(pinned?'Pinned.':'Unpinned.','success');
+    await loadPosts();
+  }catch(err){ handleErr(err); }
+}
 
 function openSheet(){ dom.sheet.classList.add('is-open'); dom.sheetBackdrop.classList.add('is-open'); dom.fab.classList.add('is-editing'); document.getElementById('fabLabel').textContent='Cancel'; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ const body=dom.sheet.querySelector('.sheet__body'); if(body) body.scrollTop=0; }); }
 function closeSheet(){ dom.sheet.classList.remove('is-open'); dom.sheetBackdrop.classList.remove('is-open'); dom.fab.classList.remove('is-editing'); document.getElementById('fabLabel').textContent='New post'; document.body.style.overflow=''; }
@@ -471,7 +539,13 @@ function clearSheet(){ dom.sfEvent.value=''; dom.sfTeam.value=''; dom.sfMatchTim
 function fillDesktop(p){ dom.fEvent.value=p.event||''; dom.fTeam.value=p.team||''; dom.fMatchTime.value=p.match_time||''; dom.fClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.fHome.value=p.home!=null?p.home:''; dom.fAway.value=p.away!=null?p.away:''; dom.fHomePens.value=p.home_pens||''; dom.fAwayPens.value=p.away_pens||''; dom.fCopy.innerHTML=p.copy_html||''; dom.fMediaType.value=p.media_type||''; dom.fMediaUrl.value=p.media_url||''; }
 function fillSheet(p){ dom.sfEvent.value=p.event||''; dom.sfTeam.value=p.team||''; dom.sfMatchTime.value=p.match_time||''; dom.sfClockTime.value=p.clock_time?p.clock_time.slice(0,16):''; dom.sfHome.value=p.home!=null?p.home:''; dom.sfAway.value=p.away!=null?p.away:''; dom.sfHomePens.value=p.home_pens||''; dom.sfAwayPens.value=p.away_pens||''; dom.sfCopy.innerHTML=p.copy_html||''; dom.sfMediaType.value=p.media_type||''; dom.sfMediaUrl.value=p.media_url||''; }
 
-function setEditorNew(){ state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false; dom.editorHead.className='editor-panel__head editor-panel__head--new'; dom.editorHead.style.background=''; dom.editorHead.style.borderBottomColor=''; dom.editorTitle.textContent='New post'; dom.editorSubtitle.textContent='Compose a new live blog entry'; dom.editorId.style.display='none'; dom.clockTimeField.style.display='none'; dom.btnDelete.style.display='none'; dom.btnUpdate.textContent='Save & Publish'; dom.collapsedTitle.textContent='+ New Post'; dom.collapsedSub.textContent='Click to compose · or click a post to edit'; dom.sheetHead.className='sheet__head sheet__head--new'; dom.sheetHead.style.background=''; dom.sheetHead.style.borderBottomColor=''; dom.sheetTitle.textContent='New post'; dom.sheetSubtitle.textContent='Compose a new entry'; dom.sheetId.style.display='none'; dom.sfClockTimeField.style.display='none'; dom.sfBtnDelete.style.display='none'; dom.sfBtnUpdate.textContent='Save & Publish'; dom.fab.classList.remove('is-editing'); syncStatusUI(); }
+function setEditorNew(){ state.activeId=''; state.isNew=true; state.isPublished=true; state.isPinned=false; dom.editorHead.className='editor-panel__head editor-panel__head--new'; dom.editorHead.style.background=''; dom.editorHead.style.borderBottomColor=''; dom.editorTitle.textContent='New post'; dom.editorSubtitle.textContent='Compose a new live blog entry'; dom.editorId.style.display='none'; dom.clockTimeField.style.display='none';   dom.btnDelete.style.display='none'; dom.btnUpdate.textContent='Save & Publish';
+  dom.collapsedTitle.textContent='+ New Post'; dom.collapsedSub.textContent='Click to compose · or click a post to edit';
+  dom.sheetHead.className='sheet__head sheet__head--new'; dom.sheetHead.style.background=''; dom.sheetHead.style.borderBottomColor='';
+  dom.sheetTitle.textContent='New post'; dom.sheetSubtitle.textContent='Compose a new entry';
+  dom.sheetId.style.display='none'; dom.sfClockTimeField.style.display='none';
+  dom.sfBtnDelete.style.display='none'; dom.sfBtnUpdate.textContent='Save & Publish';
+  dom.fab.classList.remove('is-editing'); syncStatusUI(); }
 
 function openEditEditor(post){ state.activeId=post.id||''; state.isNew=false; state.isPublished=true; state.isPinned=!!post.pinned; const colors=getColors(post.team); const label='Editing: '+(post.team||post.event||post.id||''); const sub=post.match_time||(post.clock_time?post.clock_time.slice(11,16):''); fillDesktop(post); fillSheet(post); dom.editorHead.className='editor-panel__head editor-panel__head--edit'; dom.editorHead.style.background=colors.bg; dom.editorHead.style.borderBottomColor=colors.border; dom.editorTitle.textContent=label; dom.editorSubtitle.textContent=sub; dom.editorId.textContent='ID: '+post.id; dom.editorId.style.display='block'; dom.clockTimeField.style.display='flex'; dom.btnDelete.style.display='inline-flex'; dom.btnUpdate.textContent='Save & Publish'; dom.collapsedTitle.textContent=label; dom.collapsedSub.textContent='Click to expand editor'; dom.sheetHead.className='sheet__head sheet__head--edit'; dom.sheetHead.style.background=colors.bg; dom.sheetHead.style.borderBottomColor=colors.border; dom.sheetTitle.textContent=label; dom.sheetSubtitle.textContent=sub; dom.sheetId.textContent='ID: '+post.id; dom.sheetId.style.display='block'; dom.sfClockTimeField.style.display='flex'; dom.sfBtnDelete.style.display='inline-flex'; dom.sfBtnUpdate.textContent='Save & Publish'; syncStatusUI(); setStatus('Editing: '+(post.team||post.event||post.id)); if(isMobile()){ openSheet(); } else { openEditorPanel(); scheduleFeedRender(); } }
 
@@ -567,8 +641,16 @@ async function init(){
   function bindBtn(el,handler){ var lastTap=0; el.addEventListener('touchend',function(e){ e.preventDefault(); const now=Date.now(); if(now-lastTap<800){ return; } lastTap=now; handler(); }); el.addEventListener('click',function(e){ if('ontouchstart' in window) return; handler(); }); }
 
   dom.editorCollapsed.addEventListener('click',toggleEditorPanel);
-  dom.btnPin.addEventListener('click',function(){ state.isPinned=!state.isPinned; syncStatusUI(); scheduleFeedRender(); });
-  bindBtn(dom.btnUpdate,function(){ updateAndClose(false).catch(handleErr); });
+
+  // Pin toggles — fire immediately
+  function handlePinToggle(){
+    state.isPinned=!state.isPinned;
+    syncStatusUI();
+    scheduleFeedRender();
+    pinPost(state.isPinned).catch(handleErr);
+  }
+  dom.pinToggle.addEventListener('click',handlePinToggle);
+  dom.sfPinToggle.addEventListener('click',handlePinToggle);  bindBtn(dom.btnUpdate,function(){ updateAndClose(false).catch(handleErr); });
   dom.btnCancel.addEventListener('click',handleCancel);
   dom.btnDelete.addEventListener('click',function(){ deletePost().catch(handleErr); });
   [dom.fMatchTime,dom.fHome,dom.fAway,dom.fHomePens,dom.fAwayPens,dom.fMediaUrl].forEach(function(el){ el.addEventListener('input',scheduleFeedRender); });
