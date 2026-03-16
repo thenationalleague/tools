@@ -8,6 +8,8 @@
   v2 — URLSearchParams POST throughout; action names aligned to GAS v3
   v3 — CTA text + URL fields added to editor
   v4 — Free-text club picker; canvas colour extraction for unknown clubs
+  v8 — Crest appears immediately in search bar on club selection;
+         crest restored when editing existing post; cleared on new post
   v7 — Club picker always-visible inline search input; proper tab order;
          arrow key nav through list; Enter to select; no floating dropdown
   v6 — Admin gradient bar uses TO club colours only; shown on any card with
@@ -501,7 +503,7 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="topbar__live-dot"></div>
     <div class="topbar__badge">NL Admin</div>
     <div class="topbar__title">Transfer <span>Centre</span></div>
-    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v7</div>
+    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v8</div>
     <div class="topbar__status" id="topbar-status">Loading…</div>
   </div>
 
@@ -545,7 +547,10 @@ textarea { resize: vertical; min-height: 80px; }
                   <span class="caret">▾</span>
                 </div>
                 <div class="club-picker-dropdown" id="from-club-dropdown">
-                  <div class="club-picker-search"><input type="text" placeholder="Search or type club…" id="from-club-search" autocomplete="off"></div>
+                  <div class="club-picker-search" style="display:flex;align-items:center;gap:8px">
+                    <img id="from-club-crest" src="" alt="" style="width:28px;height:28px;object-fit:contain;flex-shrink:0;display:none;border-radius:50%;background:#fff;padding:2px">
+                    <input type="text" placeholder="Search or type club…" id="from-club-search" autocomplete="off" style="flex:1">
+                  </div>
                   <div class="club-picker-list" id="from-club-list"></div>
                 </div>
               </div>
@@ -558,7 +563,10 @@ textarea { resize: vertical; min-height: 80px; }
                   <span class="caret">▾</span>
                 </div>
                 <div class="club-picker-dropdown" id="to-club-dropdown">
-                  <div class="club-picker-search"><input type="text" placeholder="Search or type club…" id="to-club-search" autocomplete="off"></div>
+                  <div class="club-picker-search" style="display:flex;align-items:center;gap:8px">
+                    <img id="to-club-crest" src="" alt="" style="width:28px;height:28px;object-fit:contain;flex-shrink:0;display:none;border-radius:50%;background:#fff;padding:2px">
+                    <input type="text" placeholder="Search or type club…" id="to-club-search" autocomplete="off" style="flex:1">
+                  </div>
                   <div class="club-picker-list" id="to-club-list"></div>
                 </div>
               </div>
@@ -887,17 +895,25 @@ textarea { resize: vertical; min-height: 80px; }
   }
 
   function selectClub(field, name) {
-    if (field === 'from') {
-      state.fromClub = name;
-      var fs = document.getElementById('from-club-search');
-      if (fs) fs.value = name;
-      renderClubList('from-club-list', state.clubsList, 'from', name);
-    } else {
-      state.toClub = name;
-      var ts = document.getElementById('to-club-search');
-      if (ts) ts.value = name;
-      renderClubList('to-club-list', state.clubsList, 'to', name);
+    var crestImgId = field === 'from' ? 'from-club-crest' : 'to-club-crest';
+    var searchId   = field === 'from' ? 'from-club-search' : 'to-club-search';
+    var listId     = field === 'from' ? 'from-club-list' : 'to-club-list';
+
+    if (field === 'from') state.fromClub = name;
+    else                  state.toClub   = name;
+
+    var searchEl = document.getElementById(searchId);
+    if (searchEl) searchEl.value = name;
+
+    // Show crest immediately
+    var crestImg = document.getElementById(crestImgId);
+    if (crestImg && name) {
+      crestImg.src = crestUrl(name);
+      crestImg.style.display = 'block';
+      crestImg.onerror = function() { crestImg.style.display = 'none'; };
     }
+
+    renderClubList(listId, state.clubsList, field, name);
     if (!state.clubs[name]) extractCrestColours(name);
   }
 
@@ -1137,6 +1153,10 @@ textarea { resize: vertical; min-height: 80px; }
     var ts = document.getElementById('to-club-search');
     if (fs) { fs.value = ''; renderClubList('from-club-list', state.clubsList, 'from', ''); }
     if (ts) { ts.value = ''; renderClubList('to-club-list',   state.clubsList, 'to',   ''); }
+    var fc = document.getElementById('from-club-crest');
+    var tc = document.getElementById('to-club-crest');
+    if (fc) { fc.src = ''; fc.style.display = 'none'; }
+    if (tc) { tc.src = ''; tc.style.display = 'none'; }
 
     document.querySelectorAll('.card-type-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === 'confirmed_signing');
@@ -1179,6 +1199,10 @@ textarea { resize: vertical; min-height: 80px; }
     var ts = document.getElementById('to-club-search');
     if (fs) { fs.value = post.from_club || ''; renderClubList('from-club-list', state.clubsList, 'from', post.from_club || ''); }
     if (ts) { ts.value = post.to_club   || ''; renderClubList('to-club-list',   state.clubsList, 'to',   post.to_club   || ''); }
+    var fc = document.getElementById('from-club-crest');
+    var tc = document.getElementById('to-club-crest');
+    if (fc && post.from_club) { fc.src = crestUrl(post.from_club); fc.style.display = 'block'; fc.onerror = function(){ fc.style.display='none'; }; }
+    if (tc && post.to_club)   { tc.src = crestUrl(post.to_club);   tc.style.display = 'block'; tc.onerror = function(){ tc.style.display='none'; }; }
 
     document.querySelectorAll('.card-type-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === state.cardType);
