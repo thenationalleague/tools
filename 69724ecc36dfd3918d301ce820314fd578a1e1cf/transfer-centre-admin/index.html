@@ -7,9 +7,10 @@
   v1 — Initial build
   v2 — URLSearchParams POST throughout; action names aligned to GAS v3
   v3 — CTA text + URL fields added to editor
-  v4 — Free-text club picker: accepts any team name, shows meta clubs as
-       suggestions, custom entry option, crest from /assets/crests/ always
-       attempted, colour extraction from crest via canvas for unknown clubs
+  v4 — Free-text club picker; canvas colour extraction for unknown clubs
+  v5 — diffRenderFeed: proper in-place diff, no innerHTML wipe (fixes flash);
+       toDatetimeLocal includes seconds (step=1); resolveClockTime handles
+       ISO, short HH:MM, and created_at fallback so edit always pre-populates
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -621,10 +622,10 @@ textarea { resize: vertical; min-height: 80px; }
             </div>
           </div>
 
-          <!-- Clock Time -->
+          <!-- Display Time -->
           <div class="field">
-            <label>Display Time</label>
-            <input type="text" id="input-clock" placeholder="e.g. 14:32 or leave blank for auto">
+            <label>Post Time <span style="color:var(--text-muted);font-weight:400;font-size:10px">(sets chronological order)</span></label>
+            <input type="datetime-local" id="input-clock" step="1">
           </div>
 
           <!-- Icon Override -->
@@ -769,6 +770,33 @@ textarea { resize: vertical; min-height: 80px; }
   };
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────
+  // Convert a Date to the format required by datetime-local input: "YYYY-MM-DDTHH:MM"
+  function toDatetimeLocal(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    var pad = function(n){ return String(n).padStart(2,'0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) +
+           'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  function resolveClockTime(post) {
+    // Try clock_time first — may be ISO or a short string like "14:32"
+    var ct = post.clock_time || '';
+    if (ct) {
+      var d = new Date(ct);
+      if (!isNaN(d.getTime())) return toDatetimeLocal(d);
+      // Short time-only string — graft onto today's date
+      var today = new Date().toISOString().substr(0, 10);
+      var d2 = new Date(today + 'T' + ct);
+      if (!isNaN(d2.getTime())) return toDatetimeLocal(d2);
+    }
+    // Fall back to created_at
+    if (post.created_at) {
+      var d3 = new Date(post.created_at);
+      if (!isNaN(d3.getTime())) return toDatetimeLocal(d3);
+    }
+    return '';
+  }
+
   function esc(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -1097,7 +1125,8 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('input-media-url').value    = '';
     document.getElementById('input-cta-text').value     = '';
     document.getElementById('input-cta-url').value      = '';
-    document.getElementById('input-clock').value        = '';
+    // Auto-populate with current local time for new posts
+    document.getElementById('input-clock').value        = toDatetimeLocal(new Date());
     document.getElementById('input-icon').value     = '';
     document.getElementById('icon-display').textContent = '—';
     document.getElementById('toggle-published').checked = true;
@@ -1142,7 +1171,8 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('input-media-url').value    = post.media_url   || '';
     document.getElementById('input-cta-text').value     = post.cta_text    || '';
     document.getElementById('input-cta-url').value      = post.cta_url     || '';
-    document.getElementById('input-clock').value        = post.clock_time  || '';
+    // Populate timestamp — resolves clock_time (ISO or short HH:MM) or falls back to created_at
+    document.getElementById('input-clock').value = resolveClockTime(post);
     document.getElementById('toggle-published').checked = post.published;
     document.getElementById('toggle-pinned').checked    = post.pinned;
 
@@ -1187,7 +1217,12 @@ textarea { resize: vertical; min-height: 80px; }
       media_url:      document.getElementById('input-media-url').value.trim(),
       cta_text:       document.getElementById('input-cta-text').value.trim(),
       cta_url:        document.getElementById('input-cta-url').value.trim(),
-      clock_time:     document.getElementById('input-clock').value.trim(),
+      clock_time:     (function() {
+        var v = document.getElementById('input-clock').value;
+        if (!v) return '';
+        var d = new Date(v);
+        return isNaN(d.getTime()) ? v : d.toISOString();
+      })(),
       published:      document.getElementById('toggle-published').checked ? 'TRUE' : 'FALSE',
       pinned:         document.getElementById('toggle-pinned').checked    ? 'TRUE' : 'FALSE',
       deleted:        'FALSE'
@@ -1253,35 +1288,59 @@ textarea { resize: vertical; min-height: 80px; }
 
   function diffRenderFeed(posts) {
     var feed = document.getElementById('admin-feed');
+
+    // Build map of existing rendered cards
     var rendered = {};
     feed.querySelectorAll('.admin-card[data-id]').forEach(function(el){
       rendered[el.dataset.id] = el;
     });
 
     if (posts.length === 0) {
-      feed.innerHTML = '<div class="col-empty"><div class="col-empty__icon">📭</div>No posts yet.</div>';
+      if (!feed.querySelector('.col-empty')) {
+        feed.innerHTML = '<div class="col-empty"><div class="col-empty__icon">📭</div>No posts yet.</div>';
+      }
       return;
     }
 
-    var frag = document.createDocumentFragment();
-    posts.forEach(function(post, idx){
+    // Remove empty state if present
+    var empty = feed.querySelector('.col-empty');
+    if (empty) feed.removeChild(empty);
+
+    var nextIds = {};
+
+    posts.forEach(function(post, idx) {
+      nextIds[post.id] = true;
       var el = rendered[post.id];
       var preserveEmbed = el && (post.media_type === 'twitter' || post.media_type === 'instagram');
-      if (el && !preserveEmbed) {
-        var prev = el.dataset.updated || '';
-        if (prev !== post.updated_at) {
-          var newEl = buildAdminCard(post);
-          el.replaceWith(newEl);
-          el = newEl;
-        }
-      } else if (!el) {
+
+      if (!el) {
+        // New card — insert at correct position
         el = buildAdminCard(post);
+        var ref = feed.children[idx] || null;
+        feed.insertBefore(el, ref);
+      } else if (!preserveEmbed) {
+        // Update if changed
+        if ((el.dataset.updated || '') !== (post.updated_at || '')) {
+          var fresh = buildAdminCard(post);
+          feed.replaceChild(fresh, el);
+          el = fresh;
+        }
+        // Move to correct position if needed
+        var cur = feed.children[idx];
+        if (cur !== el) feed.insertBefore(el, cur || null);
+      } else {
+        // Preserve embed — just reposition
+        var cur2 = feed.children[idx];
+        if (cur2 !== el) feed.insertBefore(el, cur2 || null);
       }
-      el.style.order = idx;
-      frag.appendChild(el);
     });
-    feed.innerHTML = '';
-    feed.appendChild(frag);
+
+    // Remove cards no longer in list
+    Object.keys(rendered).forEach(function(id) {
+      if (!nextIds[id] && rendered[id].parentNode === feed) {
+        feed.removeChild(rendered[id]);
+      }
+    });
   }
 
   function buildAdminCard(post) {
