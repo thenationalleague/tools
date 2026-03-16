@@ -8,6 +8,8 @@
   v2 — URLSearchParams POST throughout; action names aligned to GAS v3
   v3 — CTA text + URL fields added to editor
   v4 — Free-text club picker; canvas colour extraction for unknown clubs
+  v10 — Contract admin card shows TO club crest and name (no arrow);
+          contract was missing from isTransfer check
   v9 — Crest also appears when typing (not just on list selection);
          fixes contract admin where club typed but not list-selected
   v8 — Crest appears immediately in search bar on club selection;
@@ -505,7 +507,7 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="topbar__live-dot"></div>
     <div class="topbar__badge">NL Admin</div>
     <div class="topbar__title">Transfer <span>Centre</span></div>
-    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v9</div>
+    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v10</div>
     <div class="topbar__status" id="topbar-status">Loading…</div>
   </div>
 
@@ -1416,12 +1418,13 @@ textarea { resize: vertical; min-height: 80px; }
       if (post.article_source) html += '<div class="admin-card__source">'+esc(post.article_source)+'</div>';
     } else {
       if (post.player_name) html += '<div class="admin-card__player">'+esc(post.player_name)+'</div>';
-      if (isTransfer && (post.from_club || post.to_club)) {
+      if ((isTransfer || post.card_type === 'contract_extension') && (post.from_club || post.to_club)) {
+        var isContract = post.card_type === 'contract_extension';
         html += '<div class="admin-card__transfer">';
-        if (post.from_club) {
+        if (post.from_club && !isContract) {
           html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.from_club)+'" alt="" onerror="this.style.display=\'none\'"><span class="admin-card__club-name">'+esc(post.from_club)+'</span></div>';
         }
-        html += '<div class="admin-card__arrow">→</div>';
+        if (!isContract) html += '<div class="admin-card__arrow">→</div>';
         if (post.to_club) {
           html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.to_club)+'" alt="" onerror="this.style.display=\'none\'"><span class="admin-card__club-name">'+esc(post.to_club)+'</span></div>';
         }
