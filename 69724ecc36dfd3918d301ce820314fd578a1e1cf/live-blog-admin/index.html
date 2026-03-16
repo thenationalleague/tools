@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v125 — admin cards show running score timeline (latest score at each post's point in time); renderFeed builds scoreMap before rendering
   v124 — delete submission now also sets published=false locally so it unpublishes immediately before moving to deleted pile
   v123 — standalone web app meta tags: description, theme-color, apple-mobile, noindex, og tags
   v122 — clock time field now shows seconds (slice 0,19 not 0,16) so HH:mm:ss is preserved when editing
@@ -790,6 +791,33 @@ function openEditEditor(post){
 function handleCancel(){ disarmDeleteBtn(); closeEditorPanel(); closeSheet(); clearDesktop(); clearSheet(); setEditorNew(); scheduleFeedRender(); }
 function scheduleFeedRender(){ if(state.renderTimer) clearTimeout(state.renderTimer); state.renderTimer=setTimeout(renderFeed,150); }
 
+function buildAdminScoreTimeline(posts){
+  // Sort by clockSort ascending to build running score
+  const asc=[...posts].filter(p=>!p.deleted).sort(function(a,b){
+    return (Number(a.clockSort)||0)-(Number(b.clockSort)||0);
+  });
+  const map={};
+  let sc=''; let pe='';
+  asc.forEach(function(p){
+    const h=String(p.home??'').trim(); const a=String(p.away??'').trim();
+    const hp=String(p.home_pens??'').trim(); const ap=String(p.away_pens??'').trim();
+    const hasMT=String(p.match_time||'').trim()!=='';
+    if(h!==''&&a!==''){
+      sc=h+' – '+a;
+    }
+    if(hp&&ap){
+      pe=hp+' – '+ap+' pens';
+    }
+    // Propagate running score to all posts with a match time even if no score set
+    if(sc||(hasMT&&sc)){
+      map[p.id]={ scoreDisplay:sc||'0 – 0', pensDisplay:pe };
+    } else if(sc){
+      map[p.id]={ scoreDisplay:sc, pensDisplay:pe };
+    }
+  });
+  return map;
+}
+
 function buildFeedSignature(item){
   // Stable key representing the rendered content of a feed item — used for DOM diffing
   if(item.type==='sub'){
@@ -802,7 +830,8 @@ function buildFeedSignature(item){
 
 function renderFeed(){
   const q=state.search.toLowerCase();
-  const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:p,sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
+  const adminScoreMap=buildAdminScoreTimeline(state.posts);
+  const postItems=state.posts.filter(p=>!p.deleted).map(p=>({type:'post',data:{...p,...(adminScoreMap[p.id]||{})},sort:Number(p.clockSort)||Number(p.updated_at_ms)||0,id:p.id}));
   const subItems=state.submissions.filter(s=>s.published&&!state.hiddenSubs.has(String(s.sub_id||s.row_id))).map(s=>({type:'sub',data:s,sort:s.timestamp_ms||0,id:'sub-'+(s.sub_id||s.row_id)}));
   let all=[...postItems,...subItems].sort((a,b)=>{ if(!!a.data.pinned!==!!b.data.pinned) return a.data.pinned?-1:1; if(b.sort!==a.sort) return b.sort-a.sort; return String(b.id).localeCompare(String(a.id)); });
   if(q) all=all.filter(item=>{ const d=item.data; return (d.team||'').toLowerCase().includes(q)||(d.event||'').toLowerCase().includes(q)||(d.match_time||'').toLowerCase().includes(q)||(d.name||'').toLowerCase().includes(q)||(d.note||'').toLowerCase().includes(q)||(d.copy_html||'').replace(/<[^>]+>/g,'').toLowerCase().includes(q); });
@@ -910,8 +939,9 @@ function buildPostCardHtml(post){
   const tl=escHtml(post.match_time||(post.clock_time?post.clock_time.slice(11,16):''));
   const h=String(post.home??'').trim(); const a=String(post.away??'').trim();
   const hp=String(post.home_pens??'').trim(); const ap=String(post.away_pens??'').trim();
-  const sc=h!==''&&a!==''?escHtml(h+' – '+a):'';
-  const pe=hp&&ap?escHtml(hp+' – '+ap+' pens'):'';
+  // Use pre-computed running score from timeline if available, fall back to raw fields
+  const sc=post.scoreDisplay?escHtml(post.scoreDisplay):(h!==''&&a!==''?escHtml(h+' – '+a):'');
+  const pe=post.pensDisplay?escHtml(post.pensDisplay):(hp&&ap?escHtml(hp+' – '+ap+' pens'):'');
   const crest=post.team?(TEAM_CRESTS[post.team]||CUP_LOGO):CUP_LOGO;
   const pin=post.pinned?pinPill():'';
   // Icon is always explicit: use selectedIcon for active post being edited, else post.icon
