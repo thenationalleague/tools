@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NL Club News Ticker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /*
+   * NL Club News Ticker v1.0.0
+   * Changelog:
+   * v1.0.0 - Initial build. Vertical card feed, 15-min day / 2-hr overnight refresh,
+   *          club colours from clubs-meta.json, crests from NL API, CORS proxy fetch.
+   */
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0f12;
+    --surface:   #161920;
+    --surface2:  #1e2228;
+    --border:    #2a2f38;
+    --text:      #e8eaf0;
+    --muted:     #6b7280;
+    --accent:    #f0f2f5;
+    --font-head: 'Barlow Condensed', sans-serif;
+    --font-body: 'Barlow', sans-serif;
+    --radius:    6px;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-badge {
+    background: #e8242a;
+    color: #fff;
+    font-family: var(--font-head);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    text-transform: uppercase;
+  }
+
+  .header-title {
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    display: inline-block;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .status-dot.sleeping { background: var(--muted); animation: none; }
+  .status-dot.loading  { background: #facc15; }
+  .status-dot.error    { background: #f87171; animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .status-text {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .refresh-btn:hover { background: #2a2f38; border-color: #3a404d; }
+  .refresh-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* ── Controls bar ── */
+  .controls {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .filter-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+
+  .filter-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: #4a5568; color: var(--text); }
+  .filter-btn.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+  }
+
+  .spacer { flex: 1; }
+
+  .count-badge {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* ── Main feed ── */
+  .feed-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 24px 48px;
+  }
+
+  /* ── News card ── */
+  .news-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    border-left: 4px solid var(--club-primary, #444);
+    margin-bottom: 10px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 14px;
+    align-items: start;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.12s, transform 0.12s;
+    cursor: pointer;
+    animation: cardIn 0.25s ease both;
+  }
+
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .news-card:hover {
+    background: var(--surface2);
+    transform: translateX(2px);
+  }
+
+  .news-card__crest {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    border-radius: 4px;
+    background: transparent;
+    flex-shrink: 0;
+  }
+
+  .news-card__crest-placeholder {
+    width: 44px;
+    height: 44px;
+    border-radius: 4px;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-head);
+    font-weight: 800;
+    font-size: 14px;
+    color: var(--club-primary, #888);
+    border: 1px solid var(--border);
+    letter-spacing: 0.02em;
+  }
+
+  .news-card__body { min-width: 0; }
+
+  .news-card__meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .news-card__club {
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--club-primary, #aaa);
+    white-space: nowrap;
+  }
+
+  .news-card__sep {
+    color: var(--border);
+    font-size: 10px;
+  }
+
+  .news-card__date {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .news-card__headline {
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 17px;
+    line-height: 1.25;
+    color: var(--accent);
+    margin-bottom: 6px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .news-card__snippet {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .news-card__arrow {
+    color: var(--border);
+    font-size: 18px;
+    margin-top: 4px;
+    flex-shrink: 0;
+    transition: color 0.12s, transform 0.12s;
+  }
+  .news-card:hover .news-card__arrow {
+    color: var(--club-primary, #888);
+    transform: translateX(3px);
+  }
+
+  /* ── Loading / empty states ── */
+  .skeleton-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .skel {
+    background: linear-gradient(90deg, var(--surface2) 25%, #252a33 50%, var(--surface2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease infinite;
+    border-radius: 3px;
+    height: 12px;
+    display: block;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .skel-crest { width: 44px; height: 44px; border-radius: 4px; }
+  .skel-title { height: 18px; width: 75%; margin-bottom: 8px; }
+  .skel-sub   { height: 12px; width: 45%; margin-bottom: 10px; }
+  .skel-body  { height: 12px; width: 90%; margin-bottom: 6px; }
+  .skel-body2 { height: 12px; width: 65%; }
+
+  .empty-state {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--muted);
+  }
+  .empty-state h3 {
+    font-family: var(--font-head);
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .empty-state p { font-size: 14px; }
+
+  /* ── Sleep banner ── */
+  .sleep-banner {
+    background: #1a1c24;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sleep-banner svg { flex-shrink: 0; }
+  .sleep-banner strong { color: var(--text); }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 16px;
+    font-size: 11px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <span class="header-badge">Live</span>
+    <span class="header-title">National League News</span>
+  </div>
+  <div class="header-right">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="status-text" id="statusText">Loading…</span>
+    <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="controls">
+  <span class="filter-label">Club</span>
+  <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All 24</button>
+  <div id="clubFilters" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  <div class="spacer"></div>
+  <span class="count-badge" id="countBadge"></span>
+</div>
+
+<div class="feed-container">
+  <div id="sleepBanner" style="display:none" class="sleep-banner">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <span>Overnight mode active — <strong id="sleepNextText"></strong></span>
+  </div>
+  <div id="feed"></div>
+</div>
+
+<div class="footer" id="footerText"></div>
+
+<script>
+/*
+ * NL Club News Ticker v1.0.0
+ * Changelog:
+ * v1.0.0 - Vertical card feed, 15-min day / 2-hr overnight (midnight–7am),
+ *          clubs-meta.json colours, NL API crests, CORS proxy, graceful per-club failure.
+ */
+
+// ── Config ──────────────────────────────────────────────────────────────────
+const DAY_INTERVAL_MS    = 15 * 60 * 1000;   // 15 minutes
+const NIGHT_INTERVAL_MS  = 2 * 60 * 60 * 1000; // 2 hours
+const NIGHT_START_HOUR   = 0;   // midnight
+const NIGHT_END_HOUR     = 7;   // 7am
+const FETCH_TIMEOUT_MS   = 9000;
+const CORS_PROXY         = 'https://corsproxy.io/?url=';
+const CLUBS_META_URL     = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/data/clubs-meta.json';
+const NL_API_MATCHES     = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2/matches/?seasonID=2026&competitionID=89&includePopulatedDates=true&page.number=1&page.size=100';
+
+// ── Club registry (from nl-club-news-ticker skill v1.0.0) ────────────────────
+const CLUBS = [
+  { id: 7,    name: 'Aldershot Town',   short: 'Aldershot',     website: 'https://www.theshots.co.uk',                    feedType: 'wp-json', feedUrl: 'https://www.theshots.co.uk/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 8,    name: 'Altrincham',       short: 'Altrincham',    website: 'https://altrinchamfc.com',                       feedType: 'html',    feedUrl: 'https://altrinchamfc.com/blogs/news', selectors: { item: 'article, .blog-article, .grid__item', title: 'h2, h3, .card__heading', link: 'a', date: 'time, .card__meta', snippet: 'p, .card__excerpt' } },
+  { id: 71,   name: 'Boreham Wood',     short: 'Boreham Wood',  website: 'https://www.borehamwoodfootballclub.co.uk',       feedType: 'wp-json', feedUrl: 'https://www.borehamwoodfootballclub.co.uk/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 77,   name: 'Boston United',    short: 'Boston Utd',    website: 'https://www.bostonunited.co.uk',                 feedType: 'html',    feedUrl: 'https://www.bostonunited.co.uk/news/', selectors: { item: 'article, .news-item, .post', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 1550, name: 'Brackley Town',    short: 'Brackley',      website: 'https://www.brackleytownfc.com',                 feedType: 'html',    feedUrl: 'https://www.brackleytownfc.com/news/', selectors: { item: 'article, .news-post, .post', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 83,   name: 'Braintree Town',   short: 'Braintree',     website: 'https://www.braintreetownfc.co.uk',              feedType: 'html',    feedUrl: 'https://www.braintreetownfc.co.uk/news/', selectors: { item: 'article, .news-item, .post', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 96,   name: 'Carlisle United',  short: 'Carlisle',      website: 'https://www.carlisleunited.co.uk',               feedType: 'html',    feedUrl: 'https://www.carlisleunited.co.uk/news/', selectors: { item: '.news-card, article, .article-card', title: 'h2, h3, .article-title', link: 'a', date: 'time, .date', snippet: '.excerpt, p' } },
+  { id: 247,  name: 'Eastleigh',        short: 'Eastleigh',     website: 'https://www.eastleighfc.com',                    feedType: 'wp-json', feedUrl: 'https://www.eastleighfc.com/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 294,  name: 'FC Halifax Town',  short: 'Halifax',       website: 'https://www.fchalifaxtown.com',                  feedType: 'wp-json', feedUrl: 'https://www.fchalifaxtown.com/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 260,  name: 'Forest Green Rvrs',short: 'Forest Green',  website: 'https://www.fgr.co.uk',                          feedType: 'html',    feedUrl: 'https://www.fgr.co.uk/news/', selectors: { item: 'article, .news-article, .card', title: 'h2, h3, .title', link: 'a', date: 'time, .date', snippet: 'p, .summary' } },
+  { id: 267,  name: 'Gateshead',        short: 'Gateshead',     website: 'https://gateshead-fc.com',                       feedType: 'wp-json', feedUrl: 'https://gateshead-fc.com/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 310,  name: 'Hartlepool United',short: 'Hartlepool',    website: 'https://www.hartlepoolunited.co.uk',             feedType: 'html',    feedUrl: 'https://www.hartlepoolunited.co.uk/news/', selectors: { item: '.news-item, article', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 430,  name: 'Morecambe',        short: 'Morecambe',     website: 'https://www.morecambefc.com',                    feedType: 'html',    feedUrl: 'https://www.morecambefc.com/news/', selectors: { item: 'article, .news-article, .card', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 528,  name: 'Rochdale',         short: 'Rochdale',      website: 'https://www.rochdaleafc.co.uk',                  feedType: 'html',    feedUrl: 'https://www.rochdaleafc.co.uk/news/', selectors: { item: '.news-card, article', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 554,  name: 'Scunthorpe United',short: 'Scunthorpe',    website: 'https://www.scunthorpe-united.co.uk',            feedType: 'html',    feedUrl: 'https://www.scunthorpe-united.co.uk/news/', selectors: { item: 'article, .news-item, .post', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 1796, name: 'Solihull Moors',   short: 'Solihull',      website: 'https://www.solihullmoorsfc.co.uk',              feedType: 'wp-json', feedUrl: 'https://www.solihullmoorsfc.co.uk/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 580,  name: 'Southend United',  short: 'Southend',      website: 'https://www.southendunited.co.uk',               feedType: 'html',    feedUrl: 'https://www.southendunited.co.uk/news/', selectors: { item: '.news-item, article, .article-card', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 607,  name: 'Sutton United',    short: 'Sutton Utd',    website: 'https://www.suttonunited.net',                   feedType: 'wp-json', feedUrl: 'https://www.suttonunited.net/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 618,  name: 'Tamworth',         short: 'Tamworth',      website: 'https://www.tamworthfc.co.uk',                   feedType: 'wp-json', feedUrl: 'https://www.tamworthfc.co.uk/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 1866, name: 'Truro City',       short: 'Truro',         website: 'https://www.trurocityfc.co.uk',                  feedType: 'html',    feedUrl: 'https://www.trurocityfc.co.uk/news/', selectors: { item: 'article, .news-item, .post', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+  { id: 667,  name: 'Wealdstone',       short: 'Wealdstone',    website: 'https://www.wealdstonefc.co.uk',                 feedType: 'wp-json', feedUrl: 'https://www.wealdstonefc.co.uk/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 680,  name: 'Woking',           short: 'Woking',        website: 'https://www.wokingfc.co.uk',                     feedType: 'wp-json', feedUrl: 'https://www.wokingfc.co.uk/wp-json/wp/v2/posts?per_page=8&_fields=title,excerpt,date,link' },
+  { id: 703,  name: 'Yeovil Town',      short: 'Yeovil',        website: 'https://www.ytfc.net',                           feedType: 'html',    feedUrl: 'https://www.ytfc.net/news/', selectors: { item: 'article, .news-item, .post-card', title: 'h2, h3, .entry-title', link: 'a', date: 'time, .posted-on', snippet: 'p, .entry-summary' } },
+  { id: 706,  name: 'York City',        short: 'York City',     website: 'https://yorkcityfootballclub.co.uk',             feedType: 'html',    feedUrl: 'https://yorkcityfootballclub.co.uk/news/', selectors: { item: 'article, .news-card, .post', title: 'h2, h3', link: 'a', date: 'time, .date', snippet: 'p' } },
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let allItems      = [];
+let clubColors    = {};   // optaId → { primary, secondary }
+let clubCrests    = {};   // optaId → crestUrl
+let activeFilter  = 'all';
+let refreshTimer  = null;
+let lastUpdated   = null;
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function isNightTime() {
+  const h = new Date().getHours();
+  return h >= NIGHT_START_HOUR && h < NIGHT_END_HOUR;
+}
+
+function nextWakeTime() {
+  const d = new Date();
+  d.setHours(NIGHT_END_HOUR, 0, 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function getInterval() {
+  return isNightTime() ? NIGHT_INTERVAL_MS : DAY_INTERVAL_MS;
+}
+
+function formatRelDate(date) {
+  if (!(date instanceof Date) || isNaN(date)) return '';
+  const diff = Date.now() - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  const hrs  = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins <  2)  return 'just now';
+  if (mins < 60)  return `${mins}m ago`;
+  if (hrs  < 24)  return `${hrs}h ago`;
+  if (days === 1) return 'Yesterday';
+  if (days <  7)  return `${days}d ago`;
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function stripHtml(html) {
+  return (html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function decodeEntities(str) {
+  const t = document.createElement('textarea');
+  t.innerHTML = str || '';
+  return t.value;
+}
+
+function setStatus(type, text) {
+  const dot  = document.getElementById('statusDot');
+  const span = document.getElementById('statusText');
+  dot.className  = `status-dot ${type}`;
+  span.textContent = text;
+}
+
+function updateFooter() {
+  const el = document.getElementById('footerText');
+  if (!lastUpdated) { el.textContent = ''; return; }
+  const next = new Date(lastUpdated.getTime() + getInterval());
+  el.textContent = `Last updated ${lastUpdated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · Next refresh ${next.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · Enterprise National League 2025–26`;
+}
+
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
+async function fetchWithTimeout(url, ms = FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function proxiedFetch(url) {
+  return fetchWithTimeout(CORS_PROXY + encodeURIComponent(url));
+}
+
+// ── Colour + crest loading ─────────────────────────────────────────────────
+async function loadClubsMeta() {
+  try {
+    const res = await fetchWithTimeout(CLUBS_META_URL);
+    const data = await res.json();
+    (data.clubs || []).forEach(c => {
+      if (c.optaID && c.colors) {
+        clubColors[c.optaID] = {
+          primary:   c.colors.primary   || '#888888',
+          secondary: c.colors.secondary || '#555555',
+        };
+      }
+    });
+  } catch(e) { console.warn('clubs-meta load failed:', e); }
+}
+
+async function loadCrests() {
+  try {
+    const res = await fetchWithTimeout(NL_API_MATCHES);
+    const data = await res.json();
+    (data.data || []).forEach(match => {
+      const ht = match.attributes?.homeTeam;
+      const at = match.attributes?.awayTeam;
+      if (ht?.teamID && ht?.crest) clubCrests[ht.teamID] = ht.crest;
+      if (at?.teamID && at?.crest) clubCrests[at.teamID] = at.crest;
+    });
+  } catch(e) { console.warn('Crest load failed:', e); }
+}
+
+// ── News fetching ─────────────────────────────────────────────────────────────
+async function fetchWpJson(club) {
+  const res = await proxiedFetch(club.feedUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const posts = await res.json();
+  return (Array.isArray(posts) ? posts : []).map(p => ({
+    clubId:      club.id,
+    clubName:    club.name,
+    clubShort:   club.short,
+    headline:    decodeEntities(p.title?.rendered || ''),
+    snippet:     stripHtml(p.excerpt?.rendered || '').slice(0, 160),
+    url:         p.link || club.website,
+    publishedAt: new Date(p.date || 0),
+  }));
+}
+
+async function tryRssFeed(club) {
+  try {
+    const rssUrl = club.website.replace(/\/$/, '') + '/feed/';
+    const res = await proxiedFetch(rssUrl);
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!text.includes('<rss') && !text.includes('<feed')) return null;
+    return parseRss(text, club);
+  } catch(e) { return null; }
+}
+
+function parseRss(xml, club) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'text/xml');
+  const items = [...doc.querySelectorAll('item, entry')];
+  return items.slice(0, 8).map(el => {
+    const isAtom = el.tagName === 'entry';
+    return {
+      clubId:      club.id,
+      clubName:    club.name,
+      clubShort:   club.short,
+      headline:    el.querySelector('title')?.textContent?.trim() || '',
+      snippet:     stripHtml(el.querySelector(isAtom ? 'summary, content' : 'description')?.textContent || '').slice(0, 160),
+      url:         isAtom
+                     ? (el.querySelector('link')?.getAttribute('href') || club.website)
+                     : (el.querySelector('link')?.textContent?.trim() || club.website),
+      publishedAt: new Date(el.querySelector(isAtom ? 'updated, published' : 'pubDate')?.textContent || 0),
+    };
+  });
+}
+
+async function fetchHtml(club) {
+  const rssItems = await tryRssFeed(club);
+  if (rssItems?.length) return rssItems;
+
+  const res = await proxiedFetch(club.feedUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const html = await res.text();
+  const doc  = new DOMParser().parseFromString(html, 'text/html');
+  const sel  = club.selectors;
+
+  const itemEls = doc.querySelectorAll(sel.item);
+  const items   = [];
+
+  itemEls.forEach(el => {
+    const titleEl   = el.querySelector(sel.title);
+    const linkEl    = el.querySelector(sel.link);
+    const dateEl    = el.querySelector(sel.date);
+    const snippetEl = el.querySelector(sel.snippet);
+    if (!titleEl || !linkEl) return;
+
+    const rawHref = linkEl.getAttribute('href') || '';
+    const url     = rawHref.startsWith('http') ? rawHref : club.website + rawHref;
+    const dateStr = dateEl?.getAttribute('datetime') || dateEl?.textContent || '';
+    const d       = new Date(dateStr);
+
+    items.push({
+      clubId:      club.id,
+      clubName:    club.name,
+      clubShort:   club.short,
+      headline:    titleEl.textContent.trim(),
+      snippet:     snippetEl ? snippetEl.textContent.trim().slice(0, 160) : '',
+      url,
+      publishedAt: isNaN(d) ? new Date(0) : d,
+    });
+  });
+
+  return items;
+}
+
+async function fetchClub(club) {
+  if (club.feedType === 'wp-json') return fetchWpJson(club);
+  return fetchHtml(club);
+}
+
+async function fetchAllClubs() {
+  const results = await Promise.allSettled(CLUBS.map(c => fetchClub(c)));
+  const items   = [];
+  let failCount = 0;
+
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      items.push(...r.value);
+    } else {
+      failCount++;
+      console.warn(`[NL Ticker] ${CLUBS[i].name} failed:`, r.reason?.message);
+    }
+  });
+
+  items.sort((a, b) => b.publishedAt - a.publishedAt);
+  console.log(`[NL Ticker] ${items.length} items from ${CLUBS.length - failCount}/${CLUBS.length} clubs`);
+  return items;
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+function getClubColor(clubId) {
+  return clubColors[clubId] || { primary: '#4a5568', secondary: '#2d3748' };
+}
+
+function getCrestUrl(clubId) {
+  return clubCrests[clubId] || null;
+}
+
+function renderSkeletons(n = 8) {
+  const feed = document.getElementById('feed');
+  feed.innerHTML = Array(n).fill(0).map(() => `
+    <div class="skeleton-card">
+      <span class="skel skel-crest"></span>
+      <div>
+        <span class="skel skel-sub"></span>
+        <span class="skel skel-title"></span>
+        <span class="skel skel-body"></span>
+        <span class="skel skel-body2"></span>
+      </div>
+    </div>`).join('');
+}
+
+function buildClubFilters() {
+  const container = document.getElementById('clubFilters');
+  container.innerHTML = '';
+  CLUBS.slice().sort((a,b) => a.short.localeCompare(b.short)).forEach(club => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn';
+    btn.dataset.filter = club.id;
+    btn.textContent = club.short;
+    btn.onclick = () => setFilter(club.id, btn);
+    container.appendChild(btn);
+  });
+}
+
+function setFilter(value, btn) {
+  activeFilter = value;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderFeed();
+}
+
+function renderFeed() {
+  const feed   = document.getElementById('feed');
+  const badge  = document.getElementById('countBadge');
+  const filtered = activeFilter === 'all'
+    ? allItems
+    : allItems.filter(i => String(i.clubId) === String(activeFilter));
+
+  badge.textContent = `${filtered.length} articles`;
+
+  if (!filtered.length) {
+    feed.innerHTML = `<div class="empty-state"><h3>No articles found</h3><p>Try a different club or refresh.</p></div>`;
+    return;
+  }
+
+  feed.innerHTML = filtered.map((item, idx) => {
+    const colors   = getClubColor(item.clubId);
+    const crestUrl = getCrestUrl(item.clubId);
+    const initials = item.clubShort.split(' ').map(w => w[0]).join('').slice(0,3).toUpperCase();
+
+    const crestHtml = crestUrl
+      ? `<img class="news-card__crest" src="${crestUrl}" alt="${item.clubShort}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+      + `<div class="news-card__crest-placeholder" style="display:none;--club-primary:${colors.primary}">${initials}</div>`
+      : `<div class="news-card__crest-placeholder" style="--club-primary:${colors.primary}">${initials}</div>`;
+
+    return `
+      <a class="news-card" href="${item.url}" target="_blank" rel="noopener"
+         style="--club-primary:${colors.primary};--club-secondary:${colors.secondary};animation-delay:${Math.min(idx * 0.02, 0.3)}s">
+        <div style="display:flex;align-items:flex-start;gap:0">
+          ${crestHtml}
+        </div>
+        <div class="news-card__body">
+          <div class="news-card__meta">
+            <span class="news-card__club">${item.clubShort}</span>
+            <span class="news-card__sep">·</span>
+            <span class="news-card__date">${formatRelDate(item.publishedAt)}</span>
+          </div>
+          <div class="news-card__headline">${item.headline}</div>
+          ${item.snippet ? `<div class="news-card__snippet">${item.snippet}</div>` : ''}
+        </div>
+        <span class="news-card__arrow">›</span>
+      </a>`;
+  }).join('');
+}
+
+// ── Refresh logic ──────────────────────────────────────────────────────────────
+async function doRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  setStatus('loading', 'Fetching…');
+
+  try {
+    allItems  = await fetchAllClubs();
+    lastUpdated = new Date();
+    renderFeed();
+    setStatus('active', 'Live');
+    updateFooter();
+  } catch(e) {
+    console.error('[NL Ticker] Refresh error:', e);
+    setStatus('error', 'Error — retrying');
+  } finally {
+    btn.disabled = false;
+  }
+
+  scheduleNext();
+}
+
+function scheduleNext() {
+  clearTimeout(refreshTimer);
+
+  const night = isNightTime();
+  const interval = getInterval();
+
+  // Show sleep banner
+  const banner   = document.getElementById('sleepBanner');
+  const sleepTxt = document.getElementById('sleepNextText');
+
+  if (night) {
+    const wake = nextWakeTime();
+    sleepTxt.textContent = `next refresh at ${wake.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    banner.style.display = 'flex';
+    setStatus('sleeping', 'Overnight mode');
+  } else {
+    banner.style.display = 'none';
+  }
+
+  refreshTimer = setTimeout(doRefresh, interval);
+  updateFooter();
+}
+
+function manualRefresh() {
+  clearTimeout(refreshTimer);
+  doRefresh();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  buildClubFilters();
+  renderSkeletons(8);
+  setStatus('loading', 'Loading…');
+
+  await Promise.all([loadClubsMeta(), loadCrests()]);
+  await doRefresh();
+}
+
+init();
+</script>
+</body>
+</html>
