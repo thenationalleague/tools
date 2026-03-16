@@ -8,6 +8,8 @@
   v2 — URLSearchParams POST throughout; action names aligned to GAS v3
   v3 — CTA text + URL fields added to editor
   v4 — Free-text club picker; canvas colour extraction for unknown clubs
+  v7 — Club picker always-visible inline search input; proper tab order;
+         arrow key nav through list; Enter to select; no floating dropdown
   v6 — Admin gradient bar uses TO club colours only; shown on any card with
          a to_club (not just confirmed); version number in topbar
   v5 — diffRenderFeed: proper in-place diff, no innerHTML wipe (fixes flash);
@@ -160,39 +162,40 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ─── CLUB PICKER ───────────────────────────────────────────────────────────── */
 .club-picker-wrap { position: relative; }
-.club-picker-preview {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; background: var(--surface2);
-  border: 1px solid var(--border2); border-radius: var(--radius);
-  cursor: pointer; transition: border-color 0.15s; min-height: 38px;
-}
-.club-picker-preview:hover { border-color: var(--yellow); }
-.club-picker-preview img {
-  width: 22px; height: 22px; object-fit: contain; flex-shrink: 0;
-}
-.club-picker-preview span {
-  font-size: 13px; color: var(--text-dim); flex: 1;
-}
-.club-picker-preview .caret { font-size: 10px; color: var(--text-muted); }
 
 .club-picker-dropdown {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 500;
-  background: var(--surface); border: 1px solid var(--border2);
-  border-radius: var(--radius); box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-  display: none; flex-direction: column; max-height: 260px; overflow: hidden;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow: hidden;
 }
-.club-picker-dropdown.open { display: flex; }
 
 .club-picker-search {
-  padding: 8px;
+  padding: 0;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .club-picker-search input {
-  padding: 6px 10px; font-size: 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: none !important;
+  background: transparent !important;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
+.club-picker-search input:focus { outline: none; border-color: transparent !important; }
+
+.club-picker-wrap:focus-within {
+  outline: 2px solid var(--yellow);
+  border-radius: var(--radius);
+}
+
 .club-picker-list {
-  overflow-y: auto; flex: 1;
+  overflow-y: auto;
+  flex: 1;
+  max-height: 160px;
 }
 .club-picker-list::-webkit-scrollbar { width: 4px; }
 .club-picker-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
@@ -203,7 +206,7 @@ textarea { resize: vertical; min-height: 80px; }
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
 }
-.club-picker-item:hover { background: var(--surface2); }
+.club-picker-item:hover { background: var(--surface3); }
 .club-picker-item img { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
 .club-picker-item__name { font-size: 12px; color: var(--text); flex: 1; }
 .club-picker-item__div {
@@ -498,7 +501,7 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="topbar__live-dot"></div>
     <div class="topbar__badge">NL Admin</div>
     <div class="topbar__title">Transfer <span>Centre</span></div>
-    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v6</div>
+    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v7</div>
     <div class="topbar__status" id="topbar-status">Loading…</div>
   </div>
 
@@ -537,12 +540,12 @@ textarea { resize: vertical; min-height: 80px; }
             <div class="field" id="field-from-club">
               <label id="label-from-club">From Club</label>
               <div class="club-picker-wrap" id="from-club-wrap">
-                <div class="club-picker-preview" id="from-club-preview" data-field="from">
+                <div class="club-picker-preview" id="from-club-preview" data-field="from" style="display:none">
                   <span>Select club…</span>
                   <span class="caret">▾</span>
                 </div>
                 <div class="club-picker-dropdown" id="from-club-dropdown">
-                  <div class="club-picker-search"><input type="text" placeholder="Search or type any club…" id="from-club-search"></div>
+                  <div class="club-picker-search"><input type="text" placeholder="Search or type club…" id="from-club-search" autocomplete="off"></div>
                   <div class="club-picker-list" id="from-club-list"></div>
                 </div>
               </div>
@@ -550,12 +553,12 @@ textarea { resize: vertical; min-height: 80px; }
             <div class="field">
               <label id="label-to-club">To Club</label>
               <div class="club-picker-wrap" id="to-club-wrap">
-                <div class="club-picker-preview" id="to-club-preview" data-field="to">
+                <div class="club-picker-preview" id="to-club-preview" data-field="to" style="display:none">
                   <span>Select club…</span>
                   <span class="caret">▾</span>
                 </div>
                 <div class="club-picker-dropdown" id="to-club-dropdown">
-                  <div class="club-picker-search"><input type="text" placeholder="Search or type any club…" id="to-club-search"></div>
+                  <div class="club-picker-search"><input type="text" placeholder="Search or type club…" id="to-club-search" autocomplete="off"></div>
                   <div class="club-picker-list" id="to-club-list"></div>
                 </div>
               </div>
@@ -868,7 +871,7 @@ textarea { resize: vertical; min-height: 80px; }
     }
 
     html += filtered.map(function(c){
-      return '<div class="club-picker-item" data-name="'+esc(c.name)+'" data-field="'+field+'">' +
+      return '<div class="club-picker-item" data-name="'+esc(c.name)+'" data-field="'+field+'" tabindex="0">' +
         '<img src="'+crestUrl(c.name)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
         '<span class="club-picker-item__name">'+esc(c.name)+'</span>' +
         '<span class="club-picker-item__div">'+esc(c.division||'')+'</span>' +
@@ -884,22 +887,18 @@ textarea { resize: vertical; min-height: 80px; }
   }
 
   function selectClub(field, name) {
-    var pal = getTeamPalette(name);
     if (field === 'from') {
       state.fromClub = name;
-      updateClubPreview('from-club-preview', name);
-      document.getElementById('from-club-dropdown').classList.remove('open');
-      document.getElementById('from-club-search').value = name;
+      var fs = document.getElementById('from-club-search');
+      if (fs) fs.value = name;
+      renderClubList('from-club-list', state.clubsList, 'from', name);
     } else {
       state.toClub = name;
-      updateClubPreview('to-club-preview', name);
-      document.getElementById('to-club-dropdown').classList.remove('open');
-      document.getElementById('to-club-search').value = name;
+      var ts = document.getElementById('to-club-search');
+      if (ts) ts.value = name;
+      renderClubList('to-club-list', state.clubsList, 'to', name);
     }
-    // If not in meta, try to extract colours from crest
-    if (!state.clubs[name]) {
-      extractCrestColours(name);
-    }
+    if (!state.clubs[name]) extractCrestColours(name);
   }
 
   function updateClubPreview(previewId, name) {
@@ -975,49 +974,49 @@ textarea { resize: vertical; min-height: 80px; }
   }
 
   function initClubPicker(previewId, dropdownId, searchId, listId, field) {
-    var preview  = document.getElementById(previewId);
-    var dropdown = document.getElementById(dropdownId);
-    var search   = document.getElementById(searchId);
+    var search = document.getElementById(searchId);
 
-    preview.addEventListener('click', function(e){
-      e.stopPropagation();
-      dropdown.classList.toggle('open');
-      if (dropdown.classList.contains('open')) {
-        setTimeout(function(){ search.focus(); }, 50);
-      }
-    });
-
-    // As user types, filter list AND update the club value live
     search.addEventListener('input', function(){
       var val = search.value.trim();
       renderClubList(listId, state.clubsList, field, val);
-      dropdown.classList.toggle('open', val.length > 0 || document.activeElement === search);
-      // Update state immediately so typed value is used even without selecting
       if (field === 'from') {
         state.fromClub = val || null;
-        updateClubPreview('from-club-preview', val);
       } else {
         state.toClub = val || null;
-        updateClubPreview('to-club-preview', val);
       }
       if (val && !state.clubs[val]) extractCrestColours(val);
     });
 
     search.addEventListener('keydown', function(e){
-      if (e.key === 'Escape') { dropdown.classList.remove('open'); }
       if (e.key === 'Enter') {
         e.preventDefault();
-        var first = dropdown.querySelector('.club-picker-item');
-        if (first) { selectClub(field, first.dataset.name); }
-        else if (search.value.trim()) { selectClub(field, search.value.trim()); }
+        var first = document.getElementById(listId).querySelector('.club-picker-item');
+        if (first) selectClub(field, first.dataset.name);
+        else if (search.value.trim()) selectClub(field, search.value.trim());
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        var first = document.getElementById(listId).querySelector('.club-picker-item');
+        if (first) first.focus();
       }
     });
 
-    document.addEventListener('click', function(){
-      dropdown.classList.remove('open');
+    // Allow keyboard nav through list items
+    document.getElementById(listId).addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var item = e.target.closest('.club-picker-item');
+        if (item) selectClub(field, item.dataset.name);
+      }
+      if (e.key === 'ArrowDown') {
+        var next = e.target.nextElementSibling;
+        if (next) next.focus();
+      }
+      if (e.key === 'ArrowUp') {
+        var prev = e.target.previousElementSibling;
+        if (prev) prev.focus();
+        else search.focus();
+      }
     });
-    dropdown.addEventListener('click', function(e){ e.stopPropagation(); });
-    search.addEventListener('click', function(e){ e.stopPropagation(); });
   }
 
   // ─── CARD TYPE ────────────────────────────────────────────────────────────
@@ -1134,12 +1133,10 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('toggle-published').checked = true;
     document.getElementById('toggle-pinned').checked    = false;
 
-    updateClubPreview('from-club-preview', null, null);
-    updateClubPreview('to-club-preview',   null, null);
     var fs = document.getElementById('from-club-search');
     var ts = document.getElementById('to-club-search');
-    if (fs) fs.value = '';
-    if (ts) ts.value = '';
+    if (fs) { fs.value = ''; renderClubList('from-club-list', state.clubsList, 'from', ''); }
+    if (ts) { ts.value = ''; renderClubList('to-club-list',   state.clubsList, 'to',   ''); }
 
     document.querySelectorAll('.card-type-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === 'confirmed_signing');
@@ -1178,8 +1175,10 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('toggle-published').checked = post.published;
     document.getElementById('toggle-pinned').checked    = post.pinned;
 
-    if (post.from_club) updateClubPreview('from-club-preview', post.from_club, getTeamPalette(post.from_club));
-    if (post.to_club)   updateClubPreview('to-club-preview',   post.to_club,   getTeamPalette(post.to_club));
+    var fs = document.getElementById('from-club-search');
+    var ts = document.getElementById('to-club-search');
+    if (fs) { fs.value = post.from_club || ''; renderClubList('from-club-list', state.clubsList, 'from', post.from_club || ''); }
+    if (ts) { ts.value = post.to_club   || ''; renderClubList('to-club-list',   state.clubsList, 'to',   post.to_club   || ''); }
 
     document.querySelectorAll('.card-type-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === state.cardType);
