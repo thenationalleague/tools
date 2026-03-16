@@ -1,5 +1,7 @@
 <!--
   CHANGELOG
+  v124 — delete submission now also sets published=false locally so it unpublishes immediately before moving to deleted pile
+  v123 — standalone web app meta tags: description, theme-color, apple-mobile, noindex, og tags
   v122 — clock time field now shows seconds (slice 0,19 not 0,16) so HH:mm:ss is preserved when editing
   v121 — new post header is #9e0000 (red) by default; editing header remains blue; clear at a glance distinction
   v120 — score label renamed to SCORE UPDATE; pens label renamed to SHOOT-OUT UPDATE; editor column doubled to 720px; icon palette replaced with compact dropdown menu button
@@ -39,8 +41,29 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live Blog Admin v122</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NL Live Blog Admin</title>
+
+<!-- Standalone web app meta -->
+<meta name="description" content="National League Cup Final live blog admin panel — post and manage live updates">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#223b7c">
+
+<!-- iOS standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blog Admin">
+
+<!-- Web App Manifest -->
+<link rel="manifest" href="/manifest.json">
+
+<!-- Prevent auto-detection of phone numbers/emails -->
+<meta name="format-detection" content="telephone=no">
+
+<!-- Open Graph (for link previews if shared internally) -->
+<meta property="og:title" content="NL Live Blog Admin">
+<meta property="og:description" content="National League Cup Final live blog admin panel">
+<meta property="og:type" content="website">
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 <style>
 :root{
@@ -371,7 +394,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 <body>
 
 <header class="topbar">
-  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v122</span></div>
+  <div class="topbar__brand">Live Blog Admin<span class="topbar__version">v123</span></div>
   <div class="topbar__sep"></div>
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
@@ -940,9 +963,9 @@ function bindSubRailEvents(container){
           note:state.submissions.find(s=>String(s.row_id)===String(row))?.note||'',
           deleted:'TRUE', published:'FALSE'
         }).catch(handleErr);
-        // Mark locally as deleted
+        // Mark locally as deleted and unpublished
         const sub=state.submissions.find(s=>String(s.row_id)===String(row));
-        if(sub) sub.deleted=true;
+        if(sub){ sub.deleted=true; sub.published=false; sub.timestamp_ms=0; sub.timestamp=''; }
         renderSubRail(); renderFeed();
       } else if(action==='restore'){
         apiFetch({
