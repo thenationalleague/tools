@@ -1,5 +1,7 @@
 <!--
   CHANGELOG
+  v127 — PAT removed from source; prompted on first use and stored in localStorage; clear token button in topbar
+  v126 — GitHub image upload: file picker on media URL field uploads to rckd-nl/nl-tools/assets/live-blog-uploads, auto-fills URL; gallery browser shows existing uploads as thumbnails
   v125 — admin cards show running score timeline (latest score at each post's point in time); renderFeed builds scoreMap before rendering
   v124 — delete submission now also sets published=false locally so it unpublishes immediately before moving to deleted pile
   v123 — standalone web app meta tags: description, theme-color, apple-mobile, noindex, og tags
@@ -318,6 +320,73 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 .scard__btn:hover:not(.is-active){ filter:brightness(.95); }
 .rail-empty{ padding:20px 10px; text-align:center; font-size:.84rem; color:var(--muted); }
 
+/* ── GitHub upload & gallery ── */
+.gh-media-row{ display:flex; gap:6px; align-items:flex-end; }
+.gh-media-row .ef--grow{ flex:1 1 auto; }
+.gh-btn{
+  appearance:none; border:1px solid #cfd6de; border-radius:7px;
+  background:#fff; cursor:pointer; height:32px; padding:0 10px;
+  font:inherit; font-size:.72rem; font-weight:900; color:#374151;
+  letter-spacing:.04em; text-transform:uppercase;
+  display:inline-flex; align-items:center; gap:5px;
+  white-space:nowrap; transition:border-color .15s, background .15s;
+  flex-shrink:0;
+}
+.gh-btn:hover{ border-color:var(--blue); background:#f8faff; }
+.gh-btn:disabled{ opacity:.45; cursor:default; }
+.gh-btn--upload{ background:var(--blue); color:#fff; border-color:var(--blue); }
+.gh-btn--upload:hover{ background:#1a2f63; border-color:#1a2f63; }
+.gh-btn--gallery{ }
+
+/* Gallery modal */
+.gh-modal-backdrop{
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
+  z-index:600; align-items:center; justify-content:center;
+}
+.gh-modal-backdrop.is-open{ display:flex; }
+.gh-modal{
+  background:#fff; border-radius:16px; width:min(680px,96vw);
+  max-height:80vh; display:flex; flex-direction:column;
+  box-shadow:0 24px 60px rgba(0,0,0,.25); overflow:hidden;
+}
+.gh-modal__head{
+  padding:14px 18px; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:10px; flex-shrink:0;
+}
+.gh-modal__title{ font-size:.9rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; flex:1; }
+.gh-modal__close{
+  appearance:none; border:0; background:#f3f4f6; border-radius:50%;
+  width:32px; height:32px; cursor:pointer; font-size:1rem;
+  display:flex; align-items:center; justify-content:center;
+  color:#374151; transition:background .15s;
+}
+.gh-modal__close:hover{ background:#e5e7eb; }
+.gh-modal__body{ flex:1 1 auto; overflow-y:auto; padding:14px; }
+.gh-gallery{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px;
+}
+.gh-gallery__item{
+  border:2px solid #e5e7eb; border-radius:10px; overflow:hidden;
+  cursor:pointer; transition:border-color .15s, box-shadow .15s;
+  display:flex; flex-direction:column;
+}
+.gh-gallery__item:hover{ border-color:var(--blue); box-shadow:0 4px 12px rgba(34,59,124,.15); }
+.gh-gallery__img{
+  width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#f3f4f6;
+}
+.gh-gallery__name{
+  padding:4px 6px; font-size:.58rem; font-weight:700; color:#555;
+  text-overflow:ellipsis; overflow:hidden; white-space:nowrap;
+  border-top:1px solid #e5e7eb; background:#fafafa;
+}
+.gh-loading{ text-align:center; padding:32px; color:var(--muted); font-size:.84rem; }
+.gh-upload-progress{
+  font-size:.68rem; color:var(--blue); font-weight:700;
+  letter-spacing:.04em; text-transform:uppercase; white-space:nowrap;
+  display:none; align-items:center; gap:4px;
+}
+.gh-upload-progress.is-visible{ display:inline-flex; }
+
 /* Deleted submissions collapsible */
 .del-section{ border-top:1px solid var(--line); margin-top:4px; flex-shrink:0; }
 .del-section__toggle{ display:flex; align-items:center; gap:8px; padding:10px 10px 8px; cursor:pointer; user-select:none; background:transparent; border:0; width:100%; text-align:left; font:inherit; color:var(--muted); font-size:.72rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; transition:color .15s; }
@@ -400,6 +469,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
     <button class="btn btn--ghost btn--sm" id="btnReload" type="button">Reload</button>
+    <button class="btn btn--ghost btn--sm" id="ghClearPatBtn" type="button" title="Clear saved GitHub token" style="display:none;">🔑 Clear token</button>
   </div>
 </header>
 
@@ -432,7 +502,20 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
             <div class="ef" style="flex-shrink:0;"><label class="elabel">Score Update</label><div class="score-strip"><span class="score-strip__label">Score</span><input class="score-input" id="fHome" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="fAway" type="text"></div></div>
             <div class="ef" style="flex-shrink:0;"><label class="elabel">Shoot-out Update</label><div class="score-strip"><span class="score-strip__label">Pens</span><input class="score-input" id="fHomePens" type="text"><span class="score-strip__sep">–</span><input class="score-input" id="fAwayPens" type="text"></div></div>
             <div class="ef" style="width:120px;"><label class="elabel">Media type</label><select class="eselect" id="fMediaType"><option value="">None</option><option value="image">Image</option><option value="video">Video</option><option value="gallery">Gallery</option><option value="embed">Embed</option></select></div>
-            <div class="ef ef--grow"><label class="elabel">Media URL</label><input class="einput" id="fMediaUrl" type="text"></div>
+            <div class="ef ef--grow gh-media-row">
+              <div class="ef ef--grow">
+                <label class="elabel">Media URL</label>
+                <input class="einput" id="fMediaUrl" type="text" placeholder="URL or upload…">
+              </div>
+              <div style="display:flex;flex-direction:column;gap:3px;">
+                <label class="elabel" style="visibility:hidden">.</label>
+                <div style="display:flex;gap:4px;align-items:center;">
+                  <button class="gh-btn gh-btn--upload" type="button" id="ghUploadBtn" title="Upload image to GitHub">⬆ Upload</button>
+                  <button class="gh-btn gh-btn--gallery" type="button" id="ghGalleryBtn" title="Browse uploaded images">🖼 Gallery</button>
+                  <span class="gh-upload-progress" id="ghProgress">Uploading…</span>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="erow">
             <div class="ef ef--grow"><label class="elabel">Post copy</label>
@@ -535,7 +618,15 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
     </div>
     <div class="erow">
       <div class="ef" style="width:130px;"><label class="elabel">Media type</label><select class="eselect" id="sfMediaType"><option value="">None</option><option value="image">Image</option><option value="video">Video</option><option value="gallery">Gallery</option><option value="embed">Embed</option></select></div>
-      <div class="ef ef--grow"><label class="elabel">Media URL</label><input class="einput" id="sfMediaUrl" type="text"></div>
+      <div class="ef ef--grow">
+        <label class="elabel">Media URL</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input class="einput" id="sfMediaUrl" type="text" style="flex:1 1 auto;" placeholder="URL or upload…">
+          <button class="gh-btn gh-btn--upload" type="button" id="sfGhUploadBtn" title="Upload">⬆</button>
+          <button class="gh-btn gh-btn--gallery" type="button" id="sfGhGalleryBtn" title="Gallery">🖼</button>
+        </div>
+        <span class="gh-upload-progress" id="sfGhProgress">Uploading…</span>
+      </div>
     </div>
     <div class="ef ef--grow"><label class="elabel">Post copy</label>
       <div class="rte-wrap"><div class="rte-bar"><button class="rte-btn rte-btn--b" type="button" data-scmd="bold">B</button><button class="rte-btn rte-btn--i" type="button" data-scmd="italic">I</button><div class="rte-sep"></div><button class="rte-btn" type="button" data-scmd="para">¶</button><button class="rte-btn" type="button" data-scmd="br">↵</button><div class="rte-sep"></div><button class="rte-btn" type="button" data-scmd="clear" style="margin-left:auto;font-size:.68rem;">✕ fmt</button></div><div class="rte-editor" id="sfCopy" contenteditable="true" data-ph="Post copy here…" spellcheck="true"></div></div>
@@ -559,6 +650,35 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
 'use strict';
 
 const API='https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec';
+const GH={
+  owner:'rckd-nl',
+  repo:'nl-tools',
+  branch:'main',
+  folder:'assets/live-blog-uploads',
+  rawBase:'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/live-blog-uploads/',
+  _patKey:'nllb_gh_pat' // localStorage key — token never in source
+};
+function ghPat(){
+  return localStorage.getItem(GH._patKey)||'';
+}
+function ghClearPat(){
+  localStorage.removeItem(GH._patKey);
+  setStatus('GitHub token cleared.','success');
+  const btn=document.getElementById('ghClearPatBtn');
+  if(btn) btn.style.display='none';
+}
+function ghEnsurePat(){
+  let pat=ghPat();
+  if(!pat){
+    pat=window.prompt('Enter your GitHub Personal Access Token (stored locally in this browser only):');
+    if(pat&&pat.trim()){
+      localStorage.setItem(GH._patKey,pat.trim());
+      const btn=document.getElementById('ghClearPatBtn');
+      if(btn) btn.style.display='inline-flex';
+    }
+  }
+  return pat?pat.trim():'';
+}
 const ICON_BASE='https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/icons/';
 const ICON_PALETTE=[
   ['Goal',       'Goal',              'goal.svg'],
@@ -1280,6 +1400,138 @@ function loadHiddenSubs(){ try{ const raw=localStorage.getItem('nllb-hidden-subs
 function saveHiddenSubs(){ try{ localStorage.setItem('nllb-hidden-subs',JSON.stringify([...state.hiddenSubs])); }catch(e){} }
 function handleErr(err){ console.error(err); setStatus(err&&err.message?err.message:'Something went wrong.','error'); }
 
+/* ── GitHub image upload & gallery ── */
+let ghGalleryTargetField=null; // which input to fill after selection
+
+async function ghUpload(file, targetInput, progressEl){
+  if(!file) return;
+  const ext=file.name.split('.').pop().toLowerCase();
+  const ts=Date.now();
+  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_').replace(/\s+/g,'_');
+  const filename=`${ts}_${safeName}`;
+  progressEl.classList.add('is-visible');
+  progressEl.textContent='Uploading…';
+  try{
+    // Read file as base64
+    const b64=await new Promise(function(resolve,reject){
+      const reader=new FileReader();
+      reader.onload=function(e){ resolve(e.target.result.split(',')[1]); };
+      reader.onerror=reject;
+      reader.readAsDataURL(file);
+    });
+    // Push to GitHub
+    const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.folder}/${filename}`;
+    const res=await fetch(url,{
+      method:'PUT',
+      headers:{
+        'Authorization':`Bearer ${ghEnsurePat()}`,
+        'Content-Type':'application/json',
+        'Accept':'application/vnd.github+json'
+      },
+      body:JSON.stringify({
+        message:`Upload ${filename} via live blog admin`,
+        content:b64,
+        branch:GH.branch
+      })
+    });
+    if(!res.ok){ const err=await res.json(); throw new Error(err.message||'Upload failed'); }
+    const rawUrl=GH.rawBase+filename;
+    targetInput.value=rawUrl;
+    targetInput.dispatchEvent(new Event('input'));
+    progressEl.textContent='✓ Uploaded!';
+    setTimeout(function(){ progressEl.classList.remove('is-visible'); },2500);
+    setStatus('Image uploaded.','success');
+  }catch(err){
+    progressEl.classList.remove('is-visible');
+    handleErr(err);
+  }
+}
+
+async function ghOpenGallery(targetInput){
+  if(!ghEnsurePat()) return;
+  ghGalleryTargetField=targetInput;
+  const backdrop=document.getElementById('ghModalBackdrop');
+  const grid=document.getElementById('ghGalleryGrid');
+  backdrop.classList.add('is-open');
+  grid.className='gh-loading';
+  grid.textContent='Loading…';
+  try{
+    const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.folder}?ref=${GH.branch}&cb=${Date.now()}`;
+    const res=await fetch(url,{
+      headers:{
+        'Authorization':`Bearer ${ghPat()}`,
+        'Accept':'application/vnd.github+json'
+      }
+    });
+    if(!res.ok) throw new Error('Could not load gallery');
+    const files=await res.json();
+    const imgs=files.filter(function(f){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f.name); });
+    if(!imgs.length){
+      grid.className='gh-loading';
+      grid.textContent='No images uploaded yet.';
+      return;
+    }
+    grid.className='gh-gallery';
+    grid.innerHTML=imgs.map(function(f){
+      const raw=GH.rawBase+f.name+'?cb='+Date.now();
+      return `<div class="gh-gallery__item" data-url="${raw.split('?')[0]}">
+        <img class="gh-gallery__img" src="${raw}" alt="" loading="lazy">
+        <div class="gh-gallery__name">${f.name}</div>
+      </div>`;
+    }).join('');
+    grid.querySelectorAll('.gh-gallery__item').forEach(function(el){
+      el.addEventListener('click',function(){
+        if(ghGalleryTargetField){
+          ghGalleryTargetField.value=el.dataset.url;
+          ghGalleryTargetField.dispatchEvent(new Event('input'));
+        }
+        document.getElementById('ghModalBackdrop').classList.remove('is-open');
+        setStatus('Image selected.','success');
+      });
+    });
+  }catch(err){
+    grid.className='gh-loading';
+    grid.textContent='Failed to load gallery.';
+    handleErr(err);
+  }
+}
+
+function initGhButtons(){
+  // Show clear token btn if token already stored
+  if(ghPat()){
+    const btn=document.getElementById('ghClearPatBtn');
+    if(btn) btn.style.display='inline-flex';
+  }
+  const clearBtn=document.getElementById('ghClearPatBtn');
+  if(clearBtn) clearBtn.addEventListener('click',ghClearPat);
+
+  // Desktop
+  const upBtn=document.getElementById('ghUploadBtn');
+  const galBtn=document.getElementById('ghGalleryBtn');
+  const fileIn=document.getElementById('ghFileInput');
+  const prog=document.getElementById('ghProgress');
+  const urlIn=document.getElementById('fMediaUrl');
+  if(upBtn) upBtn.addEventListener('click',function(){ fileIn.click(); });
+  if(fileIn) fileIn.addEventListener('change',function(){ if(fileIn.files[0]) ghUpload(fileIn.files[0],urlIn,prog); fileIn.value=''; });
+  if(galBtn) galBtn.addEventListener('click',function(){ ghOpenGallery(urlIn); });
+
+  // Sheet (mobile)
+  const sfUpBtn=document.getElementById('sfGhUploadBtn');
+  const sfGalBtn=document.getElementById('sfGhGalleryBtn');
+  const sfFileIn=document.getElementById('sfGhFileInput');
+  const sfProg=document.getElementById('sfGhProgress');
+  const sfUrlIn=document.getElementById('sfMediaUrl');
+  if(sfUpBtn) sfUpBtn.addEventListener('click',function(){ sfFileIn.click(); });
+  if(sfFileIn) sfFileIn.addEventListener('change',function(){ if(sfFileIn.files[0]) ghUpload(sfFileIn.files[0],sfUrlIn,sfProg); sfFileIn.value=''; });
+  if(sfGalBtn) sfGalBtn.addEventListener('click',function(){ ghOpenGallery(sfUrlIn); });
+
+  // Modal close
+  const closeBtn=document.getElementById('ghModalClose');
+  const backdrop=document.getElementById('ghModalBackdrop');
+  if(closeBtn) closeBtn.addEventListener('click',function(){ backdrop.classList.remove('is-open'); });
+  if(backdrop) backdrop.addEventListener('click',function(e){ if(e.target===backdrop) backdrop.classList.remove('is-open'); });
+}
+
 async function init(){
   loadHiddenSubs();
   buildIconPalette(document.getElementById('fIconPalette'));
@@ -1359,6 +1611,7 @@ async function init(){
   dom.feedSearch.addEventListener('input',function(){ state.search=dom.feedSearch.value; renderFeed(); });
 
   loadInstagramEmbeds();
+  initGhButtons();
   setEditorNew();
   await reloadAll();
   window.setInterval(function(){ loadSubs().catch(handleErr); },15000);
@@ -1367,5 +1620,22 @@ async function init(){
 init().catch(handleErr);
 })();
 </script>
+
+<!-- GitHub Gallery Modal -->
+<div class="gh-modal-backdrop" id="ghModalBackdrop">
+  <div class="gh-modal">
+    <div class="gh-modal__head">
+      <div class="gh-modal__title">Upload Gallery</div>
+      <button class="gh-modal__close" id="ghModalClose" type="button">✕</button>
+    </div>
+    <div class="gh-modal__body">
+      <div id="ghGalleryGrid" class="gh-loading">Loading…</div>
+    </div>
+  </div>
+</div>
+<!-- Hidden file inputs -->
+<input type="file" id="ghFileInput" accept="image/*" style="display:none">
+<input type="file" id="sfGhFileInput" accept="image/*" style="display:none">
+
 </body>
 </html>
