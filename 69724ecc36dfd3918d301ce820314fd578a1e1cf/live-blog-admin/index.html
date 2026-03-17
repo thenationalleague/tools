@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v129 — removed duplicate initGhButtons definition; file input moved inline next to button to avoid browser gesture blocking
   v128 — GH upload/gallery rewritten: token entered once via settings modal and persisted in localStorage; close button fixed; upload uses stored token without re-prompting
   v127 — PAT removed from source; prompted on first use and stored in localStorage; clear token button in topbar
   v126 — GitHub image upload: file picker on media URL field uploads to rckd-nl/nl-tools/assets/live-blog-uploads, auto-fills URL; gallery browser shows existing uploads as thumbnails
@@ -511,7 +512,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
               <div style="display:flex;flex-direction:column;gap:3px;">
                 <label class="elabel" style="visibility:hidden">.</label>
                 <div style="display:flex;gap:4px;align-items:center;">
-                  <button class="gh-btn gh-btn--upload" type="button" id="ghUploadBtn" title="Upload image to GitHub">⬆ Upload</button>
+                  <label class="gh-btn gh-btn--upload" id="ghUploadBtn" title="Upload image to GitHub" style="cursor:pointer;">⬆ Upload<input type="file" id="ghFileInput" accept="image/*" style="display:none"></label>
                   <button class="gh-btn gh-btn--gallery" type="button" id="ghGalleryBtn" title="Browse uploaded images">🖼 Gallery</button>
                   <span class="gh-upload-progress" id="ghProgress">Uploading…</span>
                 </div>
@@ -623,7 +624,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
         <label class="elabel">Media URL</label>
         <div style="display:flex;gap:6px;align-items:center;">
           <input class="einput" id="sfMediaUrl" type="text" style="flex:1 1 auto;" placeholder="URL or upload…">
-          <button class="gh-btn gh-btn--upload" type="button" id="sfGhUploadBtn" title="Upload">⬆</button>
+          <label class="gh-btn gh-btn--upload" id="sfGhUploadBtn" title="Upload" style="cursor:pointer;">⬆<input type="file" id="sfGhFileInput" accept="image/*" style="display:none"></label>
           <button class="gh-btn gh-btn--gallery" type="button" id="sfGhGalleryBtn" title="Gallery">🖼</button>
         </div>
         <span class="gh-upload-progress" id="sfGhProgress">Uploading…</span>
@@ -1514,7 +1515,8 @@ function initGhButtons(){
   const fileIn=document.getElementById('ghFileInput');
   const prog=document.getElementById('ghProgress');
   const urlIn=document.getElementById('fMediaUrl');
-  if(upBtn) upBtn.addEventListener('click',function(){ if(!ghPat()){ ghOpenSettings(); return; } fileIn.click(); });
+  // Label wraps file input — click handled natively; just guard PAT and handle change
+  if(upBtn) upBtn.addEventListener('click',function(e){ if(!ghPat()){ e.preventDefault(); ghOpenSettings(); } });
   if(fileIn) fileIn.addEventListener('change',function(){ if(fileIn.files[0]) ghUpload(fileIn.files[0],urlIn,prog); fileIn.value=''; });
   if(galBtn) galBtn.addEventListener('click',function(){ ghOpenGallery(urlIn); });
 
@@ -1524,45 +1526,9 @@ function initGhButtons(){
   const sfFileIn=document.getElementById('sfGhFileInput');
   const sfProg=document.getElementById('sfGhProgress');
   const sfUrlIn=document.getElementById('sfMediaUrl');
-  if(sfUpBtn) sfUpBtn.addEventListener('click',function(){ if(!ghPat()){ ghOpenSettings(); return; } sfFileIn.click(); });
+  if(sfUpBtn) sfUpBtn.addEventListener('click',function(e){ if(!ghPat()){ e.preventDefault(); ghOpenSettings(); } });
   if(sfFileIn) sfFileIn.addEventListener('change',function(){ if(sfFileIn.files[0]) ghUpload(sfFileIn.files[0],sfUrlIn,sfProg); sfFileIn.value=''; });
   if(sfGalBtn) sfGalBtn.addEventListener('click',function(){ ghOpenGallery(sfUrlIn); });
-}
-
-function initGhButtons(){
-  // Show clear token btn if token already stored
-  if(ghPat()){
-    const btn=document.getElementById('ghClearPatBtn');
-    if(btn) btn.style.display='inline-flex';
-  }
-  const clearBtn=document.getElementById('ghClearPatBtn');
-  if(clearBtn) clearBtn.addEventListener('click',ghClearPat);
-
-  // Desktop
-  const upBtn=document.getElementById('ghUploadBtn');
-  const galBtn=document.getElementById('ghGalleryBtn');
-  const fileIn=document.getElementById('ghFileInput');
-  const prog=document.getElementById('ghProgress');
-  const urlIn=document.getElementById('fMediaUrl');
-  if(upBtn) upBtn.addEventListener('click',function(){ fileIn.click(); });
-  if(fileIn) fileIn.addEventListener('change',function(){ if(fileIn.files[0]) ghUpload(fileIn.files[0],urlIn,prog); fileIn.value=''; });
-  if(galBtn) galBtn.addEventListener('click',function(){ ghOpenGallery(urlIn); });
-
-  // Sheet (mobile)
-  const sfUpBtn=document.getElementById('sfGhUploadBtn');
-  const sfGalBtn=document.getElementById('sfGhGalleryBtn');
-  const sfFileIn=document.getElementById('sfGhFileInput');
-  const sfProg=document.getElementById('sfGhProgress');
-  const sfUrlIn=document.getElementById('sfMediaUrl');
-  if(sfUpBtn) sfUpBtn.addEventListener('click',function(){ sfFileIn.click(); });
-  if(sfFileIn) sfFileIn.addEventListener('change',function(){ if(sfFileIn.files[0]) ghUpload(sfFileIn.files[0],sfUrlIn,sfProg); sfFileIn.value=''; });
-  if(sfGalBtn) sfGalBtn.addEventListener('click',function(){ ghOpenGallery(sfUrlIn); });
-
-  // Modal close
-  const closeBtn=document.getElementById('ghModalClose');
-  const backdrop=document.getElementById('ghModalBackdrop');
-  if(closeBtn) closeBtn.addEventListener('click',function(){ backdrop.classList.remove('is-open'); });
-  if(backdrop) backdrop.addEventListener('click',function(e){ if(e.target===backdrop) backdrop.classList.remove('is-open'); });
 }
 
 async function init(){
@@ -1686,9 +1652,7 @@ init().catch(handleErr);
   </div>
 </div>
 
-<!-- Hidden file inputs -->
-<input type="file" id="ghFileInput" accept="image/*" style="display:none">
-<input type="file" id="sfGhFileInput" accept="image/*" style="display:none">
+
 
 </body>
 </html>
