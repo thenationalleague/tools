@@ -1,5 +1,6 @@
 <!--
   CHANGELOG
+  v128 — GH upload/gallery rewritten: token entered once via settings modal and persisted in localStorage; close button fixed; upload uses stored token without re-prompting
   v127 — PAT removed from source; prompted on first use and stored in localStorage; clear token button in topbar
   v126 — GitHub image upload: file picker on media URL field uploads to rckd-nl/nl-tools/assets/live-blog-uploads, auto-fills URL; gallery browser shows existing uploads as thumbnails
   v125 — admin cards show running score timeline (latest score at each post's point in time); renderFeed builds scoreMap before rendering
@@ -469,7 +470,7 @@ html,body{ height:100%; background:var(--bg); color:var(--text); font-family:"ca
   <div class="topbar__right">
     <div class="topbar__status" id="tStatus">Ready.</div>
     <button class="btn btn--ghost btn--sm" id="btnReload" type="button">Reload</button>
-    <button class="btn btn--ghost btn--sm" id="ghClearPatBtn" type="button" title="Clear saved GitHub token" style="display:none;">🔑 Clear token</button>
+    <button class="btn btn--ghost btn--sm" id="ghSettingsBtn" type="button" title="GitHub token settings">🔑 GitHub</button>
   </div>
 </header>
 
@@ -656,28 +657,15 @@ const GH={
   branch:'main',
   folder:'assets/live-blog-uploads',
   rawBase:'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/live-blog-uploads/',
-  _patKey:'nllb_gh_pat' // localStorage key — token never in source
+  _patKey:'nllb_gh_pat'
 };
-function ghPat(){
-  return localStorage.getItem(GH._patKey)||'';
-}
+function ghPat(){ return localStorage.getItem(GH._patKey)||''; }
+function ghSavePat(p){ localStorage.setItem(GH._patKey,p.trim()); }
 function ghClearPat(){
   localStorage.removeItem(GH._patKey);
+  const inp=document.getElementById('ghPatInput');
+  if(inp) inp.value='';
   setStatus('GitHub token cleared.','success');
-  const btn=document.getElementById('ghClearPatBtn');
-  if(btn) btn.style.display='none';
-}
-function ghEnsurePat(){
-  let pat=ghPat();
-  if(!pat){
-    pat=window.prompt('Enter your GitHub Personal Access Token (stored locally in this browser only):');
-    if(pat&&pat.trim()){
-      localStorage.setItem(GH._patKey,pat.trim());
-      const btn=document.getElementById('ghClearPatBtn');
-      if(btn) btn.style.display='inline-flex';
-    }
-  }
-  return pat?pat.trim():'';
 }
 const ICON_BASE='https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/icons/';
 const ICON_PALETTE=[
@@ -1401,99 +1389,144 @@ function saveHiddenSubs(){ try{ localStorage.setItem('nllb-hidden-subs',JSON.str
 function handleErr(err){ console.error(err); setStatus(err&&err.message?err.message:'Something went wrong.','error'); }
 
 /* ── GitHub image upload & gallery ── */
-let ghGalleryTargetField=null; // which input to fill after selection
+let ghGalleryTargetField=null;
+let ghCurrentTargetField=null; // track which field triggered upload/gallery
 
 async function ghUpload(file, targetInput, progressEl){
   if(!file) return;
-  const ext=file.name.split('.').pop().toLowerCase();
+  const pat=ghPat();
+  if(!pat){ ghOpenSettings(); setStatus('Enter GitHub token first.','error'); return; }
   const ts=Date.now();
-  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_').replace(/\s+/g,'_');
-  const filename=`${ts}_${safeName}`;
-  progressEl.classList.add('is-visible');
-  progressEl.textContent='Uploading…';
+  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+  const filename=ts+'_'+safeName;
+  if(progressEl){ progressEl.style.display='inline-flex'; progressEl.textContent='Uploading…'; }
   try{
-    // Read file as base64
-    const b64=await new Promise(function(resolve,reject){
-      const reader=new FileReader();
-      reader.onload=function(e){ resolve(e.target.result.split(',')[1]); };
-      reader.onerror=reject;
-      reader.readAsDataURL(file);
+    const b64=await new Promise(function(res,rej){
+      const r=new FileReader();
+      r.onload=function(e){ res(e.target.result.split(',')[1]); };
+      r.onerror=rej;
+      r.readAsDataURL(file);
     });
-    // Push to GitHub
-    const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.folder}/${filename}`;
-    const res=await fetch(url,{
+    const apiUrl='https://api.github.com/repos/'+GH.owner+'/'+GH.repo+'/contents/'+GH.folder+'/'+filename;
+    const resp=await fetch(apiUrl,{
       method:'PUT',
       headers:{
-        'Authorization':`Bearer ${ghEnsurePat()}`,
+        'Authorization':'Bearer '+pat,
         'Content-Type':'application/json',
         'Accept':'application/vnd.github+json'
       },
-      body:JSON.stringify({
-        message:`Upload ${filename} via live blog admin`,
-        content:b64,
-        branch:GH.branch
-      })
+      body:JSON.stringify({ message:'Upload '+filename+' via live blog admin', content:b64, branch:GH.branch })
     });
-    if(!res.ok){ const err=await res.json(); throw new Error(err.message||'Upload failed'); }
+    if(!resp.ok){
+      const err=await resp.json();
+      throw new Error(err.message||'Upload failed ('+resp.status+')');
+    }
     const rawUrl=GH.rawBase+filename;
     targetInput.value=rawUrl;
     targetInput.dispatchEvent(new Event('input'));
-    progressEl.textContent='✓ Uploaded!';
-    setTimeout(function(){ progressEl.classList.remove('is-visible'); },2500);
+    if(progressEl){ progressEl.textContent='✓ Done!'; setTimeout(function(){ progressEl.style.display='none'; },3000); }
     setStatus('Image uploaded.','success');
   }catch(err){
-    progressEl.classList.remove('is-visible');
+    if(progressEl) progressEl.style.display='none';
     handleErr(err);
   }
 }
 
 async function ghOpenGallery(targetInput){
-  if(!ghEnsurePat()) return;
+  const pat=ghPat();
+  if(!pat){ ghOpenSettings(); setStatus('Enter GitHub token first.','error'); return; }
   ghGalleryTargetField=targetInput;
-  const backdrop=document.getElementById('ghModalBackdrop');
+  const backdrop=document.getElementById('ghGalleryBackdrop');
   const grid=document.getElementById('ghGalleryGrid');
-  backdrop.classList.add('is-open');
-  grid.className='gh-loading';
-  grid.textContent='Loading…';
+  if(!backdrop||!grid) return;
+  backdrop.style.display='flex';
+  grid.innerHTML='<div class="gh-loading">Loading…</div>';
   try{
-    const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.folder}?ref=${GH.branch}&cb=${Date.now()}`;
-    const res=await fetch(url,{
-      headers:{
-        'Authorization':`Bearer ${ghPat()}`,
-        'Accept':'application/vnd.github+json'
-      }
+    const apiUrl='https://api.github.com/repos/'+GH.owner+'/'+GH.repo+'/contents/'+GH.folder+'?ref='+GH.branch+'&ts='+Date.now();
+    const resp=await fetch(apiUrl,{
+      headers:{ 'Authorization':'Bearer '+pat, 'Accept':'application/vnd.github+json' }
     });
-    if(!res.ok) throw new Error('Could not load gallery');
-    const files=await res.json();
-    const imgs=files.filter(function(f){ return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f.name); });
-    if(!imgs.length){
-      grid.className='gh-loading';
-      grid.textContent='No images uploaded yet.';
-      return;
-    }
+    if(!resp.ok) throw new Error('Could not load gallery ('+resp.status+')');
+    const files=await resp.json();
+    const imgs=files.filter(function(f){ return /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name); });
+    if(!imgs.length){ grid.innerHTML='<div class="gh-loading">No images yet.</div>'; return; }
+    grid.innerHTML='';
     grid.className='gh-gallery';
-    grid.innerHTML=imgs.map(function(f){
-      const raw=GH.rawBase+f.name+'?cb='+Date.now();
-      return `<div class="gh-gallery__item" data-url="${raw.split('?')[0]}">
-        <img class="gh-gallery__img" src="${raw}" alt="" loading="lazy">
-        <div class="gh-gallery__name">${f.name}</div>
-      </div>`;
-    }).join('');
-    grid.querySelectorAll('.gh-gallery__item').forEach(function(el){
-      el.addEventListener('click',function(){
+    imgs.reverse().forEach(function(f){
+      const rawUrl=GH.rawBase+f.name;
+      const item=document.createElement('div');
+      item.className='gh-gallery__item';
+      item.innerHTML='<img class="gh-gallery__img" src="'+rawUrl+'?ts='+Date.now()+'" alt="" loading="lazy"><div class="gh-gallery__name">'+f.name+'</div>';
+      item.addEventListener('click',function(){
         if(ghGalleryTargetField){
-          ghGalleryTargetField.value=el.dataset.url;
+          ghGalleryTargetField.value=rawUrl;
           ghGalleryTargetField.dispatchEvent(new Event('input'));
         }
-        document.getElementById('ghModalBackdrop').classList.remove('is-open');
+        backdrop.style.display='none';
         setStatus('Image selected.','success');
       });
+      grid.appendChild(item);
     });
   }catch(err){
-    grid.className='gh-loading';
-    grid.textContent='Failed to load gallery.';
+    grid.innerHTML='<div class="gh-loading">Failed to load.</div>';
     handleErr(err);
   }
+}
+
+function ghOpenSettings(){
+  const modal=document.getElementById('ghSettingsModal');
+  if(!modal) return;
+  const inp=document.getElementById('ghPatInput');
+  if(inp) inp.value=ghPat();
+  modal.style.display='flex';
+}
+function ghCloseSettings(){ const m=document.getElementById('ghSettingsModal'); if(m) m.style.display='none'; }
+function ghSaveSettings(){
+  const inp=document.getElementById('ghPatInput');
+  if(!inp||!inp.value.trim()){ setStatus('Token cannot be empty.','error'); return; }
+  ghSavePat(inp.value.trim());
+  ghCloseSettings();
+  setStatus('GitHub token saved.','success');
+}
+
+function initGhButtons(){
+  // Settings modal events
+  const settingsBtn=document.getElementById('ghSettingsBtn');
+  const settingsModal=document.getElementById('ghSettingsModal');
+  const settingsSave=document.getElementById('ghSettingsSave');
+  const settingsCancel=document.getElementById('ghSettingsCancel');
+  const settingsClear=document.getElementById('ghSettingsClear');
+  if(settingsBtn) settingsBtn.addEventListener('click',ghOpenSettings);
+  if(settingsSave) settingsSave.addEventListener('click',ghSaveSettings);
+  if(settingsCancel) settingsCancel.addEventListener('click',ghCloseSettings);
+  if(settingsClear) settingsClear.addEventListener('click',function(){ ghClearPat(); setStatus('Token cleared.','success'); });
+  if(settingsModal) settingsModal.addEventListener('click',function(e){ if(e.target===settingsModal) ghCloseSettings(); });
+
+  // Gallery modal events
+  const galleryBackdrop=document.getElementById('ghGalleryBackdrop');
+  const galleryClose=document.getElementById('ghGalleryClose');
+  if(galleryClose) galleryClose.addEventListener('click',function(){ galleryBackdrop.style.display='none'; });
+  if(galleryBackdrop) galleryBackdrop.addEventListener('click',function(e){ if(e.target===galleryBackdrop) galleryBackdrop.style.display='none'; });
+
+  // Desktop upload/gallery
+  const upBtn=document.getElementById('ghUploadBtn');
+  const galBtn=document.getElementById('ghGalleryBtn');
+  const fileIn=document.getElementById('ghFileInput');
+  const prog=document.getElementById('ghProgress');
+  const urlIn=document.getElementById('fMediaUrl');
+  if(upBtn) upBtn.addEventListener('click',function(){ if(!ghPat()){ ghOpenSettings(); return; } fileIn.click(); });
+  if(fileIn) fileIn.addEventListener('change',function(){ if(fileIn.files[0]) ghUpload(fileIn.files[0],urlIn,prog); fileIn.value=''; });
+  if(galBtn) galBtn.addEventListener('click',function(){ ghOpenGallery(urlIn); });
+
+  // Mobile sheet upload/gallery
+  const sfUpBtn=document.getElementById('sfGhUploadBtn');
+  const sfGalBtn=document.getElementById('sfGhGalleryBtn');
+  const sfFileIn=document.getElementById('sfGhFileInput');
+  const sfProg=document.getElementById('sfGhProgress');
+  const sfUrlIn=document.getElementById('sfMediaUrl');
+  if(sfUpBtn) sfUpBtn.addEventListener('click',function(){ if(!ghPat()){ ghOpenSettings(); return; } sfFileIn.click(); });
+  if(sfFileIn) sfFileIn.addEventListener('change',function(){ if(sfFileIn.files[0]) ghUpload(sfFileIn.files[0],sfUrlIn,sfProg); sfFileIn.value=''; });
+  if(sfGalBtn) sfGalBtn.addEventListener('click',function(){ ghOpenGallery(sfUrlIn); });
 }
 
 function initGhButtons(){
@@ -1621,18 +1654,38 @@ init().catch(handleErr);
 })();
 </script>
 
-<!-- GitHub Gallery Modal -->
-<div class="gh-modal-backdrop" id="ghModalBackdrop">
-  <div class="gh-modal">
-    <div class="gh-modal__head">
-      <div class="gh-modal__title">Upload Gallery</div>
-      <button class="gh-modal__close" id="ghModalClose" type="button">✕</button>
+<!-- GH Gallery Modal -->
+<div id="ghGalleryBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;width:min(700px,96vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.3);overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <div style="font-size:.9rem;font-weight:900;letter-spacing:.04em;text-transform:uppercase;flex:1;">Image Gallery</div>
+      <button id="ghGalleryClose" type="button" style="appearance:none;border:0;background:#f3f4f6;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;">✕</button>
     </div>
-    <div class="gh-modal__body">
+    <div style="flex:1;overflow-y:auto;padding:14px;">
       <div id="ghGalleryGrid" class="gh-loading">Loading…</div>
     </div>
   </div>
 </div>
+
+<!-- GH Settings Modal -->
+<div id="ghSettingsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9001;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;width:min(460px,96vw);box-shadow:0 24px 60px rgba(0,0,0,.3);overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px;">
+      <div style="font-size:.9rem;font-weight:900;letter-spacing:.04em;text-transform:uppercase;flex:1;">🔑 GitHub Token</div>
+      <button type="button" id="ghSettingsCancel" style="appearance:none;border:0;background:#f3f4f6;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;">✕</button>
+    </div>
+    <div style="padding:18px;">
+      <p style="font-size:.78rem;color:#555;margin:0 0 12px;line-height:1.5;">Enter your GitHub Personal Access Token. It will be saved in this browser only and never leaves your device.</p>
+      <label style="font-size:.6rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;display:block;margin:0 0 4px;">Personal Access Token</label>
+      <input id="ghPatInput" type="password" style="width:100%;height:38px;padding:0 10px;border:1px solid #cfd6de;border-radius:8px;font:inherit;font-size:.84rem;outline:none;margin-bottom:14px;" placeholder="github_pat_…">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button type="button" id="ghSettingsClear" style="appearance:none;border:1px solid #e5e7eb;border-radius:999px;background:#fff;padding:0 14px;height:34px;cursor:pointer;font:inherit;font-size:.72rem;font-weight:900;color:#9ca3af;">Clear</button>
+        <button type="button" id="ghSettingsSave" style="appearance:none;border:0;border-radius:999px;background:var(--blue);color:#fff;padding:0 18px;height:34px;cursor:pointer;font:inherit;font-size:.72rem;font-weight:900;">Save token</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Hidden file inputs -->
 <input type="file" id="ghFileInput" accept="image/*" style="display:none">
 <input type="file" id="sfGhFileInput" accept="image/*" style="display:none">
