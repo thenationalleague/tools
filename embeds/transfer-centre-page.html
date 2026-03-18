@@ -352,7 +352,7 @@
   @keyframes tcStingNameSlam { to { opacity: 1; transform: translateY(0) scaleY(1); } }
 
   /* Signature wraps */
-  .tc-sting__sig-wrap, .tc-sting__transfer-sig-wrap {
+  .  .tc-sting__sig-wrap, .tc-sting__transfer-sig-wrap {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -361,12 +361,10 @@
     pointer-events: none;
     overflow: visible;
     z-index: 20;
-    width: 100%;
+    width: auto;
     max-width: 94vw;
     margin: 0 auto;
     flex: 0 0 auto;
-    height: clamp(60px, 8.5vw, 96px);
-    min-height: clamp(60px, 8.5vw, 96px);
   }
   .tc-sting__sig-text, .tc-sting__transfer-sig-text {
     font-family: 'viktorie', cursive !important;
@@ -596,8 +594,7 @@
     }
     .tc-sting__sig-wrap,
     .tc-sting__transfer-sig-wrap {
-      height: clamp(48px, 7vw, 68px);
-      min-height: clamp(48px, 7vw, 68px);
+      max-width: 96vw;
     }
     .tc-sting__sig-text,
     .tc-sting__transfer-sig-text {
@@ -652,7 +649,7 @@
   var SIG_TRACE_THICKNESS = 20;
   var SIG_FINAL_FILL_MS = 220;
   var SIG_PEN_ANGLE = 145;
-  var SIG_UNDERLINE_GAP_EM = -0.1;
+  var SIG_UNDERLINE_GAP_EM = -0.2;
   
   // ─── STATE ────────────────────────────────────────────────────────────────
   var state = {
@@ -935,11 +932,6 @@
     return (cs.fontStyle||'normal') + ' ' + (cs.fontWeight||'400') + ' ' + fsize + ' ' + (cs.fontFamily||'"viktorie",cursive');
   }
 
-  function getFontSizePx(fontString) {
-    var m = String(fontString||'').match(/(\d+(?:\.\d+)?)px/);
-    return m ? parseFloat(m[1]) : 48;
-  }
-
   function makeMeasureContext(fontString) {
     var c = document.createElement('canvas');
     var mctx = c.getContext('2d');
@@ -1121,11 +1113,24 @@
 
     textEl.style.opacity = '0';
 
+    var underlineGapPx = Math.round(plan.totalHeight * SIG_UNDERLINE_GAP_RATIO);
+    var underlineThicknessPx = Math.max(1, Math.round(plan.totalHeight * 0.035));
+    var wrapHeightPx = cssHeight + underlineGapPx + underlineThicknessPx;
+
+    wrap.style.width = cssWidth + 'px';
+    wrap.style.height = wrapHeightPx + 'px';
+    wrap.style.minHeight = wrapHeightPx + 'px';
+
+    canvasEl.style.top = '0px';
+    canvasEl.style.left = '50%';
+    canvasEl.style.transform = 'translateX(-50%)';
+
     if (ul) {
-      var underlineGapPx = Math.round(getFontSizePx(fontString) * SIG_UNDERLINE_GAP_EM);
       ul.style.width = Math.max(10, Math.ceil(plan.totalWidth)) + 'px';
       ul.style.left = '50%';
-      ul.style.bottom = underlineGapPx + 'px';
+      ul.style.height = underlineThicknessPx + 'px';
+      ul.style.top = (cssHeight + underlineGapPx) + 'px';
+      ul.style.bottom = 'auto';
     }
 
     var ctx = canvasEl.getContext('2d');
