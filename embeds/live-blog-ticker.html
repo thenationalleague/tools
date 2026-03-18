@@ -1,0 +1,780 @@
+<!--
+  NL Live Blog Promo Widget
+  v11 — Full Live Blog links to live-blog page same window; Watch Live arrow removed, dot only
+  v10 — scrollbar styled in brand colours (red thumb on dark track)
+  v9 — Full Live Blog button #223b7c; max-height reduced to 500px
+  v8 — thin custom scrollbar; Watch Live CTA redesigned with pulse animation and play icon
+  v7 — widget centred with margin:auto; 800px tall on desktop; mobile full width; tweet hydration fixed with createTweet
+  v6 — widget 60% width centred on page; Instagram embeds and image media rendering added
+  v5 — wrapper scrolls as whole unit; header position:sticky top:0; footer position:sticky bottom:0; no flex shenanigans
+  v4 — header sticky top, footer sticky bottom inside widget; footer text white
+  v3 — widget capped at 520px height with scroll
+  v2 — card body text readable (#111 not #333); gap between header/feed removed; inline scroll (overflow-y:auto on wrapper, no fixed max-height cap); font colours fixed
+  v1 — initial build: embeddable narrow widget showing latest live blog posts;
+       card-level goal animation; CTA to main blog and watch live; auto-polls
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NL Live Blog Widget v1</title>
+<link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+<style>
+/* ── Reset scoped to widget ── */
+.nlw *,.nlw *::before,.nlw *::after{ box-sizing:border-box; margin:0; padding:0; }
+.nlw a{ color:inherit; text-decoration:none; }
+.nlw img,.nlw video{ display:block; }
+
+/* ── Widget wrapper ── */
+.nlw{
+  font-family:"carbona-variable",inherit,system-ui,-apple-system,sans-serif;
+  font-size:15px;
+  line-height:1.45;
+  background:#fff;
+  color:#111;
+  width:100%;
+  width:60%;
+  max-width:900px;
+  min-width:320px;
+  margin:0 auto;
+  border-radius:16px;
+  overflow:hidden;
+  box-shadow:0 4px 24px rgba(0,0,0,.12), 0 1px 4px rgba(0,0,0,.08);
+  max-height:500px;
+  overflow-y:auto;
+  overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  position:relative;
+}
+
+/* ── Header ── */
+.nlw__header{
+  background:#9e0000;
+  color:#fff;
+  padding:12px 14px 10px;
+  position:sticky;
+  top:0;
+  z-index:10;
+}
+.nlw__header-top{
+  display:flex; align-items:center; gap:10px; margin:0 0 8px;
+}
+.nlw__live-dot{
+  width:8px; height:8px; border-radius:50%; background:#fff;
+  animation:nlwPulse 1.8s infinite; flex-shrink:0;
+}
+@keyframes nlwPulse{
+  0%  { box-shadow:0 0 0 0 rgba(255,255,255,.7); }
+  70% { box-shadow:0 0 0 8px rgba(255,255,255,0); }
+  100%{ box-shadow:0 0 0 0 rgba(255,255,255,0); }
+}
+.nlw__live-label{
+  font-size:.68rem; font-weight:900; letter-spacing:.1em;
+  text-transform:uppercase;
+}
+.nlw__updated{
+  font-size:.65rem; color:rgba(255,255,255,.6);
+  letter-spacing:.04em; text-transform:uppercase; margin-left:auto;
+  white-space:nowrap;
+}
+.nlw__fixture{
+  display:flex; align-items:center; gap:8px;
+}
+.nlw__team{
+  display:flex; align-items:center; gap:7px; flex:1; min-width:0;
+}
+.nlw__team--away{ justify-content:flex-end; }
+.nlw__crest{
+  width:28px; height:28px; object-fit:contain; flex-shrink:0;
+  background:rgba(255,255,255,.15); border-radius:6px; padding:2px;
+}
+.nlw__team-name{
+  font-size:.78rem; font-weight:900; text-transform:uppercase;
+  letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.nlw__score{
+  display:flex; align-items:center; justify-content:center;
+  min-width:52px; min-height:30px; padding:0 10px;
+  background:#fff; color:#111; border-radius:999px;
+  font-size:.88rem; font-weight:950; letter-spacing:.06em;
+  white-space:nowrap; flex-shrink:0;
+  box-shadow:0 4px 12px rgba(0,0,0,.18);
+}
+.nlw__score small{ font-size:.6rem; color:#777; font-weight:900; }
+
+/* ── Feed ── */
+.nlw__feed{
+  display:flex; flex-direction:column;
+}
+
+/* ── Card ── */
+.nlw__card{
+  position:relative;
+  background:#fff;
+  border-bottom:1px solid #ebebeb;
+  overflow:hidden;
+  animation:nlwCardIn .35s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes nlwCardIn{
+  from{ opacity:0; transform:translateY(-8px); }
+  to  { opacity:1; transform:translateY(0); }
+}
+.nlw__card:last-child{ border-bottom:none; }
+
+/* Card head */
+.nlw__card-head{
+  padding:8px 12px 6px;
+  color:#fff;
+  background:var(--card-bg,#223b7c);
+  border-bottom:3px solid var(--card-border,#9e0000);
+  display:flex; align-items:center; gap:8px;
+}
+.nlw__card-crest{
+  width:22px; height:22px; object-fit:contain; flex-shrink:0;
+  background:rgba(255,255,255,.18); border-radius:5px; padding:1px;
+}
+.nlw__card-meta{ flex:1; min-width:0; }
+.nlw__card-team{
+  font-size:.72rem; font-weight:950; text-transform:uppercase;
+  letter-spacing:.03em; line-height:1.1; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.nlw__card-event{
+  font-size:.6rem; font-weight:800; text-transform:uppercase;
+  letter-spacing:.08em; opacity:.8;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.nlw__card-event--solo{
+  font-size:.72rem; font-weight:950; letter-spacing:.03em; opacity:1;
+}
+.nlw__card-icon{
+  width:20px; height:20px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+}
+.nlw__card-icon img{
+  width:18px; height:18px; object-fit:contain;
+  filter:invert(1) drop-shadow(0 1px 2px rgba(0,0,0,.3));
+}
+.nlw__card-right{
+  display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0;
+}
+.nlw__card-time{
+  font-size:.6rem; font-weight:900; letter-spacing:.06em;
+  text-transform:uppercase; opacity:.75; white-space:nowrap;
+}
+.nlw__card-score{
+  font-size:.72rem; font-weight:950; letter-spacing:.04em;
+  background:rgba(255,255,255,.92); color:#111;
+  padding:.15em .5em; border-radius:4px; white-space:nowrap;
+}
+
+/* Card body */
+.nlw__card-body{
+  padding:8px 12px 10px;
+  font-size:.82rem; color:#111; line-height:1.5;
+  background:#fff;
+}
+.nlw__card-body p{ margin:0 0 .5em; }
+.nlw__card-body p:last-child{ margin:0; }
+
+/* Media */
+.nlw__media{ width:100%; background:#000; }
+.nlw__media img,.nlw__media video{
+  display:block; width:100%; max-height:400px; object-fit:cover;
+}
+.nlw__media--embed{ background:#f6f7f9; padding:10px; }
+.nlw__media--embed blockquote{ margin:0 auto; }
+
+/* Fan note */
+.nlw__fan-note{
+  background:#f8f9fc;
+  border-bottom:1px solid #edf0f7;
+  padding:10px 14px 12px;
+  text-align:center;
+  color:#111;
+}
+.nlw__fan-note-time{
+  display:inline-flex; align-items:center;
+  min-height:22px; padding:0 9px; margin:0 0 7px;
+  border-radius:999px; background:#fff; color:#223b7c;
+  border:1px solid rgba(34,59,124,.15);
+  font-size:.6rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase;
+}
+.nlw__fan-note-quote{
+  font-size:1.2rem; font-weight:400; font-style:italic;
+  font-family:"Viktorie","Times New Roman",serif;
+  color:#1c2330; line-height:1.3; margin:0 0 6px;
+}
+.nlw__fan-note-byline{
+  font-size:.72rem; color:#666; font-weight:500;
+}
+
+/* ── Card-level goal overlay ── */
+.nlw__goal-overlay{
+  position:absolute; inset:0; z-index:10;
+  overflow:hidden; pointer-events:none;
+}
+.nlw__goal-burst{
+  position:absolute; inset:0;
+  background:var(--goal-primary,#223b7c);
+  transform:scale(0);
+  animation:nlwGoalBurst 4s cubic-bezier(.22,.68,0,1.1) forwards;
+}
+.nlw__goal-panel{
+  position:absolute; inset:0;
+  clip-path:polygon(0 0, 60% 0, 45% 100%, 0 100%);
+  background:var(--goal-secondary,#9e0000);
+  animation:nlwGoalPanel 4s cubic-bezier(.4,0,.2,1) forwards;
+}
+.nlw__goal-stripe{
+  position:absolute; inset:0;
+  clip-path:polygon(42% 0, 50% 0, 35% 100%, 27% 100%);
+  background:var(--goal-tertiary,#fff);
+  opacity:.8;
+  animation:nlwGoalPanel 4s cubic-bezier(.4,0,.2,1) forwards;
+}
+.nlw__goal-labels{
+  position:absolute; inset:0;
+  display:flex; flex-direction:row;
+  align-items:center; justify-content:space-between;
+  padding:0 8% 0 6%;
+}
+.nlw__goal-word{
+  font-size:clamp(1.6rem,7vw,2.4rem); font-weight:950; line-height:.9;
+  letter-spacing:.06em; text-transform:uppercase; color:#fff;
+  font-family:"carbona-variable",inherit,system-ui,sans-serif;
+  text-shadow:0 2px 0 rgba(0,0,0,.35),0 3px 10px rgba(0,0,0,.5);
+  transform:translateX(-160%) skewX(-8deg) scale(.85);
+  animation:nlwGoalWord 4s cubic-bezier(.4,0,.2,1) forwards;
+  white-space:nowrap; display:inline-block; flex-shrink:0;
+}
+.nlw__goal-team{
+  font-size:clamp(.55rem,2vw,.75rem); font-weight:950;
+  letter-spacing:.1em; text-transform:uppercase; color:#fff;
+  font-family:"carbona-variable",inherit,system-ui,sans-serif;
+  background:var(--goal-primary,#223b7c); text-shadow:none;
+  padding:.25em .7em .22em; white-space:nowrap;
+  overflow:hidden; max-width:46%; text-overflow:ellipsis;
+  display:inline-block; flex-shrink:0;
+  transform:translateX(160%) skewX(4deg); opacity:0;
+  animation:nlwGoalTeam 4s cubic-bezier(.4,0,.2,1) forwards;
+}
+@keyframes nlwGoalBurst{
+  0%  { transform:scale(0);   opacity:1; }
+  12% { transform:scale(2.5); opacity:1; }
+  20% { transform:scale(2.8); opacity:1; }
+  78% { transform:scale(2.8); opacity:1; }
+  92% { transform:scale(2.8); opacity:0; }
+  100%{ transform:scale(2.8); opacity:0; }
+}
+@keyframes nlwGoalPanel{
+  0%  { opacity:0; } 18%{ opacity:1; }
+  78% { opacity:1; } 92%{ opacity:0; } 100%{ opacity:0; }
+}
+@keyframes nlwGoalWord{
+  0%  { transform:translateX(-160%) skewX(-8deg) scale(.85); opacity:1; }
+  14% { transform:translateX(3%)    skewX(-3deg) scale(1.06); opacity:1; }
+  17% { transform:translateX(0)     skewX(0)     scale(1);    opacity:1; }
+  75% { transform:translateX(0)     skewX(0)     scale(1);    opacity:1; }
+  88% { transform:translateX(0)     skewX(-5deg) scale(1);    opacity:1; }
+  96% { transform:translateX(160%)  skewX(-5deg) scale(.9);   opacity:0; }
+  100%{ transform:translateX(160%)  skewX(-5deg) scale(.9);   opacity:0; }
+}
+@keyframes nlwGoalTeam{
+  0%  { transform:translateX(160%) skewX(4deg); opacity:0; }
+  18% { transform:translateX(-2%)  skewX(2deg); opacity:1; }
+  21% { transform:translateX(0)    skewX(0);    opacity:1; }
+  75% { transform:translateX(0)    skewX(0);    opacity:1; }
+  88% { transform:translateX(0)    skewX(4deg); opacity:1; }
+  96% { transform:translateX(160%) skewX(4deg); opacity:0; }
+  100%{ transform:translateX(160%) skewX(4deg); opacity:0; }
+}
+
+/* ── Empty / loading ── */
+.nlw__loading{
+  padding:24px; text-align:center;
+  font-size:.75rem; font-weight:700; color:#999;
+  text-transform:uppercase; letter-spacing:.08em;
+}
+.nlw__spinner{
+  width:24px; height:24px; border:2px solid #eee;
+  border-top-color:#9e0000; border-radius:50%;
+  animation:nlwSpin .7s linear infinite; margin:0 auto 10px;
+}
+@keyframes nlwSpin{ to{ transform:rotate(360deg); } }
+
+/* ── CTA footer ── */
+.nlw__footer{
+  display:grid; grid-template-columns:1fr 1fr;
+  border-top:1px solid rgba(255,255,255,.15);
+  position:sticky;
+  bottom:0;
+  z-index:10;
+}
+.nlw__cta{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  padding:11px 8px; font-size:.7rem; font-weight:950;
+  letter-spacing:.06em; text-transform:uppercase;
+  transition:background .15s; cursor:pointer;
+  text-decoration:none; color:#fff !important;
+}
+.nlw__cta--blog{
+  background:#223b7c;
+}
+.nlw__cta--blog:hover{ background:#1a2f63; }
+.nlw__cta--watch{
+  background:linear-gradient(135deg,#cc0000 0%,#9e0000 100%);
+  position:relative;
+  overflow:hidden;
+}
+.nlw__cta--watch::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.18) 50%,transparent 100%);
+  transform:translateX(-100%);
+  animation:nlwWatchShimmer 2.2s ease-in-out infinite;
+}
+@keyframes nlwWatchShimmer{
+  0%  { transform:translateX(-100%); }
+  60% { transform:translateX(100%); }
+  100%{ transform:translateX(100%); }
+}
+.nlw__cta--watch:hover{ background:linear-gradient(135deg,#e60000 0%,#b30000 100%); }
+/* Pulsing live dot on watch button */
+.nlw__watch-dot{
+  width:8px; height:8px; border-radius:50%; background:#fff;
+  flex-shrink:0;
+  animation:nlwWatchPulse 1.4s ease-in-out infinite;
+}
+@keyframes nlwWatchPulse{
+  0%,100%{ box-shadow:0 0 0 0 rgba(255,255,255,.7); opacity:1; }
+  50%    { box-shadow:0 0 0 5px rgba(255,255,255,0); opacity:.8; }
+}
+.nlw__cta svg{ width:13px; height:13px; display:block; flex-shrink:0; }
+
+@media (max-width:600px){
+  .nlw{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    border-radius:0 !important;
+    max-height:85vh !important;
+  }
+}
+
+/* ── Custom scrollbar — brand colours ── */
+.nlw::-webkit-scrollbar{ width:5px; }
+.nlw::-webkit-scrollbar-track{ background:#1a1a2e; }
+.nlw::-webkit-scrollbar-thumb{ background:#9e0000; border-radius:999px; }
+.nlw::-webkit-scrollbar-thumb:hover{ background:#cc0000; }
+.nlw{ scrollbar-width:thin; scrollbar-color:#9e0000 #1a1a2e; }
+</style>
+</head>
+<body style="background:#e5e7eb;padding:24px;min-height:100vh;">
+
+<div class="nlw" id="nlw">
+
+  <!-- HEADER -->
+  <div class="nlw__header">
+    <div class="nlw__header-top">
+      <span class="nlw__live-dot"></span>
+      <span class="nlw__live-label">Live</span>
+      <span class="nlw__updated" id="nlwUpdated"></span>
+    </div>
+    <div class="nlw__fixture">
+      <div class="nlw__team">
+        <img class="nlw__crest" src="https://images.gc.nationalleagueservices.co.uk/a6ec79d0-6bba-11f0-82ea-7b9dcc8be154.png" alt="Boreham Wood">
+        <span class="nlw__team-name">Boreham Wood</span>
+      </div>
+      <div class="nlw__score" id="nlwScore"><small>Live</small></div>
+      <div class="nlw__team nlw__team--away">
+        <span class="nlw__team-name">West Ham United</span>
+        <img class="nlw__crest" src="https://images.gc.nationalleagueservices.co.uk/b2bffa00-1ed1-11f1-b1ec-2fccb08b5159.png" alt="West Ham United">
+      </div>
+    </div>
+  </div>
+
+  <!-- FEED -->
+  <div class="nlw__feed" id="nlwFeed">
+    <div class="nlw__loading">
+      <div class="nlw__spinner"></div>
+      Loading updates…
+    </div>
+  </div>
+
+  <!-- FOOTER CTAs -->
+  <div class="nlw__footer">
+    <a class="nlw__cta nlw__cta--blog" href="https://thenationalleague.org.uk/live-blog">
+      <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+      Full live blog
+    </a>
+    <a class="nlw__cta nlw__cta--watch" href="https://www.thenationalleague.org.uk/videos" target="_blank" rel="noopener">
+      <span class="nlw__watch-dot"></span>
+      Watch Live
+    </a>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* NL Live Blog Promo Widget v1 */
+
+  const CONFIG = {
+    version: 'widget-v1',
+    pollMs: 10000,
+    fetchTimeoutMs: 12000,
+    maxCards: 5,
+    apiUrl: 'https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec',
+    iconBase: 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/icons/',
+    cupLogo: 'https://images.gc.nationalleagueservices.co.uk/d2115f90-1ed4-11f1-968e-396935dd0686.png',
+    neutralColors: { primary:'#223b7c', secondary:'#9e0000', tertiary:'#9e0000' },
+  };
+
+  const TEAM_CRESTS = {
+    'Boreham Wood': 'https://images.gc.nationalleagueservices.co.uk/a6ec79d0-6bba-11f0-82ea-7b9dcc8be154.png',
+    'West Ham United': 'https://images.gc.nationalleagueservices.co.uk/b2bffa00-1ed1-11f1-b1ec-2fccb08b5159.png'
+  };
+
+  const TEAM_META = {
+    'Boreham Wood':   { primary:'#000000', secondary:'#E6E6E6', tertiary:'#FFFFFF' },
+    'West Ham United':{ primary:'#8E1D41', secondary:'#81C4DD', tertiary:'#FFFFFF' }
+  };
+
+  const ICON_MAP = {
+    'goal':'goal.svg','assist':'goal.svg','yellow card':'yellow-card.svg',
+    'red card':'red-card.svg','substitution':'substitution.svg','corner':'corner.svg',
+    'offside':'offside.svg','free kick won':'free-kick.svg',
+    'attempt saved':'save.svg','attempt missed':'miss.svg',
+    'attempt blocked':'block.svg','lineup':'lineup.svg',
+    'kick-off':'play.svg','half-time':'stop.svg','full-time':'stop.svg'
+  };
+
+  const state = {
+    seenIds: new Set(),
+    goalFired: {},
+    firstLoad: true,
+    refreshInFlight: false
+  };
+
+  /* ── helpers ── */
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fetchTimeout(url,ms){ return Promise.race([fetch(url,{cache:'no-store'}),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),ms))]); }
+  function teamPalette(team){ return TEAM_META[team]||CONFIG.neutralColors; }
+  function teamGradient(p){ return `linear-gradient(105deg,${p.primary} 0%,${p.primary} 50%,${p.secondary} 75%,${p.tertiary} 100%)`; }
+  function pickText(hex){ const c=String(hex||'').replace('#',''); if(!/^[0-9a-fA-F]{6}$/.test(c)) return '#fff'; const r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16); return (0.2126*r+0.7152*g+0.0722*b)/255>0.68?'#111':'#fff'; }
+  function isGoalItem(item){ const ic=String(item.icon||'').toLowerCase(); if(ic==='goal.svg'||ic==='goal'||ic==='assist') return true; return /goal/i.test(String(item.event||'')); }
+  function toBoolean(v){ if(typeof v==='boolean') return v; const s=String(v||'').toLowerCase(); return s==='true'||s==='1'||s==='yes'; }
+  function pickField(o,keys){ for(const k of keys){ if(Object.prototype.hasOwnProperty.call(o,k)&&o[k]!==''&&o[k]!=null) return o[k]; } return ''; }
+  function normaliseScore(v){ return String(v==null?'':v).trim(); }
+
+  function formatTime(raw){
+    if(!raw) return '';
+    const isoM=String(raw).match(/(?:T|\s)(\d{2}:\d{2})/);
+    if(isoM) return isoM[1];
+    return String(raw).slice(0,5);
+  }
+
+  /* ── score timeline ── */
+  function buildTimeline(items){
+    const asc=[...items].sort((a,b)=>(a.clockSort||0)-(b.clockSort||0));
+    let sc=''; let hasAny=false;
+    asc.forEach(item=>{
+      item.scoreDisplay='';
+      const hasMT=String(item.matchTime||'').trim()!=='';
+      const hasS=normaliseScore(item.home)!==''&&normaliseScore(item.away)!=='';
+      if(hasMT||hasS) hasAny=true;
+      if(hasS){ const ns=`${normaliseScore(item.home)} - ${normaliseScore(item.away)}`; item.scoreDisplay=ns; sc=ns; }
+      else if(sc){ item.scoreDisplay=sc; }
+      else if(hasMT){ item.scoreDisplay='0 - 0'; sc='0 - 0'; }
+    });
+    return { items:asc, currentScore:sc, hasAny };
+  }
+
+  /* ── icon render ── */
+  function renderIcon(iconKey){
+    const k=String(iconKey||'').toLowerCase().replace('.svg','');
+    const file=ICON_MAP[k]||'';
+    if(!file) return '';
+    return `<span class="nlw__card-icon"><img src="${esc(CONFIG.iconBase+file)}" alt="" width="18" height="18"></span>`;
+  }
+
+  /* ── card builder ── */
+  function buildCard(item){
+    const isFan = String(item.mediaType||'').toLowerCase()==='fan-note';
+    const el = document.createElement('article');
+    el.className = 'nlw__card';
+    el.dataset.id = item.id;
+    el.dataset.sig = JSON.stringify([item.id,item.event,item.team,item.scoreDisplay,item.copy,item.mediaType,item.mediaUrl]);
+
+    if(isFan){
+      el.innerHTML = `
+        <div class="nlw__fan-note">
+          <div class="nlw__fan-note-time">${esc(item.clockLabel||'')}</div>
+          <div class="nlw__fan-note-quote">${esc(item.submissionNote||'')}</div>
+          <div class="nlw__fan-note-byline">— ${esc(item.submissionName||'Anonymous supporter')}</div>
+        </div>`;
+      return el;
+    }
+
+    const p = teamPalette(item.team);
+    const bg = item.team ? teamGradient(p) : `#223b7c`;
+    const border = item.team ? p.secondary : '#9e0000';
+    const headText = pickText(item.team ? p.primary : '#223b7c');
+    el.style.setProperty('--card-bg', bg);
+    el.style.setProperty('--card-border', border);
+
+    const crest = item.team ? (TEAM_CRESTS[item.team]||CONFIG.cupLogo) : CONFIG.cupLogo;
+    const timeLabel = esc(item.matchTime||item.clockLabel||'');
+    const ev = String(item.event||'').trim();
+    const iconHtml = renderIcon(item.icon||ev);
+    const teamHtml = item.team ? `<div class="nlw__card-team" style="color:${esc(headText)}">${esc(item.team)}</div>` : '';
+    const evHtml = ev ? `<div class="${item.team?'nlw__card-event':'nlw__card-event nlw__card-event--solo'}" style="color:${esc(headText)}">${esc(ev)}</div>` : '';
+    const scoreHtml = item.scoreDisplay ? `<div class="nlw__card-score">${esc(item.scoreDisplay)}</div>` : '';
+    const mediaHtml = buildMedia(item);
+    const copyHtml = item.copy ? `<div class="nlw__card-body">${renderCopy(item.copy)}</div>` : '';
+
+    el.innerHTML = `
+      <div class="nlw__card-head" style="background:${esc(bg)};border-bottom-color:${esc(border)}">
+        <img class="nlw__card-crest" src="${esc(crest)}" alt="">
+        <div class="nlw__card-meta">${teamHtml}${evHtml}</div>
+        ${iconHtml}
+        <div class="nlw__card-right">
+          <div class="nlw__card-time" style="color:${esc(headText)};opacity:.7">${timeLabel}</div>
+          ${scoreHtml}
+        </div>
+      </div>
+      ${mediaHtml}
+      ${copyHtml}`;
+
+    return el;
+  }
+
+  function renderCopy(raw){
+    const s=String(raw||'').trim(); if(!s) return '';
+    if(/<[a-z]/i.test(s)){ const d=document.createElement('div'); d.innerHTML=s; return d.textContent?s:''; }
+    return s.split(/\n{2,}/).map(p=>`<p>${esc(p).replace(/\n/g,'<br>')}</p>`).join('');
+  }
+
+  function isTweetUrl(url){ const s=String(url||''); return /https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s); }
+  function getTweetId(url){ const m=String(url||'').match(/\/status\/(\d+)/i); return m?m[1]:''; }
+  function isInstagramUrl(url){ return /https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i.test(String(url||'')); }
+  function normaliseIgUrl(url){ const m=String(url||'').match(/https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i); return m?m[0]+'/':url; }
+
+  function buildMedia(item){
+    const type=String(item.mediaType||'').toLowerCase();
+    const url=String(item.mediaUrl||'').trim();
+    if(!url||type==='fan-note') return '';
+    if(type==='image') return `<div class="nlw__media"><img src="${esc(url)}" alt="" loading="lazy"></div>`;
+    if(type==='video') return `<div class="nlw__media"><video controls preload="metadata" playsinline><source src="${esc(url)}"></video></div>`;
+    if(type==='embed'){
+      if(isTweetUrl(url)){ const id=getTweetId(url); return `<div class="nlw__media nlw__media--embed"><div class="nlw__tweet-ph" data-tweet-id="${esc(id)}" data-tweet-url="${esc(url)}" style="min-height:100px;display:flex;align-items:center;justify-content:center;color:#999;font-size:.8rem;">Loading tweet…</div></div>`; }
+      if(isInstagramUrl(url)){ const ig=normaliseIgUrl(url); return `<div class="nlw__media nlw__media--embed"><blockquote class="instagram-media" data-instgrm-permalink="${esc(ig)}" data-instgrm-version="14" style="margin:0 auto;max-width:100%;width:100%;border:0;"></blockquote></div>`; }
+    }
+    return '';
+  }
+
+  /* ── goal card animation ── */
+  function triggerCardGoal(el, item){
+    if(!el) return;
+    const existing = el.querySelector('.nlw__goal-overlay');
+    if(existing) existing.remove();
+    const p = teamPalette(item.team);
+    const teamName = String(item.team||'').toUpperCase();
+    const ov = document.createElement('div');
+    ov.className = 'nlw__goal-overlay';
+    ov.innerHTML = `
+      <div class="nlw__goal-burst"></div>
+      <div class="nlw__goal-panel"></div>
+      <div class="nlw__goal-stripe"></div>
+      <div class="nlw__goal-labels">
+        <div class="nlw__goal-word">GOAL!</div>
+        <div class="nlw__goal-team">${esc(teamName)}</div>
+      </div>`;
+    ov.style.setProperty('--goal-primary', p.primary);
+    ov.style.setProperty('--goal-secondary', p.secondary);
+    ov.style.setProperty('--goal-tertiary', p.tertiary||'#fff');
+    el.style.position = 'relative';
+    el.appendChild(ov);
+    setTimeout(()=>{ if(ov.parentNode) ov.remove(); }, 4200);
+  }
+
+  /* ── score header ── */
+  function updateScore(currentScore, hasAny){
+    const el = document.getElementById('nlwScore');
+    if(!el) return;
+    if(!hasAny){ el.innerHTML='<small>Live</small>'; return; }
+    el.textContent = currentScore || '0 - 0';
+  }
+
+  /* ── render feed ── */
+  function render(items){
+    const feed = document.getElementById('nlwFeed');
+    if(!feed) return;
+    if(!items.length){
+      feed.innerHTML = '<div class="nlw__loading">No updates yet.</div>';
+      return;
+    }
+
+    // Remove spinner
+    feed.querySelector('.nlw__loading')?.remove();
+
+    const existing = new Map([...feed.querySelectorAll('.nlw__card[data-id]')].map(e=>[e.dataset.id,e]));
+    const nextIds = new Set(items.map(i=>i.id));
+
+    items.forEach((item,idx)=>{
+      let card = existing.get(item.id);
+      const sig = JSON.stringify([item.id,item.event,item.team,item.scoreDisplay,item.copy,item.mediaType,item.mediaUrl]);
+
+      if(!card){
+        card = buildCard(item);
+        feed.insertBefore(card, feed.children[idx]||null);
+        // Goal animation on new goal cards (not first load)
+        if(!state.firstLoad && isGoalItem(item) && !state.goalFired[item.id]){
+          state.goalFired[item.id] = true;
+          setTimeout(()=>triggerCardGoal(card, item), 300);
+          // Repeat every 15s
+          const iv = setInterval(()=>{ if(card.isConnected) triggerCardGoal(card,item); else clearInterval(iv); }, 15000);
+        }
+      } else {
+        if(card.dataset.sig !== sig){
+          const fresh = buildCard(item);
+          feed.replaceChild(fresh, card);
+          card = fresh;
+        }
+        if(feed.children[idx] !== card) feed.insertBefore(card, feed.children[idx]||null);
+      }
+    });
+
+    // First load — fire goal animations for visible goal cards
+    if(state.firstLoad){
+      items.forEach(item=>{
+        if(!isGoalItem(item)||state.goalFired[item.id]) return;
+        const card = feed.querySelector(`.nlw__card[data-id="${CSS.escape(item.id)}"]`);
+        if(!card) return;
+        state.goalFired[item.id] = true;
+        setTimeout(()=>triggerCardGoal(card,item), 300+(items.indexOf(item)*200));
+        setInterval(()=>{ if(card.isConnected) triggerCardGoal(card,item); }, 15000);
+      });
+    }
+
+    // Remove stale
+    existing.forEach((el,id)=>{ if(!nextIds.has(id)&&el.parentNode===feed) feed.removeChild(el); });
+  }
+
+  /* ── clock sort ── */
+  function deriveClockSort(item){
+    const REAL_TS_MIN = 1577836800000;
+    const cs = Number(pickField(item,['clockSort','clock sort']))||0;
+    if(cs > REAL_TS_MIN) return cs;
+    const raw = String(pickField(item,['clockTimeRaw','clockTime','clock_time'])||'');
+    const d = Date.parse(raw); if(d && d>REAL_TS_MIN) return d;
+    const mt = String(pickField(item,['matchTime','match_time'])||'').toUpperCase();
+    if(!mt) return 0;
+    if(mt==='HT') return 45000; if(mt==='FT') return 90000;
+    const m=mt.match(/^(\d+)(?:\+(\d+))?'/);
+    return m ? (Number(m[1])*1000+Number(m[2]||0)) : 0;
+  }
+
+  /* ── fetch & refresh ── */
+  async function refresh(){
+    if(state.refreshInFlight) return;
+    state.refreshInFlight = true;
+    try{
+      const url = CONFIG.apiUrl + (CONFIG.apiUrl.includes('?')?'&':'?') + 'cb=' + Date.now();
+      const res = await fetchTimeout(url, CONFIG.fetchTimeoutMs);
+      if(!res.ok) throw new Error('fetch failed');
+      const data = await res.json();
+      if(!data||data.ok!==true||!Array.isArray(data.items)) throw new Error('bad data');
+
+      const raw = data.items.map(item=>{
+        const id = String(pickField(item,['postid','postId','id'])||'').trim();
+        if(!id) return null;
+        const pub = toBoolean(pickField(item,['published','Published?']));
+        if(!pub) return null;
+        return {
+          id,
+          matchTime: String(pickField(item,['matchTime','match time'])||'').trim(),
+          clockLabel: (function(){
+            const r=String(pickField(item,['clockLabel','clockTimeRaw','clock time raw'])||'').trim();
+            const m=r.match(/(?:T|\s)(\d{2}:\d{2})/); return m?m[1]:r;
+          })(),
+          clockTimeRaw: String(pickField(item,['clockTimeRaw','clock time raw'])||'').trim(),
+          clockSort: deriveClockSort(item),
+          event: String(pickField(item,['event','Event'])||'').trim(),
+          icon: String(pickField(item,['icon','Icon'])||'').trim(),
+          team: String(pickField(item,['team','Team'])||'').trim(),
+          home: normaliseScore(pickField(item,['home','Home'])),
+          away: normaliseScore(pickField(item,['away','Away'])),
+          copy: String(pickField(item,['copy','Copy'])||''),
+          mediaType: String(pickField(item,['mediaType','media type'])||'').toLowerCase().trim(),
+          mediaUrl: String(pickField(item,['mediaUrl','media url'])||'').trim(),
+          pinned: toBoolean(pickField(item,['pinned'])),
+          submissionName: String(pickField(item,['submissionName','submission name'])||'').trim(),
+          submissionNote: String(pickField(item,['submissionNote','submission note'])||'').trim(),
+        };
+      }).filter(Boolean);
+
+      // Build timeline for scores
+      const tl = buildTimeline(raw.filter(i=>i.mediaType!=='fan-note'));
+      const scoreMap = new Map(tl.items.map(i=>[i.id,i]));
+      const merged = raw.map(i=>{ const s=scoreMap.get(i.id); return s?{...i,...s}:{...i,scoreDisplay:''}; });
+
+      // Sort: pinned first, then clockSort desc
+      const sorted = [...merged].sort((a,b)=>{
+        if(!!a.pinned!==!!b.pinned) return a.pinned?-1:1;
+        return (b.clockSort||0)-(a.clockSort||0);
+      }).slice(0, CONFIG.maxCards);
+
+      render(sorted);
+      updateScore(tl.currentScore, tl.hasAny);
+
+      const now = new Date();
+      const el = document.getElementById('nlwUpdated');
+      if(el) el.textContent = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+
+      state.firstLoad = false;
+    // Hydrate tweet placeholders
+    document.querySelectorAll('.nlw__tweet-ph[data-tweet-id]:not([data-rendered])').forEach(function(ph){
+      ph.dataset.rendered='1';
+      const id=ph.dataset.tweetId;
+      if(!id) return;
+      function tryRender(){
+        if(window.twttr&&window.twttr.widgets&&window.twttr.widgets.createTweet){
+          window.twttr.widgets.createTweet(id,ph,{align:'center',dnt:true,theme:'light'}).catch(function(){
+            ph.innerHTML='<a href="'+ph.dataset.tweetUrl+'" target="_blank" rel="noopener" style="color:#1da1f2;font-size:.8rem;">View tweet ↗</a>';
+          });
+        } else {
+          setTimeout(tryRender,500);
+        }
+      }
+      tryRender();
+    });
+    // Process Instagram embeds
+    if(window.instgrm && window.instgrm.Embeds) window.instgrm.Embeds.process();
+    } catch(e){
+      console.warn('NL widget refresh failed:', e);
+    } finally {
+      state.refreshInFlight = false;
+    }
+  }
+
+  refresh();
+  setInterval(refresh, CONFIG.pollMs);
+
+  // Load embed scripts
+  if(!window.twttr){
+    const s=document.createElement('script'); s.src='https://platform.twitter.com/widgets.js'; s.async=true; document.body.appendChild(s);
+  }
+  if(!window.instgrm){
+    const s=document.createElement('script'); s.src='https://www.instagram.com/embed.js'; s.async=true; document.body.appendChild(s);
+  }
+
+})();
+</script>
+</body>
+</html>
