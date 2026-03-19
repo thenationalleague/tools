@@ -1,0 +1,2365 @@
+<!--
+  CHANGELOG
+  v70 — removed dash separator between score squares
+  v69 — digit colour stays #111 throughout; changed square bg animates white→gold in sync with digit scroll
+  v68 — sting score: club names moved below digits; solid squared pill using each club's own primary/secondary colours
+  v67 — digit tick fixed: single digit shown, animates translateY from 0 to -100% so new digit scrolls up into view from below
+  v66 — team name has solid colour banner; score digits properly centred inside fixed-size square
+  v65 — sting: score squares with drop shadow, closer gap, all timings slowed (14s total)
+  v64 — sting redesigned: no top/bottom bars, solid colour split only, diagonal consistent angle, score digits same size as GOAL!; score defaults to 0-0 when match time active; header red square, submit rounded/separated
+  v63 — full-screen goal sting shows scoreline with ticking digit animation for the changed score
+  v62 — team name no longer truncates (nowrap removed, smaller font); submit bar moved into sticky header; stronger card drop shadows
+  v61 — back button and hero wrapped in single sticky header container; mobile header completely redesigned: compact ~52px bar with back link, title, score pill, live dot — fixture/crests hidden on mobile
+  v60 — full-screen goal animation completely redesigned: massive text slam, colour split, different class; card-level animation uses separate lightweight class scoped to card, repeats 15s
+  v59 — card-level goal animation repeats every 15s indefinitely on all goal posts; interval cleared when card removed
+  v58 — full-screen goal animation text much larger (GOAL! 20vw/9rem, team name 5vw/2rem); card-level animation restored in createCard for all goal cards always
+  v57 — goal queue vars moved to after state and isGoalItem declarations to fix TDZ crash causing loading spinner hang
+  v56 — goal animation completely rewritten to mirror transfer centre queue pattern: GOAL_QUEUE, GOAL_RUNNING, GOAL_FIRED, hold screen, fires independently; on first load fires all goal items unconditionally; on poll fires genuinely new ones
+  v55 — goal animation: fixed clockSort real-timestamp check; if clockSort is a match-time ordinal (not real unix ms) fires unconditionally on first load; added console debug logging
+  v54 — goal detection fixed: checks item.icon (goal.svg/assist) AND item.event loosely; 10 minute first-load window; oldest goal fires first
+  v53 — goal animation completely rewritten: fires from refresh() not createCard; first load fires for goals under 3m old; subsequent polls fire for genuinely new goal cards; deduped via goalAnimFired Set; full-screen independent of card el
+  v52 — back to thenationalleague.org.uk button at top; hero top corners square (flush with top of page)
+  v51 — live blog full-screen takeover (position:fixed, full viewport, scrollable) matching transfer centre pattern; goal animation fills full screen instead of just card bounds
+  v50 — goal animation: overlay appended to document.body and positioned via getBoundingClientRect so it sits over the card without being a child of it; eliminates overflow:hidden/border-radius GPU compositing bleed entirely
+  v49 — goal animation burst bleed fix: removed border-radius:50% from burst so no circular edge ever forms; burst now scales as rectangle, no shape bleeds past card corners
+  v48 — clock label: ISO datetime strings (e.g. 2026-03-15T16:32) stripped to HH:mm for display; clockSort retains full timestamp precision for ordering
+  v47 — goal animation: GOAL! bigger; burst colour bleed fixed by clipping overlay to card bounds via clip-path
+  v46 — goal animation: GOAL! left half, team name right half — no overlap; both animate in from their respective sides
+  v45 — goal animation: GOAL! sized to fit card height using font-size relative units; uses height-based clamp so it never overflows regardless of card size
+  v44 — goal animation: team name pill moved to lower third so GOAL! is fully visible above it
+  v43 — goal animation: team name pill uses primary colour (always dark/rich) not secondary; larger font, more padding, stronger presence
+  v42 — goal animation: team name banner centred vertically (translateY 0 not 1.8em); drop shadow removed from team name
+  v41 — goal animation: GOAL! restored to full size; team name overlays on top of GOAL! text centred, with coloured pill background for legibility
+  v40 — goal animation team name text colour now computed via pickTextColor(secondary) so it is always legible; white secondary (e.g. Boreham Wood) gets dark text
+  v39 — team name gets solid secondary colour background block (square corners); mid-animation jarring teleport replaced with fade-through so second appearance fades in from centre rather than zipping across
+  v38 — goal animation fixes: text-shadow on both word and team name; GOAL! with exclamation; exit translateX pushed to 160% so letters fully clear frame; scale+skew on word keyframes for zip/energy
+  v37 — goal animation redesigned: diagonal slanted wipes using clip-path polygons matching banner angle; primary colour zooms from centre; team name + GOAL text animate separately; 12s duration; fires on every page load for goal cards (not just first appearance); no emoji
+  v36 — goal celebration animation: full-card overlay with team colours sweeps on first appearance of goal cards; GOAL! text wipes in twice, ~5s total, then card settles normally
+  v35 — icon field: renderEventIcon now uses item.icon field directly, never derives from event text; loadSheetItems maps icon field from API
+  v34 — substitution icon also shown in natural colour (green/red arrows); no invert filter
+  v33 — yellow card and red card icons no longer inverted; shown in natural colour on card heads; all other icons remain white via invert(1)
+  v32 — pinned toggle above rail: on (default) pins float to top with gold treatment; off sorts all cards by time only with no pin styling; client-side only, no API calls; also fixed search placeholder on admin feedSearch
+  v31 — title restored to full "NATIONAL LEAGUE CUP FINAL" with no forced line breaks; mobile font size reduced so it flows naturally
+  v30 — new update pill now scrolls to first non-pinned card rather than page top
+  v29 — Watch Live banner: single play icon to right of label, centred as a pair
+  v28 — Watch Live moved to white bottom banner on hero; title shortened to NL CUP FINAL (no wrap); submit bar subtext moved below label on its own line
+  v27 — floating "New update" pill appears when new cards arrive while scrolled down; mobile hero tightened (smaller crests, reduced padding, title on one line); submission spam cooldown: 90s localStorage throttle prevents repeat sends
+  v26 — have your say: renamed to Share your reaction with new subtext; smooth max-height slide animation; character counter overlaid inside textarea; name placeholder simplified to "Your name"
+  v25 — pin pill full-width fix: align-self:flex-start so it shrinks to content width as sibling in flex column
+  v24 — pin pill: emoji-only label, style matches admin (#fef9c3 bg, #854d0e text); pin bar: 8px solid gold matching admin fpill--pinned tone
+  v23 — mobile card redesign: crest hidden in header on mobile (shown below team name via CSS); pin indicator becomes thin gold bar at card bottom; cleans up cramped header
+  v22 — mobile card fix: pin pill moved to its own line below team name; event icon shrunk on mobile; prevents cluttered card header on small screens
+  v21 — pin pill updated to use 📌 emoji matching admin panel; pinned sort already present on frontend (no change needed there)
+  v20 — (version bump in title only)
+  v19 — have your say bar redesigned: larger chevron, clearer label, smooth CSS transition on open/close; auto-closes 3s after successful submission
+  v18 — x.com short URL support for mobile Twitter share links
+  v17 — changelog block added
+  v16 — fan note quote size up 50%
+  v12 — have your say collapsible, auto-collapse after submit
+  v11 — bounce entrance animation, pulsing border new-card, lightbox swipe
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>National League Cup Final Live Blog v80</title>
+<meta name="color-scheme" content="light" />
+<style>
+  /* National League Cup Final Live Blog v2.3 */
+  :root{
+    --nl-red:#9e0000;
+    --nl-blue:#223b7c;
+    --bg:#ffffff;
+    --fg:#111111;
+    --muted:#5f6368;
+    --line:#e6e6e6;
+    --panel:#f7f8fa;
+    --shadow:0 10px 28px rgba(0,0,0,.08);
+    --pin-gold:#d8a21d;
+    --new-yellow-bg:#fffbeb;
+    --new-yellow-border:#fcd34d;
+    --fan-note-bg:#fbfbfc;
+    --fan-note-line:#dbe2f3;
+    --fan-note-accent:#223b7c;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; }
+
+  body{
+    margin:0;
+    background:#fff;
+    color:var(--fg);
+    font-family:"carbona-variable",inherit,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.45;
+  }
+
+  .nllb__inner{
+    width:100%;
+    max-width:980px;
+    margin:0 auto;
+    padding:0 18px 80px;
+  }
+
+  .nllb,.nllb *{
+    font-family:"carbona-variable",inherit,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+
+  .nllb{
+    position:fixed !important;
+    top:0 !important; left:0 !important; right:0 !important; bottom:0 !important;
+    width:100vw !important;
+    height:100vh !important;
+    overflow-y:scroll !important;
+    overflow-x:hidden !important;
+    -webkit-overflow-scrolling:touch;
+    z-index:999990 !important;
+    background:#fff;
+    display:block !important;
+  }
+
+  /* BACK BUTTON */
+  /* ── Sticky header wrapper: back button + hero ── */
+  .nllb__header{
+    position:sticky;
+    top:0;
+    z-index:40;
+    margin:0 0 12px;
+  }
+
+  .nllb__back{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    padding:7px 16px;
+    background:#111;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    text-decoration:none;
+    color:rgba(255,255,255,.5);
+    font-size:.68rem;
+    font-weight:900;
+    letter-spacing:.07em;
+    text-transform:uppercase;
+    transition:color .15s, background .15s;
+    width:100%;
+  }
+  .nllb__back:hover{ color:#fff; background:#1a1a1a; }
+  .nllb__back svg{ width:11px; height:11px; display:block; flex-shrink:0; opacity:.45; }
+
+  /* HERO */
+  .nllb__hero{
+    margin:0;
+    border-radius:0;
+    overflow:hidden;
+    background:#9e0000;
+    color:#fff;
+    box-shadow:var(--shadow);
+  }
+
+  /* Mobile compact bar — hidden on desktop */
+  .nllb__hero-mobile-bar{
+    display:none;
+  }
+
+  .nllb__hero-inner{ padding:10px 18px 12px; }
+
+  .nllb__hero-top{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin:0 0 10px;
+  }
+
+  .nllb__hero-top-right{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-left:auto;
+  }
+
+  .nllb__live-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    min-height:34px;
+    padding:0 12px;
+    border-radius:999px;
+    background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.22);
+    font-size:.8rem;
+    font-weight:900;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+
+  /* v28: Watch Live bottom banner on hero */
+  .nllb__watch-banner{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    min-height:40px;
+    padding:0 16px;
+    background:#fff;
+    color:#111;
+    text-decoration:none;
+    font-size:.82rem;
+    font-weight:950;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    border-top:1px solid rgba(0,0,0,.08);
+    transition:background .15s;
+  }
+  .nllb__watch-banner:hover{ background:#f5f5f5; }
+  .nllb__watch-banner svg{ width:15px; height:15px; display:block; flex:0 0 auto; }
+
+  .nllb__live-dot{
+    width:10px; height:10px;
+    border-radius:50%;
+    background:#fff;
+    animation:nllbPulse 1.8s infinite;
+    flex:0 0 auto;
+  }
+
+  @keyframes nllbPulse{
+    0%{ box-shadow:0 0 0 0 rgba(255,255,255,.68); }
+    70%{ box-shadow:0 0 0 12px rgba(255,255,255,0); }
+    100%{ box-shadow:0 0 0 0 rgba(255,255,255,0); }
+  }
+
+  .nllb__updated{ font-size:.72rem; opacity:.7; white-space:nowrap; margin-left:auto; }
+  .nllb__title-wrap{ display:flex; align-items:center; flex:1 1 auto; min-width:0; margin:0; }
+
+  .nllb__title{
+    margin:0;
+    font-size:.88rem;
+    line-height:1.1;
+    font-weight:950;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .nllb__fixture{
+    display:grid;
+    grid-template-columns:1fr auto 1fr;
+    align-items:center;
+    gap:10px;
+    margin:0;
+  }
+
+  .nllb__team{ display:flex; align-items:center; gap:12px; min-width:0; }
+  .nllb__team--away{ justify-content:flex-end; text-align:right; }
+
+  .nllb__team-box{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+    padding:8px 12px;
+    border-radius:18px;
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.18);
+    backdrop-filter:blur(6px);
+    width:100%;
+    justify-content:space-between;
+  }
+
+  .nllb__team--away .nllb__team-box{ justify-content:flex-end; }
+
+  .nllb__team-main{ display:flex; align-items:center; gap:12px; min-width:0; flex:1 1 auto; }
+  .nllb__team--away .nllb__team-main{ justify-content:flex-end; }
+
+  .nllb__crest-shell{
+    width:38px; height:38px;
+    border-radius:10px;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:rgba(255,255,255,.18);
+    border:1px solid rgba(255,255,255,.22);
+    flex:0 0 auto;
+  }
+
+  .nllb__crest{ width:28px; height:28px; object-fit:contain; display:block; }
+
+  .nllb__team-name{
+    min-width:0;
+    font-size:.82rem;
+    line-height:1.05;
+    font-weight:900;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .nllb__team-scorecol{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:3px;
+    flex-shrink:0;
+  }
+
+  .nllb__hero-team-score{
+    min-width:48px;
+    min-height:48px;
+    border-radius:10px;
+    background:#fff;
+    color:#111;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:950;
+    font-size:1.5rem;
+    letter-spacing:-.01em;
+    box-shadow:0 4px 14px rgba(0,0,0,.2);
+  }
+
+  .nllb__middle{
+    width:16px;
+    min-width:16px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0;
+    color:rgba(255,255,255,.4);
+    font-weight:900;
+    font-size:1rem;
+  }
+  .nllb__middle::after{ content:'—'; }
+
+  .nllb__cup-logo{
+    display:none;
+  }
+
+  .nllb__score-wrap{ display:flex; flex-direction:column; align-items:center; gap:6px; }
+
+  .nllb__score{
+    display:none;
+  }
+
+  .nllb__score small{ font-size:.74rem; color:#666; font-weight:900; }
+
+  .nllb__pens{
+    display:none;
+    align-items:center;
+    justify-content:center;
+    min-height:28px;
+    padding:0 10px;
+    border-radius:999px;
+    background:rgba(255,255,255,.15);
+    border:1px solid rgba(255,255,255,.22);
+    color:#fff;
+    font-size:.76rem;
+    font-weight:900;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+
+  .nllb__pens.is-visible{ display:inline-flex; }
+
+  .nllb__score.is-flashing,
+  .nllb__pens.is-flashing,
+  .nllb__hero-team-score.is-flashing,
+  .nllb__hero-pens-mobile.is-flashing{
+    animation:nllbLiveScorePulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes nllbLiveScorePulse{
+    0%,100%{ transform:scale(1); }
+    50%{ transform:scale(1.04); }
+  }
+
+  @keyframes nllbDropBounce{
+    0%  { opacity:0; transform:translateY(-18px) scale(.97); }
+    55% { opacity:1; transform:translateY(5px)   scale(1.01); }
+    75% { transform:translateY(-3px) scale(.995); }
+    90% { transform:translateY(2px)  scale(1.003); }
+    100%{ opacity:1; transform:translateY(0)     scale(1); }
+  }
+
+  .nllb__card.is-entering,
+  .nllb__fan-note.is-entering{
+    opacity:0;
+    transform:translateY(-18px) scale(.97);
+  }
+
+  .nllb__card.is-entered,
+  .nllb__fan-note.is-entered{
+    animation:nllbDropBounce .55s cubic-bezier(.22,.68,0,1.2) forwards;
+  }
+
+  .nllb__card.is-leaving,
+  .nllb__fan-note.is-leaving{
+    opacity:0;
+    transform:translateY(-8px);
+    pointer-events:none;
+  }
+
+  @keyframes nllbNewPulse{
+    0%,100%{ box-shadow:0 0 0 0 rgba(34,59,124,.55), 0 4px 16px rgba(0,0,0,.04); }
+    50%    { box-shadow:0 0 0 4px rgba(34,59,124,.18), 0 4px 16px rgba(0,0,0,.04); }
+  }
+
+  @keyframes nllbNewPulseFan{
+    0%,100%{ box-shadow:0 0 0 0 rgba(34,59,124,.55), 0 8px 24px rgba(0,0,0,.05); }
+    50%    { box-shadow:0 0 0 4px rgba(34,59,124,.18), 0 8px 24px rgba(0,0,0,.05); }
+  }
+
+  .nllb__card.is-new{
+    border-color:var(--nl-blue);
+    animation:nllbNewPulse 1.8s ease-in-out infinite;
+  }
+
+  .nllb__card.is-new .nllb__body{ background:#fff; }
+
+  .nllb__fan-note.is-new{
+    border-color:var(--nl-blue);
+    animation:nllbNewPulseFan 1.8s ease-in-out infinite;
+  }
+
+  .nllb__scorebox--flash,
+  .nllb__pensbox--flash{
+    animation:nllbScoreFlash 1.1s ease-in-out infinite;
+  }
+
+  @keyframes nllbScoreFlash{
+    0%,100%{ background:#ffffff; color:#111111; box-shadow:none; transform:none; }
+    30%,70%{ background:#fff4a8; color:#111111; box-shadow:0 0 0 4px rgba(255,255,255,.18); transform:scale(1.04); }
+  }
+
+  .nllb__boot{
+    position:relative; overflow:hidden;
+    margin:0 0 18px; border-radius:18px;
+    background:#223b7c; color:#fff;
+    box-shadow:var(--shadow);
+    min-height:82px;
+    display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:14px 18px;
+  }
+
+  .nllb__boot.is-hidden{ display:none; }
+  .nllb__boot-inner{ width:100%; max-width:560px; }
+
+  .nllb__boot-title{
+    margin:0 0 6px; font-size:1rem; line-height:1.05;
+    font-weight:950; text-transform:uppercase; letter-spacing:.04em;
+  }
+
+  .nllb__boot-text{ margin:0 0 10px; font-size:.86rem; opacity:.95; }
+
+  .nllb__boot-bar{
+    width:100%; max-width:320px; height:8px; margin:0 auto;
+    border-radius:999px; background:rgba(255,255,255,.14);
+    overflow:hidden; border:1px solid rgba(255,255,255,.18);
+  }
+
+  .nllb__boot-bar::before{
+    content:""; display:block; width:34%; height:100%;
+    border-radius:999px; background:#fff;
+    animation:nllbBootLoad 1.1s ease-in-out infinite;
+  }
+
+  @keyframes nllbBootLoad{
+    0%{ transform:translateX(-130%); }
+    100%{ transform:translateX(360%); }
+  }
+
+  /* ── SUBMIT FORM ── */
+  .nllb__submit{
+    margin:0;
+    border-radius:0;
+    overflow:hidden;
+    background:#223b7c;
+    box-shadow:none;
+    border-top:1px solid rgba(255,255,255,.1);
+  }
+
+  .nllb__submit-bar{
+    display:flex; align-items:center; gap:10px;
+    padding:14px 16px; cursor:pointer;
+    user-select:none; transition:background .15s;
+    min-height:54px;
+  }
+  .nllb__submit-bar:hover{ background:rgba(255,255,255,.07); }
+
+  .nllb__submit-bar-text{
+    display:flex; flex-direction:column; gap:1px; flex:1 1 auto; min-width:0;
+  }
+  .nllb__submit-bar-label{
+    font-size:.82rem; font-weight:900;
+    letter-spacing:.06em; text-transform:uppercase; color:#fff;
+    white-space:nowrap;
+  }
+  .nllb__submit-bar-sub{
+    font-size:.7rem; color:rgba(255,255,255,.5);
+    font-weight:400; letter-spacing:0; text-transform:none;
+  }
+  .nllb__submit-chevron{
+    font-size:1rem; color:rgba(255,255,255,.55);
+    transition:transform .28s; flex-shrink:0;
+    line-height:1;
+  }
+  .nllb__submit-chevron.is-open{ transform:rotate(180deg); }
+
+  /* v26: smooth slide via max-height transition */
+  .nllb__submit-body{
+    max-height:0; overflow:hidden;
+    transition:max-height .35s cubic-bezier(.4,0,.2,1);
+  }
+  .nllb__submit-body.is-open{
+    max-height:480px;
+  }
+  .nllb__submit-body-inner{ padding:0 14px 16px; }
+
+  .nllb__submit-form{ display:grid; gap:10px; }
+  .nllb__submit-field{ display:grid; gap:4px; }
+
+  .nllb__submit-label{
+    font-size:.62rem; font-weight:900;
+    letter-spacing:.06em; text-transform:uppercase;
+    color:rgba(255,255,255,.4);
+  }
+
+  .nllb__submit-input,
+  .nllb__submit-textarea{
+    width:100%;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:9px;
+    background:rgba(255,255,255,.08);
+    color:#fff; font:inherit;
+    padding:8px 10px; outline:none;
+    font-size:.86rem;
+    transition:border-color .15s, background .15s;
+  }
+  .nllb__submit-input::placeholder,
+  .nllb__submit-textarea::placeholder{ color:rgba(255,255,255,.22); }
+  .nllb__submit-input:focus,
+  .nllb__submit-textarea:focus{
+    border-color:rgba(255,255,255,.4);
+    background:rgba(255,255,255,.12);
+  }
+
+  /* v26: textarea with counter overlay */
+  .nllb__submit-textarea-wrap{ position:relative; }
+  .nllb__submit-textarea{ min-height:88px; resize:none; padding-bottom:24px; }
+  .nllb__submit-count{
+    position:absolute; bottom:7px; right:10px;
+    font-size:.62rem; color:rgba(255,255,255,.28);
+    pointer-events:none; user-select:none;
+  }
+
+  .nllb__submit-footer{
+    display:flex; align-items:center;
+    justify-content:flex-end; gap:8px; margin:4px 0 0;
+  }
+
+  .nllb__submit-btn{
+    appearance:none; border:0;
+    min-height:38px; padding:0 22px;
+    border-radius:999px;
+    background:#fff; color:#223b7c;
+    font:inherit; font-size:.8rem;
+    font-weight:950; letter-spacing:.04em; text-transform:uppercase;
+    cursor:pointer; white-space:nowrap;
+    transition:filter .15s;
+    box-shadow:0 3px 10px rgba(0,0,0,.14);
+  }
+  .nllb__submit-btn:hover{ filter:brightness(.95); }
+  .nllb__submit-btn[disabled]{ opacity:.5; cursor:default; filter:none; }
+
+  .nllb__submit-status{
+    font-size:.74rem; font-weight:700;
+    color:rgba(255,255,255,.55); min-height:18px; margin:2px 0 0;
+  }
+  .nllb__submit-status.is-error{ color:#fca5a5; }
+  .nllb__submit-status.is-success{ color:#86efac; }
+
+  .nllb__submit-hp{ display:none !important; }
+
+  /* v32: pinned toggle bar */
+  .nllb__pin-toggle-bar{
+    display:flex; align-items:center; gap:10px;
+    margin:0 0 10px;
+  }
+  .nllb__pin-toggle-label{
+    font-size:.72rem; font-weight:900; letter-spacing:.05em;
+    text-transform:uppercase; color:#555;
+    user-select:none; cursor:pointer;
+  }
+  .nllb__pin-toggle-track{
+    position:relative; width:38px; height:22px;
+    border-radius:999px; background:#223b7c;
+    transition:background .2s; flex-shrink:0; cursor:pointer;
+    border:0; appearance:none; padding:0;
+  }
+  .nllb__pin-toggle-track.is-off{ background:#ccc; }
+  .nllb__pin-toggle-thumb{
+    position:absolute; top:3px; left:3px;
+    width:16px; height:16px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.2);
+    transition:transform .2s; pointer-events:none;
+  }
+  .nllb__pin-toggle-track.is-off .nllb__pin-toggle-thumb{ transform:translateX(16px); }
+
+  /* ── v37: goal celebration overlay ── */
+
+  /* ═══════════════════════════════════════════════════
+     FULL-SCREEN GOAL STING  (.nllb__sting)
+     ═══════════════════════════════════════════════════ */
+  .nllb__sting{
+    position:fixed; inset:0; z-index:999995;
+    overflow:hidden; pointer-events:none;
+    font-family:"carbona-variable",inherit,system-ui,sans-serif;
+  }
+
+  /* ── Full background — true left-to-right reveal via clip-path ── */
+  /* Stage 1: primary fills entire screen, wipes L→R */
+  .nllb__sting__bg{
+    position:absolute; inset:0;
+    background:var(--goal-primary,#223b7c);
+    clip-path:inset(0 100% 0 0);
+    animation:nllbStingRevealFull .6s cubic-bezier(.77,0,.18,1) 0s forwards,
+               nllbStingConcealFull .5s cubic-bezier(.77,0,.18,1) 10.35s forwards;
+  }
+  /* Stage 2: secondary wipes in from RIGHT with diagonal leading edge,
+     settles covering the right ~half of screen */
+  .nllb__sting__bg-right{
+    position:absolute; inset:0;
+    background:var(--goal-secondary,#9e0000);
+    /* Start: off-screen right (all four polygon points beyond right edge) */
+    clip-path:polygon(140% 0, 160% 0, 145% 100%, 125% 100%);
+    animation:nllbStingSlideIn .6s cubic-bezier(.77,0,.18,1) 0.9s forwards,
+               nllbStingSlideOut .55s cubic-bezier(.77,0,.18,1) 9.8s forwards;
+  }
+  /* Full screen reveal/conceal */
+  @keyframes nllbStingRevealFull{
+    0%  { clip-path:inset(0 100% 0 0); }
+    100%{ clip-path:inset(0 0% 0 0); }
+  }
+  @keyframes nllbStingConcealFull{
+    0%  { clip-path:inset(0 0% 0 0); }
+    100%{ clip-path:inset(0 0% 0 100%); }
+  }
+  /* Secondary slides in from right, diagonal leading edge, settles at split */
+  @keyframes nllbStingSlideIn{
+    0%  { clip-path:polygon(140% 0, 160% 0, 145% 100%, 125% 100%); }
+    100%{ clip-path:polygon(55% 0, 100% 0, 100% 100%, 40% 100%); }
+  }
+  /* Exit: slides back out to the right */
+  @keyframes nllbStingSlideOut{
+    0%  { clip-path:polygon(55% 0, 100% 0, 100% 100%, 40% 100%); }
+    100%{ clip-path:polygon(140% 0, 160% 0, 145% 100%, 125% 100%); }
+  }
+  @keyframes nllbStingFadeIn  { to{ opacity:1; } }
+  @keyframes nllbStingFadeOut { to{ opacity:0; } }
+  /* GOAL! exits by sliding up and fading */
+  @keyframes nllbStingWordOut{
+    0%  { opacity:1; transform:translateY(0) scale(1); }
+    100%{ opacity:0; transform:translateY(-50px) scale(.85); }
+  }
+  /* Other content fades down slightly */
+  @keyframes nllbStingContentOut{
+    0%  { opacity:1; transform:translateY(0); }
+    100%{ opacity:0; transform:translateY(20px); }
+  }
+
+  /* Centre — fills full screen, no top/bottom bar offsets */
+  .nllb__sting__centre{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    gap:clamp(4px,1.5vh,14px);
+    padding:5vh 5%;
+  }
+
+  /* GOAL! */
+  .nllb__sting__word{
+    font-size:clamp(5rem,22vw,14rem);
+    line-height:.85; font-weight:950; letter-spacing:-.01em;
+    text-transform:uppercase; color:#fff;
+    font-family:"carbona-variable",inherit,system-ui,sans-serif;
+    text-shadow:0 6px 40px rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.35);
+    opacity:0; transform:translateY(50px) scaleY(.75);
+    animation:nllbStingWordSlam .9s cubic-bezier(.16,1,.3,1) 1.6s forwards,
+               nllbStingWordOut .6s cubic-bezier(.4,0,.2,1) 9.1s forwards;
+    white-space:nowrap;
+  }
+  @keyframes nllbStingWordSlam{
+    0%  { opacity:0; transform:translateY(80px) scale(.6) skewY(4deg); }
+    60% { opacity:1; transform:translateY(-8px) scale(1.04) skewY(-1deg); }
+    100%{ opacity:1; transform:translateY(0) scale(1) skewY(0deg); }
+  }
+
+  /* Team name — no box/pill, just bold text */
+  .nllb__sting__team{
+    font-size:clamp(1rem,4vw,2.6rem);
+    font-weight:950; letter-spacing:.14em;
+    text-transform:uppercase; color:#fff;
+    font-family:"carbona-variable",inherit,system-ui,sans-serif;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:92%;
+    background:rgba(0,0,0,.55);
+    padding:.3em 1em .25em;
+    opacity:0; transform:translateY(12px);
+    animation:nllbStingTeamUp .5s cubic-bezier(.16,1,.3,1) 2.4s forwards,
+               nllbStingContentOut .5s cubic-bezier(.4,0,.2,1) 9.3s forwards;
+  }
+  @keyframes nllbStingTeamUp{
+    0%  { opacity:0; transform:translateY(20px); }
+    100%{ opacity:1; transform:translateY(0); }
+  }
+
+  /* Score — digits same size as GOAL! */
+  .nllb__sting__score{
+    display:flex; align-items:center;
+    gap:clamp(6px,2vw,16px);
+    opacity:0;
+    animation:nllbStingTeamUp .5s cubic-bezier(.16,1,.3,1) 2.9s forwards,
+               nllbStingContentOut .5s cubic-bezier(.4,0,.2,1) 9.4s forwards;
+    margin-top:clamp(4px,1vh,12px);
+  }
+  .nllb__sting__score-club{
+    display:flex; flex-direction:column; align-items:center;
+    gap:clamp(4px,1vh,10px); min-width:0;
+  }
+  .nllb__sting__score-name{
+    font-size:clamp(8px,2.2vw,13px); font-weight:900; letter-spacing:.12em;
+    text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:clamp(80px,34vw,220px);
+    /* Squared pill using club colours passed via inline style */
+    padding:.28em .7em .24em;
+    border-radius:0;
+    display:block;
+  }
+  .nllb__sting__score-digit{
+    font-size:clamp(4rem,18vw,12rem); font-weight:950;
+    color:#111; font-family:"carbona-variable",inherit,system-ui,sans-serif;
+    width:1.4em; height:1.4em;
+    overflow:hidden;
+    position:relative;
+    background:#fff;
+    box-shadow:0 8px 32px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3);
+    flex-shrink:0;
+  }
+  /* Inner: two digits stacked, each fills the square exactly */
+  .nllb__sting__score-digit-inner{
+    position:absolute; top:0; left:0;
+    width:100%;
+    display:flex; flex-direction:column;
+  }
+  /* Each digit slot fills one square */
+  .nllb__sting__score-digit-inner > div{
+    width:1.4em; height:1.4em;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+    line-height:1;
+  }
+  /* Ticking: slide up by one square height */
+  .nllb__sting__score-digit-inner.is-ticking{
+    animation:nllbDigitTick .7s cubic-bezier(.22,1,.36,1) 3.6s forwards;
+  }
+  @keyframes nllbDigitTick{
+    0%   { transform:translateY(0); }
+    100% { transform:translateY(-1.4em); }
+  }
+
+  /* Changed square: bg animates white → gold in sync with digit tick */
+  .nllb__sting__score-changed{
+    animation:nllbDigitBgFlash .7s cubic-bezier(.22,1,.36,1) 3.6s forwards;
+    box-shadow:0 8px 32px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3) !important;
+  }
+  @keyframes nllbDigitBgFlash{
+    0%   { background:#fff; }
+    100% { background:#FFD700; }
+  }
+
+  /* ═══════════════════════════════════════════════════
+     CARD-LEVEL GOAL ANIMATION  (.nllb__goal-overlay)
+     Repeating, scoped to card bounds, lower z-index
+     ═══════════════════════════════════════════════════ */
+  .nllb__goal-overlay{
+    position:absolute; inset:0; z-index:18;
+    overflow:hidden; pointer-events:none;
+    border-radius:inherit;
+  }
+  .nllb__goal-burst{
+    position:absolute; inset:0;
+    background:var(--goal-primary,#223b7c);
+    transform:scale(0);
+    animation:nllbGoalBurst 4s cubic-bezier(.22,.68,0,1.1) forwards;
+  }
+  .nllb__goal-panel{
+    position:absolute; inset:0;
+    clip-path:polygon(0 0, 60% 0, 45% 100%, 0 100%);
+    background:var(--goal-secondary,#9e0000);
+    animation:nllbGoalPanel 4s cubic-bezier(.4,0,.2,1) forwards;
+  }
+  .nllb__goal-stripe{
+    position:absolute; inset:0;
+    clip-path:polygon(42% 0, 50% 0, 35% 100%, 27% 100%);
+    background:var(--goal-tertiary,#ffffff);
+    opacity:.85;
+    animation:nllbGoalPanel 4s cubic-bezier(.4,0,.2,1) forwards;
+  }
+  .nllb__goal-labels{
+    position:absolute; inset:0;
+    display:flex; flex-direction:row;
+    align-items:center; justify-content:space-between;
+    padding:0 8% 0 6%;
+  }
+  .nllb__goal-word{
+    font-size:clamp(2rem,9vw,3.8rem); line-height:.9; font-weight:950;
+    letter-spacing:.06em; text-transform:uppercase; color:#fff;
+    font-family:"carbona-variable",inherit,system-ui,sans-serif;
+    text-shadow:0 2px 0 rgba(0,0,0,.35),0 4px 12px rgba(0,0,0,.5);
+    transform:translateX(-160%) skewX(-8deg) scale(.85);
+    animation:nllbGoalWord 4s cubic-bezier(.4,0,.2,1) forwards;
+    white-space:nowrap; display:inline-block; flex-shrink:0;
+  }
+  .nllb__goal-team{
+    font-size:clamp(.55rem,2vw,.85rem); font-weight:950;
+    letter-spacing:.1em; text-transform:uppercase; color:#fff;
+    font-family:"carbona-variable",inherit,system-ui,sans-serif;
+    background:var(--goal-primary,#223b7c); text-shadow:none;
+    padding:.28em .7em .24em; white-space:nowrap;
+    overflow:hidden; max-width:48%; text-overflow:ellipsis;
+    display:inline-block; flex-shrink:0;
+    transform:translateX(160%) skewX(4deg); opacity:0;
+    animation:nllbGoalTeam 4s cubic-bezier(.4,0,.2,1) forwards;
+  }
+
+  /* Card animation keyframes — 4s total */
+  @keyframes nllbGoalBurst{
+    0%  { transform:scale(0);   opacity:1; }
+    12% { transform:scale(2);   opacity:1; }
+    20% { transform:scale(2.2); opacity:1; }
+    78% { transform:scale(2.2); opacity:1; }
+    92% { transform:scale(2.2); opacity:0; }
+    100%{ transform:scale(2.2); opacity:0; }
+  }
+  @keyframes nllbGoalPanel{
+    0%  { opacity:0; } 18%{ opacity:1; }
+    78% { opacity:1; } 92%{ opacity:0; } 100%{ opacity:0; }
+  }
+  @keyframes nllbGoalWord{
+    0%  { transform:translateX(-160%) skewX(-8deg) scale(.85); opacity:1; }
+    14% { transform:translateX(3%)    skewX(-3deg) scale(1.06); opacity:1; }
+    17% { transform:translateX(0)     skewX(0)     scale(1);    opacity:1; }
+    75% { transform:translateX(0)     skewX(0)     scale(1);    opacity:1; }
+    88% { transform:translateX(0)     skewX(-5deg) scale(1);    opacity:1; }
+    96% { transform:translateX(160%)  skewX(-5deg) scale(.9);   opacity:0; }
+    100%{ transform:translateX(160%)  skewX(-5deg) scale(.9);   opacity:0; }
+  }
+  @keyframes nllbGoalTeam{
+    0%  { transform:translateX(160%) skewX(4deg); opacity:0; }
+    18% { transform:translateX(-2%)  skewX(2deg); opacity:1; }
+    21% { transform:translateX(0)    skewX(0);    opacity:1; }
+    75% { transform:translateX(0)    skewX(0);    opacity:1; }
+    88% { transform:translateX(0)    skewX(4deg); opacity:1; }
+    96% { transform:translateX(160%) skewX(4deg); opacity:0; }
+    100%{ transform:translateX(160%) skewX(4deg); opacity:0; }
+  }
+
+  .nllb__rail{ display:grid; gap:14px; }
+
+  /* v27: floating new-update pill */
+  .nllb__new-pill{
+    position:fixed;
+    top:calc(var(--nllb-hero-h, 80px) + 12px);
+    left:50%; transform:translateX(-50%) translateY(-12px);
+    z-index:39;
+    display:inline-flex; align-items:center; gap:8px;
+    min-height:38px; padding:0 18px;
+    border-radius:999px;
+    background:#223b7c; color:#fff;
+    font-size:.78rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase;
+    box-shadow:0 6px 20px rgba(34,59,124,.45);
+    cursor:pointer; border:0; font-family:inherit;
+    opacity:0; pointer-events:none;
+    transition:opacity .25s, transform .25s;
+    white-space:nowrap;
+  }
+  .nllb__new-pill.is-visible{
+    opacity:1; pointer-events:auto;
+    transform:translateX(-50%) translateY(0);
+  }
+
+  .nllb__empty{
+    padding:28px 22px; border:1px dashed #d7d7d7;
+    border-radius:18px; background:#fafafa;
+    color:#555; text-align:center; font-weight:700;
+  }
+
+  .nllb__card{
+    position:relative;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:22px;
+    overflow:hidden;
+    box-shadow:0 2px 8px rgba(0,0,0,.08), 0 6px 24px rgba(0,0,0,.1);
+    transition:transform .25s ease, box-shadow .28s ease, border-color .28s ease;
+    transform-origin:top center;
+  }
+
+  .nllb__card:hover{ box-shadow:0 4px 12px rgba(0,0,0,.1), 0 12px 32px rgba(0,0,0,.16); }
+
+  .nllb__card.is-pinned{
+    border-color:rgba(216,162,29,.55);
+    box-shadow:0 10px 30px rgba(216,162,29,.10), 0 6px 18px rgba(0,0,0,.06);
+  }
+
+  .nllb__card.is-pinned .nllb__body{
+    background:linear-gradient(180deg,#fffdf7 0%,#ffffff 100%);
+  }
+
+  /* v24: deeper gold pin bar matching admin fpill--pinned tone */
+  .nllb__pin-bar{
+    display:none;
+    height:8px;
+    background:#d8a21d;
+  }
+  .nllb__card.is-pinned .nllb__pin-bar{ display:block; }
+
+  .nllb__card-head{
+    position:relative;
+    padding:12px 14px;
+    color:var(--card-head-text,#fff);
+    background:var(--card-background,#223b7c);
+    border-bottom:4px solid var(--card-border,#9e0000);
+  }
+
+  .nllb__card-head,
+  .nllb__card-team,
+  .nllb__card-event{ text-shadow:0 1px 2px rgba(0,0,0,.35); }
+
+  .nllb__card-head::after{
+    content:""; position:absolute; inset:auto 0 0 0;
+    height:1px; background:rgba(255,255,255,.18);
+  }
+
+  .nllb__card-head-inner{
+    display:flex; align-items:flex-start;
+    justify-content:space-between; gap:12px;
+  }
+
+  .nllb__card-left{
+    display:flex; align-items:flex-start;
+    gap:10px; min-width:0; flex:1 1 auto;
+  }
+
+  .nllb__card-main{
+    display:flex; align-items:center;
+    gap:12px; min-width:0; flex:1 1 auto;
+  }
+
+  .nllb__card-crest-wrap{
+    width:44px; height:44px; border-radius:12px; overflow:hidden;
+    flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.18);
+  }
+
+  .nllb__card-crest{ width:34px; height:34px; object-fit:contain; display:block; }
+
+  .nllb__card-heading-wrap{
+    display:flex; align-items:center; gap:12px; min-width:0; flex:1 1 auto;
+  }
+
+  .nllb__card-heading{
+    min-width:0; display:flex; flex-direction:column; gap:4px; flex:1 1 auto;
+  }
+
+  .nllb__card-heading-top{
+    display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap;
+  }
+
+  .nllb__card-team{
+    font-size:1rem; line-height:1.05; font-weight:950;
+    text-transform:uppercase; letter-spacing:.03em; word-break:break-word;
+  }
+
+  .nllb__card-event{
+    font-size:.76rem; font-weight:900; letter-spacing:.08em;
+    text-transform:uppercase; opacity:.92; word-break:break-word;
+  }
+
+  .nllb__card-event--solo{
+    font-size:1rem; line-height:1.05; font-weight:950; letter-spacing:.03em; opacity:1;
+  }
+
+  .nllb__event-icon{
+    width:30px; height:30px;
+    display:inline-flex; align-items:center; justify-content:center;
+    flex:0 0 auto;
+  }
+
+  .nllb__event-icon img{
+    display:block; width:28px; height:28px; object-fit:contain;
+    filter:invert(1) drop-shadow(0 1px 2px rgba(0,0,0,.28));
+  }
+  /* v33: colour cards keep natural colour, not inverted */
+  .nllb__event-icon img[data-colour="true"]{
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.4));
+  }
+
+  /* ── PIN PILL — matches admin fpill--pinned exactly ── */
+  .nllb__pin-pill{
+    display:inline-flex; align-items:center; gap:4px;
+    align-self:flex-start;
+    min-height:22px; padding:0 9px; border-radius:999px;
+    background:#fef9c3; color:#854d0e;
+    font-size:.68rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase;
+  }
+
+  .nllb__card-right{
+    display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex:0 0 auto;
+  }
+
+  .nllb__timechip{
+    display:inline-flex; align-items:center; justify-content:center;
+    gap:7px; min-height:31px; padding:0 11px; border-radius:999px;
+    font-size:.76rem; font-weight:900; letter-spacing:.05em;
+    text-transform:uppercase; white-space:nowrap;
+    background:rgba(255,255,255,.92); color:#111;
+  }
+
+  .nllb__timechip svg{ width:14px; height:14px; display:block; flex:0 0 auto; }
+
+  .nllb__scorebox,
+  .nllb__pensbox{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-height:38px; min-width:88px; padding:0 14px;
+    border-radius:999px; background:#ffffff; color:#111111;
+    border:1px solid rgba(255,255,255,.35);
+    font-size:1rem; font-weight:950; letter-spacing:.04em;
+    text-transform:uppercase; white-space:nowrap;
+  }
+
+  .nllb__pensbox{
+    min-height:28px; font-size:.74rem; min-width:0; padding:0 10px;
+  }
+
+  .nllb__scorebox--flash,
+  .nllb__pensbox--flash{
+    animation:nllbScoreFlash 1.1s ease-in-out infinite;
+  }
+
+  .nllb__media{ width:100%; background:#000; }
+  .nllb__media img,.nllb__media video{ display:block; width:100%; height:auto; max-height:560px; object-fit:cover; }
+  .nllb__media--embed,.nllb__media--gallery{ background:#f6f7f9; padding:12px; }
+  .nllb__embed-box{ width:100%; overflow:hidden; }
+  .nllb__embed-box iframe{ width:100%; max-width:100%; border:0; display:block; }
+  .nllb__embed-box .instagram-media{ margin-left:auto !important; margin-right:auto !important; }
+  .nllb__x-placeholder>div,.nllb__x-placeholder iframe{ margin-left:auto !important; margin-right:auto !important; }
+
+  .nllb__x-placeholder{
+    width:100%; min-height:120px; display:flex; align-items:center;
+    justify-content:center; padding:16px; border-radius:14px;
+    background:#ffffff; color:#666; font-weight:700;
+  }
+
+  .nllb__x-placeholder.is-loaded{ min-height:0; padding:0; background:transparent; border-radius:0; }
+  .nllb__ig-placeholder{ width:100%; min-height:120px; display:block; background:#ffffff; color:#666; }
+
+  .nllb__gallery{
+    display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,.95fr);
+    gap:12px; align-items:stretch;
+  }
+
+  .nllb__gallery-feature{
+    appearance:none; border:0; padding:0; margin:0;
+    background:#000; border-radius:16px; overflow:hidden;
+    cursor:pointer; position:relative; min-height:100%;
+  }
+
+  .nllb__gallery-feature img,.nllb__gallery-feature video{
+    width:100%; height:100%; min-height:360px; object-fit:cover; display:block; transition:transform .25s ease;
+  }
+
+  .nllb__gallery-feature:hover img,.nllb__gallery-feature:hover video{ transform:scale(1.02); }
+
+  .nllb__gallery-side{ display:grid; gap:10px; overflow:auto; max-height:420px; padding-right:2px; }
+  .nllb__gallery-side::-webkit-scrollbar{ width:8px; }
+  .nllb__gallery-side::-webkit-scrollbar-thumb{ background:#c7ccd3; border-radius:999px; }
+
+  .nllb__gallery-thumb{
+    appearance:none; border:0; padding:0; margin:0;
+    background:#000; border-radius:14px; overflow:hidden; cursor:pointer; position:relative;
+  }
+
+  .nllb__gallery-thumb img,.nllb__gallery-thumb video{
+    width:100%; height:128px; object-fit:cover; display:block; transition:transform .25s ease;
+  }
+
+  .nllb__gallery-thumb:hover img,.nllb__gallery-thumb:hover video{ transform:scale(1.03); }
+
+  .nllb__gallery-count{
+    position:absolute; right:10px; bottom:10px;
+    min-height:28px; padding:0 10px; border-radius:999px;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(17,17,17,.78); color:#fff;
+    font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase;
+  }
+
+  /* LIGHTBOX */
+  .nllb__lightbox{
+    position:fixed; inset:0; z-index:9999;
+    display:none; align-items:center; justify-content:center;
+    padding:20px; background:rgba(0,0,0,.88);
+  }
+
+  .nllb__lightbox.is-open{ display:flex; }
+
+  .nllb__lightbox-inner{
+    position:relative; width:min(100%,1280px);
+    display:grid; grid-template-columns:minmax(0,1fr) 180px;
+    gap:16px; align-items:center;
+  }
+
+  .nllb__lightbox-stage{
+    position:relative; display:flex;
+    align-items:center; justify-content:center; min-height:70vh;
+    touch-action:pan-y;
+    user-select:none;
+  }
+
+  .nllb__lightbox-img,.nllb__lightbox-video{
+    max-width:100%; max-height:82vh; object-fit:contain; display:block;
+    border-radius:14px; box-shadow:0 12px 28px rgba(0,0,0,.3);
+    transition:transform .22s ease, opacity .18s ease;
+  }
+
+  .nllb__lightbox-video{ background:#000; }
+
+  .nllb__lightbox-strip{
+    max-height:82vh; overflow:auto; display:grid; gap:10px; padding-right:4px;
+  }
+
+  .nllb__lightbox-strip::-webkit-scrollbar{ width:8px; }
+  .nllb__lightbox-strip::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.28); border-radius:999px; }
+
+  .nllb__lightbox-thumb{
+    appearance:none; border:2px solid transparent; padding:0; margin:0;
+    background:#111; border-radius:12px; overflow:hidden; cursor:pointer;
+  }
+
+  .nllb__lightbox-thumb.is-active{ border-color:#fff; }
+  .nllb__lightbox-thumb img,.nllb__lightbox-thumb video{ width:100%; height:92px; object-fit:cover; display:block; }
+
+  .nllb__lightbox-btn,.nllb__lightbox-close{
+    appearance:none; border:0; cursor:pointer;
+    background:rgba(255,255,255,.14); color:#fff; backdrop-filter:blur(6px);
+  }
+
+  .nllb__lightbox-close{
+    position:absolute; top:14px; right:14px;
+    width:42px; height:42px; border-radius:50%;
+    font-size:1.3rem; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .nllb__lightbox-btn{
+    position:absolute; top:50%; transform:translateY(-50%);
+    width:46px; height:46px; border-radius:50%;
+    font-size:1.4rem; font-weight:700;
+    display:flex; align-items:center; justify-content:center; z-index:2;
+  }
+
+  .nllb__lightbox-btn--prev{ left:10px; }
+  .nllb__lightbox-btn--next{ right:10px; }
+
+  .nllb__lightbox-caption{
+    position:absolute; left:50%; bottom:-34px; transform:translateX(-50%);
+    color:#fff; font-size:.82rem; font-weight:900; letter-spacing:.04em;
+    text-transform:uppercase; white-space:nowrap;
+  }
+
+  .nllb__body{ padding:16px 16px 18px; }
+  .nllb__copy{ margin:0; font-size:1rem; color:#111; }
+  .nllb__copy p{ margin:0 0 .8em; }
+  .nllb__copy p:last-child{ margin-bottom:0; }
+  .nllb__copy strong,.nllb__copy b{ font-weight:800 !important; }
+  .nllb__copy em,.nllb__copy i{ font-style:italic !important; }
+  .nllb__copy a{ color:var(--nl-blue); text-decoration:underline; }
+
+  .nllb__fan-note{
+    position:relative;
+    display:flex;
+    flex-direction:column;
+    min-height:220px;
+    background:
+      radial-gradient(circle at top left,rgba(34,59,124,.07) 0%,rgba(34,59,124,0) 34%),
+      radial-gradient(circle at bottom right,rgba(158,0,0,.06) 0%,rgba(158,0,0,0) 34%),
+      var(--fan-note-bg);
+    border:1px solid var(--fan-note-line);
+    border-radius:22px;
+    overflow:hidden;
+    box-shadow:0 2px 8px rgba(0,0,0,.08), 0 8px 28px rgba(0,0,0,.12);
+    transition:transform .25s ease, box-shadow .28s ease, border-color .28s ease;
+    transform-origin:top center;
+  }
+
+  .nllb__fan-note:hover{ box-shadow:0 10px 24px rgba(0,0,0,.08); }
+
+  .nllb__fan-note-main{ padding:18px 18px 10px; text-align:center; }
+
+  .nllb__fan-note-time{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-height:28px; padding:0 11px; margin:0 0 12px;
+    border-radius:999px; background:#fff; color:#223b7c;
+    border:1px solid rgba(34,59,124,.14);
+    font-size:.74rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase;
+    box-shadow:0 2px 8px rgba(0,0,0,.04);
+  }
+
+  .nllb__fan-note-quote{
+    margin:0; color:#1c2330;
+    font-size:3.75rem; line-height:1.24;
+    font-weight:400; font-style:italic;
+    font-family:"Viktorie","Times New Roman",serif;
+    letter-spacing:.01em;
+  }
+
+  .nllb__fan-note-quote p{ margin:0; }
+
+  .nllb__fan-note-byline{
+    margin:12px 0 0; color:#4e5a6d;
+    font-size:.92rem; line-height:1.3;
+    font-weight:500; font-style:normal; letter-spacing:.01em;
+  }
+
+  .nllb__fan-note-byline-name{
+    font-family:"carbona-variable",inherit,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+
+  .nllb__fan-note-strip{
+    margin-top:auto;
+    display:flex; align-items:center; justify-content:center;
+    min-height:46px; padding:10px 14px;
+    background:#223b7c; color:#fff; text-align:center;
+  }
+
+  .nllb__fan-note-link{
+    display:inline-flex; align-items:center; justify-content:center;
+    gap:8px; color:#fff; text-decoration:none;
+    font-size:.83rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase;
+  }
+
+  .nllb__fan-note-link:hover{ text-decoration:underline; }
+  .nllb__fan-note-link svg{ width:14px; height:14px; display:block; flex:0 0 auto; }
+
+  .nllb__footer{ margin:18px 0 0; text-align:center; color:#666; font-size:.82rem; }
+  .nllb__footer strong{ color:#111; }
+
+  /* RESPONSIVE */
+  @media (min-width:781px){
+    .nllb__team--away .nllb__team-main{ justify-content:flex-end; }
+    .nllb__team--away .nllb__team-name{ order:0; }
+    .nllb__team--away .nllb__crest-shell{ order:1; }
+  }
+
+  @media (max-width:780px){
+    .nllb{ padding:0 0 80px; }
+
+    /* Compact mobile bar replaces full hero inner */
+    .nllb__hero-mobile-bar{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 14px;
+      min-height:52px;
+    }
+
+    /* Hide desktop-only hero elements on mobile */
+    .nllb__hero-inner{ display:none; }
+
+    /* Mobile bar elements */
+    .nllb__mobile-title{
+      flex:1 1 auto; min-width:0;
+      font-size:.78rem; font-weight:950; letter-spacing:.04em;
+      text-transform:uppercase; line-height:1.1; color:#fff;
+    }
+    .nllb__mobile-title span{ display:block; font-size:.62rem; font-weight:700;
+      opacity:.65; letter-spacing:.05em; }
+
+    .nllb__mobile-score{
+      display:inline-flex; align-items:center; justify-content:center;
+      min-height:32px; padding:0 12px;
+      border-radius:999px; background:#fff; color:#111;
+      font-weight:950; font-size:.88rem; letter-spacing:.04em;
+      white-space:nowrap; flex-shrink:0;
+    }
+
+    .nllb__mobile-live{
+      display:inline-flex; align-items:center; gap:5px;
+      font-size:.62rem; font-weight:900; letter-spacing:.08em;
+      text-transform:uppercase; color:rgba(255,255,255,.7);
+      flex-shrink:0;
+    }
+    .nllb__mobile-live-dot{
+      width:7px; height:7px; border-radius:50%; background:#fff;
+      animation:nllbPulse 1.8s infinite; flex-shrink:0;
+    }
+
+    /* Rail needs padding on mobile since hero has no margin */
+    .nllb__rail{ padding:12px 12px 0; }
+    .nllb__submit{ margin:0; border-radius:0; }
+    .nllb__submit-bar{ padding:8px 14px; min-height:40px; }
+    .nllb__submit-bar-label{ font-size:.7rem; }
+    .nllb__submit-bar-sub{ display:none; }
+    .nllb__boot{ margin:0 12px 18px; }
+    .nllb__new-pill-wrap{ left:12px; right:12px; }
+    .nllb__footer{ padding:0 12px; }
+    .nllb__pin-toggle-bar{ margin:0 12px 10px; }
+
+    /* Desktop fixture/crests hidden on mobile */
+    .nllb__hero-pens-mobile.is-visible{ display:inline-flex; }
+    .nllb__hero-team-score{
+      min-width:32px; min-height:32px; border-radius:8px;
+      background:#fff; color:#111;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:950; font-size:.9rem;
+    }
+
+    .nllb__card-head-inner{
+      display:grid; grid-template-columns:1fr auto; gap:10px; align-items:start;
+    }
+
+    .nllb__event-icon{ width:26px; height:26px; }
+    .nllb__event-icon img{ width:24px; height:24px; }
+
+    .nllb__gallery{ grid-template-columns:1fr; }
+    .nllb__gallery-feature img,.nllb__gallery-feature video{ min-height:260px; }
+
+    .nllb__gallery-side{
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      display:grid; max-height:none; overflow:auto hidden;
+      padding-right:0; padding-bottom:2px;
+    }
+
+    .nllb__gallery-thumb img,.nllb__gallery-thumb video{ height:110px; }
+    .nllb__lightbox-inner{ grid-template-columns:1fr; gap:12px; }
+    .nllb__lightbox-stage{ min-height:0; }
+
+    .nllb__lightbox-strip{
+      grid-auto-flow:column; grid-auto-columns:96px;
+      overflow:auto hidden; max-height:none; padding-bottom:4px;
+    }
+
+    .nllb__lightbox-thumb img,.nllb__lightbox-thumb video{ height:84px; }
+    .nllb__fan-note{ min-height:0; }
+    .nllb__fan-note-main{ padding:16px 14px 10px; }
+    .nllb__fan-note-quote{ font-size:2.1rem; }
+  }
+
+  @media (max-width:560px){
+    .nllb__card-head-inner{ grid-template-columns:1fr; }
+    .nllb__card-right{ align-items:flex-end; }
+    .nllb__scorebox{ min-width:82px; }
+    .nllb__watch-banner{ font-size:.78rem; min-height:36px; }
+    .nllb__updated{ font-size:.76rem; white-space:nowrap; }
+    .nllb__gallery-feature img,.nllb__gallery-feature video{ min-height:220px; }
+    .nllb__gallery-thumb img,.nllb__gallery-thumb video{ height:96px; }
+    .nllb__lightbox-btn--prev{ left:4px; }
+    .nllb__lightbox-btn--next{ right:4px; }
+    .nllb__fan-note-quote{ font-size:1.8rem; }
+    .nllb__fan-note-byline{ font-size:.86rem; }
+    /* v23: hide crest from header on mobile — declutters the row */
+    .nllb__card-crest-wrap{ display:none; }
+    /* v23: pin pill hidden — replaced by pin bar at card bottom */
+    .nllb__pin-pill{ display:none; }
+    /* v23: slightly smaller event icon on mobile */
+    .nllb__event-icon{ width:22px; height:22px; }
+    .nllb__event-icon img{ width:20px; height:20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nllb" id="nllb">
+  <div class="nllb__inner">
+  <div class="nllb__header">
+    <a class="nllb__back" href="https://www.thenationalleague.org.uk/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      Back to TheNationalLeague.org.uk
+    </a>
+    <section class="nllb__hero" aria-label="Live blog header">
+    <div class="nllb__hero-inner">
+      <div class="nllb__hero-top">
+        <div class="nllb__live-pill">
+          <span class="nllb__live-dot" aria-hidden="true"></span>
+          <span>Live</span>
+        </div>
+        <div class="nllb__hero-top-right">
+          <div class="nllb__updated" id="nllbUpdated">Last updated: --:--</div>
+        </div>
+      <div class="nllb__title-wrap"><h1 class="nllb__title">NATIONAL LEAGUE CUP FINAL</h1></div>
+      </div>
+
+      <div class="nllb__fixture">
+        <div class="nllb__team">
+          <div class="nllb__team-box">
+            <div class="nllb__team-main">
+              <div class="nllb__crest-shell">
+                <img class="nllb__crest" src="https://images.gc.nationalleagueservices.co.uk/a6ec79d0-6bba-11f0-82ea-7b9dcc8be154.png" alt="Boreham Wood crest">
+              </div>
+              <div class="nllb__team-name">Boreham Wood</div>
+            </div>
+            <div class="nllb__team-scorecol">
+              <div class="nllb__hero-team-score" id="nllbHeroHomeScore"></div>
+              <div class="nllb__hero-pens-mobile" id="nllbHeroHomePens"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="nllb__middle" aria-hidden="true">
+          <div class="nllb__score" id="nllbScore" style="display:none;"></div>
+          <div class="nllb__pens" id="nllbPens" style="display:none;"></div>
+        </div>
+
+        <div class="nllb__team nllb__team--away">
+          <div class="nllb__team-box">
+            <div class="nllb__team-scorecol">
+              <div class="nllb__hero-team-score" id="nllbHeroAwayScore"></div>
+              <div class="nllb__hero-pens-mobile" id="nllbHeroAwayPens"></div>
+            </div>
+            <div class="nllb__team-main">
+              <div class="nllb__team-name">West Ham United</div>
+              <div class="nllb__crest-shell">
+                <img class="nllb__crest" src="https://images.gc.nationalleagueservices.co.uk/b2bffa00-1ed1-11f1-b1ec-2fccb08b5159.png" alt="West Ham United crest">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <a class="nllb__watch-banner" href="https://www.thenationalleague.org.uk/videos" target="_blank" rel="noopener noreferrer">
+      <span>Watch Live</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+    </a>
+      <!-- Mobile compact bar — shown only on mobile via CSS -->
+      <div class="nllb__hero-mobile-bar">
+        <div class="nllb__mobile-title">
+          National League Cup Final
+          <span>Boreham Wood vs West Ham United</span>
+        </div>
+        <div class="nllb__mobile-score" id="nllbMobileScore"><small style="color:#888;font-size:.7rem">Live</small></div>
+        <div class="nllb__mobile-live"><span class="nllb__mobile-live-dot"></span>Live</div>
+      </div>
+    </section>
+  <section class="nllb__submit" id="fan-form" aria-label="Share your reaction">
+    <div class="nllb__submit-bar" id="nllbSubmitBar" role="button" tabindex="0" aria-expanded="false" aria-controls="nllbSubmitBody">
+      <div class="nllb__submit-bar-icon">💬</div>
+      <div class="nllb__submit-bar-text">
+        <div class="nllb__submit-bar-label">Share your reaction</div>
+        <div class="nllb__submit-bar-sub">Your note could appear in the live blog</div>
+      </div>
+      <div class="nllb__submit-chevron" id="nllbSubmitChevron" aria-hidden="true">▾</div>
+    </div>
+    <div class="nllb__submit-body" id="nllbSubmitBody">
+      <div class="nllb__submit-body-inner">
+        <form class="nllb__submit-form" id="nllbSubmitForm">
+          <div class="nllb__submit-field">
+            <label class="nllb__submit-label" for="nllbSubmitName">Name</label>
+            <input class="nllb__submit-input" id="nllbSubmitName" name="name" type="text" maxlength="80" placeholder="Your name">
+          </div>
+          <div class="nllb__submit-field">
+            <label class="nllb__submit-label" for="nllbSubmitNote">Note</label>
+            <div class="nllb__submit-textarea-wrap">
+              <textarea class="nllb__submit-textarea" id="nllbSubmitNote" name="note" maxlength="500" placeholder="Keep it short and match-related…" required></textarea>
+              <div class="nllb__submit-count" id="nllbSubmitCount" aria-hidden="true">0 / 500</div>
+            </div>
+          </div>
+          <input class="nllb__submit-hp" id="nllbSubmitWebsite" name="website" type="text" tabindex="-1" autocomplete="off">
+          <div class="nllb__submit-footer">
+            <div class="nllb__submit-status" id="nllbSubmitStatus" aria-live="polite"></div>
+            <button class="nllb__submit-btn" id="nllbSubmitButton" type="submit">Send</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+  </div><!-- /nllb__header -->
+
+  <div class="nllb__boot" id="nllbBoot">
+    <div class="nllb__boot-inner">
+      <h2 class="nllb__boot-title">Loading live blog</h2>
+      <p class="nllb__boot-text">Bringing in the latest score, updates and media.</p>
+      <div class="nllb__boot-bar"></div>
+    </div>
+  </div>
+
+  
+
+  <button class="nllb__new-pill" id="nllbNewPill" aria-live="polite" aria-atomic="true" type="button" style="display:none;">
+    ↑ <span id="nllbNewPillText">New update</span>
+  </button>
+  <div class="nllb__pin-toggle-bar" id="nllbPinToggleBar" style="display:none;">
+    <button class="nllb__pin-toggle-track" id="nllbPinTrack" type="button" aria-pressed="true" aria-label="Toggle pinned posts to top">
+      <div class="nllb__pin-toggle-thumb"></div>
+    </button>
+    <label class="nllb__pin-toggle-label" id="nllbPinToggleLabel" for="">📌 Pinned to top</label>
+  </div>
+  <div class="nllb__rail" id="nllbRail" aria-live="polite"></div>
+
+  <div class="nllb__footer">
+    <strong>Live blog auto-updates.</strong> New entries appear without refreshing the page.
+  </div>
+</div>
+
+</div><!-- /nllb__inner -->
+
+<div class="nllb__lightbox" id="nllbLightbox" aria-hidden="true">
+  <button class="nllb__lightbox-close" id="nllbLightboxClose" aria-label="Close gallery">×</button>
+  <div class="nllb__lightbox-inner">
+    <div class="nllb__lightbox-stage" id="nllbLightboxStage">
+      <button class="nllb__lightbox-btn nllb__lightbox-btn--prev" id="nllbLightboxPrev" aria-label="Previous image">‹</button>
+      <button class="nllb__lightbox-btn nllb__lightbox-btn--next" id="nllbLightboxNext" aria-label="Next image">›</button>
+      <div class="nllb__lightbox-caption" id="nllbLightboxCaption"></div>
+    </div>
+    <div class="nllb__lightbox-strip" id="nllbLightboxStrip"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* National League Cup Final Live Blog v2.3 */
+
+  const CONFIG = {
+    version: 'v8.2',
+    pollMs: 8000,
+    animationMs: 250,
+    newCardMs: 90000,
+    fetchTimeoutMs: 12000,
+    apiUrl: 'https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec',
+    submitUrl: 'https://script.google.com/macros/s/AKfycbwD3Yf25tVVvd0S46eC6ldWDQWK043FdTzwW6VoCHHppGzzg1o1S5vNMFNSbNGGEqlzcw/exec',
+    clubsMetaUrl: 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/data/clubs-meta.json',
+    iconBase: 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/icons/',
+    neutralColors: { primary:'#223b7c', secondary:'#9e0000', tertiary:'#9e0000' },
+    neutralEventColors: { primary:'#223b7c', secondary:'#9e0000', tertiary:'#9e0000' },
+    cupLogo: 'https://images.gc.nationalleagueservices.co.uk/d2115f90-1ed4-11f1-968e-396935dd0686.png',
+    supporterAnchor: '#fan-form'
+  };
+
+  const ICON_MAP = {
+    'goal':'goal.svg','assist':'goal.svg','yellow card':'yellow-card.svg',
+    'red card':'red-card.svg','substitution':'substitution.svg','corner':'corner.svg',
+    'offside':'offside.svg','free kick won':'free-kick.svg','free kick lost':'free-kick.svg',
+    'attempt saved':'save.svg','miss':'miss.svg','attempt missed':'miss.svg',
+    'attempt blocked':'block.svg','lineup':'lineup.svg','kick-off':'play.svg',
+    'start':'play.svg','half-time':'stop.svg','full-time':'stop.svg',
+    'end of first half':'stop.svg','end of second half':'stop.svg'
+  };
+
+  const TEAM_CRESTS = {
+    'Boreham Wood': 'https://images.gc.nationalleagueservices.co.uk/a6ec79d0-6bba-11f0-82ea-7b9dcc8be154.png',
+    'West Ham United': 'https://images.gc.nationalleagueservices.co.uk/b2bffa00-1ed1-11f1-b1ec-2fccb08b5159.png'
+  };
+
+  const TEAM_META_OVERRIDES = {
+    'Boreham Wood': { name:'Boreham Wood', colors:{ primary:'#000000', secondary:'#E6E6E6', tertiary:'#FFFFFF' } },
+    'West Ham United': { name:'West Ham United', colors:{ primary:'#8E1D41', secondary:'#81C4DD', tertiary:'#FFFFFF' } }
+  };
+
+  const TEAM_META_FALLBACKS = { ...TEAM_META_OVERRIDES };
+
+  const dom = {
+    rail: document.getElementById('nllbRail'),
+    updated: document.getElementById('nllbUpdated'),
+    score: document.getElementById('nllbScore'),
+    pens: document.getElementById('nllbPens'),
+    heroHomeScore: document.getElementById('nllbHeroHomeScore'),
+    heroAwayScore: document.getElementById('nllbHeroAwayScore'),
+    heroHomePens: document.getElementById('nllbHeroHomePens'),
+    heroAwayPens: document.getElementById('nllbHeroAwayPens'),
+    boot: document.getElementById('nllbBoot'),
+    submitForm: document.getElementById('nllbSubmitForm'),
+    submitName: document.getElementById('nllbSubmitName'),
+    submitNote: document.getElementById('nllbSubmitNote'),
+    submitWebsite: document.getElementById('nllbSubmitWebsite'),
+    submitButton: document.getElementById('nllbSubmitButton'),
+    submitStatus: document.getElementById('nllbSubmitStatus'),
+    submitCount: document.getElementById('nllbSubmitCount'),
+    lightbox: document.getElementById('nllbLightbox'),
+    lightboxStage: document.getElementById('nllbLightboxStage'),
+    lightboxCaption: document.getElementById('nllbLightboxCaption'),
+    lightboxClose: document.getElementById('nllbLightboxClose'),
+    lightboxPrev: document.getElementById('nllbLightboxPrev'),
+    lightboxNext: document.getElementById('nllbLightboxNext'),
+    lightboxStrip: document.getElementById('nllbLightboxStrip'),
+    newPill: document.getElementById('nllbNewPill'),
+    newPillText: document.getElementById('nllbNewPillText'),
+    pinToggleBar: document.getElementById('nllbPinToggleBar'),
+    pinTrack: document.getElementById('nllbPinTrack'),
+    pinToggleLabel: document.getElementById('nllbPinToggleLabel')
+  };
+
+  const state = {
+    clubsMeta: new Map(),
+    xWidgetsPromise: null,
+    igWidgetsPromise: null,
+    lastItemsHash: '',
+    lastHeroScore: '',
+    lastHeroPens: '',
+    galleries: new Map(),
+    activeGalleryId: null,
+    activeGalleryIndex: 0,
+    refreshInFlight: false,
+    refreshQueued: false,
+    firstLoad: true,
+    seenIds: new Set(),
+    newItemTimestamps: new Map(),
+    goalAnimFired: new Set(), // queue system is primary dedup
+    newPillCount: 0,
+    newPillTimer: null,
+    pinnedToTop: true
+  };
+
+  /* ── helpers ── */
+  function escapeHtml(str){
+    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function formatUpdatedStamp(d){ return 'Last updated: '+new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit'}).format(d); }
+  function toBoolean(v){ if(typeof v==='boolean') return v; const s=String(v||'').trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'||s==='y'; }
+  function normaliseScoreValue(v){ return String(v==null?'':v).trim(); }
+  function pickTextColor(hex){ const c=String(hex||'').replace('#','').trim(); if(!/^[0-9a-fA-F]{6}$/.test(c)) return '#ffffff'; const r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16); return (0.2126*r+0.7152*g+0.0722*b)/255>0.68?'#111111':'#ffffff'; }
+  function buildTeamGradient(p,s,t){ return `linear-gradient(105deg,${p} 0%,${p} 50%,${s} 75%,${t} 100%)`; }
+  function isNewItem(id){ const ts=state.newItemTimestamps.get(id); return ts?(Date.now()-ts)<CONFIG.newCardMs:false; }
+
+  // Matches: "goal", "goal!", "goal!!", "GOAL", etc.
+  function isGoalItem(item){
+    // Check icon field first (reliable — set explicitly in admin)
+    const icon=String(item.icon||'').toLowerCase().trim();
+    if(icon==='goal.svg'||icon==='goal'||icon==='assist'||icon==='assist.svg') return true;
+    // Fallback: event text contains "goal" anywhere
+    const ev=String(item.event||'').toLowerCase().trim();
+    if(/goal/i.test(ev)) return true;
+    return false;
+  }
+
+  /* ── Goal animation queue — mirrors transfer centre sting pattern ── */
+  const GOAL_QUEUE   = [];
+  const GOAL_FIRED   = {};
+  let   GOAL_RUNNING = false;
+  let   GOAL_HOLDSCREEN = null;
+
+  function goalShowHold(){
+    if(GOAL_HOLDSCREEN) return;
+    GOAL_HOLDSCREEN=document.createElement('div');
+    GOAL_HOLDSCREEN.style.cssText='position:fixed;inset:0;background:#000;z-index:999998;pointer-events:none;';
+    document.body.appendChild(GOAL_HOLDSCREEN);
+    // Safety: auto-clear after 15s so a crash never leaves permanent black screen
+    window.setTimeout(goalHideHold, 15000);
+  }
+  function goalHideHold(){
+    if(GOAL_HOLDSCREEN&&GOAL_HOLDSCREEN.parentNode) GOAL_HOLDSCREEN.parentNode.removeChild(GOAL_HOLDSCREEN);
+    GOAL_HOLDSCREEN=null;
+  }
+  function goalPlayNext(){
+    if(!GOAL_QUEUE.length){ GOAL_RUNNING=false; goalHideHold(); return; }
+    GOAL_RUNNING=true;
+    const item=GOAL_QUEUE.shift();
+    goalHideHold(); // no hold screen needed — stings overlap seamlessly
+    triggerGoalAnimation(null, item, function(){
+      // onComplete fires early (8.8s), next sting starts immediately
+      goalPlayNext();
+    });
+  }
+  function queueGoals(items, isFirstLoad){
+    const FRESH_MS = 10*60*1000;
+    const REAL_TS_MIN = 1577836800000;
+    // Build chronological list of all items with scores for prev-score lookup
+    const chronoAll=[...items].sort((a,b)=>(a.clockSort||0)-(b.clockSort||0));
+    const sorted=chronoAll.filter(isGoalItem);
+    sorted.forEach(function(item){
+      if(GOAL_FIRED[item.id]) return;
+      let fire=false;
+      if(isFirstLoad){
+        const cs=item.clockSort||0;
+        const rp=Date.parse(item.clockTimeRaw||'')||0;
+        const realMs=cs>REAL_TS_MIN?cs:(rp>REAL_TS_MIN?rp:0);
+        if(realMs){ if(Date.now()-realMs<FRESH_MS) fire=true; }
+        else { fire=true; }
+      } else {
+        const stamp=state.newItemTimestamps.get(item.id);
+        if(stamp&&(Date.now()-stamp)<5000) fire=true;
+      }
+      if(fire){
+        // Find previous score: last item before this one that has a scoreDisplay
+        const myIdx=chronoAll.indexOf(item);
+        let prevScore='';
+        for(let i=myIdx-1;i>=0;i--){
+          if(chronoAll[i].scoreDisplay){ prevScore=chronoAll[i].scoreDisplay; break; }
+        }
+        item._prevScore=prevScore||'0 - 0';
+        item._newScore=item.scoreDisplay||item._prevScore;
+        GOAL_FIRED[item.id]=true;
+        GOAL_QUEUE.push(item);
+      }
+    });
+    if(GOAL_QUEUE.length&&!GOAL_RUNNING) goalPlayNext();
+  }
+
+  // Full-screen sting — called by queue, one-off per goal
+  function triggerGoalAnimation(el, item, onComplete){
+    const stingId='nllb-sting-'+(item.id||'');
+    const existing=document.getElementById(stingId);
+    if(existing) existing.parentNode.removeChild(existing);
+
+    const palette=getTeamPalette(item.team);
+    const teamName=String(item.team||'').toUpperCase();
+    // Always use canonical home/away teams for score display
+    const homePal = getTeamPalette('Boreham Wood');
+    const awayPal = getTeamPalette('West Ham United');
+
+    const sting=document.createElement('div');
+    sting.className='nllb__sting';
+    sting.id=stingId;
+    sting.style.setProperty('--goal-primary', palette.primary);
+    sting.style.setProperty('--goal-secondary', palette.secondary);
+    // Parse scores for ticker
+    const prevScore = String(item._prevScore||'0 - 0');
+    const newScore  = String(item._newScore ||prevScore);
+    const prevParts = prevScore.split('-').map(function(s){ return s.trim(); });
+    const newParts  = newScore.split('-').map(function(s){ return s.trim(); });
+    const prevHome  = prevParts[0]||'0';
+    const prevAway  = prevParts[1]||'0';
+    const newHome   = newParts[0]||'0';
+    const newAway   = newParts[1]||'0';
+    const homeChanged = newHome !== prevHome;
+    const awayChanged = newAway !== prevAway;
+
+    function digitHtml(oldVal, newVal, changed){
+      const cls = changed ? ' nllb__sting__score-changed' : '';
+      // Stack old digit on top, new digit below — animation scrolls up to reveal new
+      return `<div class="nllb__sting__score-digit${cls}">` +
+        `<div class="nllb__sting__score-digit-inner${changed?' is-ticking':''}">` +
+          `<div>${escapeHtml(oldVal)}</div>` +
+          `<div>${escapeHtml(newVal)}</div>` +
+        `</div>` +
+      `</div>`;
+    }
+
+    sting.innerHTML=`
+      <div class="nllb__sting__bg"></div>
+      <div class="nllb__sting__bg-right"></div>
+      <div class="nllb__sting__centre">
+        <div class="nllb__sting__word">GOAL!</div>
+        <div class="nllb__sting__team">${escapeHtml(teamName)}</div>
+        <div class="nllb__sting__score">
+          <div class="nllb__sting__score-club">
+            ${digitHtml(prevHome, newHome, homeChanged)}
+            <div class="nllb__sting__score-name" style="background:${homePal.primary};color:${homePal.secondary}">Boreham Wood</div>
+          </div>
+          <div class="nllb__sting__score-club">
+            ${digitHtml(prevAway, newAway, awayChanged)}
+            <div class="nllb__sting__score-name" style="background:${awayPal.primary};color:${awayPal.secondary}">West Ham United</div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sting);
+
+    const STING_COMPLETE_MS = 8800; // Fire next sting early — overlaps with current exit
+    const STING_REMOVE_MS   = 11200; // DOM removal after full animation
+    // Trigger next sting while this one is still on screen (creates seamless overlap)
+    window.setTimeout(function(){
+      if(typeof onComplete==='function') onComplete();
+    }, STING_COMPLETE_MS);
+    // Remove DOM independently after full exit animations finish
+    window.setTimeout(function(){
+      if(sting.parentNode) sting.parentNode.removeChild(sting);
+    }, STING_REMOVE_MS);
+  }
+
+  // Card-level overlay — lightweight, scoped inside card, repeating
+  function triggerCardGoalAnimation(el, item){
+    if(!el) return;
+    const existingId='card-goal-'+(item.id||'');
+    const existing=el.querySelector('.nllb__goal-overlay');
+    if(existing) existing.parentNode.removeChild(existing);
+
+    const palette=getTeamPalette(item.team);
+    const teamName=String(item.team||'').toUpperCase();
+
+    const overlay=document.createElement('div');
+    overlay.className='nllb__goal-overlay';
+    overlay.innerHTML=`
+      <div class="nllb__goal-burst"></div>
+      <div class="nllb__goal-panel"></div>
+      <div class="nllb__goal-stripe"></div>
+      <div class="nllb__goal-labels">
+        <div class="nllb__goal-word">GOAL!</div>
+        <div class="nllb__goal-team">${escapeHtml(teamName)}</div>
+      </div>
+    `;
+    overlay.style.setProperty('--goal-primary', palette.primary);
+    overlay.style.setProperty('--goal-secondary', palette.secondary);
+    overlay.style.setProperty('--goal-tertiary', palette.tertiary||'#ffffff');
+    el.style.position='relative';
+    el.appendChild(overlay);
+
+    window.setTimeout(function(){
+      if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }, 4200);
+  }
+  function splitGalleryUrls(v){ return String(v||'').split(',').map(x=>x.trim()).filter(Boolean); }
+  function pickField(obj,keys){ for(const k of keys){ if(Object.prototype.hasOwnProperty.call(obj,k)&&obj[k]!==''&&obj[k]!=null) return obj[k]; } return ''; }
+  function isVideoUrl(url){ return /\.(mp4|webm|ogg)(\?.*)?$/i.test(url)||/mux\.com\/.*\.mp4/i.test(url); }
+  function isTweetUrl(url){
+    const s=String(url||'').trim();
+    if(/^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s)) return true;
+    if(/^https?:\/\/(www\.)?x\.com\/(i\/|i\/web\/)/i.test(s)) return true;
+    return false;
+  }
+  function getTweetId(url){
+    const s=String(url||'').trim();
+    const m=s.match(/\/status\/(\d+)/i);
+    if(m) return m[1];
+    return '';
+  }
+  function isInstagramUrl(url){ return /^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i.test(String(url||'').trim()); }
+  function normaliseInstagramUrl(url){ const m=String(url||'').trim().match(/^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i); return m?m[0]+'/':String(url||'').trim(); }
+  function fetchWithTimeout(url,opts,ms){ return Promise.race([fetch(url,opts),new Promise((_,rej)=>window.setTimeout(()=>rej(new Error('Fetch timeout')),ms))]); }
+
+  function getClubMeta(team){ if(!team) return null; if(TEAM_META_OVERRIDES[team]) return TEAM_META_OVERRIDES[team]; if(state.clubsMeta.has(team)) return state.clubsMeta.get(team); return TEAM_META_FALLBACKS[team]||null; }
+  function getTeamPalette(team){ const m=getClubMeta(team); const c=m?.colors||CONFIG.neutralColors; return { primary:c.primary||CONFIG.neutralColors.primary, secondary:c.secondary||CONFIG.neutralColors.secondary, tertiary:c.tertiary||'#FFFFFF' }; }
+  function getCardStyle(item){ if(!item.team) return { background:CONFIG.neutralEventColors.primary, border:CONFIG.neutralEventColors.secondary, headText:'#ffffff' }; const p=getTeamPalette(item.team); return { background:buildTeamGradient(p.primary,p.secondary,p.tertiary), border:p.secondary, headText:pickTextColor(p.primary) }; }
+
+  function getEventIconUrl(e){ const k=String(e||'').trim().toLowerCase(); const f=ICON_MAP[k]||''; return f?CONFIG.iconBase+f:''; }
+  const COLOUR_ICONS=new Set(['yellow card','red card','substitution']);
+  // Icon is always explicit from item.icon field — never derived from event text
+  function renderEventIcon(iconKey){
+    const key=String(iconKey||'').trim().toLowerCase();
+    if(!key) return '';
+    const url=getEventIconUrl(key);
+    if(!url) return '';
+    const isColour=COLOUR_ICONS.has(key);
+    return `<span class="nllb__event-icon" aria-hidden="true"><img src="${escapeHtml(url)}" alt="" width="28" height="28"${isColour?' data-colour="true"':''}></span>`;
+  }
+  function stopwatchIcon(){ return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15 1H9v2h6V1Zm-3 5a7 7 0 1 0 7 7a7.008 7.008 0 0 0-7-7Zm2.65 9.24l-3.4-1.97V9h1.5v3.41l2.65 1.53Z"/></svg>`; }
+  function arrowUpIcon(){ return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 5l6 6-1.4 1.4-3.6-3.6V19h-2V8.8L7.4 12.4 6 11z"/></svg>`; }
+
+  /* ── submit form ── */
+  function setSubmitStatus(msg,type){ if(!dom.submitStatus) return; dom.submitStatus.textContent=msg||''; dom.submitStatus.classList.remove('is-error','is-success'); if(type) dom.submitStatus.classList.add('is-'+type); }
+  function updateSubmitCount(){ if(!dom.submitNote||!dom.submitCount) return; dom.submitCount.textContent=`${String(dom.submitNote.value||'').length} / 500`; }
+
+  const SUBMIT_COOLDOWN_MS = 90000; // 90s between submissions
+  const SUBMIT_COOLDOWN_KEY = 'nllb-last-submit';
+
+  function getLastSubmitTime(){ try{ return Number(localStorage.getItem(SUBMIT_COOLDOWN_KEY)||0); }catch(e){ return 0; } }
+  function setLastSubmitTime(){ try{ localStorage.setItem(SUBMIT_COOLDOWN_KEY,String(Date.now())); }catch(e){} }
+  function checkCooldown(){ const since=Date.now()-getLastSubmitTime(); if(since<SUBMIT_COOLDOWN_MS){ const secs=Math.ceil((SUBMIT_COOLDOWN_MS-since)/1000); throw new Error(`Please wait ${secs}s before sending another note.`); } }
+
+  async function submitFanNote(payload){
+    checkCooldown();
+    const fd=new URLSearchParams();
+    fd.append('action','submitSupporterNote'); fd.append('name',payload.name||'');
+    fd.append('note',payload.note||''); fd.append('website',payload.website||''); fd.append('source',payload.source||'');
+    const res=await fetchWithTimeout(CONFIG.submitUrl,{method:'POST',body:fd},CONFIG.fetchTimeoutMs);
+    const text=await res.text(); let data=null;
+    try{ data=JSON.parse(text); }catch(e){ throw new Error('Submission failed.'); }
+    if(!data||data.ok!==true) throw new Error((data&&data.error)||'Submission failed.');
+    setLastSubmitTime();
+    return data;
+  }
+
+  function bindSubmitForm(){
+    if(!dom.submitForm) return;
+
+    const bar=document.getElementById('nllbSubmitBar');
+    const body=document.getElementById('nllbSubmitBody');
+    const chevron=document.getElementById('nllbSubmitChevron');
+    function toggleSubmit(open){
+      const next = open !== undefined ? open : !body.classList.contains('is-open');
+      body.classList.toggle('is-open', next);
+      chevron.classList.toggle('is-open', next);
+      bar.setAttribute('aria-expanded', String(next));
+    }
+    bar.addEventListener('click', function(){ toggleSubmit(); });
+    bar.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleSubmit(); } });
+
+    updateSubmitCount();
+    dom.submitNote.addEventListener('input',updateSubmitCount);
+    dom.submitForm.addEventListener('submit',async function(e){
+      e.preventDefault();
+      const name=String(dom.submitName.value||'').trim();
+      const note=String(dom.submitNote.value||'').trim();
+      const website=String(dom.submitWebsite.value||'').trim();
+      if(!note){ setSubmitStatus('Please enter a note.','error'); return; }
+      if(note.length<3){ setSubmitStatus('Please make the note a little longer.','error'); return; }
+      dom.submitButton.disabled=true; setSubmitStatus('Submitting…');
+      try{
+        await submitFanNote({name,note,website,source:'live-blog-widget'});
+        dom.submitForm.reset();
+        updateSubmitCount();
+        setSubmitStatus('Thanks — your note has been submitted.','success');
+        window.setTimeout(function(){ toggleSubmit(false); setSubmitStatus(''); },3000);
+      }
+      catch(err){ setSubmitStatus(err.message||'Submission failed.','error'); }
+      finally{ dom.submitButton.disabled=false; }
+    });
+  }
+
+  function hideBoot(){ if(dom.boot) dom.boot.classList.add('is-hidden'); }
+
+  function updatePinToggleVisibility(items){
+    if(!dom.pinToggleBar) return;
+    const hasPinned=items.some(i=>i.pinned);
+    dom.pinToggleBar.style.display=hasPinned?'':'none';
+  }
+
+  /* ── third-party widgets ── */
+  function preloadThirdPartyScripts(){ loadXWidgets(); loadInstagramEmbeds(); }
+
+  function loadXWidgets(){
+    if(window.twttr&&window.twttr.widgets) return Promise.resolve(window.twttr);
+    if(state.xWidgetsPromise) return state.xWidgetsPromise;
+    state.xWidgetsPromise=new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.async=true; s.src='https://platform.x.com/widgets.js'; s.charset='utf-8'; s.onload=()=>resolve(window.twttr); s.onerror=reject; document.head.appendChild(s); });
+    return state.xWidgetsPromise;
+  }
+
+  function loadInstagramEmbeds(){
+    if(window.instgrm&&window.instgrm.Embeds) return Promise.resolve(window.instgrm);
+    if(state.igWidgetsPromise) return state.igWidgetsPromise;
+    state.igWidgetsPromise=new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.async=true; s.src='https://www.instagram.com/embed.js'; s.onload=()=>resolve(window.instgrm); s.onerror=reject; document.head.appendChild(s); });
+    return state.igWidgetsPromise;
+  }
+
+  async function hydrateTweetPlaceholders(root){
+    const scope=root||document;
+    const placeholders=Array.from(scope.querySelectorAll('.nllb__x-placeholder[data-tweet-url]'));
+    if(!placeholders.length) return;
+    try{
+      const twttr=await loadXWidgets();
+      if(!twttr||!twttr.widgets||typeof twttr.widgets.createTweet!=='function') throw new Error('X widgets unavailable');
+      for(const ph of placeholders){
+        const url=ph.dataset.tweetUrl; const id=getTweetId(url); const existingId=ph.dataset.renderedTweetId||'';
+        if(!id){ ph.innerHTML=`<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></p>`; continue; }
+        if(existingId===id&&ph.classList.contains('is-loaded')) continue;
+        ph.dataset.renderedTweetId=id; ph.classList.add('is-loaded'); ph.innerHTML='';
+        try{ await twttr.widgets.createTweet(id,ph,{align:'center',dnt:true,theme:'light'}); }
+        catch(err){ ph.innerHTML=`<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></p>`; }
+      }
+    }catch(err){ console.error('Tweet widgets failed:',err); }
+  }
+
+  async function hydrateInstagramEmbeds(root){
+    const scope=root||document;
+    const embeds=Array.from(scope.querySelectorAll('blockquote.instagram-media[data-instgrm-permalink]'));
+    if(!embeds.length) return;
+    try{ const ig=await loadInstagramEmbeds(); if(ig&&ig.Embeds&&typeof ig.Embeds.process==='function') ig.Embeds.process(); }
+    catch(err){ embeds.forEach(em=>{ const url=em.getAttribute('data-instgrm-permalink')||''; if(em.dataset.embedFailed==='1') return; em.dataset.embedFailed='1'; em.innerHTML=`<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></p>`; }); }
+  }
+
+  /* ── rich text ── */
+  function renderSafeInlineHtml(raw){
+    const allowed=new Set(['STRONG','B','EM','I','BR','A','P']);
+    const t=document.createElement('template'); t.innerHTML=String(raw||'');
+    function san(node){
+      if(node.nodeType===Node.TEXT_NODE) return escapeHtml(node.textContent||'');
+      if(node.nodeType!==Node.ELEMENT_NODE) return '';
+      const tag=node.tagName.toUpperCase();
+      if(!allowed.has(tag)) return Array.from(node.childNodes).map(san).join('');
+      if(tag==='BR') return '<br>';
+      if(tag==='A'){ const href=node.getAttribute('href')||''; const safe=/^https?:\/\//i.test(href)?href:''; const c=Array.from(node.childNodes).map(san).join(''); return safe?`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${c}</a>`:c; }
+      return `<${tag.toLowerCase()}>${Array.from(node.childNodes).map(san).join('')}</${tag.toLowerCase()}>`;
+    }
+    return Array.from(t.content.childNodes).map(san).join('');
+  }
+
+  function renderCopyHtml(copy){
+    const raw=String(copy||'').trim(); if(!raw) return '';
+    if(/[<>]/.test(raw)) return renderSafeInlineHtml(raw);
+    const esc=escapeHtml(raw).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/(^|[\s(])\*(?!\s)(.+?)(?<!\s)\*(?=[\s).,!?:;]|$)/g,'$1<em>$2</em>');
+    return esc.split(/\n{2,}/).map(p=>`<p>${p.replace(/\n/g,'<br>')}</p>`).join('');
+  }
+
+  /* ── media ── */
+  function buildGalleryItemHtml(url){ return isVideoUrl(url)?`<video muted playsinline preload="metadata"><source src="${escapeHtml(url)}"></video>`:`<img src="${escapeHtml(url)}" alt="">`; }
+
+  function buildGalleryHtml(item){
+    const urls=splitGalleryUrls(item.mediaUrl); if(!urls.length) return '';
+    state.galleries.set(item.id,urls);
+    const feature=`<button class="nllb__gallery-feature" type="button" data-gallery-id="${escapeHtml(item.id)}" data-gallery-index="0">${buildGalleryItemHtml(urls[0])}${urls.length>1?`<div class="nllb__gallery-count">${urls.length} items</div>`:''}</button>`;
+    const thumbs=urls.slice(1).map((u,i)=>`<button class="nllb__gallery-thumb" type="button" data-gallery-id="${escapeHtml(item.id)}" data-gallery-index="${i+1}">${buildGalleryItemHtml(u)}</button>`).join('');
+    return `<div class="nllb__media nllb__media--gallery"><div class="nllb__gallery">${feature}<div class="nllb__gallery-side">${thumbs}</div></div></div>`;
+  }
+
+  function buildMediaHtml(item){
+    const type=String(item.mediaType||'').toLowerCase(); const url=String(item.mediaUrl||'').trim(); if(!url) return '';
+    if(type==='image') return `<div class="nllb__media"><img src="${escapeHtml(url)}" alt=""></div>`;
+    if(type==='video') return `<div class="nllb__media"><video controls preload="metadata" playsinline><source src="${escapeHtml(url)}">Your browser does not support HTML5 video.</video></div>`;
+    if(type==='gallery') return buildGalleryHtml(item);
+    if(type==='embed'||type==='x'||type==='tweet'){
+      if(isTweetUrl(url)) return `<div class="nllb__media nllb__media--embed"><div class="nllb__embed-box"><div class="nllb__x-placeholder" data-tweet-url="${escapeHtml(url)}">Loading post…</div></div></div>`;
+      if(isInstagramUrl(url)){ const ig=normaliseInstagramUrl(url); return `<div class="nllb__media nllb__media--embed"><div class="nllb__embed-box"><blockquote class="instagram-media nllb__ig-placeholder" data-instgrm-permalink="${escapeHtml(ig)}" data-instgrm-version="14" style="margin:0 auto;max-width:540px;width:100%;"></blockquote></div></div>`; }
+      if(/^https?:\/\/www\.youtube\.com\/embed\//i.test(url)||/^https?:\/\/player\.vimeo\.com\/video\//i.test(url)) return `<div class="nllb__media nllb__media--embed"><div class="nllb__embed-box"><iframe src="${escapeHtml(url)}" loading="lazy" allow="autoplay;clipboard-write;encrypted-media;picture-in-picture;web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div></div>`;
+    }
+    return '';
+  }
+
+  /* ── score timeline ── */
+  function buildScoreTimeline(items){
+    const asc=[...items].sort((a,b)=>a.clockSort!==b.clockSort?a.clockSort-b.clockSort:a.id.localeCompare(b.id));
+    let sc='',pe='',hasAny=false;
+    asc.forEach(item=>{
+      item.scoreDisplay=''; item.scoreFlash=false; item.pensDisplay=''; item.pensFlash=false;
+      const hasMatchTime=String(item.matchTime||'').trim()!=='';
+      const hasScore=normaliseScoreValue(item.home)!==''&&normaliseScoreValue(item.away)!=='';
+      const hasPens=normaliseScoreValue(item.homePens)!==''&&normaliseScoreValue(item.awayPens)!=='';
+      if(hasMatchTime||hasScore||hasPens) hasAny=true;
+      if(hasScore){ const ns=`${normaliseScoreValue(item.home)} - ${normaliseScoreValue(item.away)}`; item.scoreDisplay=ns; item.scoreFlash=sc!==''&&sc!==ns; sc=ns; } else if(sc){ item.scoreDisplay=sc; } else if(hasMatchTime&&!sc){ item.scoreDisplay='0 - 0'; sc='0 - 0'; }
+      if(hasPens){ const np=`${normaliseScoreValue(item.homePens)} - ${normaliseScoreValue(item.awayPens)}`; item.pensDisplay=np; item.pensFlash=pe!==''&&pe!==np; pe=np; } else if(pe){ item.pensDisplay=pe; }
+    });
+    return { items:asc, hasAnyMatchTime:hasAny, currentScore:sc, currentPens:pe };
+  }
+
+  function buildScoreBox(item){
+    if(!item.scoreDisplay&&!item.pensDisplay) return '';
+    const s=item.scoreDisplay?`<div class="nllb__scorebox${item.scoreFlash?' nllb__scorebox--flash':''}">${escapeHtml(item.scoreDisplay)}</div>`:'';
+    const p=item.pensDisplay?`<div class="nllb__pensbox${item.pensFlash?' nllb__pensbox--flash':''}">${escapeHtml(item.pensDisplay)} pens</div>`:'';
+    return s+p;
+  }
+
+  /* ── card builders ── */
+  function buildCardHeading(item){
+    const team=String(item.team||'').trim(); const ev=String(item.event||'').trim();
+    const icon=renderEventIcon(item.icon||'');
+    // v22: pin pill rendered as own line below team name (mobile-friendly)
+    const pin=item.pinned?`<span class="nllb__pin-pill">📌 Pinned</span>`:'';
+    const text=`<div class="nllb__card-heading">${team?`<div class="nllb__card-heading-top"><div class="nllb__card-team">${escapeHtml(team)}</div></div>${pin}`:(pin?pin:'')}${ev?`<div class="nllb__card-event${team?'':' nllb__card-event--solo'}">${escapeHtml(ev)}</div>`:''}</div>`;
+    return `<div class="nllb__card-heading-wrap">${icon}${text}</div>`;
+  }
+
+  function buildFanNoteHtml(item){
+    return `<div class="nllb__fan-note-main"><div class="nllb__fan-note-time">${escapeHtml(item.clockLabel||item.clockTimeRaw||'')}</div><div class="nllb__fan-note-quote">${renderCopyHtml(item.submissionNote||'')}</div><div class="nllb__fan-note-byline">— <span class="nllb__fan-note-byline-name">${escapeHtml(String(item.submissionName||'').trim()||'Anonymous supporter')}</span></div></div><div class="nllb__fan-note-strip"><a class="nllb__fan-note-link" href="${CONFIG.supporterAnchor}">${arrowUpIcon()}<span>Share your reaction</span></a></div>`;
+  }
+
+  function buildStandardCardHtml(item){
+    const timeLabel=item.matchTime?escapeHtml(item.matchTime):escapeHtml(item.clockLabel||item.clockTimeRaw||'');
+    const crest=item.team?(TEAM_CRESTS[item.team]||''):CONFIG.cupLogo;
+    return `<div class="nllb__card-head"><div class="nllb__card-head-inner"><div class="nllb__card-left"><span class="nllb__timechip">${item.matchTime?stopwatchIcon():''}<span>${timeLabel}</span></span><div class="nllb__card-main"><div class="nllb__card-crest-wrap"><img class="nllb__card-crest" src="${escapeHtml(crest)}" alt=""></div>${buildCardHeading(item)}</div></div><div class="nllb__card-right">${buildScoreBox(item)}</div></div></div>${buildMediaHtml(item)}<div class="nllb__body"><div class="nllb__copy">${renderCopyHtml(item.copy)}</div></div><div class="nllb__pin-bar" aria-hidden="true"></div>`;
+  }
+
+  function buildCardHtml(item){ return String(item.mediaType||'').toLowerCase()==='fan-note'?buildFanNoteHtml(item):buildStandardCardHtml(item); }
+
+  function cardSignature(item){ return JSON.stringify([item.id,item.matchTime,item.clockLabel,item.clockSort,item.event,item.icon||'',item.team,item.home,item.away,item.homePens,item.awayPens,item.copy,item.mediaType,item.mediaUrl,item.pinned,item.submissionName,item.submissionNote]); }
+
+  function stableFanNoteId(item){ const raw=[String(item.clockTimeRaw||item.clockLabel||'').trim(),String(item.submissionName||'').trim(),String(item.submissionNote||'').trim()].join('|'); let h=0; for(let i=0;i<raw.length;i++){ h=((h<<5)-h)+raw.charCodeAt(i); h|=0; } return 'fan-note-'+Math.abs(h); }
+
+  function createCard(item){
+    const isFan=String(item.mediaType||'').toLowerCase()==='fan-note';
+    const style=getCardStyle(item);
+    const el=document.createElement('article');
+    const isNew=isNewItem(item.id);
+    el.className=(isFan?'nllb__fan-note':'nllb__card')+' is-entering'+(item.pinned&&state.pinnedToTop?' is-pinned':'')+(isNew?' is-new':'');
+    el.dataset.itemId=item.id; el.dataset.signature=cardSignature(item);
+    if(!isFan){ el.style.setProperty('--card-background',style.background); el.style.setProperty('--card-border',style.border); el.style.setProperty('--card-head-text',style.headText); }
+    el.innerHTML=buildCardHtml(item);
+    requestAnimationFrame(()=>{
+      el.classList.add('is-entered'); el.classList.remove('is-entering');
+      if(!isFan){ hydrateTweetPlaceholders(el); hydrateInstagramEmbeds(el); }
+      // Card-level animation repeats every 15s — uses card-scoped fn, NOT full-screen
+      if(!isFan && isGoalItem(item)){
+        window.setTimeout(function(){ triggerCardGoalAnimation(el, item); }, 400);
+        const goalIntervalId = window.setInterval(function(){
+          triggerCardGoalAnimation(el, item);
+        }, 15000);
+        el.dataset.goalInterval = goalIntervalId;
+      }
+    });
+    if(isNew){ const rem=CONFIG.newCardMs-(Date.now()-(state.newItemTimestamps.get(item.id)||0)); window.setTimeout(()=>el.classList.remove('is-new'),Math.max(0,rem)); }
+    return el;
+  }
+
+  function updateCard(card,item){
+    const next=cardSignature(item); const isFan=String(item.mediaType||'').toLowerCase()==='fan-note'; const isNew=isNewItem(item.id);
+    if(card.dataset.signature===next){ card.classList.toggle('is-pinned',!!item.pinned&&state.pinnedToTop); card.classList.toggle('is-new',isNew); return; }
+    card.dataset.signature=next; card.classList.toggle('is-pinned',!!item.pinned&&state.pinnedToTop); card.classList.toggle('is-new',isNew);
+    if(!isFan){ const s=getCardStyle(item); card.style.setProperty('--card-background',s.background); card.style.setProperty('--card-border',s.border); card.style.setProperty('--card-head-text',s.headText); }
+    card.innerHTML=buildCardHtml(item);
+    if(!isFan){ hydrateTweetPlaceholders(card); hydrateInstagramEmbeds(card); }
+  }
+
+  /* ── new update pill ── */
+  function showNewPill(count){
+    if(!dom.newPill) return;
+    dom.newPill.style.display='';
+    dom.newPillText.textContent=count===1?'New update':`${count} new updates`;
+    // small rAF so display:'' has painted before transition
+    requestAnimationFrame(()=>dom.newPill.classList.add('is-visible'));
+  }
+
+  function hideNewPill(){
+    if(!dom.newPill) return;
+    dom.newPill.classList.remove('is-visible');
+  }
+
+  function bindPinToggle(){
+    if(!dom.pinTrack) return;
+    dom.pinTrack.addEventListener('click',function(){
+      state.pinnedToTop=!state.pinnedToTop;
+      dom.pinTrack.classList.toggle('is-off',!state.pinnedToTop);
+      dom.pinTrack.setAttribute('aria-pressed',String(state.pinnedToTop));
+      dom.pinToggleLabel.textContent=state.pinnedToTop?'📌 Pinned to top':'📌 Pinning off';
+      // Re-sort and re-render immediately
+      if(state.lastItems) render(sortItemsForDisplay(state.lastItems));
+    });
+  }
+
+  function bindNewPill(){
+    if(!dom.newPill) return;
+    dom.newPill.addEventListener('click',function(){
+      hideNewPill();
+      state.newPillCount=0;
+      // Scroll to first non-pinned card
+      const firstUnpinned=dom.rail.querySelector('.nllb__card:not(.is-pinned),.nllb__fan-note:not(.is-pinned)');
+      if(firstUnpinned){
+        const top=firstUnpinned.getBoundingClientRect().top+window.scrollY-16;
+        window.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+      } else {
+        window.scrollTo({top:0,behavior:'smooth'});
+      }
+    });
+  }
+
+  /* ── render ── */
+  function getPositions(container){ const m=new Map(); Array.from(container.children).forEach(c=>m.set(c.dataset.itemId,c.getBoundingClientRect().top)); return m; }
+
+  function animateReorder(container,before){
+    Array.from(container.children).forEach(c=>{
+      const old=before.get(c.dataset.itemId); if(old==null) return;
+      const delta=old-c.getBoundingClientRect().top;
+      if(Math.abs(delta)>1){ c.style.transition='none'; c.style.transform=`translateY(${delta}px)`; requestAnimationFrame(()=>{ c.style.transition='transform .25s ease, opacity .2s ease'; c.style.transform=''; }); }
+    });
+  }
+
+  function removeCard(card){ if(card.dataset.goalInterval) window.clearInterval(Number(card.dataset.goalInterval)); card.classList.add('is-leaving'); window.setTimeout(()=>{ if(card.parentNode) card.parentNode.removeChild(card); },CONFIG.animationMs); }
+
+  function render(items){
+    const rail=dom.rail;
+    const existing=new Map(Array.from(rail.children).filter(n=>n.dataset&&n.dataset.itemId).map(c=>[c.dataset.itemId,c]));
+    if(!items.length){ rail.innerHTML=`<div class="nllb__empty">No published live blog entries yet.</div>`; return; }
+    const empty=rail.querySelector('.nllb__empty'); if(empty) empty.remove();
+    const before=getPositions(rail);
+    const nextSet=new Set(items.map(i=>i.id));
+    items.forEach((item,idx)=>{
+      let card=existing.get(item.id);
+      if(!card) card=createCard(item); else updateCard(card,item);
+      const cur=rail.children[idx]; if(cur!==card) rail.insertBefore(card,cur||null);
+    });
+    existing.forEach((card,id)=>{ if(!nextSet.has(id)) removeCard(card); });
+    animateReorder(rail,before);
+  }
+
+  function sortItemsForDisplay(items){ return [...items].sort((a,b)=>{ if(state.pinnedToTop&&!!a.pinned!==!!b.pinned) return a.pinned?-1:1; if(b.clockSort!==a.clockSort) return b.clockSort-a.clockSort; return b.id.localeCompare(a.id); }); }
+
+  /* ── hero score ── */
+  function applyHeroFlash(sc,pe,hasPe){
+    dom.score.classList.toggle('is-flashing',!!sc); dom.heroHomeScore.classList.toggle('is-flashing',!!sc); dom.heroAwayScore.classList.toggle('is-flashing',!!sc);
+    dom.pens.classList.toggle('is-flashing',!!pe&&!!hasPe); dom.heroHomePens.classList.toggle('is-flashing',!!pe&&!!hasPe); dom.heroAwayPens.classList.toggle('is-flashing',!!pe&&!!hasPe);
+  }
+
+  function updateScore(items){
+    const tl=buildScoreTimeline(items.filter(i=>String(i.mediaType||'').toLowerCase()!=='fan-note'));
+    if(!tl.hasAnyMatchTime){ dom.score.innerHTML=''; dom.pens.classList.remove('is-visible','is-flashing'); dom.pens.textContent=''; [dom.heroHomeScore,dom.heroAwayScore].forEach(el=>{el.textContent='';el.classList.remove('is-flashing');}); [dom.heroHomePens,dom.heroAwayPens].forEach(el=>{el.textContent='';el.classList.remove('is-visible','is-flashing');}); state.lastHeroScore=''; state.lastHeroPens=''; return; }
+    const cur=tl.currentScore||'0 - 0'; const curP=tl.currentPens||'';
+    const scChanged=state.lastHeroScore!==''&&state.lastHeroScore!==cur;
+    const peChanged=state.lastHeroPens!==''&&state.lastHeroPens!==curP;
+    dom.score.innerHTML=`<span>${escapeHtml(cur)}</span>`;
+    const bits=cur.split(/\s*[-–]\s*/).map(s=>s.trim()); dom.heroHomeScore.textContent=bits[0]!==undefined?bits[0]:'0'; dom.heroAwayScore.textContent=bits[1]!==undefined?bits[1]:'0';
+    const msc=document.getElementById('nllbMobileScore'); if(msc) msc.innerHTML=`<strong>${escapeHtml(bits[0]||'0')}</strong><span style="color:#999;margin:0 4px">-</span><strong>${escapeHtml(bits[1]||'0')}</strong>`;
+    if(curP){ dom.pens.classList.add('is-visible'); const pb=curP.split('-').map(s=>s.trim()); dom.pens.textContent=`Pens ${curP}`; dom.heroHomePens.textContent=`${pb[0]||''}p`; dom.heroAwayPens.textContent=`${pb[1]||''}p`; dom.heroHomePens.classList.add('is-visible'); dom.heroAwayPens.classList.add('is-visible'); }
+    else{ dom.pens.classList.remove('is-visible','is-flashing'); dom.pens.textContent=''; [dom.heroHomePens,dom.heroAwayPens].forEach(el=>{el.textContent='';el.classList.remove('is-visible','is-flashing');}); }
+    applyHeroFlash(scChanged,peChanged,!!curP);
+    state.lastHeroScore=cur; state.lastHeroPens=curP;
+  }
+
+  /* ── lightbox ── */
+  function openLightbox(galleryId,index){
+    const items=state.galleries.get(galleryId)||[]; if(!items.length) return;
+    state.activeGalleryId=galleryId; state.activeGalleryIndex=Math.max(0,Math.min(index,items.length-1));
+    renderLightbox();
+  }
+
+  function renderLightbox(){
+    const items=state.galleries.get(state.activeGalleryId)||[]; if(!items.length) return;
+    const idx=state.activeGalleryIndex; const src=items[idx];
+    dom.lightboxStage.querySelectorAll('.nllb__lightbox-img,.nllb__lightbox-video').forEach(el=>el.remove());
+    if(isVideoUrl(src)){ const v=document.createElement('video'); v.className='nllb__lightbox-video'; v.controls=true; v.playsInline=true; v.preload='metadata'; v.autoplay=true; v.src=src; dom.lightboxStage.appendChild(v); }
+    else{ const img=document.createElement('img'); img.className='nllb__lightbox-img'; img.src=src; img.alt=''; dom.lightboxStage.appendChild(img); }
+    dom.lightboxCaption.textContent=`${idx+1} / ${items.length}`;
+    dom.lightboxStrip.innerHTML=items.map((s,i)=>`<button class="nllb__lightbox-thumb${i===idx?' is-active':''}" type="button" data-lightbox-index="${i}">${buildGalleryItemHtml(s)}</button>`).join('');
+    dom.lightbox.classList.add('is-open'); dom.lightbox.setAttribute('aria-hidden','false');
+    const active=dom.lightboxStrip.querySelector('.nllb__lightbox-thumb.is-active'); if(active) active.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});
+  }
+
+  function closeLightbox(){ dom.lightbox.classList.remove('is-open'); dom.lightbox.setAttribute('aria-hidden','true'); dom.lightboxStage.querySelectorAll('.nllb__lightbox-img,.nllb__lightbox-video').forEach(el=>el.remove()); dom.lightboxStrip.innerHTML=''; }
+  function moveLightbox(step){ const items=state.galleries.get(state.activeGalleryId)||[]; if(!items.length) return; state.activeGalleryIndex=(state.activeGalleryIndex+step+items.length)%items.length; renderLightbox(); }
+
+  function bindLightboxSwipe(){
+    let touchStartX=0, touchStartY=0, dragging=false;
+    dom.lightboxStage.addEventListener('touchstart', function(e){
+      if(e.touches.length!==1) return;
+      touchStartX=e.touches[0].clientX;
+      touchStartY=e.touches[0].clientY;
+      dragging=true;
+    }, { passive:true });
+    dom.lightboxStage.addEventListener('touchend', function(e){
+      if(!dragging) return; dragging=false;
+      const dx=e.changedTouches[0].clientX-touchStartX;
+      const dy=e.changedTouches[0].clientY-touchStartY;
+      if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){
+        moveLightbox(dx<0?1:-1);
+      }
+    }, { passive:true });
+    dom.lightboxStage.addEventListener('touchmove', function(){}, { passive:true });
+  }
+
+  function bindLightboxEvents(){
+    dom.rail.addEventListener('click',function(e){ const btn=e.target.closest('.nllb__gallery-feature,.nllb__gallery-thumb'); if(!btn) return; openLightbox(btn.dataset.galleryId,Number(btn.dataset.galleryIndex||0)); });
+    dom.lightboxStrip.addEventListener('click',function(e){ const btn=e.target.closest('.nllb__lightbox-thumb'); if(!btn) return; state.activeGalleryIndex=Number(btn.dataset.lightboxIndex||0); renderLightbox(); });
+    dom.lightboxClose.addEventListener('click',closeLightbox);
+    dom.lightboxPrev.addEventListener('click',()=>moveLightbox(-1));
+    dom.lightboxNext.addEventListener('click',()=>moveLightbox(1));
+    dom.lightbox.addEventListener('click',function(e){ if(e.target===dom.lightbox) closeLightbox(); });
+    document.addEventListener('keydown',function(e){ if(!dom.lightbox.classList.contains('is-open')) return; if(e.key==='Escape') closeLightbox(); if(e.key==='ArrowLeft') moveLightbox(-1); if(e.key==='ArrowRight') moveLightbox(1); });
+    bindLightboxSwipe();
+  }
+
+  /* ── data loading ── */
+  async function loadClubsMeta(){
+    try{
+      const res=await fetchWithTimeout(CONFIG.clubsMetaUrl,{cache:'no-store'},CONFIG.fetchTimeoutMs);
+      if(!res.ok) throw new Error('clubs-meta fetch failed');
+      const data=await res.json();
+      const clubs=Array.isArray(data?.clubs)?data.clubs:[];
+      state.clubsMeta.clear(); clubs.forEach(c=>{ if(c&&c.name) state.clubsMeta.set(c.name,c); });
+    }catch(e){ console.warn('Live blog: clubs-meta fallback in use.',e); }
+  }
+
+  function parseClockTimeToSort(v){ const r=String(v||'').trim(); if(!r) return 0; const p=Date.parse(r); return Number.isFinite(p)?p:0; }
+  function parseMatchTimeToOrder(v){ const r=String(v||'').trim().toUpperCase(); if(!r) return 0; if(r==='KO') return 1; if(r==='HT') return 45000; if(r==='FT') return 90000; if(r==='AET') return 120000; if(r==='PENS') return 130000; const m=r.match(/^(\d+)(?:\+(\d+))?'/); if(m) return (Number(m[1]||0)*1000)+Number(m[2]||0); return 0; }
+  function deriveClockSort(item){ const ex=Number(pickField(item,['clockSort','clock sort'])); if(Number.isFinite(ex)&&ex>0) return ex; const ct=parseClockTimeToSort(pickField(item,['clockTimeRaw','clock time raw','clockTime'])); if(ct>0) return ct; return parseMatchTimeToOrder(pickField(item,['matchTime','match time'])); }
+
+  async function loadSheetItems(){
+    const bust=`cb=${Date.now()}`;
+    const url=CONFIG.apiUrl+(CONFIG.apiUrl.includes('?')?'&':'?')+bust;
+    const res=await fetchWithTimeout(url,{cache:'no-store'},CONFIG.fetchTimeoutMs);
+    if(!res.ok) throw new Error('API fetch failed');
+    const data=await res.json();
+    if(!data||data.ok!==true||!Array.isArray(data.items)) throw new Error('Invalid API response');
+    return data.items.map(item=>{
+      const mapped={
+        id:String(pickField(item,['postid','postId','PostID','id'])).trim(),
+        matchTime:String(pickField(item,['matchTime','match time'])).trim(),
+        clockTimeRaw:String(pickField(item,['clockTimeRaw','clock time raw','clockTime'])).trim(),
+        clockLabel:(function(){
+          const raw=String(pickField(item,['clockLabel','clock label','clockTimeRaw','clock time raw','clockTime'])).trim();
+          // If it looks like an ISO datetime (contains T or has date prefix), extract HH:mm
+          const isoMatch=raw.match(/(?:T|\s)(\d{2}:\d{2})/);
+          if(isoMatch) return isoMatch[1];
+          return raw;
+        })(),
+        clockSort:deriveClockSort(item),
+        published:toBoolean(pickField(item,['published','Published?'])),
+        pinned:toBoolean(pickField(item,['pinned','Pinned?','pinned?'])),
+        event:String(pickField(item,['event','Event'])).trim(),
+        team:String(pickField(item,['team','Team'])).trim(),
+        home:normaliseScoreValue(pickField(item,['home','Home'])),
+        away:normaliseScoreValue(pickField(item,['away','Away'])),
+        homePens:normaliseScoreValue(pickField(item,['homePens','home pens','Home pens','Home Pens'])),
+        awayPens:normaliseScoreValue(pickField(item,['awayPens','away pens','Away pens','Away Pens'])),
+        copy:String(pickField(item,['copy','Copy'])),
+        mediaType:String(pickField(item,['mediaType','media type','Media type'])).toLowerCase().trim(),
+        mediaUrl:String(pickField(item,['mediaUrl','media url','Media url'])).trim(),
+        icon:String(pickField(item,['icon','Icon'])).trim(),
+        submissionName:String(pickField(item,['submissionName','submission name'])).trim(),
+        submissionNote:String(pickField(item,['submissionNote','submission note'])).trim()
+      };
+      if(mapped.mediaType==='fan-note') mapped.id=stableFanNoteId(mapped);
+      return mapped;
+    }).filter(item=>item.id&&item.published);
+  }
+
+  function itemsHash(items){ return JSON.stringify(items.map(i=>[i.id,i.matchTime,i.clockTimeRaw,i.clockSort,i.event,i.team,i.home,i.away,i.homePens,i.awayPens,i.copy,i.mediaType,i.mediaUrl,i.pinned,i.submissionName,i.submissionNote])); }
+
+  async function refresh(){
+    if(state.refreshInFlight){ state.refreshQueued=true; return; }
+    state.refreshInFlight=true;
+    try{
+      const fetched=await loadSheetItems();
+      if(!state.firstLoad) fetched.forEach(item=>{ if(!state.seenIds.has(item.id)) state.newItemTimestamps.set(item.id,Date.now()); });
+      fetched.forEach(item=>state.seenIds.add(item.id));
+      const scoreReady=buildScoreTimeline(fetched.filter(i=>String(i.mediaType||'').toLowerCase()!=='fan-note')).items;
+      const scoreMap=new Map(scoreReady.map(i=>[i.id,i]));
+      const merged=fetched.map(item=>{ if(scoreMap.has(item.id)) return scoreMap.get(item.id); item.scoreDisplay=''; item.scoreFlash=false; item.pensDisplay=''; item.pensFlash=false; return item; });
+      const display=sortItemsForDisplay(merged);
+      // Count truly new items (not first load)
+      if(!state.firstLoad){
+        const newCount=fetched.filter(item=>state.newItemTimestamps.has(item.id)&&(Date.now()-state.newItemTimestamps.get(item.id))<2000).length;
+        if(newCount>0){
+          state.newPillCount+=newCount;
+          // Only show pill if user is scrolled down enough to miss new cards
+          if(window.scrollY>200) showNewPill(state.newPillCount);
+        }
+      }
+      state.lastItems=merged;
+      render(sortItemsForDisplay(merged)); updateScore(merged);
+      updatePinToggleVisibility(merged);
+
+      // Goal animations queued via queueGoals() below
+
+      dom.updated.textContent=formatUpdatedStamp(new Date());
+      const hash=itemsHash(display);
+      if(hash!==state.lastItemsHash){ state.lastItemsHash=hash; hydrateTweetPlaceholders(document); hydrateInstagramEmbeds(document); }
+      queueGoals(merged, state.firstLoad);
+      hideBoot(); state.firstLoad=false;
+    }catch(err){ console.error('Live blog refresh failed:',err); dom.updated.textContent='Last updated: --:--'; }
+    finally{ state.refreshInFlight=false; if(state.refreshQueued){ state.refreshQueued=false; refresh(); } }
+  }
+
+  function takeoverFixedContext(){
+    // Walk ancestors and strip transforms/filters that break position:fixed children
+    var el=document.querySelector('.nllb');
+    if(!el) return;
+    var p=el.parentElement;
+    while(p && p!==document.body){
+      var st=window.getComputedStyle(p);
+      if(st.transform!=='none'||st.filter!=='none'||st.willChange!=='auto'){
+        p.style.transform='none'; p.style.filter='none'; p.style.willChange='auto';
+      }
+      p.style.overflow='visible';
+      p=p.parentElement;
+    }
+  }
+
+  async function init(){
+    takeoverFixedContext();
+    bindLightboxEvents();
+    bindPinToggle();
+    bindNewPill();
+    bindSubmitForm();
+    preloadThirdPartyScripts();
+    await loadClubsMeta();
+    await refresh();
+    window.setInterval(refresh,CONFIG.pollMs);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
