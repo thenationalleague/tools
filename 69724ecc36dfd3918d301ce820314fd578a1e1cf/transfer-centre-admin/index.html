@@ -1,7 +1,7 @@
 <!--
   NL Transfer Centre — Admin Panel
-  v3 — Add CTA link button fields (cta_text, cta_url) to editor form;
-       wired into clearEditor, loadPostIntoEditor, savePost payload
+  v11.2 — Crest lookup now tries direct /assets/crests/ file paths for typed clubs even when
+           they are not in clubs-meta; rose only used when the crest file truly does not exist
 
   Changelog:
   v1 — Initial build
@@ -150,7 +150,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ─── CARD TYPE SELECTOR ────────────────────────────────────────────────────── */
 .card-type-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px;
 }
 .card-type-btn {
   background: var(--surface2); border: 1px solid var(--border2);
@@ -507,7 +507,7 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="topbar__live-dot"></div>
     <div class="topbar__badge">NL Admin</div>
     <div class="topbar__title">Transfer <span>Centre</span></div>
-    <div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v10</div>
+<div style="font-size:10px;color:#ffffff;letter-spacing:0.1em;font-weight:700;opacity:0.5;margin-left:auto;margin-right:12px;white-space:nowrap">v11.2</div>
     <div class="topbar__status" id="topbar-status">Loading…</div>
   </div>
 
@@ -529,6 +529,7 @@ textarea { resize: vertical; min-height: 80px; }
             <div class="card-type-grid" id="card-type-grid">
               <button class="card-type-btn active" data-type="confirmed_signing"><span class="card-type-btn__icon">✅</span>Transfer</button>
               <button class="card-type-btn" data-type="loan_in"><span class="card-type-btn__icon">🔄</span>Loan</button>
+              <button class="card-type-btn" data-type="loan_extension"><span class="card-type-btn__icon">🔁</span>Loan Extension</button>
               <button class="card-type-btn" data-type="rumour"><span class="card-type-btn__icon">🔍</span>Rumour</button>
               <button class="card-type-btn" data-type="article_link"><span class="card-type-btn__icon">📰</span>Article</button>
               <button class="card-type-btn" data-type="contract_extension"><span class="card-type-btn__icon">✍️</span>New Contract</button>
@@ -576,19 +577,7 @@ textarea { resize: vertical; min-height: 80px; }
               </div>
             </div>
           </div>
-
-          <!-- Fee + Contract -->
-          <div class="form-row" id="field-fee-contract">
-            <div class="field">
-              <label>Fee</label>
-              <input type="text" id="input-fee" placeholder="Free / Undisclosed / £1m">
-            </div>
-            <div class="field">
-              <label>Contract</label>
-              <input type="text" id="input-contract" placeholder="2 years">
-            </div>
-          </div>
-
+          
           <!-- Article URL -->
           <div class="field" id="field-article-url">
             <label>Article URL</label>
@@ -613,7 +602,7 @@ textarea { resize: vertical; min-height: 80px; }
           <!-- Copy / Notes -->
           <div class="field">
             <label>Copy / Notes</label>
-            <textarea id="input-copy" placeholder="Copy text — HTML supported"></textarea>
+            <textarea id="input-copy" placeholder="Copy text — paragraph breaks will be preserved on the frontend"></textarea>
           </div>
 
           <!-- Media -->
@@ -760,16 +749,20 @@ textarea { resize: vertical; min-height: 80px; }
   var ADMIN_KEY  = 'admin'; // ← Match Apps Script ADMIN_KEY property
   var CLUBS_URL  = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/data/clubs-meta.json';
   var CREST_BASE = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/crests/';
+  var ROSE_CREST = CREST_BASE + 'National%20League%20rose.png';
+  var ROSE_FALLBACK_COLOURS = { primary:'#9e0000', secondary:'#223b7c', tertiary:'#c8a84e' };
   var POLL_MS    = 8000;
 
   var ICONS = ['✅','🚪','🔍','📥','📤','✍️','📰','📢','⚽','🏟️','💰','🤝','⏰','🔥','💫','⚡','🎯','🏆','📊','🔔','🚨','💥','📌','🗞️','🔗','🔄','💬','📣'];
 
   var CARD_TYPES = {
-    confirmed_signing:   { icon: '✅', label: 'Transfer',  css: 'confirmed', labelCss: 'confirmed' },
-    loan_in:             { icon: '🔄', label: 'Loan',      css: 'loan',      labelCss: 'loan' },
-    rumour:              { icon: '🔍', label: 'Rumour',    css: 'rumour',    labelCss: 'rumour' },
-    article_link:        { icon: '📰', label: 'Article',   css: 'article',   labelCss: 'article' },
-    contract_extension:  { icon: '✍️', label: 'New Contract', css: 'contract',  labelCss: 'contract' }
+    confirmed_signing:   { icon: '✅', label: 'Transfer',       css: 'confirmed', labelCss: 'confirmed' },
+    loan_in:             { icon: '🔄', label: 'Loan',           css: 'loan',      labelCss: 'loan' },
+    loan_extension:      { icon: '🔁', label: 'Loan Extension', css: 'loan',      labelCss: 'loan' },
+    rumour:              { icon: '🔍', label: 'Rumour',         css: 'rumour',    labelCss: 'rumour' },
+    article_link:        { icon: '📰', label: 'Article',        css: 'article',   labelCss: 'article' },
+    contract_extension:  { icon: '✍️', label: 'New Contract',   css: 'contract',  labelCss: 'contract' },
+    general_update:      { icon: '📢', label: 'Update',         css: 'general',   labelCss: 'general' }
   };
 
   // ─── STATE ────────────────────────────────────────────────────────────────
@@ -818,6 +811,28 @@ textarea { resize: vertical; min-height: 80px; }
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function isUnattachedClub(name) {
+    return String(name || '').trim().toLowerCase() === 'unattached';
+  }
+
+  function isListedClub(name) {
+    var clean = String(name || '').trim().toLowerCase();
+    return state.clubsList.some(function(c){
+      return String(c.name || '').trim().toLowerCase() === clean;
+    });
+  }
+
+  function getClubCrestUrl(name) {
+    var clean = String(name || '').trim();
+    if (!clean) return ROSE_CREST;
+    if (isUnattachedClub(clean)) return ROSE_CREST;
+    return CREST_BASE + encodeURIComponent(clean) + '.png';
+  }
+
+  function getFallbackPalette(name) {
+    return ROSE_FALLBACK_COLOURS;
+  }
+  
   function hexToRgb(hex) {
     hex = (hex||'').replace('#','');
     if (hex.length===3) hex=hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
@@ -828,12 +843,12 @@ textarea { resize: vertical; min-height: 80px; }
     return ((0.299*c.r+0.587*c.g+0.114*c.b)/255)>0.5?'#000':'#fff';
   }
   function getTeamPalette(name) {
-    var c=state.clubs[name];
-    if(!c) return {primary:'#1a1a1a',secondary:'#333',tertiary:'#333'};
-    return c.colors;
+    var c = state.clubs[name];
+    if (c && c.colors) return c.colors;
+    return getFallbackPalette(name);
   }
-  function crestUrl(name) { return name ? CREST_BASE+encodeURIComponent(name)+'.png' : ''; }
-
+  function crestUrl(name) { return getClubCrestUrl(name); }
+  
   function formatTime(val) {
     if (!val) return '';
     if (isNaN(Date.parse(val))) return val;
@@ -844,8 +859,11 @@ textarea { resize: vertical; min-height: 80px; }
     return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
   }
 
-  function setStatus(msg) { document.getElementById('topbar-status').textContent = msg; }
-
+  function setStatus(msg) {
+    var el = document.getElementById('topbar-status');
+    if (el) el.textContent = msg;
+  }
+  
   // ─── CLUBS LOAD ───────────────────────────────────────────────────────────
   function loadClubs() {
     return fetch(CLUBS_URL+'?cb='+Date.now())
@@ -867,16 +885,19 @@ textarea { resize: vertical; min-height: 80px; }
     var el = document.getElementById(listId);
     if (!el) return;
     var q = (filter || '').toLowerCase().trim();
+    var clubsWithUnattached = clubs.slice();
+    clubsWithUnattached.push({ name:'Unattached', division:'Status', _special:true });
+
     var filtered = q
-      ? clubs.filter(function(c){ return c.name.toLowerCase().indexOf(q) !== -1; })
-      : clubs;
+      ? clubsWithUnattached.filter(function(c){ return c.name.toLowerCase().indexOf(q) !== -1; })
+      : clubsWithUnattached;
 
     var html = '';
 
     // If typed text doesn't match any club exactly, show "use as typed" option at top
-    if (q && !clubs.find(function(c){ return c.name.toLowerCase() === q; })) {
+    if (q && !clubsWithUnattached.find(function(c){ return String(c.name || '').toLowerCase() === q; })) {
       html += '<div class="club-picker-item club-picker-item--custom" data-name="'+esc(filter)+'" data-field="'+field+'" style="border-bottom:1px solid var(--yellow);background:var(--yellow-bg)">' +
-        '<span style="font-size:16px;flex-shrink:0">✏️</span>' +
+        '<img src="'+ROSE_CREST+'" alt="" loading="lazy" style="width:22px;height:22px;object-fit:contain;flex-shrink:0">' +
         '<span class="club-picker-item__name" style="color:var(--yellow)">Use "'+esc(filter)+'"</span>' +
         '<span class="club-picker-item__div" style="color:var(--yellow-dim)">Custom</span>' +
         '</div>';
@@ -884,7 +905,7 @@ textarea { resize: vertical; min-height: 80px; }
 
     html += filtered.map(function(c){
       return '<div class="club-picker-item" data-name="'+esc(c.name)+'" data-field="'+field+'" tabindex="0">' +
-        '<img src="'+crestUrl(c.name)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
+        '<img src="'+crestUrl(c.name)+'" alt="" loading="lazy" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'">' +
         '<span class="club-picker-item__name">'+esc(c.name)+'</span>' +
         '<span class="club-picker-item__div">'+esc(c.division||'')+'</span>' +
         '</div>';
@@ -914,19 +935,23 @@ textarea { resize: vertical; min-height: 80px; }
     if (crestImg && name) {
       crestImg.src = crestUrl(name);
       crestImg.style.display = 'block';
-      crestImg.onerror = function() { crestImg.style.display = 'none'; };
+      crestImg.onerror = function() {
+        crestImg.onerror = null;
+        crestImg.src = ROSE_CREST;
+        crestImg.style.display = 'block';
+      };
     }
 
     renderClubList(listId, state.clubsList, field, name);
-    if (!state.clubs[name]) extractCrestColours(name);
+    if (name && !isUnattachedClub(name)) extractCrestColours(name);
   }
 
   function updateClubPreview(previewId, name) {
     var el = document.getElementById(previewId);
     var url = crestUrl(name);
     el.innerHTML = name
-      ? '<img src="'+url+'" style="width:22px;height:22px;object-fit:contain" onerror="this.style.display=\'none\'">' +
-        '<span style="color:var(--text);font-weight:600;font-variation-settings:\'wght\' 600">'+esc(name)+'</span>' +
+      ? '<img src="'+url+'" style="width:22px;height:22px;object-fit:contain" onerror="this.src=\''+ROSE_CREST+'\'">' +
+      '<span style="color:var(--text);font-weight:600;font-variation-settings:\'wght\' 600">'+esc(name)+'</span>' +
         '<span class="caret">▾</span>'
       : '<span>Select or type club…</span><span class="caret">▾</span>';
   }
@@ -978,11 +1003,13 @@ textarea { resize: vertical; min-height: 80px; }
         var tertiary  = sorted[2] ? toHex(sorted[2]) : secondary;
 
         // Store extracted colours in state.clubs for sting use
-        state.clubs[name] = {
-          name: name,
-          colors: { primary: primary, secondary: secondary, tertiary: tertiary },
-          _extracted: true
-        };
+        if (!isListedClub(name) || !state.clubs[name] || !state.clubs[name].colors) {
+          state.clubs[name] = {
+            name: name,
+            colors: { primary: primary, secondary: secondary, tertiary: tertiary },
+            _extracted: true
+          };
+        }
 
         setStatus('Colours extracted for ' + name);
       } catch(e) {
@@ -1004,14 +1031,18 @@ textarea { resize: vertical; min-height: 80px; }
       } else {
         state.toClub = val || null;
       }
-      if (val && !state.clubs[val]) extractCrestColours(val);
+      if (val && !isUnattachedClub(val)) extractCrestColours(val);
       // Update crest preview as user types
       var crestImg = document.getElementById(field === 'from' ? 'from-club-crest' : 'to-club-crest');
       if (crestImg) {
         if (val) {
           crestImg.src = crestUrl(val);
           crestImg.style.display = 'block';
-          crestImg.onerror = function() { crestImg.style.display = 'none'; };
+      crestImg.onerror = function() {
+        crestImg.onerror = null;
+        crestImg.src = ROSE_CREST;
+        crestImg.style.display = 'block';
+      };
         } else {
           crestImg.src = '';
           crestImg.style.display = 'none';
@@ -1064,7 +1095,7 @@ textarea { resize: vertical; min-height: 80px; }
   }
 
   function updateFieldVisibility() {
-    var isTransfer  = state.cardType === 'confirmed_signing' || state.cardType === 'loan_in';
+    var isTransfer  = state.cardType === 'confirmed_signing' || state.cardType === 'loan_in' || state.cardType === 'loan_extension';
     var isContract  = state.cardType === 'contract_extension';
     var isArticle   = state.cardType === 'article_link';
     var needsClubs  = isTransfer || isContract;
@@ -1072,7 +1103,6 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('field-player').style.display         = isArticle ? 'none' : '';
     document.getElementById('field-clubs').style.display          = needsClubs ? '' : 'none';
     document.getElementById('field-from-club').style.display      = isContract ? 'none' : '';
-    document.getElementById('field-fee-contract').style.display   = isTransfer ? '' : 'none';
     document.getElementById('field-article-url').style.display    = isArticle ? '' : 'none';
     document.getElementById('field-article-meta').style.display   = isArticle ? '' : 'none';
 
@@ -1148,8 +1178,6 @@ textarea { resize: vertical; min-height: 80px; }
 
     document.getElementById('editing-id').value     = '';
     document.getElementById('input-player').value   = '';
-    document.getElementById('input-fee').value      = '';
-    document.getElementById('input-contract').value = '';
     document.getElementById('input-article-url').value   = '';
     document.getElementById('input-article-title').value = '';
     document.getElementById('input-article-source').value= '';
@@ -1158,9 +1186,8 @@ textarea { resize: vertical; min-height: 80px; }
     document.getElementById('input-media-url').value    = '';
     document.getElementById('input-cta-text').value     = '';
     document.getElementById('input-cta-url').value      = '';
-    // Auto-populate with current local time for new posts
     document.getElementById('input-clock').value        = toDatetimeLocal(new Date());
-    document.getElementById('input-icon').value     = '';
+    document.getElementById('input-icon').value         = '';
     document.getElementById('icon-display').textContent = '—';
     document.getElementById('toggle-published').checked = true;
     document.getElementById('toggle-pinned').checked    = false;
@@ -1169,6 +1196,7 @@ textarea { resize: vertical; min-height: 80px; }
     var ts = document.getElementById('to-club-search');
     if (fs) { fs.value = ''; renderClubList('from-club-list', state.clubsList, 'from', ''); }
     if (ts) { ts.value = ''; renderClubList('to-club-list',   state.clubsList, 'to',   ''); }
+
     var fc = document.getElementById('from-club-crest');
     var tc = document.getElementById('to-club-crest');
     if (fc) { fc.src = ''; fc.style.display = 'none'; }
@@ -1181,11 +1209,11 @@ textarea { resize: vertical; min-height: 80px; }
     updateFieldVisibility();
     document.getElementById('btn-save').textContent = 'Save Post';
 
-    // On mobile, close the sheet when clearing (Cancel action)
     if (state.isMobile) closeSheet();
 
-    // Deselect feed cards
-    document.querySelectorAll('.admin-card.selected').forEach(function(c){ c.classList.remove('selected'); });
+    document.querySelectorAll('.admin-card.selected').forEach(function(c){
+      c.classList.remove('selected');
+    });
   }
 
   function loadPostIntoEditor(post) {
@@ -1194,31 +1222,45 @@ textarea { resize: vertical; min-height: 80px; }
     state.fromClub  = post.from_club || null;
     state.toClub    = post.to_club   || null;
 
-    document.getElementById('editing-id').value     = post.id;
-    document.getElementById('input-player').value   = post.player_name || '';
-    document.getElementById('input-fee').value      = post.fee         || '';
-    document.getElementById('input-contract').value = post.contract    || '';
-    document.getElementById('input-article-url').value   = post.article_url    || '';
-    document.getElementById('input-article-title').value = post.article_title  || '';
+    document.getElementById('editing-id').value          = post.id;
+    document.getElementById('input-player').value        = post.player_name || '';
+    document.getElementById('input-article-url').value   = post.article_url || '';
+    document.getElementById('input-article-title').value = post.article_title || '';
     document.getElementById('input-article-source').value= post.article_source || '';
-    document.getElementById('input-copy').value     = post.copy_html   || '';
-    document.getElementById('input-media-type').value   = post.media_type  || '';
-    document.getElementById('input-media-url').value    = post.media_url   || '';
-    document.getElementById('input-cta-text').value     = post.cta_text    || '';
-    document.getElementById('input-cta-url').value      = post.cta_url     || '';
-    // Populate timestamp — resolves clock_time (ISO or short HH:MM) or falls back to created_at
-    document.getElementById('input-clock').value = resolveClockTime(post);
-    document.getElementById('toggle-published').checked = post.published;
-    document.getElementById('toggle-pinned').checked    = post.pinned;
+    document.getElementById('input-copy').value          = post.copy_text || post.copy || post.copy_html || '';
+    document.getElementById('input-media-type').value    = post.media_type || '';
+    document.getElementById('input-media-url').value     = post.media_url || '';
+    document.getElementById('input-cta-text').value      = post.cta_text || '';
+    document.getElementById('input-cta-url').value       = post.cta_url || '';
+    document.getElementById('input-clock').value         = resolveClockTime(post);
+    document.getElementById('toggle-published').checked  = post.published;
+    document.getElementById('toggle-pinned').checked     = post.pinned;
 
     var fs = document.getElementById('from-club-search');
     var ts = document.getElementById('to-club-search');
     if (fs) { fs.value = post.from_club || ''; renderClubList('from-club-list', state.clubsList, 'from', post.from_club || ''); }
     if (ts) { ts.value = post.to_club   || ''; renderClubList('to-club-list',   state.clubsList, 'to',   post.to_club   || ''); }
+
     var fc = document.getElementById('from-club-crest');
     var tc = document.getElementById('to-club-crest');
-    if (fc && post.from_club) { fc.src = crestUrl(post.from_club); fc.style.display = 'block'; fc.onerror = function(){ fc.style.display='none'; }; }
-    if (tc && post.to_club)   { tc.src = crestUrl(post.to_club);   tc.style.display = 'block'; tc.onerror = function(){ tc.style.display='none'; }; }
+    if (fc && post.from_club) {
+      fc.src = crestUrl(post.from_club);
+      fc.style.display = 'block';
+      fc.onerror = function(){
+        fc.onerror = null;
+        fc.src = ROSE_CREST;
+        fc.style.display = 'block';
+      };
+    }
+    if (tc && post.to_club) {
+      tc.src = crestUrl(post.to_club);
+      tc.style.display = 'block';
+      tc.onerror = function(){
+        tc.onerror = null;
+        tc.src = ROSE_CREST;
+        tc.style.display = 'block';
+      };
+    }
 
     document.querySelectorAll('.card-type-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.type === state.cardType);
@@ -1227,12 +1269,12 @@ textarea { resize: vertical; min-height: 80px; }
     updateFieldVisibility();
     document.getElementById('btn-save').textContent = 'Update Post';
 
-    // On mobile, open bottom sheet
     if (state.isMobile) openSheet();
 
-    // Highlight selected card
-    document.querySelectorAll('.admin-card.selected').forEach(function(c){ c.classList.remove('selected'); });
-    var card = document.querySelector('.admin-card[data-id="'+post.id+'"]');
+    document.querySelectorAll('.admin-card.selected').forEach(function(c){
+      c.classList.remove('selected');
+    });
+    var card = document.querySelector('.admin-card[data-id="' + post.id + '"]');
     if (card) card.classList.add('selected');
   }
 
@@ -1248,12 +1290,10 @@ textarea { resize: vertical; min-height: 80px; }
       player_name:    document.getElementById('input-player').value.trim(),
       from_club:      state.fromClub || '',
       to_club:        state.toClub   || '',
-      fee:            document.getElementById('input-fee').value.trim(),
-      contract:       document.getElementById('input-contract').value.trim(),
       article_url:    document.getElementById('input-article-url').value.trim(),
       article_title:  document.getElementById('input-article-title').value.trim(),
       article_source: document.getElementById('input-article-source').value.trim(),
-      copy_html:      document.getElementById('input-copy').value,
+      copy_text:      document.getElementById('input-copy').value,
       media_type:     document.getElementById('input-media-type').value,
       media_url:      document.getElementById('input-media-url').value.trim(),
       cta_text:       document.getElementById('input-cta-text').value.trim(),
@@ -1387,9 +1427,7 @@ textarea { resize: vertical; min-height: 80px; }
   function buildAdminCard(post) {
     var el = document.createElement('div');
     var tc = CARD_TYPES[post.card_type] || CARD_TYPES['general_update'];
-    var isConfirmed = post.card_type === 'confirmed_signing' || post.card_type === 'confirmed_departure';
-    var isTransfer  = ['confirmed_signing','confirmed_departure','loan_in','loan_out','rumour'].indexOf(post.card_type) !== -1;
-
+    var isTransfer  = ['confirmed_signing','confirmed_departure','loan_in','loan_out','loan_extension','rumour'].indexOf(post.card_type) !== -1;
     el.className = 'admin-card admin-card--' + tc.css
       + (post.pinned ? ' admin-card--pinned' : '')
       + (!post.published ? ' admin-card--unpublished' : '');
@@ -1414,7 +1452,7 @@ textarea { resize: vertical; min-height: 80px; }
     html += '<div class="admin-card__body">';
 
     if (post.card_type === 'article_link') {
-      html += '<div class="admin-card__article-title">'+(post.article_title||post.copy_html||'(no title)')+'</div>';
+      html += '<div class="admin-card__article-title">'+(post.article_title || post.copy_text || post.copy || post.copy_html || '(no title)')+'</div>';
       if (post.article_source) html += '<div class="admin-card__source">'+esc(post.article_source)+'</div>';
     } else {
       if (post.player_name) html += '<div class="admin-card__player">'+esc(post.player_name)+'</div>';
@@ -1422,15 +1460,15 @@ textarea { resize: vertical; min-height: 80px; }
         var isContract = post.card_type === 'contract_extension';
         html += '<div class="admin-card__transfer">';
         if (post.from_club && !isContract) {
-          html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.from_club)+'" alt="" onerror="this.style.display=\'none\'"><span class="admin-card__club-name">'+esc(post.from_club)+'</span></div>';
+          html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.from_club)+'" alt="" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'"><span class="admin-card__club-name">'+esc(post.from_club)+'</span></div>';
         }
         if (!isContract) html += '<div class="admin-card__arrow">→</div>';
         if (post.to_club) {
-          html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.to_club)+'" alt="" onerror="this.style.display=\'none\'"><span class="admin-card__club-name">'+esc(post.to_club)+'</span></div>';
+          html += '<div class="admin-card__club"><img class="admin-card__crest" src="'+crestUrl(post.to_club)+'" alt="" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'"><span class="admin-card__club-name">'+esc(post.to_club)+'</span></div>';
         }
         html += '</div>';
       }
-      if (post.copy_html) html += '<div class="admin-card__copy">'+post.copy_html+'</div>';
+      if (post.copy_text || post.copy || post.copy_html) html += '<div class="admin-card__copy">'+esc(post.copy_text || post.copy || post.copy_html)+'</div>';
     }
 
     html += '</div>'; // /body
