@@ -1,5 +1,7 @@
 <!--
   NL Transfer Centre — Frontend
+  v45 — Added Loan Extension type; NL rose crest fallback for Unattached and unknown clubs;
+         removed fee/contract row; plain-text copy now honours paragraph breaks
   v44 — Based on v29; direct @font-face (no domain lock); inlined traced font data;
          font-family preserved in takeover(); contract card crest; bottom bar mobile fix
   v29 — Contract sig: centred below New Contract pill inside centre div;
@@ -637,6 +639,8 @@
   var API_URL    = 'https://script.google.com/macros/s/AKfycbxmGpOdK4oKJ8Yvjr0jl5dz-NKoS3S6tTDj4h701W0jqHYIckYZu0WAVWlY5YtHOFzK/exec';
   var CLUBS_URL  = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/data/clubs-meta.json';
   var CREST_BASE = 'https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/crests/';
+  var ROSE_CREST = CREST_BASE + 'National%20League%20rose.png';
+  var ROSE_FALLBACK_COLOURS = { primary: '#9e0000', secondary: '#223b7c', tertiary: '#c8a84e' };
   var POLL_MS    = 8000;
   var FETCH_TIMEOUT_MS = 12000;
   var SIG_SIDE_PAD = 22;
@@ -663,14 +667,15 @@
 
   // ─── CARD TYPE CONFIG ─────────────────────────────────────────────────────
   var CARD_TYPES = {
-    confirmed_signing:   { icon: '✅', label: 'Transfer',     css: 'confirmed', labelCss: 'confirmed' },
-    loan_in:             { icon: '🔄', label: 'Loan',         css: 'loan',      labelCss: 'loan' },
-    rumour:              { icon: '🔍', label: 'Rumour',       css: 'rumour',    labelCss: 'rumour' },
-    article_link:        { icon: '📰', label: 'Article',      css: 'article',   labelCss: 'article' },
-    contract_extension:  { icon: '✍️', label: 'New Contract', css: 'contract',  labelCss: 'contract' },
-    confirmed_departure: { icon: '✅', label: 'Transfer',     css: 'confirmed', labelCss: 'confirmed' },
-    loan_out:            { icon: '🔄', label: 'Loan',         css: 'loan',      labelCss: 'loan' },
-    general_update:      { icon: '📢', label: 'Update',       css: 'general',   labelCss: 'general' }
+    confirmed_signing:   { icon: '✅', label: 'Transfer',       css: 'confirmed', labelCss: 'confirmed' },
+    loan_in:             { icon: '🔄', label: 'Loan',           css: 'loan',      labelCss: 'loan' },
+    loan_extension:      { icon: '🔁', label: 'Loan Extension', css: 'loan',      labelCss: 'loan' },
+    rumour:              { icon: '🔍', label: 'Rumour',         css: 'rumour',    labelCss: 'rumour' },
+    article_link:        { icon: '📰', label: 'Article',        css: 'article',   labelCss: 'article' },
+    contract_extension:  { icon: '✍️', label: 'New Contract',   css: 'contract',  labelCss: 'contract' },
+    confirmed_departure: { icon: '✅', label: 'Transfer',       css: 'confirmed', labelCss: 'confirmed' },
+    loan_out:            { icon: '🔄', label: 'Loan',           css: 'loan',      labelCss: 'loan' },
+    general_update:      { icon: '📢', label: 'Update',         css: 'general',   labelCss: 'general' }
   };
 
   // ─── COLOUR UTILITIES ─────────────────────────────────────────────────────
@@ -685,11 +690,11 @@
     var c = state.clubs[clubName];
     if (c && c.colors) return c.colors;
     var extractKey = '__extract_' + clubName;
-    if (clubName && !state.clubs[extractKey]) {
+    if (clubName && !isUnattachedClub(clubName) && isKnownClub(clubName) && !state.clubs[extractKey]) {
       state.clubs[extractKey] = true;
       extractCrestColours(clubName);
     }
-    return { primary: '#1a1a1a', secondary: '#333', tertiary: '#555' };
+    return getFallbackPalette(clubName);
   }
 
   function extractCrestColours(name) {
@@ -748,8 +753,45 @@
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   }
 
-  function crestUrl(name) { return name ? CREST_BASE + encodeURIComponent(name) + '.png' : ''; }
+  function isUnattachedClub(name) {
+    return String(name || '').trim().toLowerCase() === 'unattached';
+  }
 
+  function isKnownClub(name) {
+    return !!(name && state.clubs && state.clubs[name]);
+  }
+
+  function getClubCrestUrl(name) {
+    var clean = String(name || '').trim();
+    if (!clean) return ROSE_CREST;
+    if (isUnattachedClub(clean)) return ROSE_CREST;
+    if (isKnownClub(clean)) return CREST_BASE + encodeURIComponent(clean) + '.png';
+    return ROSE_CREST;
+  }
+
+  function getFallbackPalette(name) {
+    if (isUnattachedClub(name)) return ROSE_FALLBACK_COLOURS;
+    return ROSE_FALLBACK_COLOURS;
+  }
+
+  function renderCopyMarkup(raw) {
+    var text = String(raw || '');
+    if (!text.trim()) return '';
+    if (/<[a-z][\s\S]*>/i.test(text)) return text;
+    return text
+      .replace(/\r\n/g, '\n')
+      .split(/\n\s*\n/)
+      .map(function(block) {
+        return '<p>' + escHtml(block).replace(/\n/g, '<br>') + '</p>';
+      })
+      .join('');
+  }
+
+  function getPostCopyMarkup(post) {
+    return renderCopyMarkup(post.copy_text || post.copy || post.copy_html || '');
+  }
+  function crestUrl(name) { return getClubCrestUrl(name); }
+  
   function fetchWithTimeout(url, ms) {
     return Promise.race([
       fetch(url, { cache: 'no-store' }),
@@ -839,8 +881,8 @@
   var STING_FIRED_THIS_LOAD = {};
   var STING_QUEUE       = [];
   var STING_RUNNING     = false;
-  var STING_TYPES = { confirmed_signing:1, confirmed_departure:1, loan_in:1, loan_out:1, contract_extension:1 };
-
+  var STING_TYPES = { confirmed_signing:1, confirmed_departure:1, loan_in:1, loan_out:1, loan_extension:1, contract_extension:1 };
+  
   function isBreaking(post) {
     var ts = post.clock_time || post.created_at || '';
     if (!ts || isNaN(Date.parse(ts))) return false;
@@ -1205,8 +1247,8 @@
     var fromPal = isContract ? getTeamPalette(post.to_club) : getTeamPalette(post.from_club);
     var toPal   = getTeamPalette(post.to_club);
     var tc      = CARD_TYPES[post.card_type] || CARD_TYPES['general_update'];
-    var fromCrest = isContract ? '' : (post.from_club ? (CREST_BASE + encodeURIComponent(post.from_club) + '.png') : '');
-    var toCrest   = post.to_club ? (CREST_BASE + encodeURIComponent(post.to_club) + '.png') : '';
+    var fromCrest = isContract ? '' : getClubCrestUrl(post.from_club);
+    var toCrest   = getClubCrestUrl(post.to_club);
     var hasClubs  = post.from_club || post.to_club;
     var clubsLine = isContract ? (post.to_club || '') : [post.from_club, post.to_club].filter(Boolean).join(' → ');
     var bg = 'linear-gradient(105deg,'
@@ -1288,7 +1330,7 @@
     var el = document.createElement('div');
     var tc = CARD_TYPES[post.card_type] || CARD_TYPES['general_update'];
     var isConfirmed = post.card_type==='confirmed_signing' || post.card_type==='confirmed_departure';
-    var isTransfer  = isConfirmed || post.card_type==='loan_in' || post.card_type==='loan_out' || post.card_type==='rumour';
+    var isTransfer  = isConfirmed || post.card_type==='loan_in' || post.card_type==='loan_out' || post.card_type==='loan_extension' || post.card_type==='rumour';
     var breaking    = isBreaking(post);
     var classes = 'tc-card tc-card--'+tc.css;
     if (post.pinned) classes += ' tc-card--pinned';
@@ -1327,9 +1369,7 @@
   function buildTransferHTML(post, isTransfer, isConfirmed) {
     var html = '';
     if (post.player_name)
-      html+='<div class="tc-player"><div class="tc-player__name">'+escHtml(post.player_name.toUpperCase())+'</div>'+
-        (post.contract?'<div class="tc-player__contract">📅 '+escHtml(post.contract)+'</div>':'')+
-        '</div>';
+      html+='<div class="tc-player"><div class="tc-player__name">'+escHtml(post.player_name.toUpperCase())+'</div></div>';
     // Contract card: show club crest centred
     var isContract = post.card_type === 'contract_extension';
     if (isContract && post.to_club) {
@@ -1346,15 +1386,13 @@
       if (post.from_club) html+='<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+(isConfirmed?fp.primary:'#444')+'"><img class="tc-club__crest" src="'+crestUrl(post.from_club)+'" alt="'+escHtml(post.from_club)+'" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div><div class="tc-club__name">'+escHtml(post.from_club)+'</div>';
       else html+='<div class="tc-club__crest-wrap tc-club__crest-wrap--muted"><span style="font-size:20px">?</span></div><div class="tc-club__name">Unknown</div>';
       html+='</div>';
-      html+='<div class="tc-transfer__arrow"><div class="tc-transfer__arrow-icon"><span class="chv">›</span><span class="chv">›</span><span class="chv">›</span></div>'+
-        (post.fee?'<div class="tc-transfer__fee">'+escHtml(post.fee)+'</div>':'')+
-        '</div>';
+      html+='<div class="tc-transfer__arrow"><div class="tc-transfer__arrow-icon"><span class="chv">›</span><span class="chv">›</span><span class="chv">›</span></div></div>';
       html+='<div class="tc-club">';
       if (post.to_club) html+='<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+(isConfirmed?tp.primary:'#444')+'"><img class="tc-club__crest" src="'+crestUrl(post.to_club)+'" alt="'+escHtml(post.to_club)+'" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div><div class="tc-club__name">'+escHtml(post.to_club)+'</div>';
       else html+='<div class="tc-club__crest-wrap tc-club__crest-wrap--muted"><span style="font-size:20px">?</span></div><div class="tc-club__name">Unknown</div>';
       html+='</div></div>';
     }
-    if (post.copy_html) html+='<div class="tc-card__copy">'+post.copy_html+'</div>';
+    if (getPostCopyMarkup(post)) html+='<div class="tc-card__copy">'+getPostCopyMarkup(post)+'</div>';
     return html;
   }
 
@@ -1368,8 +1406,8 @@
       '</div></a>';
   }
 
-  function buildGeneralHTML(post) { return '<div class="tc-general__copy">'+(post.copy_html||'')+'</div>'; }
-
+  function buildGeneralHTML(post) { return '<div class="tc-general__copy">'+getPostCopyMarkup(post)+'</div>'; }
+  
   function buildMediaHTML(post) {
     if (post.media_type==='twitter') return '<blockquote class="twitter-tweet" data-theme="dark"><a href="'+escHtml(post.media_url)+'"></a></blockquote>';
     if (post.media_type==='instagram') return '<blockquote class="instagram-media" data-instgrm-permalink="'+escHtml(post.media_url)+'" data-instgrm-version="14"></blockquote>';
