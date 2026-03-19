@@ -1,0 +1,2873 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>National League Live Scores & Match Centre (v2.2.0)</title>
+
+<style>
+  /* National League Live Scores & Match Centre (v2.2.0) */
+
+  .nlls,
+  .nlls *{
+    box-sizing:border-box;
+    font-family:inherit;
+  }
+
+  .nlls{
+    width:100%;
+    color:inherit;
+    --nlls-red:#9e0000;
+    --nlls-blue:#223b7c;
+    --nlls-bg:#ffffff;
+    --nlls-panel:#f6f7f9;
+    --nlls-line:rgba(0,0,0,.10);
+    --nlls-line-strong:rgba(0,0,0,.18);
+    --nlls-soft:rgba(0,0,0,.58);
+    --nlls-shadow:0 8px 24px rgba(0,0,0,.07);
+    --nlls-goal-gold:#ffd700;
+    --nlls-radius:18px;
+  }
+
+  .nlls__top{
+    display:grid;
+    gap:12px;
+    margin:0 0 16px;
+  }
+
+  .nlls__head{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px 14px;
+  }
+
+  .nlls__title-wrap{
+    min-width:0;
+  }
+
+  .nlls__title{
+    margin:0;
+    font-size:1.05rem;
+    line-height:1.05;
+    font-weight:950;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+
+  .nlls__sub{
+    margin:4px 0 0;
+    font-size:.84rem;
+    color:var(--nlls-soft);
+    font-weight:700;
+  }
+
+  .nlls__controls{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+  }
+
+  .nlls__switch{
+    display:inline-flex;
+    align-items:center;
+    gap:9px;
+    min-height:38px;
+    padding:0 12px;
+    border-radius:999px;
+    background:#fff;
+    border:1px solid var(--nlls-line-strong);
+    font-size:.76rem;
+    font-weight:900;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    user-select:none;
+    cursor:pointer;
+  }
+
+  .nlls__switch-input{
+    position:absolute;
+    opacity:0;
+    pointer-events:none;
+  }
+
+  .nlls__switch-track{
+    position:relative;
+    width:38px;
+    height:22px;
+    border-radius:999px;
+    background:#cfcfcf;
+    transition:background .2s ease;
+    flex:0 0 auto;
+  }
+
+  .nlls__switch-track::after{
+    content:"";
+    position:absolute;
+    top:3px;
+    left:3px;
+    width:16px;
+    height:16px;
+    border-radius:50%;
+    background:#fff;
+    box-shadow:0 1px 4px rgba(0,0,0,.18);
+    transition:transform .2s ease;
+  }
+
+  .nlls__switch-input:checked + .nlls__switch-track{
+    background:var(--nlls-blue);
+  }
+
+  .nlls__switch-input:checked + .nlls__switch-track::after{
+    transform:translateX(16px);
+  }
+
+  .nlls__date-rail{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding:2px 0 4px;
+    scrollbar-width:thin;
+  }
+
+  .nlls__date-rail::-webkit-scrollbar{
+    height:8px;
+  }
+
+  .nlls__date-rail::-webkit-scrollbar-thumb{
+    background:#c9c9c9;
+    border-radius:999px;
+  }
+
+  .nlls__date-btn{
+    appearance:none;
+    border:1px solid var(--nlls-line-strong);
+    background:#fff;
+    color:inherit;
+    min-height:42px;
+    padding:0 12px;
+    border-radius:999px;
+    font:inherit;
+    font-size:.8rem;
+    font-weight:900;
+    letter-spacing:.02em;
+    white-space:nowrap;
+    cursor:pointer;
+    flex:0 0 auto;
+  }
+
+  .nlls__date-btn.is-active{
+    background:#111;
+    color:#fff;
+    border-color:#111;
+  }
+
+  .nlls__ticker{
+    position:relative;
+    border:1px solid var(--nlls-line);
+    border-radius:14px;
+    overflow:hidden;
+    background:#111;
+    color:#fff;
+    min-height:46px;
+    box-shadow:var(--nlls-shadow);
+  }
+
+  .nlls__ticker-track{
+    display:flex;
+    align-items:center;
+    gap:28px;
+    min-height:46px;
+    padding:0 16px;
+    white-space:nowrap;
+    will-change:transform;
+    animation:nllsTickerScroll 26s linear infinite;
+  }
+
+  .nlls__ticker:hover .nlls__ticker-track{
+    animation-play-state:paused;
+  }
+
+  .nlls__ticker-item{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-size:.84rem;
+    font-weight:900;
+    letter-spacing:.03em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+
+  .nlls__ticker-badge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 8px;
+    border-radius:999px;
+    background:var(--nlls-red);
+    color:#fff;
+    font-size:.68rem;
+    font-weight:950;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    flex:0 0 auto;
+  }
+
+  @keyframes nllsTickerScroll{
+    0%{ transform:translateX(0); }
+    100%{ transform:translateX(-50%); }
+  }
+
+  .nlls__groups{
+    display:grid;
+    gap:18px;
+  }
+
+  .nlls__group{
+    display:grid;
+    gap:10px;
+  }
+
+  .nlls__group-title{
+    margin:0;
+    font-size:.9rem;
+    line-height:1.05;
+    font-weight:950;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+
+  .nlls__board{
+    display:grid;
+    grid-template-columns:repeat(1,minmax(0,1fr));
+    gap:12px;
+  }
+
+  .nlls__empty{
+    padding:24px 18px;
+    border:1px dashed var(--nlls-line-strong);
+    border-radius:16px;
+    text-align:center;
+    color:var(--nlls-soft);
+    font-weight:800;
+    background:#fafafa;
+  }
+
+  .nlls__card{
+    position:relative;
+    overflow:hidden;
+    border:1px solid var(--nlls-line);
+    border-radius:18px;
+    background:#fff;
+    box-shadow:var(--nlls-shadow);
+    min-height:154px;
+    height:154px;
+    cursor:pointer;
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+
+  .nlls__card:hover{
+    transform:translateY(-1px);
+    box-shadow:0 12px 28px rgba(0,0,0,.10);
+  }
+
+  .nlls__card-bar{
+    position:relative;
+    height:10px;
+    background:linear-gradient(90deg,var(--home-colour,#223b7c) 0 50%, var(--away-colour,#9e0000) 50% 100%);
+  }
+
+  .nlls__card-underlay{
+    position:absolute;
+    inset:10px 0 0 0;
+    pointer-events:none;
+    opacity:.05;
+    z-index:0;
+  }
+
+  .nlls__card-underlay img{
+    position:absolute;
+    top:50%;
+    width:64px;
+    height:64px;
+    object-fit:contain;
+    transform:translateY(-50%);
+  }
+
+  .nlls__card-underlay img:first-child{
+    left:10px;
+  }
+
+  .nlls__card-underlay img:last-child{
+    right:10px;
+  }
+
+  .nlls__card-body{
+    position:relative;
+    z-index:1;
+    padding:12px 12px 10px;
+    height:calc(154px - 10px);
+    display:grid;
+    grid-template-rows:auto 1fr auto;
+    gap:10px;
+  }
+
+  .nlls__card-meta{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    min-height:24px;
+  }
+
+  .nlls__card-kickoff{
+    font-size:.72rem;
+    font-weight:900;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--nlls-soft);
+  }
+
+  .nlls__state{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:24px;
+    padding:0 8px;
+    border-radius:999px;
+    background:#f3f4f6;
+    color:#111;
+    font-size:.68rem;
+    font-weight:950;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+
+  .nlls__live-dot{
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:#e10600;
+    flex:0 0 auto;
+    animation:nllsPulse 1.8s infinite;
+  }
+
+  @keyframes nllsPulse{
+    0%{ box-shadow:0 0 0 0 rgba(225,6,0,.55); }
+    70%{ box-shadow:0 0 0 10px rgba(225,6,0,0); }
+    100%{ box-shadow:0 0 0 0 rgba(225,6,0,0); }
+  }
+
+  .nlls__fixture{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+    align-items:center;
+    gap:8px;
+    min-height:0;
+  }
+
+  .nlls__team{
+    min-width:0;
+    display:grid;
+    gap:6px;
+    align-content:center;
+  }
+
+  .nlls__team--away{
+    text-align:right;
+  }
+
+  .nlls__code{
+    font-size:1.18rem;
+    line-height:1;
+    font-weight:950;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+
+  .nlls__name{
+    font-size:.68rem;
+    line-height:1.15;
+    font-weight:800;
+    color:var(--nlls-soft);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .nlls__middle{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    min-width:96px;
+  }
+
+  .nlls__score{
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+
+  .nlls__digit{
+    width:46px;
+    height:46px;
+    overflow:hidden;
+    position:relative;
+    border-radius:10px;
+    background:#fff;
+    border:1px solid var(--nlls-line);
+    box-shadow:0 4px 14px rgba(0,0,0,.10);
+    flex:0 0 auto;
+    transition:background .18s ease;
+  }
+
+  .nlls__digit.is-goal-hold{
+    background:var(--nlls-goal-gold);
+  }
+
+  .nlls__digit-inner{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    display:flex;
+    flex-direction:column;
+  }
+
+  .nlls__digit-inner > div{
+    width:46px;
+    height:46px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:1.45rem;
+    line-height:1;
+    font-weight:950;
+    color:#111;
+    flex:0 0 auto;
+  }
+
+  .nlls__digit-inner.is-ticking{
+    animation:nllsDigitTick .7s cubic-bezier(.22,1,.36,1) forwards;
+  }
+
+  @keyframes nllsDigitTick{
+    0%{ transform:translateY(0); }
+    100%{ transform:translateY(-46px); }
+  }
+
+  .nlls__sep{
+    font-size:1rem;
+    font-weight:950;
+    line-height:1;
+    color:#888;
+  }
+
+  .nlls__minute{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    background:#223b7c;
+    color:#fff;
+    font-size:.72rem;
+    line-height:1;
+    font-weight:900;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+
+  .nlls__card-foot{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:.68rem;
+    line-height:1;
+    font-weight:900;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--nlls-soft);
+  }
+
+  .nlls__card-goal-overlay{
+    position:absolute;
+    inset:0;
+    z-index:4;
+    overflow:hidden;
+    pointer-events:none;
+    border-radius:inherit;
+  }
+
+  .nlls__card-goal-burst{
+    position:absolute;
+    inset:0;
+    background:var(--goal-primary,#223b7c);
+    transform:scale(0);
+    animation:nllsCardGoalBurst 3.6s cubic-bezier(.22,.68,0,1.1) forwards;
+  }
+
+  .nlls__card-goal-panel{
+    position:absolute;
+    inset:0;
+    clip-path:polygon(0 0, 60% 0, 45% 100%, 0 100%);
+    background:var(--goal-secondary,#9e0000);
+    animation:nllsCardGoalPanel 3.6s cubic-bezier(.4,0,.2,1) forwards;
+  }
+
+  .nlls__card-goal-stripe{
+    position:absolute;
+    inset:0;
+    clip-path:polygon(42% 0, 50% 0, 35% 100%, 27% 100%);
+    background:var(--goal-tertiary,#ffffff);
+    opacity:.85;
+    animation:nllsCardGoalPanel 3.6s cubic-bezier(.4,0,.2,1) forwards;
+  }
+
+  .nlls__card-goal-labels{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 8% 0 6%;
+  }
+
+  .nlls__card-goal-word{
+    font-size:clamp(1.8rem,7vw,3.2rem);
+    line-height:.9;
+    font-weight:950;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:#fff;
+    text-shadow:0 2px 0 rgba(0,0,0,.35),0 4px 12px rgba(0,0,0,.5);
+    transform:translateX(-160%) skewX(-8deg) scale(.85);
+    animation:nllsCardGoalWord 3.6s cubic-bezier(.4,0,.2,1) forwards;
+    white-space:nowrap;
+    display:inline-block;
+    flex-shrink:0;
+  }
+
+  .nlls__card-goal-team{
+    font-size:clamp(.55rem,2vw,.85rem);
+    font-weight:950;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:#fff;
+    background:var(--goal-primary,#223b7c);
+    padding:.28em .7em .24em;
+    white-space:nowrap;
+    overflow:hidden;
+    max-width:48%;
+    text-overflow:ellipsis;
+    display:inline-block;
+    flex-shrink:0;
+    transform:translateX(160%) skewX(4deg);
+    opacity:0;
+    animation:nllsCardGoalTeam 3.6s cubic-bezier(.4,0,.2,1) forwards;
+  }
+
+  @keyframes nllsCardGoalBurst{
+    0%{ transform:scale(0); opacity:1; }
+    12%{ transform:scale(2); opacity:1; }
+    20%{ transform:scale(2.2); opacity:1; }
+    78%{ transform:scale(2.2); opacity:1; }
+    92%{ transform:scale(2.2); opacity:0; }
+    100%{ transform:scale(2.2); opacity:0; }
+  }
+
+  @keyframes nllsCardGoalPanel{
+    0%{ opacity:0; }
+    18%{ opacity:1; }
+    78%{ opacity:1; }
+    92%{ opacity:0; }
+    100%{ opacity:0; }
+  }
+
+  @keyframes nllsCardGoalWord{
+    0%{ transform:translateX(-160%) skewX(-8deg) scale(.85); opacity:1; }
+    14%{ transform:translateX(3%) skewX(-3deg) scale(1.06); opacity:1; }
+    17%{ transform:translateX(0) skewX(0) scale(1); opacity:1; }
+    75%{ transform:translateX(0) skewX(0) scale(1); opacity:1; }
+    88%{ transform:translateX(0) skewX(-5deg) scale(1); opacity:1; }
+    96%{ transform:translateX(160%) skewX(-5deg) scale(.9); opacity:0; }
+    100%{ transform:translateX(160%) skewX(-5deg) scale(.9); opacity:0; }
+  }
+
+  @keyframes nllsCardGoalTeam{
+    0%{ transform:translateX(160%) skewX(4deg); opacity:0; }
+    18%{ transform:translateX(-2%) skewX(2deg); opacity:1; }
+    21%{ transform:translateX(0) skewX(0); opacity:1; }
+    75%{ transform:translateX(0) skewX(0); opacity:1; }
+    88%{ transform:translateX(0) skewX(4deg); opacity:1; }
+    96%{ transform:translateX(160%) skewX(4deg); opacity:0; }
+    100%{ transform:translateX(160%) skewX(4deg); opacity:0; }
+  }
+
+  .nlls__sting{
+    position:fixed;
+    inset:0;
+    z-index:999995;
+    overflow:hidden;
+    pointer-events:none;
+    font-family:inherit;
+  }
+
+  .nlls__sting__bg{
+    position:absolute;
+    inset:0;
+    background:var(--goal-primary,#223b7c);
+    clip-path:inset(0 100% 0 0);
+    z-index:1;
+    animation:nllsStingRevealFull .6s cubic-bezier(.77,0,.18,1) 0s forwards,
+               nllsStingConcealFull .5s cubic-bezier(.77,0,.18,1) 8.9s forwards;
+  }
+
+  .nlls__sting__crest-wrap{
+    position:absolute;
+    inset:0;
+    z-index:2;
+    opacity:0;
+    pointer-events:none;
+    animation:nllsStingCrestFadeIn .65s cubic-bezier(.77,0,.18,1) .18s forwards,
+               nllsStingCrestFadeOut .45s cubic-bezier(.77,0,.18,1) 8.15s forwards;
+  }
+
+  .nlls__sting__crest{
+    position:absolute;
+    top:50%;
+    left:27.5%;
+    transform:translate(-50%,-50%);
+    height:100vh;
+    width:auto;
+    max-width:none;
+    display:block;
+    filter:drop-shadow(0 0 18px rgba(0,0,0,.22));
+  }
+
+  .nlls__sting__bg-right{
+    position:absolute;
+    inset:0;
+    background:var(--goal-secondary,#9e0000);
+    clip-path:polygon(140% 0, 160% 0, 145% 100%, 125% 100%);
+    z-index:3;
+    animation:nllsStingSlideIn .6s cubic-bezier(.77,0,.18,1) .9s forwards,
+               nllsStingSlideOut .55s cubic-bezier(.77,0,.18,1) 8.2s forwards;
+  }
+
+  .nlls__sting__centre{
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:clamp(6px,1.5vh,16px);
+    padding:5vh 5%;
+    z-index:4;
+  }
+
+  .nlls__sting__word{
+    font-size:clamp(5rem,22vw,14rem);
+    line-height:.85;
+    font-weight:950;
+    letter-spacing:-.01em;
+    text-transform:uppercase;
+    color:#fff;
+    text-shadow:0 6px 40px rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.35);
+    opacity:0;
+    transform:translateY(50px) scaleY(.75);
+    white-space:nowrap;
+    animation:nllsStingWordSlam .9s cubic-bezier(.16,1,.3,1) 1.6s forwards,
+               nllsStingWordOut .6s cubic-bezier(.4,0,.2,1) 7.6s forwards;
+  }
+
+  .nlls__sting__team{
+    font-size:clamp(1rem,4vw,2.6rem);
+    font-weight:950;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:#fff;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:92%;
+    background:rgba(0,0,0,.55);
+    padding:.3em 1em .25em;
+    opacity:0;
+    transform:translateY(12px);
+    animation:nllsStingTeamUp .5s cubic-bezier(.16,1,.3,1) 2.35s forwards,
+               nllsStingContentOut .5s cubic-bezier(.4,0,.2,1) 7.8s forwards;
+  }
+
+  .nlls__sting__scorer{
+    font-size:clamp(.8rem,2.2vw,1.3rem);
+    font-weight:900;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:#fff;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:92%;
+    opacity:0;
+    transform:translateY(12px);
+    animation:nllsStingTeamUp .5s cubic-bezier(.16,1,.3,1) 2.8s forwards,
+               nllsStingContentOut .5s cubic-bezier(.4,0,.2,1) 7.95s forwards;
+  }
+
+  .nlls__sting__score{
+    display:flex;
+    align-items:center;
+    gap:clamp(6px,2vw,16px);
+    opacity:0;
+    margin-top:clamp(4px,1vh,12px);
+    animation:nllsStingTeamUp .5s cubic-bezier(.16,1,.3,1) 3.2s forwards,
+               nllsStingContentOut .5s cubic-bezier(.4,0,.2,1) 8.05s forwards;
+  }
+
+  .nlls__sting__score-club{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:clamp(4px,1vh,10px);
+    min-width:0;
+  }
+
+  .nlls__sting__score-name{
+    font-size:clamp(8px,2.2vw,13px);
+    font-weight:900;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:clamp(80px,34vw,220px);
+    padding:.28em .7em .24em;
+    border-radius:0;
+    display:block;
+  }
+
+  .nlls__sting__score-digit{
+    font-size:clamp(4rem,18vw,12rem);
+    font-weight:950;
+    color:#111;
+    width:1.4em;
+    height:1.4em;
+    overflow:hidden;
+    position:relative;
+    background:#fff;
+    box-shadow:0 8px 32px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3);
+    flex-shrink:0;
+  }
+
+  .nlls__sting__score-digit.is-goal-hold{
+    background:var(--nlls-goal-gold);
+  }
+
+  .nlls__sting__score-digit-inner{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    display:flex;
+    flex-direction:column;
+  }
+
+  .nlls__sting__score-digit-inner > div{
+    width:1.4em;
+    height:1.4em;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+    line-height:1;
+  }
+
+  .nlls__sting__score-digit-inner.is-ticking{
+    animation:nllsStingDigitTick .7s cubic-bezier(.22,1,.36,1) 3.9s forwards;
+  }
+
+  @keyframes nllsStingRevealFull{
+    0%{ clip-path:inset(0 100% 0 0); }
+    100%{ clip-path:inset(0 0 0 0); }
+  }
+
+  @keyframes nllsStingConcealFull{
+    0%{ clip-path:inset(0 0 0 0); }
+    100%{ clip-path:inset(0 0 0 100%); }
+  }
+
+  @keyframes nllsStingSlideIn{
+    0%{ clip-path:polygon(140% 0, 160% 0, 145% 100%, 125% 100%); }
+    100%{ clip-path:polygon(55% 0, 100% 0, 100% 100%, 40% 100%); }
+  }
+
+  @keyframes nllsStingSlideOut{
+    0%{ clip-path:polygon(55% 0, 100% 0, 100% 100%, 40% 100%); }
+    100%{ clip-path:polygon(140% 0, 160% 0, 145% 100%, 125% 100%); }
+  }
+
+  @keyframes nllsStingCrestFadeIn{
+    0%{ opacity:0; transform:translateX(-2%); }
+    100%{ opacity:.28; transform:translateX(0); }
+  }
+
+  @keyframes nllsStingCrestFadeOut{
+    0%{ opacity:.28; transform:translateX(0); }
+    100%{ opacity:0; transform:translateX(-2%); }
+  }
+
+  @keyframes nllsStingWordSlam{
+    0%{ opacity:0; transform:translateY(80px) scale(.6) skewY(4deg); }
+    60%{ opacity:1; transform:translateY(-8px) scale(1.04) skewY(-1deg); }
+    100%{ opacity:1; transform:translateY(0) scale(1) skewY(0deg); }
+  }
+
+  @keyframes nllsStingWordOut{
+    0%{ opacity:1; transform:translateY(0) scale(1); }
+    100%{ opacity:0; transform:translateY(-50px) scale(.85); }
+  }
+
+  @keyframes nllsStingTeamUp{
+    0%{ opacity:0; transform:translateY(20px); }
+    100%{ opacity:1; transform:translateY(0); }
+  }
+
+  @keyframes nllsStingContentOut{
+    0%{ opacity:1; transform:translateY(0); }
+    100%{ opacity:0; transform:translateY(20px); }
+  }
+
+  @keyframes nllsStingDigitTick{
+    0%{ transform:translateY(0); }
+    100%{ transform:translateY(-1.4em); }
+  }
+
+  .nlls__modal{
+    position:fixed;
+    inset:0;
+    z-index:999996;
+    display:none;
+    background:rgba(0,0,0,.62);
+    padding:20px;
+    overflow:auto;
+  }
+
+  .nlls__modal.is-open{
+    display:block;
+  }
+
+  .nlls__modal-panel{
+    position:relative;
+    width:min(1100px, 100%);
+    margin:0 auto;
+    background:#fff;
+    border-radius:22px;
+    box-shadow:0 20px 60px rgba(0,0,0,.22);
+    overflow:hidden;
+  }
+
+  .nlls__modal-close{
+    appearance:none;
+    border:0;
+    background:#111;
+    color:#fff;
+    width:42px;
+    height:42px;
+    border-radius:50%;
+    font:inherit;
+    font-size:1.3rem;
+    font-weight:900;
+    cursor:pointer;
+    position:absolute;
+    top:14px;
+    right:14px;
+    z-index:3;
+  }
+
+  .nlls__mc-head{
+    position:relative;
+    padding:18px 18px 16px;
+    background:#111;
+    color:#fff;
+  }
+
+  .nlls__mc-head-grid{
+    display:grid;
+    grid-template-columns:1fr auto 1fr;
+    align-items:center;
+    gap:16px;
+  }
+
+  .nlls__mc-team{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    min-width:0;
+  }
+
+  .nlls__mc-team--away{
+    justify-content:flex-end;
+    text-align:right;
+  }
+
+  .nlls__mc-team--away .nlls__mc-team-main{
+    order:1;
+  }
+
+  .nlls__mc-team--away .nlls__mc-crest-shell{
+    order:2;
+  }
+
+  .nlls__mc-crest-shell{
+    width:56px;
+    height:56px;
+    border-radius:14px;
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.15);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex:0 0 auto;
+  }
+
+  .nlls__mc-crest{
+    width:42px;
+    height:42px;
+    object-fit:contain;
+    display:block;
+  }
+
+  .nlls__mc-team-main{
+    min-width:0;
+  }
+
+  .nlls__mc-team-name{
+    font-size:1.22rem;
+    line-height:1.04;
+    font-weight:950;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    color:#fff;
+  }
+
+  .nlls__mc-centre{
+    text-align:center;
+    min-width:170px;
+  }
+
+  .nlls__mc-score-row{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    margin:0 0 8px;
+  }
+
+  .nlls__mc-score-pill{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:84px;
+    height:42px;
+    padding:0 14px;
+    border-radius:999px;
+    background:#fff;
+    color:#111;
+    font-size:1.26rem;
+    font-weight:950;
+    line-height:1;
+  }
+
+  .nlls__mc-meta{
+    display:grid;
+    gap:4px;
+    font-size:.88rem;
+    line-height:1.35;
+    opacity:.92;
+    color:#fff;
+  }
+
+  .nlls__mc-body{
+    padding:18px;
+    display:grid;
+    gap:18px;
+    background:#fff;
+  }
+
+  .nlls__mc-section{
+    border:1px solid var(--nlls-line);
+    border-radius:16px;
+    overflow:hidden;
+    background:#fff;
+  }
+
+  .nlls__mc-section-head{
+    padding:11px 14px;
+    background:var(--nlls-blue);
+    color:#fff;
+    font-size:.82rem;
+    font-weight:950;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+
+  .nlls__mc-section-body{
+    padding:14px;
+    background:#fff;
+    color:#111;
+  }
+
+  .nlls__mc-event-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:18px 28px;
+  }
+
+  .nlls__mc-event-side{
+    min-width:0;
+  }
+
+  .nlls__mc-event-side--home{
+    text-align:right;
+  }
+
+  .nlls__mc-event-entry{
+    line-height:1.6;
+    font-size:.94rem;
+    color:#111;
+  }
+
+  .nlls__mc-event-name{
+    font-weight:900;
+  }
+
+  .nlls__mc-event-times{
+    opacity:.78;
+  }
+
+  .nlls__mc-squad-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+  }
+
+  .nlls__mc-squad-card{
+    border:1px solid var(--nlls-line);
+    border-radius:14px;
+    overflow:hidden;
+    background:#fff;
+  }
+
+  .nlls__mc-squad-title{
+    margin:0;
+    padding:10px 12px;
+    background:#f6f7f9;
+    color:#111;
+    font-size:.78rem;
+    font-weight:950;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+
+  .nlls__mc-squad-table{
+    width:100%;
+    border-collapse:collapse;
+  }
+
+  .nlls__mc-squad-table td{
+    padding:7px 10px;
+    border-top:1px solid var(--nlls-line);
+    vertical-align:top;
+    font-size:.9rem;
+    color:#111;
+  }
+
+  .nlls__mc-squad-num{
+    width:40px;
+    font-weight:900;
+    text-align:center;
+    white-space:nowrap;
+  }
+
+  .nlls__mc-player-wrap{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-items:center;
+  }
+
+  .nlls__mc-player-icons{
+    display:inline-flex;
+    align-items:center;
+    gap:.3em;
+    font-size:.82rem;
+    line-height:1;
+  }
+
+  .nlls__mc-player-sub{
+    display:inline-flex;
+    align-items:center;
+    gap:2px;
+    font-size:.74rem;
+    opacity:.82;
+  }
+
+  .nlls__mc-formation-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+  }
+
+  .nlls__mc-formation-card{
+    border:1px solid var(--nlls-line);
+    border-radius:14px;
+    overflow:hidden;
+    background:#fff;
+  }
+
+  .nlls__mc-formation-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    border-bottom:1px solid var(--nlls-line);
+    background:#fff;
+    color:#111;
+  }
+
+  .nlls__mc-formation-head--away{
+    justify-content:flex-end;
+    text-align:right;
+  }
+
+  .nlls__mc-formation-crest{
+    width:34px;
+    height:34px;
+    object-fit:contain;
+    flex:0 0 auto;
+  }
+
+  .nlls__mc-formation-team{
+    font-size:.92rem;
+    font-weight:950;
+    line-height:1.05;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    color:#111;
+  }
+
+  .nlls__mc-formation-meta{
+    margin-top:4px;
+    font-size:.74rem;
+    line-height:1.2;
+    opacity:.72;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#111;
+  }
+
+  .nlls__mc-pitch-wrap{
+    padding:12px;
+    background:#fff;
+  }
+
+  .nlls__mc-pitch{
+    position:relative;
+    width:100%;
+    aspect-ratio:1 / 1;
+    background:linear-gradient(180deg,#3b8f4e 0%,#2d7d40 100%);
+    border-radius:14px;
+    overflow:hidden;
+  }
+
+  .nlls__mc-pitch::before{
+    content:"";
+    position:absolute;
+    inset:4% 4%;
+    border:2px solid rgba(255,255,255,.7);
+    border-radius:10px;
+  }
+
+  .nlls__mc-pitch::after{
+    content:"";
+    position:absolute;
+    top:50%;
+    left:50%;
+    width:22%;
+    aspect-ratio:1 / 1;
+    border:2px solid rgba(255,255,255,.7);
+    border-radius:50%;
+    transform:translate(-50%,-50%);
+  }
+
+  .nlls__mc-marker-wrap{
+    position:absolute;
+    transform:translate(-50%,-50%);
+    width:96px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    z-index:2;
+  }
+
+  .nlls__mc-marker{
+    width:42px;
+    height:42px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:900;
+    font-size:14px;
+    line-height:1;
+    border:3px solid transparent;
+    box-shadow:0 2px 8px rgba(0,0,0,.18);
+    position:relative;
+    z-index:2;
+    flex:0 0 auto;
+  }
+
+  .nlls__mc-marker-pill{
+    margin-top:5px;
+    min-height:18px;
+    max-width:96px;
+    padding:2px 6px;
+    border-radius:999px;
+    background:rgba(255,255,255,.94);
+    border:1px solid rgba(0,0,0,.14);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    text-align:center;
+    font-size:9px;
+    line-height:1;
+    font-weight:700;
+    color:#111;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .nlls__mc-loading,
+  .nlls__mc-muted{
+    font-size:.92rem;
+    opacity:.72;
+    color:#111;
+  }
+
+  @media (min-width:700px){
+    .nlls__board{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+  }
+
+  @media (min-width:1100px){
+    .nlls__board{
+      grid-template-columns:repeat(3,minmax(0,1fr));
+    }
+  }
+
+  @media (max-width:760px){
+    .nlls__mc-head-grid,
+    .nlls__mc-event-grid,
+    .nlls__mc-formation-grid{
+      grid-template-columns:1fr;
+    }
+
+    .nlls__mc-team--away{
+      justify-content:flex-start;
+      text-align:left;
+    }
+
+    .nlls__mc-team--away .nlls__mc-team-main{
+      order:2;
+    }
+
+    .nlls__mc-team--away .nlls__mc-crest-shell{
+      order:1;
+    }
+
+    .nlls__mc-squad-grid{
+      grid-template-columns:1fr;
+    }
+  }
+
+  @media (max-width:560px){
+    .nlls__card{
+      min-height:154px;
+      height:154px;
+    }
+
+    .nlls__code{
+      font-size:1.06rem;
+    }
+
+    .nlls__name{
+      white-space:normal;
+      overflow:visible;
+      text-overflow:clip;
+      min-height:28px;
+    }
+
+    .nlls__digit{
+      width:42px;
+      height:42px;
+    }
+
+    .nlls__digit-inner > div{
+      width:42px;
+      height:42px;
+      font-size:1.28rem;
+    }
+
+    @keyframes nllsDigitTick{
+      0%{ transform:translateY(0); }
+      100%{ transform:translateY(-42px); }
+    }
+
+    .nlls__sting__crest{
+      left:30%;
+      height:100vh;
+    }
+
+    .nlls__modal{
+      padding:12px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="nl-live-scores-real"></div>
+
+<script>
+/* National League Live Scores & Match Centre (v2.2.0) */
+
+(function(){
+  "use strict";
+
+  const VERSION = "v2.2.0";
+  const API_BASE = "https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2";
+  const SEASON_ID = 2025;
+  const CLUBS_META_URL = "https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/data/clubs-meta.json";
+
+  const COMPETITIONS = [
+    { id: "national", label: "National League", competitionID: 89 },
+    { id: "north", label: "National North", competitionID: 373 },
+    { id: "south", label: "National South", competitionID: 372 }
+  ];
+
+  const GOAL_HOLD_MS = 120000;
+  const POLL_MS = 20000;
+
+  const FORMATIONS = {
+    "4-3-3":[{x:540,y:744},{x:828,y:606},{x:648,y:606},{x:432,y:606},{x:252,y:606},{x:690,y:432},{x:540,y:432},{x:390,y:432},{x:750,y:300},{x:540,y:256},{x:330,y:300}],
+    "5-3-2":[{x:540,y:744},{x:848,y:520},{x:710,y:606},{x:540,y:606},{x:370,y:606},{x:232,y:520},{x:690,y:432},{x:540,y:432},{x:390,y:432},{x:630,y:256},{x:450,y:256}],
+    "3-5-2":[{x:540,y:744},{x:710,y:606},{x:540,y:606},{x:370,y:606},{x:848,y:400},{x:690,y:432},{x:540,y:432},{x:390,y:432},{x:232,y:400},{x:630,y:256},{x:450,y:256}],
+    "4-4-2":[{x:540,y:744},{x:828,y:606},{x:648,y:606},{x:432,y:606},{x:252,y:606},{x:848,y:400},{x:660,y:432},{x:420,y:432},{x:232,y:400},{x:630,y:256},{x:450,y:256}],
+    "4-2-3-1":[{x:540,y:744},{x:828,y:606},{x:648,y:606},{x:432,y:606},{x:252,y:606},{x:670,y:474},{x:410,y:474},{x:800,y:345},{x:540,y:387},{x:280,y:345},{x:540,y:256}],
+    "5-4-1":[{x:540,y:744},{x:848,y:520},{x:710,y:606},{x:540,y:606},{x:370,y:606},{x:232,y:520},{x:800,y:350},{x:660,y:432},{x:420,y:432},{x:280,y:350},{x:540,y:256}],
+    "4-2-4":[{x:540,y:744},{x:828,y:606},{x:648,y:606},{x:432,y:606},{x:252,y:606},{x:660,y:432},{x:420,y:432},{x:800,y:370},{x:630,y:256},{x:450,y:256},{x:280,y:370}],
+    "3-4-3":[{x:540,y:744},{x:710,y:606},{x:540,y:606},{x:370,y:606},{x:810,y:432},{x:630,y:432},{x:450,y:432},{x:270,y:432},{x:720,y:294},{x:540,y:256},{x:360,y:294}],
+    "4-5-1":[{x:540,y:744},{x:828,y:606},{x:648,y:606},{x:432,y:606},{x:252,y:606},{x:800,y:360},{x:690,y:432},{x:540,y:500},{x:390,y:432},{x:280,y:360},{x:540,y:256}],
+    "4-1-3-2":[{x:540,y:744},{x:828,y:606},{x:648,y:606},{x:432,y:606},{x:252,y:606},{x:540,y:500},{x:760,y:330},{x:540,y:360},{x:320,y:330},{x:630,y:240},{x:450,y:240}]
+  };
+
+  const state = {
+    selectedDateKey: "",
+    animationsOn: true,
+    matchesByComp: new Map(),
+    clubsMetaByOpta: new Map(),
+    detailCache: new Map(),
+    prevSnapshotByMatch: new Map(),
+    scoreChangeTimestamps: new Map(),
+    stingQueue: [],
+    stingRunning: false,
+    pollTimer: null,
+    openMatchID: "",
+    openMatchCompID: null,
+    availableDateKeys: []
+  };
+
+  const root = document.getElementById("nl-live-scores-real");
+  if (!root) return;
+
+  root.innerHTML = `
+    <div class="nlls" data-version="${VERSION}">
+      <div class="nlls__top">
+        <div class="nlls__head">
+          <div class="nlls__title-wrap">
+            <h2 class="nlls__title">Live Scores</h2>
+            <div class="nlls__sub">National, North and South — live data with match centre</div>
+          </div>
+
+          <div class="nlls__controls">
+            <label class="nlls__switch">
+              <span>Animations</span>
+              <input class="nlls__switch-input" id="nllsAnimSwitch" type="checkbox" checked>
+              <span class="nlls__switch-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="nlls__date-rail"></div>
+
+        <div class="nlls__ticker">
+          <div class="nlls__ticker-track"></div>
+        </div>
+      </div>
+
+      <div class="nlls__groups"></div>
+
+      <div class="nlls__modal" id="nllsModal" aria-hidden="true">
+        <div class="nlls__modal-panel">
+          <div class="nlls__mc-head">
+            <button class="nlls__modal-close" type="button" aria-label="Close match centre">×</button>
+            <div class="nlls__mc-shell">
+              <div class="nlls__mc-loading">Loading match centre…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const dateRailEl = root.querySelector(".nlls__date-rail");
+  const groupsEl = root.querySelector(".nlls__groups");
+  const tickerTrackEl = root.querySelector(".nlls__ticker-track");
+  const animSwitchEl = root.querySelector("#nllsAnimSwitch");
+  const modalEl = root.querySelector("#nllsModal");
+  const modalCloseEl = root.querySelector(".nlls__modal-close");
+  const modalShellEl = root.querySelector(".nlls__mc-shell");
+
+  init().catch(showError);
+
+  async function init(){
+    animSwitchEl.addEventListener("change", onAnimationSwitchChange);
+    dateRailEl.addEventListener("click", onDateRailClick);
+    groupsEl.addEventListener("click", onGroupsClick);
+    modalCloseEl.addEventListener("click", closeModal);
+    modalEl.addEventListener("click", onModalBackdropClick);
+    document.addEventListener("keydown", onDocumentKeydown);
+
+    await loadClubsMeta();
+    await refreshAll();
+    state.pollTimer = window.setInterval(refreshAll, POLL_MS);
+  }
+
+  function onAnimationSwitchChange(){
+    state.animationsOn = !!animSwitchEl.checked;
+  }
+
+  function onDateRailClick(event){
+    const btn = event.target.closest(".nlls__date-btn");
+    if (!btn) return;
+
+    const key = btn.getAttribute("data-date-key");
+    if (!key || key === state.selectedDateKey) return;
+
+    state.selectedDateKey = key;
+    renderDateRail();
+    renderGroups();
+    renderTicker();
+    scrollActiveDateIntoView();
+  }
+
+  function onGroupsClick(event){
+    const card = event.target.closest(".nlls__card[data-match-id]");
+    if (!card) return;
+
+    const matchID = card.getAttribute("data-match-id");
+    const compID = Number(card.getAttribute("data-comp-number"));
+    if (!matchID || !compID) return;
+
+    openMatchCentre(matchID, compID);
+  }
+
+  function onModalBackdropClick(event){
+    if (event.target === modalEl) closeModal();
+  }
+
+  function onDocumentKeydown(event){
+    if (event.key === "Escape" && modalEl.classList.contains("is-open")) {
+      closeModal();
+    }
+  }
+
+  async function loadClubsMeta(){
+    try {
+      const response = await fetch(CLUBS_META_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`clubs-meta fetch failed: ${response.status}`);
+      const json = await response.json();
+      const clubs = Array.isArray(json?.clubs) ? json.clubs : [];
+      const map = new Map();
+      clubs.forEach(club => {
+        if (club?.optaID) map.set(String(club.optaID), club);
+      });
+      state.clubsMetaByOpta = map;
+    } catch (err) {
+      console.warn("clubs-meta unavailable", err);
+      state.clubsMetaByOpta = new Map();
+    }
+  }
+
+  async function refreshAll(){
+    try {
+      const byComp = new Map();
+
+      await Promise.all(
+        COMPETITIONS.map(async comp => {
+          const matches = await fetchAllMatchesForCompetition(comp.competitionID);
+          byComp.set(comp.id, matches);
+        })
+      );
+
+      state.matchesByComp = byComp;
+      detectScoreChanges(byComp);
+      buildAvailableDates();
+      ensureSelectedDate();
+      renderDateRail();
+      renderGroups();
+      renderTicker();
+      scrollActiveDateIntoView();
+      processStingQueue();
+      maybeRefreshOpenModal();
+    } catch (err) {
+      showError(err);
+    }
+  }
+
+  async function fetchAllMatchesForCompetition(competitionID){
+    let pageNumber = 1;
+    let allMatches = [];
+    let hasNext = true;
+
+    while (hasNext) {
+      const url = new URL(`${API_BASE}/matches/`);
+      url.searchParams.set("seasonID", String(SEASON_ID));
+      url.searchParams.set("competitionID", String(competitionID));
+      url.searchParams.set("includePopulatedDates", "true");
+      url.searchParams.set("page.number", String(pageNumber));
+      url.searchParams.set("page.size", "100");
+
+      const response = await fetch(url.toString(), { cache: "no-store" });
+      if (!response.ok) throw new Error(`List fetch failed: ${response.status} ${response.statusText}`);
+
+      const json = await response.json();
+      allMatches.push(...(Array.isArray(json.data) ? json.data : []));
+      hasNext = !!json.links?.next;
+      pageNumber += 1;
+    }
+
+    return allMatches;
+  }
+
+  function buildAvailableDates(){
+    const keySet = new Set();
+
+    COMPETITIONS.forEach(comp => {
+      const matches = state.matchesByComp.get(comp.id) || [];
+      matches.forEach(match => {
+        const key = getMatchDateKey(match);
+        if (key) keySet.add(key);
+      });
+    });
+
+    state.availableDateKeys = Array.from(keySet).sort();
+  }
+
+  function ensureSelectedDate(){
+    if (!state.availableDateKeys.length) {
+      state.selectedDateKey = "";
+      return;
+    }
+
+    if (state.selectedDateKey && state.availableDateKeys.includes(state.selectedDateKey)) return;
+
+    const todayKey = getDateKey(new Date());
+    const nextKey = state.availableDateKeys.find(key => key >= todayKey);
+    state.selectedDateKey = nextKey || state.availableDateKeys[state.availableDateKeys.length - 1];
+  }
+
+  function renderDateRail(){
+    if (!state.availableDateKeys.length) {
+      dateRailEl.innerHTML = "";
+      return;
+    }
+
+    dateRailEl.innerHTML = state.availableDateKeys.map(key => {
+      const date = parseDateKey(key);
+      return `
+        <button type="button" class="nlls__date-btn ${key === state.selectedDateKey ? "is-active" : ""}" data-date-key="${escapeAttr(key)}">
+          ${escapeHtml(formatDateRailLabel(date))}
+        </button>
+      `;
+    }).join("");
+  }
+
+  function scrollActiveDateIntoView(){
+    const active = dateRailEl.querySelector(".nlls__date-btn.is-active");
+    if (!active) return;
+    active.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }
+
+  function getSelectedMatchesGrouped(){
+    const grouped = [];
+
+    COMPETITIONS.forEach(comp => {
+      const matches = (state.matchesByComp.get(comp.id) || []).filter(match => getMatchDateKey(match) === state.selectedDateKey);
+      grouped.push({
+        id: comp.id,
+        title: comp.label,
+        competitionID: comp.competitionID,
+        matches: sortMatchesForBoard(matches)
+      });
+    });
+
+    return grouped;
+  }
+
+  function renderGroups(){
+    const groups = getSelectedMatchesGrouped();
+    const hasAny = groups.some(group => group.matches.length);
+
+    if (!hasAny) {
+      const label = state.selectedDateKey ? formatDateRailLabel(parseDateKey(state.selectedDateKey)) : "the selected date";
+      groupsEl.innerHTML = `<div class="nlls__empty">No fixtures available for ${escapeHtml(label)}.</div>`;
+      return;
+    }
+
+    groupsEl.innerHTML = groups.map(group => {
+      if (!group.matches.length) return "";
+      return `
+        <section class="nlls__group">
+          <h3 class="nlls__group-title">${escapeHtml(group.title)}</h3>
+          <div class="nlls__board">
+            ${group.matches.map(renderMatchCard).join("")}
+          </div>
+        </section>
+      `;
+    }).join("");
+  }
+
+  function renderTicker(){
+    const groups = getSelectedMatchesGrouped();
+    const items = [];
+
+    groups.forEach(group => {
+      group.matches.forEach(match => {
+        const a = match.attributes || {};
+        const stateInfo = getResultState(match, "");
+        if (stateInfo.isLive || isRecentlyChanged(match.id, "home") || isRecentlyChanged(match.id, "away")) {
+          const home = a.homeTeam || {};
+          const away = a.awayTeam || {};
+          items.push(`${getLiveMinute(a) || formatTimeUK(a.kickOffDateUTC)} ${getTeamCode(home)} ${getScoreText(match)} ${getTeamCode(away)}`);
+        }
+      });
+    });
+
+    const source = items.length ? items.slice(0, 18) : ["No live score changes yet"];
+    const doubled = source.concat(source);
+
+    tickerTrackEl.innerHTML = doubled.map(item => `
+      <div class="nlls__ticker-item">
+        <span class="nlls__ticker-badge">Live</span>
+        <span>${escapeHtml(item)}</span>
+      </div>
+    `).join("");
+  }
+
+  function sortMatchesForBoard(matches){
+    return matches.slice().sort((a, b) => {
+      const sa = getBoardSortValue(a);
+      const sb = getBoardSortValue(b);
+      if (sa !== sb) return sa - sb;
+
+      const ta = new Date(normalizeApiDate(a.attributes?.kickOffDateUTC)).getTime();
+      const tb = new Date(normalizeApiDate(b.attributes?.kickOffDateUTC)).getTime();
+      return ta - tb;
+    });
+  }
+
+  function getBoardSortValue(match){
+    const stateInfo = getResultState(match, "");
+    if (stateInfo.isLive) return 0;
+
+    const kickoff = new Date(normalizeApiDate(match.attributes?.kickOffDateUTC)).getTime();
+    const now = Date.now();
+
+    if (kickoff >= now) return 1;
+    return 2;
+  }
+
+  function renderMatchCard(match){
+    const a = match.attributes || {};
+    const home = a.homeTeam || {};
+    const away = a.awayTeam || {};
+    const stateInfo = getResultState(match, "");
+    const minuteLabel = stateInfo.isLive ? (getLiveMinute(a) || "LIVE") : stateInfo.label;
+    const homeChanged = isRecentlyChanged(match.id, "home");
+    const awayChanged = isRecentlyChanged(match.id, "away");
+    const homePalette = getTeamPalette(home);
+    const awayPalette = getTeamPalette(away);
+    const cardGoalOverlay = !state.animationsOn && (homeChanged || awayChanged) ? renderCardGoalOverlay(match, homeChanged ? home : away) : "";
+
+    return `
+      <article
+        class="nlls__card"
+        data-match-id="${escapeAttr(match.id)}"
+        data-comp-number="${escapeAttr(String(getCompetitionNumber(match)))}"
+        style="
+          --home-colour:${escapeAttr(homePalette.primary)};
+          --away-colour:${escapeAttr(awayPalette.primary)};
+        "
+      >
+        <div class="nlls__card-bar"></div>
+        <div class="nlls__card-underlay">
+          ${getTeamCrestHtml(home)}
+          ${getTeamCrestHtml(away)}
+        </div>
+
+        <div class="nlls__card-body">
+          ${cardGoalOverlay}
+
+          <div class="nlls__card-meta">
+            <div class="nlls__card-kickoff">${escapeHtml(formatTimeUK(a.kickOffDateUTC))}</div>
+            <div class="nlls__state">
+              ${stateInfo.isLive ? `<span class="nlls__live-dot" aria-hidden="true"></span>` : ""}
+              <span>${escapeHtml(minuteLabel)}</span>
+            </div>
+          </div>
+
+          <div class="nlls__fixture">
+            <div class="nlls__team">
+              <div class="nlls__code">${escapeHtml(getTeamCode(home) || "HOM")}</div>
+              <div class="nlls__name">${escapeHtml(getShortTeamName(home) || getTeamName(home) || "Home")}</div>
+            </div>
+
+            <div class="nlls__middle">
+              <div class="nlls__score">
+                ${renderDigit(getResolvedTeamScore(match, "home"), getResolvedTeamScore(match, "home"), homeChanged, match.id, "home")}
+                <div class="nlls__sep">-</div>
+                ${renderDigit(getResolvedTeamScore(match, "away"), getResolvedTeamScore(match, "away"), awayChanged, match.id, "away")}
+              </div>
+            </div>
+
+            <div class="nlls__team nlls__team--away">
+              <div class="nlls__code">${escapeHtml(getTeamCode(away) || "AWY")}</div>
+              <div class="nlls__name">${escapeHtml(getShortTeamName(away) || getTeamName(away) || "Away")}</div>
+            </div>
+          </div>
+
+          <div class="nlls__card-foot">Open match centre</div>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderDigit(oldVal, newVal, changed, matchID, side){
+    const displayOld = oldVal == null ? "–" : String(oldVal);
+    const displayNew = newVal == null ? "–" : String(newVal);
+    const hold = isRecentlyChanged(matchID, side);
+
+    return `
+      <div class="nlls__digit ${hold ? "is-goal-hold" : ""}">
+        <div class="nlls__digit-inner ${changed ? "is-ticking" : ""}">
+          <div>${escapeHtml(displayOld)}</div>
+          <div>${escapeHtml(displayNew)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCardGoalOverlay(match, scoringTeam){
+    const palette = getTeamPalette(scoringTeam);
+    const name = getShortTeamName(scoringTeam) || getTeamName(scoringTeam) || "Goal";
+
+    return `
+      <div
+        class="nlls__card-goal-overlay"
+        style="
+          --goal-primary:${escapeAttr(palette.primary)};
+          --goal-secondary:${escapeAttr(palette.secondary)};
+          --goal-tertiary:${escapeAttr(palette.tertiary)};
+        "
+      >
+        <div class="nlls__card-goal-burst"></div>
+        <div class="nlls__card-goal-panel"></div>
+        <div class="nlls__card-goal-stripe"></div>
+        <div class="nlls__card-goal-labels">
+          <div class="nlls__card-goal-word">GOAL!</div>
+          <div class="nlls__card-goal-team">${escapeHtml(name)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function detectScoreChanges(byComp){
+    byComp.forEach(matches => {
+      matches.forEach(match => {
+        const homeScore = getResolvedTeamScore(match, "home");
+        const awayScore = getResolvedTeamScore(match, "away");
+        const prev = state.prevSnapshotByMatch.get(match.id);
+
+        if (prev) {
+          const homeChanged = homeScore != null && prev.homeScore != null && homeScore > prev.homeScore;
+          const awayChanged = awayScore != null && prev.awayScore != null && awayScore > prev.awayScore;
+
+          if (homeChanged || awayChanged) {
+            if (homeChanged) markScoreChanged(match.id, "home");
+            if (awayChanged) markScoreChanged(match.id, "away");
+            queueGoalAnimation(match, homeChanged ? "home" : "away", getCompetitionNumber(match));
+          }
+        }
+
+        state.prevSnapshotByMatch.set(match.id, {
+          homeScore,
+          awayScore,
+          competitionNumber: getCompetitionNumber(match)
+        });
+      });
+    });
+  }
+
+  function markScoreChanged(matchID, side){
+    state.scoreChangeTimestamps.set(`${matchID}:${side}`, Date.now());
+  }
+
+  function isRecentlyChanged(matchID, side){
+    const ts = state.scoreChangeTimestamps.get(`${matchID}:${side}`);
+    return !!ts && (Date.now() - ts) < GOAL_HOLD_MS;
+  }
+
+  function queueGoalAnimation(match, side, competitionNumber){
+    state.stingQueue.push({
+      matchID: match.id,
+      side,
+      competitionNumber
+    });
+  }
+
+  async function processStingQueue(){
+    if (!state.animationsOn) {
+      state.stingQueue = [];
+      return;
+    }
+
+    if (state.stingRunning || !state.stingQueue.length) return;
+
+    state.stingRunning = true;
+    const next = state.stingQueue.shift();
+
+    try {
+      const detail = await fetchMatchDetail(next.matchID, next.competitionNumber);
+      showGoalSting(detail, next.side);
+    } catch (err) {
+      console.warn("sting detail failed", err);
+    } finally {
+      window.setTimeout(() => {
+        state.stingRunning = false;
+        processStingQueue();
+      }, 9800);
+    }
+  }
+
+  function showGoalSting(detail, side){
+    const existing = document.querySelector(".nlls__sting");
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    const a = detail?.attributes || {};
+    const homeTeam = a.homeTeam || {};
+    const awayTeam = a.awayTeam || {};
+    const scoringTeam = side === "home" ? homeTeam : awayTeam;
+    const scoringPalette = getTeamPalette(scoringTeam);
+    const homePalette = getTeamPalette(homeTeam);
+    const awayPalette = getTeamPalette(awayTeam);
+
+    const scorer = getLatestScorerName(detail, side) || "Goal";
+    const prevHome = getPreviousScoreFromCache(detail.id, "home");
+    const prevAway = getPreviousScoreFromCache(detail.id, "away");
+    const newHome = getResolvedTeamScore({ attributes: a }, "home");
+    const newAway = getResolvedTeamScore({ attributes: a }, "away");
+    const homeChanged = newHome != null && prevHome != null && newHome > prevHome;
+    const awayChanged = newAway != null && prevAway != null && newAway > prevAway;
+    const crestUrl = getLiveCrestUrl(getTeamName(scoringTeam) || "");
+
+    const sting = document.createElement("div");
+    sting.className = "nlls__sting";
+    sting.style.setProperty("--goal-primary", scoringPalette.primary);
+    sting.style.setProperty("--goal-secondary", scoringPalette.secondary);
+    sting.style.setProperty("--goal-tertiary", scoringPalette.tertiary);
+
+    sting.innerHTML = `
+      <div class="nlls__sting__bg"></div>
+      ${crestUrl ? `<div class="nlls__sting__crest-wrap"><img class="nlls__sting__crest" src="${escapeAttr(crestUrl)}" alt="${escapeAttr(getTeamName(scoringTeam) || "Club crest")}"></div>` : ""}
+      <div class="nlls__sting__bg-right"></div>
+
+      <div class="nlls__sting__centre">
+        <div class="nlls__sting__word">GOAL!</div>
+        <div class="nlls__sting__team">${escapeHtml(getShortTeamName(scoringTeam) || getTeamName(scoringTeam) || "Goal")}</div>
+        <div class="nlls__sting__scorer">${escapeHtml(scorer)}</div>
+
+        <div class="nlls__sting__score">
+          <div class="nlls__sting__score-club">
+            ${buildStingDigit(prevHome, newHome, homeChanged, detail.id, "home")}
+            <div class="nlls__sting__score-name" style="background:${escapeAttr(homePalette.primary)};color:${escapeAttr(homePalette.secondary)}">${escapeHtml(getTeamCode(homeTeam) || "HOM")}</div>
+          </div>
+
+          <div class="nlls__sting__score-club">
+            ${buildStingDigit(prevAway, newAway, awayChanged, detail.id, "away")}
+            <div class="nlls__sting__score-name" style="background:${escapeAttr(awayPalette.primary)};color:${escapeAttr(awayPalette.secondary)}">${escapeHtml(getTeamCode(awayTeam) || "AWY")}</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(sting);
+
+    window.setTimeout(() => {
+      if (sting.parentNode) sting.parentNode.removeChild(sting);
+    }, 9800);
+  }
+
+  function buildStingDigit(oldVal, newVal, changed, matchID, side){
+    const displayOld = oldVal == null ? "–" : String(oldVal);
+    const displayNew = newVal == null ? "–" : String(newVal);
+    const hold = isRecentlyChanged(matchID, side);
+
+    return `
+      <div class="nlls__sting__score-digit ${hold ? "is-goal-hold" : ""}">
+        <div class="nlls__sting__score-digit-inner ${changed ? "is-ticking" : ""}">
+          <div>${escapeHtml(displayOld)}</div>
+          <div>${escapeHtml(displayNew)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function getPreviousScoreFromCache(matchID, side){
+    const prev = state.prevSnapshotByMatch.get(matchID);
+    if (!prev) return null;
+    return side === "home" ? prev.homeScore : prev.awayScore;
+  }
+
+  async function openMatchCentre(matchID, competitionNumber){
+    state.openMatchID = matchID;
+    state.openMatchCompID = competitionNumber;
+
+    modalEl.classList.add("is-open");
+    modalEl.setAttribute("aria-hidden", "false");
+    modalShellEl.innerHTML = `<div class="nlls__mc-loading">Loading match centre…</div>`;
+
+    try {
+      const detail = await fetchMatchDetail(matchID, competitionNumber);
+      modalShellEl.innerHTML = renderMatchCentre(detail);
+    } catch (err) {
+      modalShellEl.innerHTML = `<div class="nlls__mc-muted">${escapeHtml(err.message || "Failed to load match centre.")}</div>`;
+    }
+  }
+
+  function closeModal(){
+    modalEl.classList.remove("is-open");
+    modalEl.setAttribute("aria-hidden", "true");
+    state.openMatchID = "";
+    state.openMatchCompID = null;
+  }
+
+  async function maybeRefreshOpenModal(){
+    if (!state.openMatchID || !state.openMatchCompID || !modalEl.classList.contains("is-open")) return;
+
+    try {
+      const detail = await fetchMatchDetail(state.openMatchID, state.openMatchCompID, true);
+      modalShellEl.innerHTML = renderMatchCentre(detail);
+    } catch (err) {
+      console.warn("modal refresh failed", err);
+    }
+  }
+
+  async function fetchMatchDetail(matchID, competitionNumber, forceRefresh){
+    const cacheKey = `${competitionNumber}:${matchID}`;
+    if (!forceRefresh && state.detailCache.has(cacheKey)) return state.detailCache.get(cacheKey);
+
+    const response = await fetch(`${API_BASE}/matches/${encodeURIComponent(matchID)}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Detail fetch failed: ${response.status} ${response.statusText}`);
+
+    const json = await response.json();
+    const detail = json.data || null;
+    if (!detail) throw new Error("No detail available.");
+
+    state.detailCache.set(cacheKey, detail);
+    return detail;
+  }
+
+  function renderMatchCentre(match){
+    if (!match || !match.attributes) return `<div class="nlls__mc-muted">No detail available.</div>`;
+
+    const a = match.attributes;
+    const home = a.homeTeam || {};
+    const away = a.awayTeam || {};
+    const matchTeams = Array.isArray(a.matchTeams) ? a.matchTeams : [];
+    const homeTeamData = matchTeams.find(team => String(team.teamID || "") === String(a.homeTeamID || home.teamID || "")) || {};
+    const awayTeamData = matchTeams.find(team => String(team.teamID || "") === String(a.awayTeamID || away.teamID || "")) || {};
+    const details = a.matchDetails || {};
+    const stateInfo = getResultState({ attributes: a }, "");
+
+    const eventsHtml = renderMatchEvents(homeTeamData, awayTeamData);
+    const squadsHtml = renderSquads(homeTeamData, awayTeamData, home, away);
+    const formationHtml = renderFormations(homeTeamData, awayTeamData, home, away);
+
+    return `
+      <div class="nlls__mc-head-grid">
+        <div class="nlls__mc-team">
+          <div class="nlls__mc-crest-shell">${getTeamCrestHtml(home, "nlls__mc-crest")}</div>
+          <div class="nlls__mc-team-main">
+            <div class="nlls__mc-team-name">${escapeHtml(getTeamName(home) || "Home")}</div>
+          </div>
+        </div>
+
+        <div class="nlls__mc-centre">
+          <div class="nlls__mc-score-row">
+            <div class="nlls__mc-score-pill">${escapeHtml(formatDetailScore(a))}</div>
+            <div class="nlls__state">
+              ${stateInfo.isLive ? `<span class="nlls__live-dot" aria-hidden="true"></span>` : ""}
+              <span>${escapeHtml(stateInfo.label)}</span>
+            </div>
+          </div>
+          <div class="nlls__mc-meta">
+            <div>${escapeHtml(getCompetitionLabel(match))} • ${escapeHtml(formatDateLong(a.kickOffUTC || a.kickOffDateUTC || ""))} • ${escapeHtml(formatTimeUK(a.kickOffUTC || a.kickOffDateUTC || ""))}</div>
+            ${a.venue ? `<div>${escapeHtml(a.venue)}</div>` : ""}
+            ${details.refereeName || a.refereeName ? `<div>Referee: ${escapeHtml(details.refereeName || a.refereeName)}</div>` : ""}
+            ${details.attendance != null && details.attendance !== "" ? `<div>Attendance: ${escapeHtml(formatAttendance(details.attendance))}</div>` : ""}
+          </div>
+        </div>
+
+        <div class="nlls__mc-team nlls__mc-team--away">
+          <div class="nlls__mc-crest-shell">${getTeamCrestHtml(away, "nlls__mc-crest")}</div>
+          <div class="nlls__mc-team-main">
+            <div class="nlls__mc-team-name">${escapeHtml(getTeamName(away) || "Away")}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nlls__mc-body">
+        <section class="nlls__mc-section">
+          <div class="nlls__mc-section-head">Match events</div>
+          <div class="nlls__mc-section-body">${eventsHtml}</div>
+        </section>
+
+        <section class="nlls__mc-section">
+          <div class="nlls__mc-section-head">Squads</div>
+          <div class="nlls__mc-section-body">${squadsHtml}</div>
+        </section>
+
+        <section class="nlls__mc-section">
+          <div class="nlls__mc-section-head">Formations</div>
+          <div class="nlls__mc-section-body">${formationHtml}</div>
+        </section>
+      </div>
+    `;
+  }
+
+  function renderMatchEvents(homeTeamData, awayTeamData){
+    const scorerHome = getScorerEntries(homeTeamData);
+    const scorerAway = getScorerEntries(awayTeamData);
+    const redHome = getRedCardEntries(homeTeamData);
+    const redAway = getRedCardEntries(awayTeamData);
+
+    const blocks = [];
+
+    if (scorerHome.length || scorerAway.length) {
+      blocks.push(`
+        <div class="nlls__mc-event-grid">
+          <div class="nlls__mc-event-side nlls__mc-event-side--home">${renderEventEntries(scorerHome)}</div>
+          <div class="nlls__mc-event-side">${renderEventEntries(scorerAway)}</div>
+        </div>
+      `);
+    }
+
+    if (redHome.length || redAway.length) {
+      blocks.push(`
+        <div class="nlls__mc-event-grid">
+          <div class="nlls__mc-event-side nlls__mc-event-side--home">${renderEventEntries(redHome)}</div>
+          <div class="nlls__mc-event-side">${renderEventEntries(redAway)}</div>
+        </div>
+      `);
+    }
+
+    return blocks.length ? blocks.join("") : `<div class="nlls__mc-muted">No major events available.</div>`;
+  }
+
+  function renderEventEntries(entries){
+    if (!entries.length) return "";
+    return entries.map(entry => `
+      <div class="nlls__mc-event-entry">
+        <span class="nlls__mc-event-name">${escapeHtml(entry.name)}</span>
+        <span class="nlls__mc-event-times">${escapeHtml(entry.times.join(", "))}</span>
+      </div>
+    `).join("");
+  }
+
+  function renderSquads(homeTeamData, awayTeamData, homeTeam, awayTeam){
+    const homeXI = renderSquadCard(homeTeamData, "starters", homeTeam);
+    const homeSubs = renderSquadCard(homeTeamData, "subs", homeTeam);
+    const awayXI = renderSquadCard(awayTeamData, "starters", awayTeam);
+    const awaySubs = renderSquadCard(awayTeamData, "subs", awayTeam);
+
+    return `
+      <div class="nlls__mc-squad-grid">
+        ${homeXI}
+        ${homeSubs}
+        ${awayXI}
+        ${awaySubs}
+      </div>
+    `;
+  }
+
+  function renderSquadCard(teamData, mode, team){
+    const playersRaw = mode === "starters" ? (teamData.players?.Start || []) : (teamData.players?.Sub || []);
+    const players = sortPlayers(playersRaw, mode);
+    const eventMap = buildPlayerEventMap(teamData);
+    const title = mode === "starters" ? "Starting XI" : "Substitutes";
+
+    return `
+      <div class="nlls__mc-squad-card">
+        <h4 class="nlls__mc-squad-title">${escapeHtml(getTeamName(team) || "Team")} — ${escapeHtml(title)}</h4>
+        ${renderSquadTable(players, eventMap)}
+      </div>
+    `;
+  }
+
+  function renderSquadTable(players, eventMap){
+    if (!players.length) return `<div class="nlls__mc-muted" style="padding:12px;">No data.</div>`;
+
+    return `
+      <table class="nlls__mc-squad-table">
+        <tbody>
+          ${players.map(player => `
+            <tr>
+              <td class="nlls__mc-squad-num">${player.shirtNumber != null ? escapeHtml(String(player.shirtNumber)) : ""}</td>
+              <td>${renderPlayerRow(player, eventMap.get(player.playerID))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderPlayerRow(player, summary){
+    const name = getPlayerName(player.playerName) || "Unknown";
+    const s = summary || { goals:0, yellow:0, straightReds:0, secondYellowReds:0, subOnTimes:[], subOffTimes:[] };
+
+    const icons = [];
+    for (let i = 0; i < s.goals; i += 1) icons.push("⚽");
+    for (let i = 0; i < s.yellow; i += 1) icons.push("🟨");
+    if (s.secondYellowReds > 0) icons.push("🟨", "🟥");
+    for (let i = 0; i < s.straightReds; i += 1) icons.push("🟥");
+
+    const subs = [];
+    s.subOnTimes.forEach(t => subs.push(`↗ ${t}`));
+    s.subOffTimes.forEach(t => subs.push(`↘ ${t}`));
+
+    return `
+      <div class="nlls__mc-player-wrap">
+        <span>${escapeHtml(name)}</span>
+        ${icons.length ? `<span class="nlls__mc-player-icons">${icons.map(icon => `<span>${icon}</span>`).join("")}</span>` : ""}
+        ${subs.length ? `<span class="nlls__mc-player-sub">${subs.map(x => `<span>${escapeHtml(x)}</span>`).join("")}</span>` : ""}
+      </div>
+    `;
+  }
+
+  function buildPlayerEventMap(teamData){
+    const map = new Map();
+
+    function ensure(playerID){
+      if (!playerID) return null;
+      if (!map.has(playerID)) {
+        map.set(playerID, { goals: 0, yellow: 0, straightReds: 0, secondYellowReds: 0, subOnTimes: [], subOffTimes: [] });
+      }
+      return map.get(playerID);
+    }
+
+    const goals = Array.isArray(teamData.events?.goals) ? teamData.events.goals : [];
+    for (const event of goals) {
+      const goal = event.goalEvents || {};
+      const rec = ensure(goal.playerID);
+      if (rec) rec.goals += 1;
+    }
+
+    const bookings = Array.isArray(teamData.events?.bookings) ? teamData.events.bookings : [];
+    const secondYellowPlayers = new Set();
+
+    for (const event of bookings) {
+      const booking = event.bookingEvents || {};
+      const playerID = booking.playerID;
+      const rec = ensure(playerID);
+      if (!rec) continue;
+
+      const cardType = String(booking.cardType || booking.card || "").toLowerCase();
+
+      if (cardType.includes("second")) {
+        if (!secondYellowPlayers.has(playerID)) {
+          rec.secondYellowReds = 1;
+          rec.yellow = 0;
+          secondYellowPlayers.add(playerID);
+        }
+      } else if (cardType.includes("straightred") || (cardType.includes("red") && !cardType.includes("yellow"))) {
+        rec.straightReds += 1;
+      } else if (!secondYellowPlayers.has(playerID)) {
+        rec.yellow += 1;
+      }
+    }
+
+    const subs = Array.isArray(teamData.events?.subs) ? teamData.events.subs : [];
+    for (const event of subs) {
+      const sub = event.substitutionEvents || {};
+      const minute = formatSubMinute(event.formattedEventTime || event.eventMinute || "");
+      const onRec = ensure(sub.subOnID);
+      const offRec = ensure(sub.subOffID);
+      if (onRec) onRec.subOnTimes.push(minute);
+      if (offRec) offRec.subOffTimes.push(minute);
+    }
+
+    return map;
+  }
+
+  function renderFormations(homeTeamData, awayTeamData, homeTeam, awayTeam){
+    const homeHtml = renderFormationCard(homeTeamData, homeTeam, "home");
+    const awayHtml = renderFormationCard(awayTeamData, awayTeam, "away");
+
+    return `
+      <div class="nlls__mc-formation-grid">
+        ${homeHtml}
+        ${awayHtml}
+      </div>
+    `;
+  }
+
+  function renderFormationCard(teamData, team, side){
+    const starters = Array.isArray(teamData.players?.Start) ? teamData.players.Start.slice() : [];
+    const rawFormation = String(teamData.formation || "").trim();
+    const normalizedFormation = normalizeFormation(rawFormation);
+    const inferredFormation = normalizedFormation || inferFormationFromPlayers(starters);
+    const coords = FORMATIONS[inferredFormation];
+    const palette = getTeamPalette(team);
+
+    if (!inferredFormation || !coords || starters.length !== coords.length) {
+      return `
+        <div class="nlls__mc-formation-card">
+          <div class="nlls__mc-formation-head ${side === "away" ? "nlls__mc-formation-head--away" : ""}">
+            ${getTeamCrestHtml(team, "nlls__mc-formation-crest")}
+            <div>
+              <div class="nlls__mc-formation-team">${escapeHtml(getTeamName(team) || (side === "home" ? "Home" : "Away"))}</div>
+              <div class="nlls__mc-formation-meta">${escapeHtml(inferredFormation || "Formation unavailable")}</div>
+            </div>
+          </div>
+          <div class="nlls__mc-section-body">
+            <div class="nlls__mc-muted">Formation data unavailable.</div>
+          </div>
+        </div>
+      `;
+    }
+
+    const markers = starters.map((player, index) => ({
+      player,
+      x: coords[index].x,
+      y: coords[index].y
+    }));
+
+    return `
+      <div class="nlls__mc-formation-card">
+        <div class="nlls__mc-formation-head ${side === "away" ? "nlls__mc-formation-head--away" : ""}">
+          ${getTeamCrestHtml(team, "nlls__mc-formation-crest")}
+          <div>
+            <div class="nlls__mc-formation-team">${escapeHtml(getTeamName(team) || (side === "home" ? "Home" : "Away"))}</div>
+            <div class="nlls__mc-formation-meta">${escapeHtml(inferredFormation)}</div>
+          </div>
+        </div>
+
+        <div class="nlls__mc-pitch-wrap">
+          <div class="nlls__mc-pitch">
+            ${markers.map(marker => renderFormationMarker(marker, palette)).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderFormationMarker(marker, palette){
+    const leftPct = (marker.x / 1080) * 100;
+    const topPct = (marker.y / 1080) * 100;
+
+    return `
+      <div class="nlls__mc-marker-wrap" style="left:${leftPct}%;top:${topPct}%">
+        <div
+          class="nlls__mc-marker"
+          style="background:${escapeAttr(palette.primary)};color:${escapeAttr(palette.secondary)};border-color:${escapeAttr(palette.tertiary)}"
+          title="${escapeAttr(getPlayerName(marker.player.playerName) || "")}"
+        >
+          ${escapeHtml(getFormationMarkerText(marker.player))}
+        </div>
+        <div class="nlls__mc-marker-pill">${escapeHtml(getFormationSurname(marker.player) || "")}</div>
+      </div>
+    `;
+  }
+
+  function getScorerEntries(teamData){
+    const goals = Array.isArray(teamData.events?.goals) ? teamData.events.goals : [];
+    if (!goals.length) return [];
+
+    const map = new Map();
+
+    for (const event of goals) {
+      const goal = event.goalEvents || {};
+      const playerID = goal.playerID || `unknown-${event.eventID}`;
+      const playerName = surnameOnly(getPlayerName(goal.player?.playerName) || "Unknown");
+      const formatted = formatGoalTime(event.formattedEventTime || event.eventMinute || "");
+      const goalType = String(goal.goalType || "").toLowerCase();
+
+      if (!map.has(playerID)) {
+        map.set(playerID, { name: playerName, times: [] });
+      }
+
+      let timeLabel = formatted;
+      if (goalType.includes("pen")) timeLabel += " (pen)";
+      if (goalType.includes("own")) timeLabel += " (og)";
+      map.get(playerID).times.push(timeLabel);
+    }
+
+    return Array.from(map.values());
+  }
+
+  function getRedCardEntries(teamData){
+    const bookings = Array.isArray(teamData.events?.bookings) ? teamData.events.bookings : [];
+    const reds = bookings.filter(event => {
+      const cardType = String(event.bookingEvents?.cardType || event.bookingEvents?.card || "").toLowerCase();
+      return cardType.includes("red") || cardType.includes("second");
+    });
+
+    return reds.map(event => {
+      const booking = event.bookingEvents || {};
+      return {
+        name: surnameOnly(getPlayerName(booking.player?.playerName) || "Unknown"),
+        times: [formatGoalTime(event.formattedEventTime || event.eventMinute || "")]
+      };
+    });
+  }
+
+  function getLatestScorerName(detail, side){
+    const a = detail?.attributes || {};
+    const matchTeams = Array.isArray(a.matchTeams) ? a.matchTeams : [];
+    const teamID = side === "home" ? a.homeTeamID : a.awayTeamID;
+    const teamData = matchTeams.find(team => String(team.teamID || "") === String(teamID || "")) || {};
+    const goals = Array.isArray(teamData.events?.goals) ? teamData.events.goals : [];
+    if (!goals.length) return "";
+
+    const last = goals.slice().sort((x, y) => Number(y.eventMinute || 0) - Number(x.eventMinute || 0))[0];
+    return getPlayerName(last?.goalEvents?.player?.playerName) || "";
+  }
+
+  function sortPlayers(players, mode){
+    return players.slice().sort((a, b) => {
+      if (mode === "subs") {
+        const aIsGK = isGoalkeeperSub(a);
+        const bIsGK = isGoalkeeperSub(b);
+        if (aIsGK !== bIsGK) return aIsGK ? -1 : 1;
+      }
+
+      const fa = Number(a.formationPlace || 999);
+      const fb = Number(b.formationPlace || 999);
+      if (fa !== fb) return fa - fb;
+      return Number(a.shirtNumber || 999) - Number(b.shirtNumber || 999);
+    });
+  }
+
+  function isGoalkeeperSub(player){
+    const pos = String(player.playerPosition || "").toLowerCase();
+    const subPos = String(player.playerSubPosition || "").toLowerCase();
+    return pos === "goalkeeper" || subPos === "goalkeeper";
+  }
+
+  function getCompetitionLabel(match){
+    const compNumber = getCompetitionNumber(match);
+    if (compNumber === 89) return "National League";
+    if (compNumber === 373) return "National North";
+    if (compNumber === 372) return "National South";
+    return "Match";
+  }
+
+  function getCompetitionNumber(match){
+    return Number(match?.attributes?.competitionID || match?.attributes?.competitionId || match?.relationships?.competition?.data?.id || 0);
+  }
+
+  function getResultState(match, teamID){
+    const a = match.attributes || {};
+    const home = a.homeTeam || {};
+    const away = a.awayTeam || {};
+    const period = String(a.matchPeriod || "");
+    const resultType = String(a.resultType || "");
+    const postponementReason = a.postponementReason || "";
+
+    const lowerPeriod = period.toLowerCase();
+    const lowerResultType = resultType.toLowerCase();
+
+    const isLive = isLiveMatch(match);
+    const hasPlayedEvidence = matchHasPlayedEvidence(match);
+    const isPostponedFlagged = !!postponementReason || lowerPeriod.includes("postpon") || lowerResultType.includes("postpon");
+    const isAbandoned = lowerPeriod.includes("abandon") || lowerResultType.includes("abandon");
+    const isPostponed = isPostponedFlagged && !hasPlayedEvidence;
+
+    if (isLive) return { label: "Live", isPostponed: false, isAbandoned: false, isLive: true };
+    if (hasPlayedEvidence) {
+      const homeScore = getResolvedTeamScore(match, "home");
+      const awayScore = getResolvedTeamScore(match, "away");
+
+      if (teamID && homeScore != null && awayScore != null) {
+        const isHome = home.teamID === teamID;
+        const gf = isHome ? homeScore : awayScore;
+        const ga = isHome ? awayScore : homeScore;
+
+        if (gf > ga) return { label: "W", isPostponed: false, isAbandoned: false, isLive: false };
+        if (gf < ga) return { label: "L", isPostponed: false, isAbandoned: false, isLive: false };
+        return { label: "D", isPostponed: false, isAbandoned: false, isLive: false };
+      }
+
+      return { label: "FT", isPostponed: false, isAbandoned: false, isLive: false };
+    }
+    if (isAbandoned) return { label: "A", isPostponed: false, isAbandoned: true, isLive: false };
+    if (isPostponed) return { label: "PP", isPostponed: true, isAbandoned: false, isLive: false };
+    if (period === "PreMatch") return { label: "FIX", isPostponed: false, isAbandoned: false, isLive: false };
+
+    const homeScore = getResolvedTeamScore(match, "home");
+    const awayScore = getResolvedTeamScore(match, "away");
+
+    if (homeScore == null || awayScore == null) {
+      return { label: period || "—", isPostponed: false, isAbandoned: false, isLive: false };
+    }
+
+    return { label: "FT", isPostponed: false, isAbandoned: false, isLive: false };
+  }
+
+  function getScoreText(match){
+    const stateInfo = getResultState(match, "");
+    if (stateInfo.isPostponed) return "P-P";
+    if (stateInfo.isAbandoned) return "A-A";
+
+    const hs = getResolvedTeamScore(match, "home");
+    const as = getResolvedTeamScore(match, "away");
+    if (hs == null && as == null) return "v";
+    return `${hs == null ? "–" : hs}-${as == null ? "–" : as}`;
+  }
+
+  function formatDetailScore(a){
+    const stateInfo = getResultState({ attributes: a }, "");
+    if (stateInfo.isPostponed) return "P-P";
+    if (stateInfo.isAbandoned) return "A-A";
+
+    const hs = getResolvedTeamScore({ attributes: a }, "home");
+    const as = getResolvedTeamScore({ attributes: a }, "away");
+
+    return `${hs == null ? "–" : hs}-${as == null ? "–" : as}`;
+  }
+
+  function getResolvedTeamScore(match, side){
+    const a = match?.attributes || {};
+    const topLevelTeam = side === "home" ? (a.homeTeam || {}) : (a.awayTeam || {});
+    const topLevelScore = topLevelTeam.score;
+
+    if (topLevelScore != null && topLevelScore !== "") return Number(topLevelScore);
+
+    const matchTeams = Array.isArray(a.matchTeams) ? a.matchTeams : [];
+    const wantedTeamID = side === "home" ? a.homeTeamID || topLevelTeam.teamID : a.awayTeamID || topLevelTeam.teamID;
+    const teamRow = matchTeams.find(team => String(team.teamID || "") === String(wantedTeamID || ""));
+
+    if (teamRow && teamRow.score != null && teamRow.score !== "") return Number(teamRow.score);
+
+    return null;
+  }
+
+  function matchHasPlayedEvidence(match){
+    const a = match?.attributes || {};
+    const period = String(a.matchPeriod || "").toLowerCase();
+    const resultType = String(a.resultType || "").toLowerCase();
+    const details = a.matchDetails || {};
+    const matchTeams = Array.isArray(a.matchTeams) ? a.matchTeams : [];
+
+    const homeScore = getResolvedTeamScore(match, "home");
+    const awayScore = getResolvedTeamScore(match, "away");
+    if (homeScore != null && awayScore != null) return true;
+
+    if (
+      period.includes("fulltime") ||
+      period.includes("full time") ||
+      period.includes("postmatch") ||
+      period.includes("post match") ||
+      resultType.includes("fulltime") ||
+      resultType.includes("full time")
+    ) return true;
+
+    if (details.attendance != null && details.attendance !== "") return true;
+    if (details.refereeName) return true;
+
+    for (const team of matchTeams) {
+      if (team.score != null && team.score !== "") return true;
+
+      const playersStart = Array.isArray(team.players?.Start) ? team.players.Start : [];
+      const playersSub = Array.isArray(team.players?.Sub) ? team.players.Sub : [];
+      if (playersStart.length || playersSub.length) return true;
+
+      const goals = Array.isArray(team.events?.goals) ? team.events.goals : [];
+      const bookings = Array.isArray(team.events?.bookings) ? team.events.bookings : [];
+      const subs = Array.isArray(team.events?.subs) ? team.events.subs : [];
+      if (goals.length || bookings.length || subs.length) return true;
+    }
+
+    return false;
+  }
+
+  function isLiveMatch(match){
+    const a = match?.attributes || {};
+    const period = String(a.matchPeriod || "").toLowerCase();
+    const resultType = String(a.resultType || "").toLowerCase();
+    const status = String(a.status || "").toLowerCase();
+    const phase = String(a.phase || "").toLowerCase();
+
+    if (
+      period === "fulltime" ||
+      period === "full time" ||
+      period === "postmatch" ||
+      period === "post match" ||
+      period === "abandoned" ||
+      period === "postponed"
+    ) return false;
+
+    const liveFlags = [period, resultType, status, phase];
+
+    if (liveFlags.some(v =>
+      v.includes("live") ||
+      v.includes("inplay") ||
+      v.includes("in_play") ||
+      v.includes("firsthalf") ||
+      v.includes("first half") ||
+      v.includes("secondhalf") ||
+      v.includes("second half") ||
+      v.includes("halftime") ||
+      v.includes("half time") ||
+      v.includes("extratime") ||
+      v.includes("extra time") ||
+      v.includes("penalties")
+    )) {
+      return true;
+    }
+
+    return !!getLiveMinute(a) && !(
+      period === "prematch" ||
+      period === "postmatch" ||
+      period.includes("postpon") ||
+      period.includes("abandon") ||
+      resultType.includes("postpon") ||
+      resultType.includes("abandon")
+    );
+  }
+
+  function getLiveMinute(matchOrAttributes){
+    const a = matchOrAttributes?.attributes || matchOrAttributes || {};
+
+    const candidates = [
+      a.liveMinute,
+      a.currentMinute,
+      a.matchMinutes,
+      a.minute,
+      a.clock,
+      a.matchClock,
+      a.periodClock,
+      a.elapsed,
+      a.elapsedMinute,
+      a.liveData?.minute,
+      a.liveData?.clock,
+      a.matchState?.minute,
+      a.matchState?.clock
+    ];
+
+    for (const candidate of candidates) {
+      const formatted = formatLiveMinute(candidate);
+      if (formatted) return formatted;
+    }
+
+    return "";
+  }
+
+  function formatLiveMinute(value){
+    if (value == null || value === "") return "";
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return convertAbsoluteMinute(value);
+    }
+
+    const raw = String(value).trim();
+    if (!raw) return "";
+
+    const mmss = raw.match(/^(\d{1,3}):(\d{2})$/);
+    if (mmss) return `${Number(mmss[1])}'`;
+
+    return normalizeMinuteLabel(raw);
+  }
+
+  function normalizeMinuteLabel(value){
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+
+    const cleaned = raw.replace(/\s+/g, "");
+    const quotedPlus = cleaned.match(/^(\d+)'?\+(\d+)'?$/);
+    if (quotedPlus) return `${quotedPlus[1]}+${quotedPlus[2]}'`;
+
+    const quotedPlain = cleaned.match(/^(\d+)'$/);
+    if (quotedPlain) return convertAbsoluteMinute(Number(quotedPlain[1]));
+
+    const numericPlain = cleaned.match(/^(\d+)$/);
+    if (numericPlain) return convertAbsoluteMinute(Number(numericPlain[1]));
+
+    return cleaned.endsWith("'") ? cleaned : `${cleaned}'`;
+  }
+
+  function convertAbsoluteMinute(n){
+    if (!Number.isFinite(n)) return "";
+    if (n > 120) return `120+${n - 120}'`;
+    if (n > 105) return `105+${n - 105}'`;
+    if (n > 90) return `90+${n - 90}'`;
+    return `${n}'`;
+  }
+
+  function formatGoalTime(value){
+    return normalizeMinuteLabel(value);
+  }
+
+  function formatSubMinute(value){
+    return normalizeMinuteLabel(value);
+  }
+
+  function formatAttendance(value){
+    if (value == null || value === "") return "";
+    return Number(value).toLocaleString("en-GB");
+  }
+
+  function normalizeApiDate(dateStr){
+    if (!dateStr) return "";
+    return dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T") + "Z";
+  }
+
+  function formatDateLong(dateStr){
+    if (!dateStr) return "—";
+    return new Intl.DateTimeFormat("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "Europe/London"
+    }).format(new Date(normalizeApiDate(dateStr)));
+  }
+
+  function formatDateRailLabel(date){
+    return new Intl.DateTimeFormat("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    }).format(date);
+  }
+
+  function formatTimeUK(dateStr){
+    if (!dateStr) return "—";
+    return new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Europe/London"
+    }).format(new Date(normalizeApiDate(dateStr)));
+  }
+
+  function getDateKey(date){
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0")
+    ].join("-");
+  }
+
+  function parseDateKey(key){
+    const [y, m, d] = String(key).split("-").map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+  }
+
+  function getMatchDateKey(match){
+    const kickoff = match?.attributes?.kickOffDateUTC || match?.attributes?.kickOffUTC;
+    if (!kickoff) return "";
+    const date = new Date(normalizeApiDate(kickoff));
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/London",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(date);
+  }
+
+  function getTeamName(team){
+    if (!team) return "";
+    return team.name || team.teamName || team.shortName || team.teamShortName || "";
+  }
+
+  function getShortTeamName(team){
+    if (!team) return "";
+    return team.shortName || team.teamShortName || getTeamName(team);
+  }
+
+  function getTeamCode(team){
+    const explicit = String(team?.teamNameInitials || team?.initials || "").replace(/[^A-Za-z]/g, "").toUpperCase();
+    if (explicit) return explicit.slice(0, 3);
+
+    return String(getShortTeamName(team) || "")
+      .replace(/[^A-Za-z]/g, "")
+      .slice(0, 3)
+      .toUpperCase();
+  }
+
+  function getPlayerName(playerNameObj){
+    if (!playerNameObj) return "";
+    if (typeof playerNameObj === "string") return playerNameObj;
+
+    return playerNameObj.knownName
+      || playerNameObj.customKnownName
+      || [playerNameObj.firstName, playerNameObj.lastName].filter(Boolean).join(" ")
+      || "";
+  }
+
+  function surnameOnly(name){
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "";
+  }
+
+  function normalizeFormation(value){
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    if (FORMATIONS[raw]) return raw;
+    if (/^\d+(?:-\d+)+$/.test(raw)) return raw;
+    if (/^\d+$/.test(raw)) return raw.split("").join("-");
+    return raw;
+  }
+
+  function inferFormationFromPlayers(players){
+    const starters = Array.isArray(players) ? players.filter(Boolean) : [];
+    if (starters.length !== 11) return "";
+
+    const counts = { GK: 0, DF: 0, MF: 0, FW: 0 };
+    const lines = [];
+
+    for (const player of starters) {
+      const pos = String(player.playerPosition || "").toUpperCase();
+      if (pos === "GOALKEEPER") counts.GK += 1;
+      else if (pos === "DEFENDER") counts.DF += 1;
+      else if (pos === "MIDFIELDER") counts.MF += 1;
+      else if (pos === "STRIKER" || pos === "FORWARD") counts.FW += 1;
+    }
+
+    if (counts.GK !== 1) return "";
+    if (counts.DF > 0) lines.push(counts.DF);
+    if (counts.MF > 0) lines.push(counts.MF);
+    if (counts.FW > 0) lines.push(counts.FW);
+
+    const inferred = lines.join("-");
+    return FORMATIONS[inferred] ? inferred : "";
+  }
+
+  function getFormationMarkerText(player){
+    if (player?.shirtNumber != null && String(player.shirtNumber).trim() !== "") return String(player.shirtNumber);
+    return getPlayerDisplayInitials(player?.playerName);
+  }
+
+  function getPlayerDisplayInitials(playerNameObj){
+    const full = String(getPlayerName(playerNameObj) || "").trim();
+    if (!full) return "";
+
+    const parts = full.split(/\s+/).filter(Boolean);
+    if (!parts.length) return "";
+
+    const out = [];
+    for (const part of parts) {
+      const bits = part.split("-").filter(Boolean);
+      if (bits.length > 1) {
+        bits.forEach(bit => out.push(bit.charAt(0).toUpperCase()));
+      } else {
+        out.push(part.charAt(0).toUpperCase());
+      }
+    }
+    return out.join("");
+  }
+
+  function getFormationSurname(player){
+    return surnameOnly(getPlayerName(player?.playerName) || "");
+  }
+
+  function getTeamPalette(team){
+    const optaID = String(team?.teamID || team?.optaID || "");
+    const club = state.clubsMetaByOpta.get(optaID);
+    const colors = club?.colors || {};
+    return {
+      primary: colors.primary || "#223b7c",
+      secondary: colors.secondary || "#ffffff",
+      tertiary: colors.tertiary || "#9e0000"
+    };
+  }
+
+  function getTeamCrestUrl(team){
+    if (team?.crest || team?.crestURL) return team.crest || team.crestURL;
+    const optaID = String(team?.teamID || team?.optaID || "");
+    const club = state.clubsMetaByOpta.get(optaID);
+    if (club?.crest) return club.crest;
+    return getLiveCrestUrl(getTeamName(team) || "");
+  }
+
+  function getTeamCrestHtml(team, className){
+    const url = getTeamCrestUrl(team);
+    if (!url) return "";
+    const cls = className || "nlls__crest";
+    return `<img class="${escapeAttr(cls)}" src="${escapeAttr(url)}" alt="${escapeAttr(getTeamName(team) || "Club crest")}">`;
+  }
+
+  function getLiveCrestUrl(teamName){
+    if (!teamName) return "";
+    return `https://raw.githubusercontent.com/rckd-nl/nl-tools/main/assets/crests/${encodeURIComponent(teamName)}.png`;
+  }
+
+  function escapeHtml(value){
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function escapeAttr(value){
+    return escapeHtml(value);
+  }
+
+  function showError(err){
+    console.error(err);
+    groupsEl.innerHTML = `<div class="nlls__empty">${escapeHtml(err.message || "Failed to load scores.")}</div>`;
+  }
+})();
+</script>
+
+</body>
+</html>
