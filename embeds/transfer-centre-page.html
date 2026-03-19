@@ -1,5 +1,8 @@
 <!--
   NL Transfer Centre — Frontend
+  v46.2 — Fixed isKnownClub logic; contract crest now falls back to rose instead of hiding;
+           article title now falls back to copy_text/copy; sting queue preload now uses
+           shared crest lookup logic for direct /assets/crests/ paths
   v45 — Added Loan Extension type; NL rose crest fallback for Unattached and unknown clubs;
          removed fee/contract row; plain-text copy now honours paragraph breaks
   v44 — Based on v29; direct @font-face (no domain lock); inlined traced font data;
@@ -244,8 +247,8 @@
     min-height: 44px; height: auto;
     background: rgba(0,0,0,0.88) !important;
     border-top: 2px solid rgba(255,215,0,0.6); border-bottom: 2px solid rgba(255,215,0,0.6);
-    display: flex !important; align-items: center;
-    padding: 0 12px; gap: 6px;
+    display: flex !important; align-items: center; justify-content: center;
+    padding: 0 12px; gap: 8px;
     transform: translateY(calc(100vh + 100%));
     animation: tcStingBarUp2 0.3s cubic-bezier(0.22,1,0.36,1) 0.7s forwards;
     overflow: hidden; flex-wrap: nowrap; box-sizing: border-box;
@@ -260,11 +263,25 @@
     font-size: clamp(9px, 2.4vw, 13px) !important; font-weight: 800 !important;
     letter-spacing: 0.02em; text-transform: uppercase; color: #fff !important;
     font-variation-settings: 'wght' 800; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
+    max-width: 36vw;
   }
   .tc-sting__bottom-arrow {
-    font-size: 18px !important; color: #FFD700 !important; flex-shrink: 0;
-    line-height: 1; display: flex !important; align-items: center; align-self: center;
+    display: flex !important; align-items: center; gap: 0; flex-shrink: 0;
+    align-self: center; line-height: 1;
+  }
+  .tc-sting__bottom-arrow .chv {
+    font-size: 18px !important; color: #FFD700 !important; font-weight: 900;
+    line-height: 1; display: block; opacity: 0.2;
+    animation: tcBottomChevWave 2s ease-in-out infinite;
+  }
+  .tc-sting__bottom-arrow .chv:nth-child(1) { animation-delay: 0s; }
+  .tc-sting__bottom-arrow .chv:nth-child(2) { animation-delay: 0.2s; }
+  .tc-sting__bottom-arrow .chv:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes tcBottomChevWave {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 1; }
   }
   .tc-sting__centre {
     position: absolute;
@@ -354,7 +371,7 @@
   @keyframes tcStingNameSlam { to { opacity: 1; transform: translateY(0) scaleY(1); } }
 
   /* Signature wraps */
-    .tc-sting__sig-wrap, .tc-sting__transfer-sig-wrap {
+  .tc-sting__sig-wrap, .tc-sting__transfer-sig-wrap {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -367,6 +384,7 @@
     max-width: 94vw;
     margin: 0 auto;
     flex: 0 0 auto;
+    min-height: clamp(52px, 8vw, 86px);
   }
   .tc-sting__sig-text, .tc-sting__transfer-sig-text {
     font-family: 'viktorie', cursive !important;
@@ -690,7 +708,7 @@
     var c = state.clubs[clubName];
     if (c && c.colors) return c.colors;
     var extractKey = '__extract_' + clubName;
-    if (clubName && !isUnattachedClub(clubName) && isKnownClub(clubName) && !state.clubs[extractKey]) {
+    if (clubName && !isUnattachedClub(clubName) && !state.clubs[extractKey]) {
       state.clubs[extractKey] = true;
       extractCrestColours(clubName);
     }
@@ -698,8 +716,8 @@
   }
 
   function extractCrestColours(name) {
-    var url = name ? CREST_BASE + encodeURIComponent(name) + '.png' : '';
-    if (!url) return;
+    var url = getClubCrestUrl(name);
+    if (!url || url === ROSE_CREST) return;
     var img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = function() {
@@ -758,15 +776,14 @@
   }
 
   function isKnownClub(name) {
-    return !!(name && state.clubs && state.clubs[name]);
+    return !!(name && state.clubs && state.clubs[name] && String(name || '').trim().toLowerCase() !== 'unattached');
   }
 
   function getClubCrestUrl(name) {
     var clean = String(name || '').trim();
     if (!clean) return ROSE_CREST;
     if (isUnattachedClub(clean)) return ROSE_CREST;
-    if (isKnownClub(clean)) return CREST_BASE + encodeURIComponent(clean) + '.png';
-    return ROSE_CREST;
+    return CREST_BASE + encodeURIComponent(clean) + '.png';
   }
 
   function getFallbackPalette(name) {
@@ -788,8 +805,9 @@
   }
 
   function getPostCopyMarkup(post) {
-    return renderCopyMarkup(post.copy_text || post.copy || post.copy_html || '');
+    return renderCopyMarkup(post.copy_text || post.copy || '');
   }
+  
   function crestUrl(name) { return getClubCrestUrl(name); }
   
   function fetchWithTimeout(url, ms) {
@@ -936,7 +954,7 @@
         pending--; if (pending<=0){clearTimeout(timeout);onDone();}
       };
       img.onerror = function() { pending--; if (pending<=0){clearTimeout(timeout);onDone();} };
-      img.src = CREST_BASE + encodeURIComponent(name) + '.png';
+      img.src = getClubCrestUrl(name);
     });
   }
 
@@ -961,6 +979,38 @@
     var parts = (full || '').trim().split(/\s+/);
     if (parts.length === 1) return full;
     return parts[0].charAt(0) + '. ' + parts.slice(1).join(' ');
+  }
+
+  function getSignatureReserveMetrics(playerName) {
+    var text = stingSignatureName(playerName || '');
+    var fontPx = Math.max(27, Math.min(window.innerWidth * 0.048, 60));
+    var fontString = '400 ' + fontPx + 'px viktorie';
+    var plan = state.traced ? buildSignaturePlan(text, fontString) : null;
+
+    if (plan && plan.glyphs && plan.glyphs.length) {
+      var cssWidth = Math.max(40, Math.ceil(plan.totalWidth + (SIG_SIDE_PAD * 2)));
+      var cssHeight = Math.max(40, Math.ceil(plan.totalHeight + SIG_TOP_PAD + SIG_BOTTOM_PAD));
+      var underlineGapPx = Math.round(plan.totalHeight * SIG_UNDERLINE_GAP_RATIO);
+      var underlineThicknessPx = Math.max(1, Math.round(plan.totalHeight * 0.035));
+      return {
+        width: cssWidth,
+        height: cssHeight + underlineGapPx + underlineThicknessPx
+      };
+    }
+
+    var measureCanvas = document.createElement('canvas');
+    var measureCtx = measureCanvas.getContext('2d');
+    measureCtx.font = fontString;
+    var textWidth = Math.ceil(measureCtx.measureText(text).width);
+    var sigWidth = Math.max(40, textWidth + (SIG_SIDE_PAD * 2));
+    var sigHeight = Math.max(40, Math.ceil((fontPx * 1.2) + SIG_TOP_PAD + SIG_BOTTOM_PAD));
+    var fallbackUnderlineGapPx = Math.round(fontPx * SIG_UNDERLINE_GAP_RATIO);
+    var fallbackUnderlineThicknessPx = Math.max(1, Math.round(fontPx * 0.035));
+
+    return {
+      width: sigWidth,
+      height: sigHeight + fallbackUnderlineGapPx + fallbackUnderlineThicknessPx
+    };
   }
 
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
@@ -1159,9 +1209,9 @@
     var underlineThicknessPx = Math.max(1, Math.round(plan.totalHeight * 0.035));
     var wrapHeightPx = cssHeight + underlineGapPx + underlineThicknessPx;
 
-    wrap.style.width = cssWidth + 'px';
-    wrap.style.height = wrapHeightPx + 'px';
-    wrap.style.minHeight = wrapHeightPx + 'px';
+    if (!wrap.style.width) wrap.style.width = cssWidth + 'px';
+    if (!wrap.style.height) wrap.style.height = wrapHeightPx + 'px';
+    if (!wrap.style.minHeight) wrap.style.minHeight = wrapHeightPx + 'px';
 
     canvasEl.style.top = '0px';
     canvasEl.style.left = '50%';
@@ -1251,6 +1301,8 @@
     var toCrest   = getClubCrestUrl(post.to_club);
     var hasClubs  = post.from_club || post.to_club;
     var clubsLine = isContract ? (post.to_club || '') : [post.from_club, post.to_club].filter(Boolean).join(' → ');
+    var sigReserve = getSignatureReserveMetrics(post.player_name || '');
+    var sigReserveStyle = 'style="width:' + sigReserve.width + 'px;max-width:94vw;height:' + sigReserve.height + 'px;min-height:' + sigReserve.height + 'px"';
     var bg = 'linear-gradient(105deg,'
       +(fromPal.tertiary||fromPal.secondary)+' 0%,'+(fromPal.tertiary||fromPal.secondary)+' 4.6666666667%,'
       +fromPal.secondary+' 4.6666666667%,'+fromPal.secondary+' 12%,'
@@ -1275,23 +1327,23 @@
             (post.from_club && !isContract ?
               '<div class="tc-sting__club-col">'+
                 '<div class="tc-sting__crest-ring tc-sting__crest-ring--from" style="background:#fff;border-color:rgba(255,255,255,0.4)">'+
-                  '<img class="tc-sting__crest-img" src="'+escHtml(fromCrest)+'" alt="" onerror="this.parentNode.style.display=\'none\'">'+
-                '</div>'+
+                  '<img class="tc-sting__crest-img" src="'+escHtml(fromCrest)+'" alt="" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'">'+
+             '</div>'+
                 '<div class="tc-sting__club-name">'+escHtml(post.from_club)+'</div>'+
               '</div>' : '')+
             (post.from_club && post.to_club && !isContract ? '<div class="tc-sting__arrow-mid"><span class="chv">›</span><span class="chv">›</span><span class="chv">›</span></div>' : '')+
             (post.to_club ?
               '<div class="tc-sting__club-col">'+
                 '<div class="tc-sting__crest-ring tc-sting__crest-ring--to" style="background:#fff;border-color:rgba(255,255,255,0.4);box-shadow:0 0 32px rgba(255,255,255,0.25)">'+
-                  '<img class="tc-sting__crest-img" src="'+escHtml(toCrest)+'" alt="" onerror="this.parentNode.style.display=\'none\'">'+
-                '</div>'+
+                  '<img class="tc-sting__crest-img" src="'+escHtml(toCrest)+'" alt="" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'">'+
+             '</div>'+
                 '<div class="tc-sting__club-name">'+escHtml(post.to_club)+'</div>'+
               '</div>' : '')+
           '</div>'
         : '')+
         (post.player_name ? '<div class="tc-sting__name">'+escHtml(post.player_name.toUpperCase())+'</div>' : '')+
         (post.player_name ?
-          '<div class="'+(isContract?'tc-sting__sig-wrap':'tc-sting__transfer-sig-wrap')+'" id="stingsig-'+escHtml(post.id)+'">'+
+          '<div class="'+(isContract?'tc-sting__sig-wrap':'tc-sting__transfer-sig-wrap')+'" id="stingsig-'+escHtml(post.id)+'" '+sigReserveStyle+'>'+
             '<div class="'+(isContract?'tc-sting__sig-text':'tc-sting__transfer-sig-text')+'">'+escHtml(stingSignatureName(post.player_name))+'</div>'+
             '<canvas class="'+(isContract?'tc-sting__sig-canvas':'tc-sting__transfer-sig-canvas')+'"></canvas>'+
             '<span class="'+(isContract?'tc-sting__sig-underline':'tc-sting__transfer-sig-underline')+'"></span>'+
@@ -1304,7 +1356,7 @@
           ? '<div class="tc-sting__bottom-label">'+escHtml(tc.label.toUpperCase())+'</div>'+
             (post.from_club && post.to_club && !isContract
               ? '<div class="tc-sting__bottom-from">'+escHtml((post.from_club||'').toUpperCase())+'</div>'+
-                '<div class="tc-sting__bottom-arrow">›</div>'+
+                '<div class="tc-sting__bottom-arrow"><span class="chv">›</span><span class="chv">›</span><span class="chv">›</span></div>'+
                 '<div class="tc-sting__bottom-to">'+escHtml((post.to_club||'').toUpperCase())+'</div>'
               : '<div class="tc-sting__bottom-from">'+escHtml(clubsLine.toUpperCase())+'</div>')
           : '<div class="tc-sting__bottom-label">National League Transfer Centre</div>')+
@@ -1376,19 +1428,19 @@
       var cp=getTeamPalette(post.to_club);
       html+='<div class="tc-transfer" style="justify-content:center"><div class="tc-club">'+
         '<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+cp.primary+'">'+
-        '<img class="tc-club__crest" src="'+crestUrl(post.to_club)+'" alt="'+escHtml(post.to_club)+'" loading="lazy" onerror="this.parentNode.style.display=\'none\'">'+
+        '<img class="tc-club__crest" src="'+crestUrl(post.to_club)+'" alt="'+escHtml(post.to_club)+'" loading="lazy" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'">'+
         '</div><div class="tc-club__name">'+escHtml(post.to_club)+'</div></div></div>';
     }
     if (isTransfer && (post.from_club || post.to_club)) {
       var fp=getTeamPalette(post.from_club), tp=getTeamPalette(post.to_club);
       html+='<div class="tc-transfer">';
       html+='<div class="tc-club">';
-      if (post.from_club) html+='<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+(isConfirmed?fp.primary:'#444')+'"><img class="tc-club__crest" src="'+crestUrl(post.from_club)+'" alt="'+escHtml(post.from_club)+'" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div><div class="tc-club__name">'+escHtml(post.from_club)+'</div>';
+      if (post.from_club) html+='<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+(isConfirmed?fp.primary:'#444')+'"><img class="tc-club__crest" src="'+crestUrl(post.from_club)+'" alt="'+escHtml(post.from_club)+'" loading="lazy" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'"></div><div class="tc-club__name">'+escHtml(post.from_club)+'</div>';
       else html+='<div class="tc-club__crest-wrap tc-club__crest-wrap--muted"><span style="font-size:20px">?</span></div><div class="tc-club__name">Unknown</div>';
       html+='</div>';
       html+='<div class="tc-transfer__arrow"><div class="tc-transfer__arrow-icon"><span class="chv">›</span><span class="chv">›</span><span class="chv">›</span></div></div>';
       html+='<div class="tc-club">';
-      if (post.to_club) html+='<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+(isConfirmed?tp.primary:'#444')+'"><img class="tc-club__crest" src="'+crestUrl(post.to_club)+'" alt="'+escHtml(post.to_club)+'" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div><div class="tc-club__name">'+escHtml(post.to_club)+'</div>';
+      if (post.to_club) html+='<div class="tc-club__crest-wrap" style="background:#fff;border-color:'+(isConfirmed?tp.primary:'#444')+'"><img class="tc-club__crest" src="'+crestUrl(post.to_club)+'" alt="'+escHtml(post.to_club)+'" loading="lazy" onerror="this.onerror=null;this.src=\''+ROSE_CREST+'\'"></div><div class="tc-club__name">'+escHtml(post.to_club)+'</div>';
       else html+='<div class="tc-club__crest-wrap tc-club__crest-wrap--muted"><span style="font-size:20px">?</span></div><div class="tc-club__name">Unknown</div>';
       html+='</div></div>';
     }
@@ -1401,8 +1453,8 @@
       (post.media_url?'<img class="tc-article__image" src="'+escHtml(post.media_url)+'" alt="" loading="lazy">':'')+
       '<div class="tc-article__content">'+
         (post.article_source?'<div class="tc-article__source">'+escHtml(post.article_source)+'</div>':'')+
-        '<div class="tc-article__title">'+escHtml(post.article_title||'Read more')+'</div>'+
-        '<span class="tc-article__cta">Read Article ↗</span>'+
+        '<div class="tc-article__title">'+escHtml(post.article_title || post.copy_text || post.copy || 'Read more')+'</div>'+
+      '<span class="tc-article__cta">Read Article ↗</span>'+
       '</div></a>';
   }
 
@@ -1451,8 +1503,8 @@
   function init() {
     takeover();
     Promise.all([
-      loadClubs().catch(function(){}),
-      loadTracedFont().catch(function(){})
+      loadTracedFont().catch(function(){}),
+      loadClubs().catch(function(){})
     ]).then(function(){
       refresh();
       setInterval(refresh, POLL_MS);
