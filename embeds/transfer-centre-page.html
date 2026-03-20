@@ -1,5 +1,7 @@
 <!--
   NL Transfer Centre — Frontend
+  v46.4 — Removed duplicate legacy buildMediaHTML/loadEmbeds functions; keeps only the
+           proper X/Twitter + Instagram auto-detect embed handling from v46.3
   v46.2 — Fixed isKnownClub logic; contract crest now falls back to rose instead of hiding;
            article title now falls back to copy_text/copy; sting queue preload now uses
            shared crest lookup logic for direct /assets/crests/ paths
@@ -1459,17 +1461,49 @@
   }
 
   function buildGeneralHTML(post) { return '<div class="tc-general__copy">'+getPostCopyMarkup(post)+'</div>'; }
-  
+
+  function isXUrl(url) {
+    var s = String(url || '').trim();
+    return /^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[^/]+\/status\/\d+/i.test(s) ||
+           /^https?:\/\/(www\.)?x\.com\/i\/web\/status\/\d+/i.test(s);
+  }
+
+  function isInstagramUrl(url) {
+    return /^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i.test(String(url || '').trim());
+  }
+
+  function normaliseInstagramUrl(url) {
+    var m = String(url || '').trim().match(/^https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/[^/?#]+/i);
+    return m ? (m[0] + '/') : String(url || '').trim();
+  }
+
   function buildMediaHTML(post) {
-    if (post.media_type==='twitter') return '<blockquote class="twitter-tweet" data-theme="dark"><a href="'+escHtml(post.media_url)+'"></a></blockquote>';
-    if (post.media_type==='instagram') return '<blockquote class="instagram-media" data-instgrm-permalink="'+escHtml(post.media_url)+'" data-instgrm-version="14"></blockquote>';
-    if (post.media_type==='image') return '<img src="'+escHtml(post.media_url)+'" style="width:100%;border-radius:4px;" loading="lazy">';
+    var mediaType = String(post.media_type || '').toLowerCase().trim();
+    var mediaUrl = String(post.media_url || '').trim();
+    if (!mediaUrl) return '';
+
+    if (mediaType === 'image') {
+      return '<img src="' + escHtml(mediaUrl) + '" style="width:100%;border-radius:4px;" loading="lazy">';
+    }
+
+    if (mediaType === 'twitter' || mediaType === 'x' || mediaType === 'tweet' || isXUrl(mediaUrl)) {
+      return '<blockquote class="twitter-tweet" data-theme="dark"><a href="' + escHtml(mediaUrl) + '"></a></blockquote>';
+    }
+
+    if (mediaType === 'instagram' || isInstagramUrl(mediaUrl)) {
+      return '<blockquote class="instagram-media" data-instgrm-permalink="' + escHtml(normaliseInstagramUrl(mediaUrl)) + '" data-instgrm-version="14" style="margin:0 auto;max-width:540px;width:100%;"></blockquote>';
+    }
+
     return '';
   }
 
   function loadEmbeds() {
-    if (document.querySelector('.twitter-tweet') && window.twttr && window.twttr.widgets) window.twttr.widgets.load();
-    if (document.querySelector('.instagram-media') && window.instgrm) window.instgrm.Embeds.process();
+    if (document.querySelector('.twitter-tweet') && window.twttr && window.twttr.widgets) {
+      window.twttr.widgets.load();
+    }
+    if (document.querySelector('.instagram-media') && window.instgrm && window.instgrm.Embeds) {
+      window.instgrm.Embeds.process();
+    }
   }
 
   // ─── REFRESH ──────────────────────────────────────────────────────────────
@@ -1510,7 +1544,16 @@
       setInterval(refresh, POLL_MS);
     });
     if (!window.twttr) {
-      var s=document.createElement('script'); s.src='https://platform.twitter.com/widgets.js'; s.async=true; document.body.appendChild(s);
+      var s=document.createElement('script');
+      s.src='https://platform.twitter.com/widgets.js';
+      s.async=true;
+      document.body.appendChild(s);
+    }
+    if (!window.instgrm) {
+      var ig=document.createElement('script');
+      ig.src='https://www.instagram.com/embed.js';
+      ig.async=true;
+      document.body.appendChild(ig);
     }
   }
 
