@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NL Vidiprinter</title>
+<!--
+  NL Vidiprinter — Front End
+  v1.1.0
+  CHANGELOG
+  v1.1.0 — Version aligned with poller v1.2.0. No functional changes
+           to front end. Firebase config confirmed. Ready to host.
+  v1.0.0 — Initial build. Real-time goals feed from Firebase.
+           Competition filter tabs. Live scores sidebar.
+           Smart status indicator from poller meta node.
+-->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0d0d;
+  --surface:#161616;
+  --surface2:#1e1e1e;
+  --border:#272727;
+  --text:#efefef;
+  --muted:#777;
+  --faint:#333;
+  --nl:#e8c840;
+  --north:#4a9eff;
+  --south:#ff6b4a;
+  --live:#3ddc84;
+}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;overflow-x:hidden}
+
+/* ---- Header ---- */
+.hdr{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:0 20px;
+  height:52px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  position:sticky;top:0;z-index:200;
+}
+.hdr-brand{display:flex;align-items:center;gap:10px}
+.hdr-logo{
+  width:28px;height:28px;border-radius:6px;
+  background:var(--nl);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:13px;color:#000;letter-spacing:-0.5px;
+}
+.hdr-title{font-size:15px;font-weight:700;letter-spacing:0.3px}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--faint);transition:background 0.3s}
+.status-dot.live{background:var(--live);animation:glow 1.8s infinite}
+@keyframes glow{0%,100%{opacity:1}50%{opacity:0.4}}
+.status-label{font-size:12px;color:var(--muted)}
+.last-upd{font-size:11px;color:var(--faint)}
+
+/* ---- Comp filter ---- */
+.filters{
+  display:flex;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:0 20px;
+  overflow-x:auto;
+}
+.filter-btn{
+  padding:10px 14px;
+  font-size:12px;font-weight:600;
+  letter-spacing:0.3px;
+  border:none;background:none;
+  color:var(--muted);
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  white-space:nowrap;
+  transition:color 0.15s,border-color 0.15s;
+}
+.filter-btn:hover{color:var(--text)}
+.filter-btn.active{color:var(--text);border-bottom-color:var(--nl)}
+.filter-btn .dot{
+  display:inline-block;width:7px;height:7px;
+  border-radius:50%;margin-right:5px;
+  vertical-align:middle;
+}
+.filter-btn .cnt{
+  display:inline-block;
+  font-size:10px;font-weight:700;
+  background:var(--surface2);
+  border-radius:8px;padding:1px 6px;
+  margin-left:5px;color:var(--muted);
+}
+
+/* ---- Layout ---- */
+.layout{display:grid;grid-template-columns:1fr 260px;min-height:calc(100vh - 89px)}
+@media(max-width:680px){.layout{grid-template-columns:1fr}.sidebar{display:none}}
+
+/* ---- Feed ---- */
+.feed{border-right:1px solid var(--border);overflow-y:auto}
+.feed-empty{padding:60px 24px;text-align:center}
+.feed-empty-icon{
+  width:48px;height:48px;border-radius:50%;
+  background:var(--surface2);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 16px;
+}
+.feed-empty-icon svg{opacity:0.3}
+.feed-empty-title{font-size:15px;font-weight:600;margin-bottom:6px}
+.feed-empty-sub{font-size:13px;color:var(--muted);line-height:1.6}
+
+/* ---- Goal row ---- */
+.goal-row{
+  display:flex;align-items:flex-start;gap:14px;
+  padding:14px 20px;
+  border-bottom:1px solid var(--border);
+  transition:background 0.15s;
+  animation:rowIn 0.35s ease;
+}
+@keyframes rowIn{
+  from{opacity:0;transform:translateY(-10px);background:rgba(232,200,64,0.08)}
+  to{opacity:1;transform:translateY(0);background:transparent}
+}
+.goal-row:hover{background:var(--surface)}
+.goal-row.new-flash{animation:flash 1s ease}
+@keyframes flash{
+  0%{background:rgba(232,200,64,0.12)}
+  100%{background:transparent}
+}
+.goal-min-col{min-width:44px;text-align:center;padding-top:2px}
+.goal-min{font-size:20px;font-weight:800;color:var(--nl);line-height:1}
+.goal-min-lbl{font-size:9px;color:var(--muted);margin-top:2px;letter-spacing:0.5px;text-transform:uppercase}
+.goal-body{flex:1;min-width:0}
+.goal-scorer{font-size:15px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.goal-type-badge{
+  font-size:9px;font-weight:700;letter-spacing:0.5px;
+  padding:2px 5px;border-radius:3px;
+  background:var(--surface2);color:var(--muted);
+  text-transform:uppercase;
+}
+.goal-match{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.4}
+.goal-score{
+  display:inline-block;
+  font-weight:800;font-size:13px;
+  color:var(--text);
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:1px 8px;
+  margin-left:4px;
+}
+.goal-meta{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.comp-pill{
+  font-size:10px;font-weight:700;letter-spacing:0.4px;
+  padding:2px 7px;border-radius:3px;
+  text-transform:uppercase;
+}
+.comp-nl   {background:rgba(232,200,64,0.15);color:var(--nl)}
+.comp-north{background:rgba(74,158,255,0.15);color:var(--north)}
+.comp-south{background:rgba(255,107,74,0.15);color:var(--south)}
+.goal-time-lbl{font-size:10px;color:var(--faint)}
+
+/* ---- Sidebar ---- */
+.sidebar{background:var(--surface);overflow-y:auto}
+.sidebar-hdr{
+  padding:10px 14px;
+  font-size:10px;font-weight:700;letter-spacing:0.8px;
+  color:var(--muted);text-transform:uppercase;
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;background:var(--surface);z-index:10;
+}
+.score-card{
+  padding:10px 14px;
+  border-bottom:1px solid var(--border);
+  transition:background 0.1s;
+}
+.score-card:hover{background:var(--surface2)}
+.score-card.is-live{border-left:2px solid var(--live)}
+.score-comp{font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px}
+.score-teams{display:flex;flex-direction:column;gap:5px}
+.score-team-row{display:flex;align-items:center;justify-content:space-between}
+.score-team-name{font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px}
+.score-val{font-size:14px;font-weight:800;min-width:16px;text-align:right}
+.score-val.scored{color:var(--nl)}
+.score-status{display:flex;align-items:center;gap:5px;margin-top:5px}
+.live-badge{font-size:9px;font-weight:700;color:var(--live);display:flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:0.5px}
+.live-pulse{width:5px;height:5px;border-radius:50%;background:var(--live);animation:glow 1s infinite}
+.ft-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+.ko-label{font-size:9px;color:var(--faint)}
+.sidebar-empty{padding:20px 14px;font-size:12px;color:var(--muted)}
+
+/* ---- Loading ---- */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 24px;gap:12px}
+.spinner{width:24px;height:24px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--nl);animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-lbl{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-brand">
+    <div class="hdr-logo">NL</div>
+    <span class="hdr-title">Vidiprinter</span>
+  </div>
+  <div class="hdr-right">
+    <div id="statusDot" class="status-dot"></div>
+    <span id="statusLabel" class="status-label">Connecting...</span>
+    <span id="lastUpd" class="last-upd"></span>
+  </div>
+</header>
+
+<nav class="filters">
+  <button class="filter-btn active" data-comp="all" onclick="setFilter('all',this)">
+    <span class="dot" style="background:#888"></span>All
+    <span class="cnt" id="cnt-all">0</span>
+  </button>
+  <button class="filter-btn" data-comp="nl" onclick="setFilter('nl',this)">
+    <span class="dot" style="background:var(--nl)"></span>National League
+    <span class="cnt" id="cnt-nl">0</span>
+  </button>
+  <button class="filter-btn" data-comp="north" onclick="setFilter('north',this)">
+    <span class="dot" style="background:var(--north)"></span>National North
+    <span class="cnt" id="cnt-north">0</span>
+  </button>
+  <button class="filter-btn" data-comp="south" onclick="setFilter('south',this)">
+    <span class="dot" style="background:var(--south)"></span>National South
+    <span class="cnt" id="cnt-south">0</span>
+  </button>
+</nav>
+
+<div class="layout">
+  <div class="feed" id="feed">
+    <div class="loading">
+      <div class="spinner"></div>
+      <span class="loading-lbl">Loading goal feed...</span>
+    </div>
+  </div>
+  <aside class="sidebar">
+    <div class="sidebar-hdr">Live Scores</div>
+    <div id="scoreList"><div class="sidebar-empty">No matches today yet</div></div>
+  </aside>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, query, orderByKey, limitToLast }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyAvfbxPrV0RsUp-2W8ihQAOmDb-_vk75zw",
+  authDomain:        "nl-vidiprinter.firebaseapp.com",
+  databaseURL:       "https://nl-vidiprinter-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nl-vidiprinter",
+  storageBucket:     "nl-vidiprinter.firebasestorage.app",
+  messagingSenderId: "525255768709",
+  appId:             "1:525255768709:web:1360bafb1f7a506cd087ec"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+let allGoals     = [];
+let allScores    = {};
+let activeFilter = "all";
+let initialLoad  = true;
+
+// Goals — listen to last 200, newest first by key
+const goalsRef = query(ref(db, "goals"), orderByKey(), limitToLast(200));
+onValue(goalsRef, snap => {
+  const raw = snap.val() || {};
+  allGoals = Object.entries(raw)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, data]) => ({ key, data }));
+  renderFeed(!initialLoad);
+  updateCounts();
+  initialLoad = false;
+  updateStatus();
+});
+
+// Scores sidebar
+onValue(ref(db, "scores"), snap => {
+  allScores = snap.val() || {};
+  renderScores();
+});
+
+// Poller meta — status indicator
+onValue(ref(db, "meta/lastPoll"), snap => {
+  const meta = snap.val();
+  if (!meta) return;
+  const dot   = document.getElementById("statusDot");
+  const label = document.getElementById("statusLabel");
+  const upd   = document.getElementById("lastUpd");
+  if (meta.status === "live") {
+    dot.className     = "status-dot live";
+    label.textContent = meta.liveMatches + " live match" + (meta.liveMatches !== 1 ? "es" : "");
+  } else if (meta.status === "watching") {
+    dot.className          = "status-dot";
+    dot.style.background   = "#4a9eff";
+    label.textContent      = "Watching for kick off";
+  } else {
+    dot.className          = "status-dot";
+    dot.style.background   = "var(--faint)";
+    label.textContent      = "No matches today";
+  }
+  if (meta.time) {
+    const d = new Date(meta.time);
+    upd.textContent = "Updated " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" });
+  }
+});
+
+function renderFeed(animate) {
+  const feed     = document.getElementById("feed");
+  const filtered = activeFilter === "all"
+    ? allGoals
+    : allGoals.filter(g => g.data.compKey === activeFilter);
+
+  if (filtered.length === 0) {
+    feed.innerHTML = `
+      <div class="feed-empty">
+        <div class="feed-empty-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <div class="feed-empty-title">No goals yet</div>
+        <div class="feed-empty-sub">Goals will appear here as they are scored.<br>The poller checks every minute during match hours.</div>
+      </div>`;
+    return;
+  }
+
+  feed.innerHTML = filtered.map((g, i) => goalRowHTML(g.data, animate && i === 0)).join("");
+}
+
+function goalRowHTML(d, flash) {
+  const compClass = "comp-" + (d.compKey || "nl");
+  const scoreStr  = (d.homeScore != null ? d.homeScore : "?") + "–" + (d.awayScore != null ? d.awayScore : "?");
+  const extras    = [];
+  if (d.isOwnGoal) extras.push("OG");
+  if (d.isPenalty) extras.push("Pen");
+  const badgeHTML = extras.map(e => `<span class="goal-type-badge">${e}</span>`).join("");
+  const detectedTime = d.detectedAt
+    ? new Date(d.detectedAt).toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" })
+    : "";
+
+  return `<div class="goal-row${flash ? " new-flash" : ""}">
+    <div class="goal-min-col">
+      <div class="goal-min">${esc(d.minute || "?")}</div>
+      <div class="goal-min-lbl">min</div>
+    </div>
+    <div class="goal-body">
+      <div class="goal-scorer">${esc(d.scorer || "Unknown")} ${badgeHTML}</div>
+      <div class="goal-match">
+        ${esc(d.homeTeam)} <span class="goal-score">${esc(scoreStr)}</span> ${esc(d.awayTeam)}
+      </div>
+      <div class="goal-meta">
+        <span class="comp-pill ${compClass}">${esc(d.competition)}</span>
+        ${detectedTime ? `<span class="goal-time-lbl">detected ${detectedTime}</span>` : ""}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderScores() {
+  const list   = document.getElementById("scoreList");
+  const scores = Object.values(allScores);
+  if (!scores.length) {
+    list.innerHTML = `<div class="sidebar-empty">No matches today yet</div>`;
+    return;
+  }
+
+  scores.sort((a, b) => {
+    if (a.isLive && !b.isLive) return -1;
+    if (!a.isLive && b.isLive) return 1;
+    return (a.kickOff || "").localeCompare(b.kickOff || "");
+  });
+
+  const grouped    = { nl: [], north: [], south: [] };
+  const compLabels = { nl: "National League", north: "National North", south: "National South" };
+  const compColors = { nl: "var(--nl)", north: "var(--north)", south: "var(--south)" };
+
+  scores.forEach(s => { if (grouped[s.compKey]) grouped[s.compKey].push(s); });
+
+  let html = "";
+  ["nl","north","south"].forEach(key => {
+    (grouped[key] || []).forEach(s => { html += scoreCardHTML(s, compLabels[key], compColors[key]); });
+  });
+
+  list.innerHTML = html || `<div class="sidebar-empty">No matches today yet</div>`;
+}
+
+function scoreCardHTML(s, label, color) {
+  const period  = (s.period || "").toLowerCase();
+  const isFT    = period === "fulltime" || period === "postmatch";
+  const isLive  = s.isLive;
+  const isPre   = !isLive && !isFT;
+  const hs      = s.homeScore != null ? s.homeScore : "–";
+  const as_     = s.awayScore != null ? s.awayScore : "–";
+  const hScored = s.homeScore != null && s.homeScore > 0;
+  const aScored = s.awayScore != null && s.awayScore > 0;
+
+  let statusHTML = "";
+  if (isLive) {
+    statusHTML = `<div class="score-status"><div class="live-badge"><div class="live-pulse"></div>Live</div></div>`;
+  } else if (isFT) {
+    statusHTML = `<div class="score-status"><span class="ft-label">Full time</span></div>`;
+  } else if (isPre && s.kickOff) {
+    const t = new Date(s.kickOff).toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" });
+    statusHTML = `<div class="score-status"><span class="ko-label">KO ${t}</span></div>`;
+  }
+
+  return `<div class="score-card${isLive ? " is-live" : ""}">
+    <div class="score-comp" style="color:${color}">${esc(label)}</div>
+    <div class="score-teams">
+      <div class="score-team-row">
+        <span class="score-team-name">${esc(s.homeTeam)}</span>
+        <span class="score-val${hScored ? " scored" : ""}">${hs}</span>
+      </div>
+      <div class="score-team-row">
+        <span class="score-team-name">${esc(s.awayTeam)}</span>
+        <span class="score-val${aScored ? " scored" : ""}">${as_}</span>
+      </div>
+    </div>
+    ${statusHTML}
+  </div>`;
+}
+
+function updateCounts() {
+  const counts = { all: allGoals.length, nl: 0, north: 0, south: 0 };
+  allGoals.forEach(g => { if (counts[g.data.compKey] !== undefined) counts[g.data.compKey]++; });
+  Object.entries(counts).forEach(([k, v]) => {
+    const el = document.getElementById("cnt-" + k);
+    if (el) el.textContent = v;
+  });
+}
+
+function updateStatus() {
+  const dot   = document.getElementById("statusDot");
+  const label = document.getElementById("statusLabel");
+  if (!dot.classList.contains("live") && dot.style.background !== "#4a9eff") {
+    dot.style.background  = "#3ddc84";
+    label.textContent     = "Connected";
+  }
+}
+
+window.setFilter = function(comp, btn) {
+  activeFilter = comp;
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  renderFeed(false);
+};
+
+function esc(str) {
+  return String(str || "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+</script>
+</body>
+</html>
