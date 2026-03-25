@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NL Scorer Import Tool</title>
+<!--
+  NL Scorer Import Tool
+  v1.0.0
+  CHANGELOG
+  v1.0.0 — Upload completed CSV, Claude matches scorer names to
+           playerIDs from the NLS API. Review and confirm each match
+           then write to Firebase top_scorers with playerID key
+           and per-team sub-tallies.
+-->
+<link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'carbona-variable', system-ui, sans-serif;
+  background: #f3f3f3;
+  color: #111;
+  padding: 20px;
+  min-height: 100vh;
+}
+.wrap { max-width: 800px; margin: 0 auto; }
+h1 {
+  font-size: 1.2rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: #9e0000; margin-bottom: 4px;
+}
+.sub { font-size: .8rem; color: #888; margin-bottom: 24px; }
+
+/* Steps */
+.step {
+  background: #fff; border-radius: 10px;
+  border: 1px solid #e5e5e5;
+  padding: 20px; margin-bottom: 16px;
+}
+.step-title {
+  font-size: .78rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: #223b7c; margin-bottom: 12px;
+}
+.step.done { opacity: .5; pointer-events: none; }
+.step.active { border-color: #223b7c; }
+
+/* Upload */
+.upload-area {
+  border: 2px dashed #ccc; border-radius: 8px;
+  padding: 32px; text-align: center;
+  cursor: pointer; transition: border-color .15s;
+}
+.upload-area:hover, .upload-area.drag { border-color: #223b7c; }
+.upload-area input { display: none; }
+.upload-label {
+  font-size: .88rem; font-weight: 700; color: #555;
+}
+.upload-hint { font-size: .75rem; color: #aaa; margin-top: 6px; }
+
+/* Buttons */
+.btn {
+  display: inline-block; padding: 10px 20px;
+  background: #9e0000; color: #fff;
+  border: none; border-radius: 6px;
+  font-family: inherit; font-size: .82rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .05em;
+  cursor: pointer; transition: background .15s;
+}
+.btn:hover { background: #7a0000; }
+.btn.blue { background: #223b7c; }
+.btn.blue:hover { background: #1a2e60; }
+.btn.grey { background: #888; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Progress */
+.progress-bar {
+  height: 6px; background: #e5e5e5; border-radius: 3px;
+  margin: 12px 0; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; background: #9e0000;
+  border-radius: 3px; transition: width .3s;
+}
+.progress-label { font-size: .75rem; color: #888; }
+
+/* Review table */
+.review-table {
+  width: 100%; border-collapse: collapse;
+  font-size: .8rem;
+}
+.review-table th {
+  text-align: left; padding: 8px 10px;
+  background: #f8f8f8; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .04em;
+  font-size: .7rem; color: #555;
+  border-bottom: 2px solid #e5e5e5;
+}
+.review-table td {
+  padding: 10px; border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+.review-table tr:last-child td { border-bottom: none; }
+
+.match-info { font-size: .75rem; color: #888; }
+.scorer-input { font-weight: 700; }
+
+/* Player match options */
+.match-options { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.match-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px;
+  border: 1px solid #e5e5e5; cursor: pointer;
+  transition: border-color .1s, background .1s;
+}
+.match-option:hover { border-color: #223b7c; background: #f0f4ff; }
+.match-option.selected { border-color: #223b7c; background: #e8eeff; }
+.match-option input[type=radio] { accent-color: #223b7c; flex-shrink: 0; }
+.match-name { font-weight: 700; font-size: .8rem; }
+.match-id { font-size: .7rem; color: #aaa; }
+.match-searching { font-size: .78rem; color: #aaa; font-style: italic; }
+.match-none { font-size: .78rem; color: #c00; }
+.match-manual input {
+  width: 100%; padding: 6px 8px; border: 1px solid #ccc;
+  border-radius: 4px; font-size: .8rem; font-family: inherit;
+  margin-top: 4px;
+}
+.match-manual label { font-size: .75rem; color: #888; }
+
+/* Status badges */
+.badge {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 4px; font-size: .68rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge.ok { background: #e6f7ec; color: #1a7a3a; }
+.badge.warn { background: #fff8e6; color: #996600; }
+.badge.err { background: #fce8e8; color: #9e0000; }
+
+/* Log */
+.log {
+  background: #111; color: #0f0; border-radius: 8px;
+  padding: 16px; font-family: monospace; font-size: .75rem;
+  max-height: 300px; overflow-y: auto; margin-top: 12px;
+}
+.log-line { margin-bottom: 2px; }
+.log-line.err { color: #f66; }
+.log-line.ok  { color: #6f6; }
+.log-line.info { color: #6af; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>NL Scorer Import Tool</h1>
+  <p class="sub">Upload your completed CSV, match names to player IDs, then import to Firebase.</p>
+
+  <!-- Step 1: Upload -->
+  <div class="step active" id="step1">
+    <div class="step-title">Step 1 — Upload completed CSV</div>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <input type="file" id="fileInput" accept=".csv" onchange="handleFile(this)">
+      <div class="upload-label">Click to upload nl-missing-goal-data.csv</div>
+      <div class="upload-hint">The CSV you filled in with scorer names</div>
+    </div>
+    <div id="uploadStatus" style="margin-top:10px;font-size:.8rem;color:#888;"></div>
+  </div>
+
+  <!-- Step 2: Match names to player IDs -->
+  <div class="step" id="step2">
+    <div class="step-title">Step 2 — Match scorer names to player IDs</div>
+    <p style="font-size:.8rem;color:#888;margin-bottom:12px">
+      Claude will search the NLS API for each scorer. Review and confirm each match before importing.
+    </p>
+    <button class="btn" id="matchBtn" onclick="matchAllScorers()" disabled>
+      Search NLS for Player IDs
+    </button>
+    <div class="progress-bar" id="matchProgress" style="display:none">
+      <div class="progress-fill" id="matchFill" style="width:0%"></div>
+    </div>
+    <div class="progress-label" id="matchLabel"></div>
+    <div id="reviewTable" style="margin-top:16px;overflow-x:auto;"></div>
+  </div>
+
+  <!-- Step 3: Import to Firebase -->
+  <div class="step" id="step3">
+    <div class="step-title">Step 3 — Import to Firebase</div>
+    <p style="font-size:.8rem;color:#888;margin-bottom:12px">
+      Review complete. Click import to write all confirmed scorers to Firebase.
+    </p>
+    <button class="btn blue" id="importBtn" onclick="importToFirebase()" disabled>
+      Import to Firebase
+    </button>
+    <div class="log" id="importLog" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+// ---- Config ----
+const FIREBASE_URL = "https://nl-vidiprinter-default-rtdb.europe-west1.firebasedatabase.app";
+const NLS_BASE     = "https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2";
+
+// ---- State ----
+let csvRows   = [];   // parsed CSV rows
+let scorerMap = {};   // unique scorer+team combos → { name, team, compKey, rows[], playerID, manualID }
+
+// ---- Step 1: Parse CSV ----
+function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    csvRows = parseCSV(text);
+    const filled = csvRows.filter(r => r.scorerName && r.scorerName.trim() && r.isOwnGoal !== "yes");
+    document.getElementById("uploadStatus").textContent =
+      `Loaded ${csvRows.length} rows — ${filled.length} scorers to match (own goals excluded)`;
+    document.getElementById("step1").classList.remove("active");
+    document.getElementById("step1").classList.add("done");
+    document.getElementById("step2").classList.add("active");
+    document.getElementById("matchBtn").disabled = false;
+  };
+  reader.readAsText(file);
+}
+
+// ---- Step 2: Match scorer names ----
+async function matchAllScorers() {
+  document.getElementById("matchBtn").disabled = true;
+
+  // Build unique scorer+compKey combos
+  scorerMap = {};
+  csvRows.forEach(row => {
+    if (!row.scorerName || !row.scorerName.trim()) return;
+    if (row.isOwnGoal === "yes") return;
+    const key = row.scorerName.trim() + "|" + row.compKey + "|" + row.scoringTeam;
+    if (!scorerMap[key]) {
+      scorerMap[key] = {
+        name:     row.scorerName.trim(),
+        team:     row.scoringTeam,
+        compKey:  row.compKey,
+        comp:     row.competition,
+        rows:     [],
+        playerID: null,
+        candidates: [],
+        manualID: ""
+      };
+    }
+    scorerMap[key].rows.push(row);
+  });
+
+  const keys   = Object.keys(scorerMap);
+  const prog   = document.getElementById("matchProgress");
+  const fill   = document.getElementById("matchFill");
+  const label  = document.getElementById("matchLabel");
+  prog.style.display = "block";
+
+  for (let i = 0; i < keys.length; i++) {
+    const entry = scorerMap[keys[i]];
+    label.textContent = `Searching ${i+1} of ${keys.length}: ${entry.name}`;
+    fill.style.width  = ((i+1)/keys.length*100) + "%";
+
+    entry.candidates = await searchPlayer(entry.name, entry.team);
+    await sleep(300);
+  }
+
+  label.textContent = "Search complete — review matches below";
+  renderReviewTable();
+  document.getElementById("step3").classList.add("active");
+  document.getElementById("importBtn").disabled = false;
+}
+
+async function searchPlayer(name, teamHint) {
+  // Use the Anthropic API to search for the player
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        system: `You are a football data assistant. Given a player name and team hint, search the NLS API and return candidate playerID matches.
+The NLS player search endpoint is: ${NLS_BASE}/players/?name={name}&page.size=10
+Return ONLY a JSON array of candidates like:
+[{"playerID":"p12345","firstName":"Tom","lastName":"Scott","knownName":null,"teamName":"Worthing"}]
+If no match found return [].
+Return raw JSON only, no markdown.`,
+        messages: [{
+          role: "user",
+          content: `Find playerID for: "${name}" (team hint: ${teamHint}). Search the NLS API and return candidates.`
+        }],
+        tools: [{
+          type: "web_search_20250305",
+          name: "web_search"
+        }]
+      })
+    });
+
+    const data = await resp.json();
+    const text = data.content
+      .filter(b => b.type === "text")
+      .map(b => b.text)
+      .join("");
+    const clean = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(clean);
+  } catch(e) {
+    // Fallback: direct NLS player search
+    return await searchPlayerDirect(name);
+  }
+}
+
+async function searchPlayerDirect(name) {
+  try {
+    const url = NLS_BASE + "/players/?name=" + encodeURIComponent(name) + "&page.size=10";
+    const res  = await fetch(url);
+    const json = await res.json();
+    return (json.data || []).map(p => ({
+      playerID:  p.id || p.attributes?.playerID,
+      firstName: p.attributes?.firstName,
+      lastName:  p.attributes?.lastName,
+      knownName: p.attributes?.knownName
+    }));
+  } catch(e) {
+    return [];
+  }
+}
+
+// ---- Render review table ----
+function renderReviewTable() {
+  const keys  = Object.keys(scorerMap);
+  const tbody = keys.map((k, idx) => {
+    const e  = scorerMap[k];
+    const id = "sm_" + idx;
+
+    const options = e.candidates.length
+      ? e.candidates.map(c => {
+          const displayName = c.knownName || (c.firstName + " " + c.lastName);
+          return `<label class="match-option">
+            <input type="radio" name="${id}" value="${c.playerID}" onchange="setPlayerID('${k}',this.value)">
+            <div>
+              <div class="match-name">${esc(displayName)}</div>
+              <div class="match-id">${c.playerID}</div>
+            </div>
+          </label>`;
+        }).join("")
+      : `<div class="match-none">No API match found</div>`;
+
+    return `<tr>
+      <td>
+        <div class="scorer-input">${esc(e.name)}</div>
+        <div class="match-info">${esc(e.team)} · ${esc(e.comp)} · ${e.rows.length} goal${e.rows.length>1?"s":""}</div>
+      </td>
+      <td>
+        <div class="match-options">${options}</div>
+        <div class="match-manual" style="margin-top:8px">
+          <label>Or enter playerID manually:</label>
+          <input type="text" placeholder="e.g. p12345" oninput="setPlayerID('${k}',this.value)">
+        </div>
+      </td>
+      <td id="status_${idx}"><span class="badge warn">Pending</span></td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("reviewTable").innerHTML = `
+    <table class="review-table">
+      <thead><tr><th>Scorer</th><th>Player ID Match</th><th>Status</th></tr></thead>
+      <tbody>${tbody}</tbody>
+    </table>`;
+}
+
+function setPlayerID(key, val) {
+  scorerMap[key].playerID = val.trim();
+  // Update status badge
+  const keys = Object.keys(scorerMap);
+  const idx  = keys.indexOf(key);
+  const el   = document.getElementById("status_" + idx);
+  if (el) el.innerHTML = val.trim()
+    ? `<span class="badge ok">Confirmed</span>`
+    : `<span class="badge warn">Pending</span>`;
+}
+
+// ---- Step 3: Import to Firebase ----
+async function importToFirebase() {
+  document.getElementById("importBtn").disabled = true;
+  const log = document.getElementById("importLog");
+  log.style.display = "block";
+  log.innerHTML = "";
+
+  const addLog = (msg, type="") =>
+    log.innerHTML += `<div class="log-line ${type}">${esc(msg)}</div>`;
+
+  addLog("Starting import...", "info");
+
+  // Load existing top_scorers tallies
+  const tallyCache = {};
+
+  for (const row of csvRows) {
+    if (!row.scorerName || !row.scorerName.trim()) continue;
+
+    const isOG  = row.isOwnGoal === "yes";
+    const isPen = row.isPenalty === "yes";
+    const key   = row.scorerName.trim() + "|" + row.compKey + "|" + row.scoringTeam;
+    const entry = scorerMap[key];
+
+    // Build goalID — matchID_teamID_goalIndex
+    // We need the teamID — fetch from matchTeams if needed
+    const goalID = row.matchID + "_TEAM_" + row.goalIndex; // placeholder — see note below
+
+    // Mark goal seen
+    await fbSet("seen_goals/" + sanitize(row.matchID + "_" + row.goalIndex), true);
+
+    if (isOG) {
+      addLog("OG skipped for tally: " + row.matchID + " min " + row.minute, "info");
+      continue;
+    }
+
+    const playerID = entry && entry.playerID;
+    if (!playerID) {
+      addLog("SKIPPED — no playerID confirmed for: " + row.scorerName, "err");
+      continue;
+    }
+
+    const compKey  = row.compKey;
+    const teamName = row.scoringTeam;
+    const teamID   = "manual"; // no teamID from CSV — use placeholder
+    const cacheKey = compKey + "/" + playerID;
+
+    // Load current tally if not cached
+    if (!tallyCache[cacheKey]) {
+      const current = await fbGet("top_scorers/" + compKey + "/" + playerID);
+      tallyCache[cacheKey] = current || {
+        playerID:    playerID,
+        scorer:      row.scorerName.trim(),
+        goals:       0,
+        teams:       {},
+        competition: row.competition,
+        compKey:     compKey
+      };
+    }
+
+    // Increment
+    tallyCache[cacheKey].goals++;
+    tallyCache[cacheKey].scorer = row.scorerName.trim();
+    if (!tallyCache[cacheKey].teams) tallyCache[cacheKey].teams = {};
+    if (!tallyCache[cacheKey].teams[teamName]) {
+      tallyCache[cacheKey].teams[teamName] = { teamName: teamName, goals: 0 };
+    }
+    tallyCache[cacheKey].teams[teamName].goals++;
+    tallyCache[cacheKey].updatedAt = Date.now();
+
+    // Write to Firebase
+    await fbSet("top_scorers/" + compKey + "/" + playerID, tallyCache[cacheKey]);
+    addLog("✓ " + row.scorerName + " → " + playerID + " (" + teamName + ") " + compKey +
+           " now " + tallyCache[cacheKey].goals + " goals", "ok");
+
+    await sleep(200);
+  }
+
+  addLog("Import complete.", "info");
+}
+
+// ---- Firebase ----
+async function fbSet(path, data) {
+  await fetch(FIREBASE_URL + "/" + path + ".json", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+}
+
+async function fbGet(path) {
+  const res  = await fetch(FIREBASE_URL + "/" + path + ".json");
+  const text = await res.text();
+  return (text && text !== "null") ? JSON.parse(text) : null;
+}
+
+// ---- CSV parser ----
+function parseCSV(text) {
+  const lines   = text.split("\n").filter(l => l.trim());
+  const headers = csvSplit(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = csvSplit(line);
+    const obj  = {};
+    headers.forEach((h, i) => obj[h.trim()] = (vals[i] || "").trim());
+    return obj;
+  });
+}
+
+function csvSplit(line) {
+  const result = [];
+  let cur = "", inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { result.push(cur); cur = ""; }
+      else cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+function sanitize(str) {
+  return String(str).replace(/[.#$\/\[\]'\s]/g, "_");
+}
+
+function esc(str) {
+  return String(str || "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
