@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+  National League Jobs Board — Admin Interface
+  Version: 1.3
+  Date: 26/03/2026
+
+  CHANGELOG
+  v1.3 (26/03/2026)
+    - Fetch simplified to match transfer centre pattern:
+      plain fetch with cache:no-store and cb= cache buster
+    - Removed credentials:omit, redirect:follow, URLSearchParams
+
+  v1.2 (26/03/2026)
+    - Switched apiPost to form-encoded (URLSearchParams) to match GAS e.parameter pattern
+    - Eliminates CORS preflight that blocked all POST requests
+
+  v1.1 (26/03/2026)
+    - Apps Script API URL baked in
+
+  v1.0 (26/03/2026)
+    - Initial build
+    - Password-protected login screen
+    - Dashboard: live / expiring soon / expired / deleted counts
+    - Add new vacancy via form with club autocomplete
+    - Edit existing vacancies
+    - Soft delete and restore
+    - Club picker: searches NL 72 first, accepts freetext override
+    - Calls Apps Script API for all reads/writes
+
+  SETUP
+  -----
+  1. Set API_URL below to your deployed Apps Script web app URL
+  2. Host this file on GitHub Pages
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NL Jobs Admin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:        #0a1628;
+    --navy-mid:    #112040;
+    --navy-light:  #1a3060;
+    --accent:      #c8a84b;
+    --accent-dim:  #a88c38;
+    --red:         #c0392b;
+    --red-light:   #fdf0ef;
+    --green:       #1e7e34;
+    --green-light: #edf7ee;
+    --amber:       #e67e22;
+    --amber-light: #fef6ec;
+    --white:       #ffffff;
+    --off-white:   #f4f6f9;
+    --text:        #1a2a44;
+    --text-muted:  #5a6a82;
+    --border:      #dde3ed;
+    --radius:      6px;
+    --shadow:      0 2px 12px rgba(10,22,40,0.10);
+    --font:        -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--off-white);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── Login ── */
+  .login-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--navy);
+  }
+  .login-box {
+    background: var(--white);
+    border-radius: 10px;
+    padding: 40px;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+    text-align: center;
+  }
+  .login-box img { width: 60px; margin-bottom: 16px; }
+  .login-box h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 4px;
+  }
+  .login-box p { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+  .login-error {
+    background: var(--red-light);
+    color: var(--red);
+    border: 1px solid #f5c6c2;
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  /* ── App shell ── */
+  .app { display: none; }
+  .app.visible { display: block; }
+
+  .topbar {
+    background: var(--navy);
+    color: var(--white);
+    padding: 0 24px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .topbar img { height: 32px; }
+  .topbar__title { font-weight: 700; font-size: 15px; flex: 1; }
+  .topbar__user { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .topbar__logout {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.8);
+    padding: 5px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .topbar__logout:hover { background: rgba(255,255,255,0.1); }
+
+  .main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+
+  /* ── Dashboard stats ── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 600px) { .stats { grid-template-columns: repeat(2,1fr); } }
+
+  .stat {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+    box-shadow: var(--shadow);
+  }
+  .stat__num {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat__label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat--live    .stat__num { color: var(--green); }
+  .stat--soon    .stat__num { color: var(--amber); }
+  .stat--expired .stat__num { color: var(--red); }
+  .stat--deleted .stat__num { color: var(--text-muted); }
+
+  /* ── Section header ── */
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .section-head h2 { font-size: 16px; font-weight: 700; color: var(--navy); }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 3px;
+    margin-bottom: 16px;
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 7px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-muted);
+    border: none;
+    background: none;
+    transition: all 0.15s;
+  }
+  .tab.active { background: var(--navy); color: var(--white); }
+
+  /* ── Job table ── */
+  .job-table-wrap { overflow-x: auto; }
+  .job-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--white);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .job-table th {
+    background: var(--navy);
+    color: rgba(255,255,255,0.85);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .job-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .job-table tr:last-child td { border-bottom: none; }
+  .job-table tr:hover td { background: var(--off-white); }
+  .job-table tr.is-deleted td { opacity: 0.5; }
+
+  .job-crest {
+    width: 32px; height: 32px;
+    object-fit: contain;
+    display: block;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .pill--live    { background: var(--green-light);  color: var(--green); }
+  .pill--soon    { background: var(--amber-light);  color: var(--amber); }
+  .pill--expired { background: var(--red-light);    color: var(--red); }
+  .pill--deleted { background: var(--off-white);    color: var(--text-muted); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn--primary   { background: var(--navy);    color: var(--white); }
+  .btn--primary:hover { background: var(--navy-light); }
+  .btn--accent    { background: var(--accent);  color: var(--navy); }
+  .btn--accent:hover { background: var(--accent-dim); }
+  .btn--danger    { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
+  .btn--danger:hover { background: #fbe4e2; }
+  .btn--restore   { background: var(--green-light); color: var(--green); border: 1px solid #b8e6c0; }
+  .btn--restore:hover { background: #d8f0dc; }
+  .btn--sm { padding: 4px 10px; font-size: 12px; }
+
+  /* ── Modal ── */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(10,22,40,0.6);
+    z-index: 200;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    overflow-y: auto;
+    display: none;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--white);
+    border-radius: 10px;
+    width: 100%;
+    max-width: 640px;
+    box-shadow: 0 16px 60px rgba(0,0,0,0.25);
+    overflow: hidden;
+    margin: auto;
+  }
+  .modal__head {
+    background: var(--navy);
+    color: var(--white);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal__head h3 { font-size: 15px; font-weight: 700; }
+  .modal__close {
+    background: none; border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 22px; cursor: pointer; line-height: 1;
+    padding: 2px 6px;
+  }
+  .modal__close:hover { color: var(--white); }
+  .modal__body { padding: 24px; }
+  .modal__footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  /* ── Form ── */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 500px) { .form-grid { grid-template-columns: 1fr; } }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group.span2 { grid-column: 1 / -1; }
+  .form-group label { font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-family: var(--font);
+    color: var(--text);
+    background: var(--white);
+    transition: border-color 0.15s;
+  }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .form-group textarea { resize: vertical; min-height: 100px; }
+  .form-hint { font-size: 11px; color: var(--text-muted); }
+
+  /* ── Club autocomplete ── */
+  .club-picker { position: relative; }
+  .club-picker__input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 5px 8px;
+    background: var(--white);
+    transition: border-color 0.15s;
+  }
+  .club-picker__input-wrap:focus-within { border-color: var(--accent); }
+  .club-picker__crest {
+    width: 28px; height: 28px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .club-picker__input {
+    flex: 1;
+    border: none !important;
+    padding: 0 !important;
+    font-size: 13px;
+    outline: none;
+    background: transparent;
+  }
+  .club-picker__dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0; right: 0;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    z-index: 50;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+  }
+  .club-picker__dropdown.open { display: block; }
+  .club-picker__option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .club-picker__option:last-child { border-bottom: none; }
+  .club-picker__option:hover { background: var(--off-white); }
+  .club-picker__option img { width: 24px; height: 24px; object-fit: contain; }
+  .club-picker__option-name { flex: 1; }
+  .club-picker__option-division { font-size: 11px; color: var(--text-muted); }
+  .club-picker__freetext {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+    cursor: pointer;
+    border-top: 1px solid var(--border);
+  }
+  .club-picker__freetext:hover { background: var(--off-white); }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--navy);
+    color: var(--white);
+    padding: 12px 18px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    z-index: 999;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.25s ease;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-left: 4px solid #4caf50; }
+  .toast.error   { border-left: 4px solid var(--red); }
+
+  /* ── Loading ── */
+  .loading-row td {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .empty-row td {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+  }
+
+  /* ── Confirm dialog ── */
+  .confirm-text { font-size: 14px; line-height: 1.6; color: var(--text); }
+  .confirm-job  { font-weight: 700; color: var(--navy); margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- ── Login ─────────────────────────────────────────────────────────── -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-box">
+    <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="NL">
+    <h1>Jobs Admin</h1>
+    <p>National League</p>
+    <div class="login-error" id="loginError">Incorrect password. Please try again.</div>
+    <div class="form-group" style="text-align:left;margin-bottom:12px;">
+      <label>Password</label>
+      <input type="password" id="passwordInput" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn btn--primary" style="width:100%;justify-content:center;" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────────────────────── -->
+<div class="app" id="app">
+
+  <div class="topbar">
+    <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="NL">
+    <span class="topbar__title">Jobs Admin</span>
+    <span class="topbar__user">National League</span>
+    <button class="topbar__logout" onclick="doLogout()">Sign out</button>
+  </div>
+
+  <div class="main">
+
+    <!-- Stats -->
+    <div class="stats" id="statsRow">
+      <div class="stat stat--live">
+        <div class="stat__num" id="statLive">—</div>
+        <div class="stat__label">Live</div>
+      </div>
+      <div class="stat stat--soon">
+        <div class="stat__num" id="statSoon">—</div>
+        <div class="stat__label">Closing Soon</div>
+      </div>
+      <div class="stat stat--expired">
+        <div class="stat__num" id="statExpired">—</div>
+        <div class="stat__label">Expired</div>
+      </div>
+      <div class="stat stat--deleted">
+        <div class="stat__num" id="statDeleted">—</div>
+        <div class="stat__label">Deleted</div>
+      </div>
+    </div>
+
+    <!-- Jobs section -->
+    <div class="section-head">
+      <h2>Vacancies</h2>
+      <button class="btn btn--accent" onclick="openAddModal()">+ Add Vacancy</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabLive"    onclick="switchTab('live')">Live</button>
+      <button class="tab"        id="tabExpired" onclick="switchTab('expired')">Expired</button>
+      <button class="tab"        id="tabDeleted" onclick="switchTab('deleted')">Deleted</button>
+    </div>
+
+    <div class="job-table-wrap">
+      <table class="job-table">
+        <thead>
+          <tr>
+            <th style="width:40px"></th>
+            <th>Club</th>
+            <th>Role</th>
+            <th>Type</th>
+            <th>Closing</th>
+            <th>Status</th>
+            <th style="width:130px"></th>
+          </tr>
+        </thead>
+        <tbody id="jobTableBody">
+          <tr class="loading-row"><td colspan="7">Loading vacancies…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Add/Edit Modal ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="formModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3 id="modalTitle">Add Vacancy</h3>
+      <button class="modal__close" onclick="closeModal('formModal')">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-grid">
+
+        <div class="form-group span2">
+          <label>Club *</label>
+          <div class="club-picker" id="clubPicker">
+            <div class="club-picker__input-wrap">
+              <img class="club-picker__crest" id="pickerCrest"
+                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
+                alt="">
+              <input class="club-picker__input" id="clubInput" type="text"
+                placeholder="Search or type club name…"
+                autocomplete="off"
+                oninput="onClubInput(this.value)"
+                onblur="setTimeout(closeClubDropdown, 150)">
+            </div>
+            <div class="club-picker__dropdown" id="clubDropdown"></div>
+          </div>
+        </div>
+
+        <div class="form-group span2">
+          <label>Job Title *</label>
+          <input type="text" id="fJobTitle" placeholder="e.g. Academy Analyst">
+        </div>
+
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="fLocation" placeholder="e.g. Aldershot">
+        </div>
+
+        <div class="form-group">
+          <label>Vacancy Type</label>
+          <select id="fVacancyType">
+            <option value="">— Select —</option>
+            <option>Permanent</option>
+            <option>Fixed Term</option>
+            <option>Contract</option>
+            <option>Casual</option>
+            <option>Part Time</option>
+            <option>Voluntary</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Position</label>
+          <input type="text" id="fPosition" placeholder="e.g. Academy Coaching">
+        </div>
+
+        <div class="form-group">
+          <label>Salary</label>
+          <input type="text" id="fSalary" placeholder="e.g. £26,000 per year">
+        </div>
+
+        <div class="form-group span2">
+          <label>Description</label>
+          <textarea id="fDescription" placeholder="Full job description…"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Apply URL</label>
+          <input type="url" id="fApplyUrl" placeholder="https://…">
+        </div>
+
+        <div class="form-group">
+          <label>More Info URL</label>
+          <input type="url" id="fMoreUrl" placeholder="https://…">
+        </div>
+
+        <div class="form-group span2">
+          <label>Closing Date &amp; Time</label>
+          <input type="text" id="fClosingDate" placeholder="DD/MM/YYYY HH:MM">
+          <span class="form-hint">e.g. 06/04/2026 17:00 — leave blank for no closing date</span>
+        </div>
+
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn" onclick="closeModal('formModal')" style="background:var(--off-white);color:var(--text);">Cancel</button>
+      <button class="btn btn--accent" id="saveBtn" onclick="saveJob()">Save Vacancy</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Confirm Modal ──────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="confirmModal">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal__head">
+      <h3 id="confirmTitle">Confirm</h3>
+      <button class="modal__close" onclick="closeModal('confirmModal')">×</button>
+    </div>
+    <div class="modal__body">
+      <p class="confirm-text" id="confirmText"></p>
+      <p class="confirm-job"  id="confirmJob"></p>
+    </div>
+    <div class="modal__footer">
+      <button class="btn" onclick="closeModal('confirmModal')" style="background:var(--off-white);color:var(--text);">Cancel</button>
+      <button class="btn btn--danger" id="confirmBtn" onclick="confirmAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ─────────────────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   CONFIGURATION
+   ============================================================ */
+var API_URL = 'https://script.google.com/macros/s/AKfycbz3aXu7-7Gp8_Sn33_ILnwTqV7vezItcZrJIV6cylJJ8SQbN7J1XooH75R8qfyVDWhW/exec';
+
+/* ============================================================
+   STATE
+   ============================================================ */
+var STATE = {
+  password:    '',
+  clubs:       [],
+  allJobs:     [],
+  currentTab:  'live',
+  editRowIndex: null,
+  pendingAction: null,
+  pendingRowIndex: null,
+  pendingJobTitle: null,
+};
+
+var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
+var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+
+/* ============================================================
+   LOGIN
+   ============================================================ */
+function doLogin() {
+  var pass = document.getElementById('passwordInput').value.trim();
+  if (!pass) return;
+  STATE.password = pass;
+  // Verify by fetching all jobs (requires auth)
+  apiFetch('?action=all&password=' + encodeURIComponent(pass))
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      document.getElementById('loginWrap').style.display = 'none';
+      document.getElementById('app').classList.add('visible');
+      loadClubs();
+      processAllJobs(data.jobs || []);
+    })
+    .catch(function() {
+      document.getElementById('loginError').style.display = 'block';
+      STATE.password = '';
+    });
+}
+
+function doLogout() {
+  STATE.password = '';
+  STATE.allJobs  = [];
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('loginWrap').style.display = 'flex';
+  document.getElementById('passwordInput').value = '';
+  document.getElementById('loginError').style.display = 'none';
+}
+
+/* ============================================================
+   DATA
+   ============================================================ */
+function loadClubs() {
+  apiFetch('?action=clubs')
+    .then(function(data) { STATE.clubs = data.clubs || []; })
+    .catch(function() { STATE.clubs = []; });
+}
+
+function refreshJobs() {
+  document.getElementById('jobTableBody').innerHTML =
+    '<tr class="loading-row"><td colspan="7">Loading…</td></tr>';
+  apiFetch('?action=all&password=' + encodeURIComponent(STATE.password))
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      processAllJobs(data.jobs || []);
+    })
+    .catch(function(err) { showToast(err.message, 'error'); });
+}
+
+function processAllJobs(jobs) {
+  STATE.allJobs = jobs;
+  updateStats(jobs);
+  renderTable();
+}
+
+function updateStats(jobs) {
+  var now   = new Date();
+  var soon  = new Date(now.getTime() + 7 * 86400000);
+  var live  = 0, soonCount = 0, expired = 0, deleted = 0;
+
+  jobs.forEach(function(j) {
+    if (j.deleted) { deleted++; return; }
+    var d = parseDateTime(j.closingDate);
+    if (d && d < now)        { expired++; return; }
+    if (d && d <= soon)      { soonCount++; }
+    live++;
+  });
+
+  document.getElementById('statLive').textContent    = live;
+  document.getElementById('statSoon').textContent    = soonCount;
+  document.getElementById('statExpired').textContent = expired;
+  document.getElementById('statDeleted').textContent = deleted;
+}
+
+/* ============================================================
+   TABLE RENDER
+   ============================================================ */
+function switchTab(tab) {
+  STATE.currentTab = tab;
+  ['live','expired','deleted'].forEach(function(t) {
+    document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1))
+      .classList.toggle('active', t === tab);
+  });
+  renderTable();
+}
+
+function renderTable() {
+  var now   = new Date();
+  var tbody = document.getElementById('jobTableBody');
+  var jobs  = STATE.allJobs;
+
+  var filtered = jobs.filter(function(j) {
+    var d = parseDateTime(j.closingDate);
+    if (STATE.currentTab === 'deleted') return j.deleted;
+    if (j.deleted) return false;
+    var expired = d && d < now;
+    if (STATE.currentTab === 'expired') return expired;
+    return !expired; // live
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No vacancies in this category.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(function(j) {
+    var d      = parseDateTime(j.closingDate);
+    var now2   = new Date();
+    var soon   = new Date(now2.getTime() + 7 * 86400000);
+    var status, pillCls;
+
+    if (j.deleted) {
+      status = 'Deleted'; pillCls = 'deleted';
+    } else if (d && d < now2) {
+      status = 'Expired'; pillCls = 'expired';
+    } else if (d && d <= soon) {
+      status = 'Closing Soon'; pillCls = 'soon';
+    } else {
+      status = 'Live'; pillCls = 'live';
+    }
+
+    var crest = j.crestUrl || FALLBACK_CREST;
+    var closing = j.closingDate ? formatDateTime(parseDateTime(j.closingDate)) : '—';
+
+    var actionBtns = j.deleted
+      ? '<button class="btn btn--restore btn--sm" onclick="confirmRestore(' + j.rowIndex + ',\'' + escJ(j.jobTitle) + '\')">Restore</button>'
+      : '<button class="btn btn--sm" style="background:var(--off-white)" onclick="openEditModal(' + j.rowIndex + ')">Edit</button> ' +
+        '<button class="btn btn--danger btn--sm" onclick="confirmDelete(' + j.rowIndex + ',\'' + escJ(j.jobTitle) + '\')">Delete</button>';
+
+    return '<tr class="' + (j.deleted ? 'is-deleted' : '') + '">' +
+      '<td><img class="job-crest" src="' + crest + '" alt="" onerror="this.src=\'' + FALLBACK_CREST + '\'"></td>' +
+      '<td><strong>' + esc(j.club) + '</strong></td>' +
+      '<td>' + esc(j.jobTitle) + '</td>' +
+      '<td>' + esc(j.vacancyType || '—') + '</td>' +
+      '<td style="white-space:nowrap;font-size:12px;">' + closing + '</td>' +
+      '<td><span class="pill pill--' + pillCls + '">' + status + '</span></td>' +
+      '<td style="white-space:nowrap;">' + actionBtns + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+/* ============================================================
+   CLUB PICKER
+   ============================================================ */
+function onClubInput(val) {
+  var dd = document.getElementById('clubDropdown');
+  if (!val.trim()) { dd.classList.remove('open'); updatePickerCrest(''); return; }
+
+  var lower = val.toLowerCase();
+  var matches = STATE.clubs.filter(function(c) {
+    return c.name.toLowerCase().indexOf(lower) !== -1 ||
+           (c.short && c.short.toLowerCase().indexOf(lower) !== -1);
+  }).slice(0, 10);
+
+  var html = matches.map(function(c) {
+    var crest = c.crestUrl || (CREST_BASE + encodeURIComponent(c.name) + '.png');
+    return '<div class="club-picker__option" onmousedown="selectClub(\'' + escJ(c.name) + '\',\'' + crest + '\')">' +
+      '<img src="' + crest + '" onerror="this.src=\'' + FALLBACK_CREST + '\'">' +
+      '<span class="club-picker__option-name">' + esc(c.name) + '</span>' +
+      '<span class="club-picker__option-division">' + esc(c.division || '') + '</span>' +
+    '</div>';
+  }).join('');
+
+  // Freetext option always at bottom
+  html += '<div class="club-picker__freetext" onmousedown="selectClub(\'' + escJ(val) + '\',\'\')">' +
+    'Use "' + esc(val) + '" as entered</div>';
+
+  dd.innerHTML = html;
+  dd.classList.add('open');
+}
+
+function selectClub(name, crestUrl) {
+  document.getElementById('clubInput').value = name;
+  updatePickerCrest(crestUrl || (CREST_BASE + name.replace(/\s+/g,'%20') + '.png'));
+  closeClubDropdown();
+}
+
+function updatePickerCrest(url) {
+  var img = document.getElementById('pickerCrest');
+  img.src = url || FALLBACK_CREST;
+  img.onerror = function() { this.src = FALLBACK_CREST; };
+}
+
+function closeClubDropdown() {
+  document.getElementById('clubDropdown').classList.remove('open');
+}
+
+/* ============================================================
+   MODAL: ADD / EDIT
+   ============================================================ */
+function openAddModal() {
+  STATE.editRowIndex = null;
+  document.getElementById('modalTitle').textContent = 'Add Vacancy';
+  document.getElementById('saveBtn').textContent    = 'Save Vacancy';
+  clearForm();
+  openModal('formModal');
+}
+
+function openEditModal(rowIndex) {
+  var job = STATE.allJobs.find(function(j) { return j.rowIndex === rowIndex; });
+  if (!job) return;
+  STATE.editRowIndex = rowIndex;
+  document.getElementById('modalTitle').textContent = 'Edit Vacancy';
+  document.getElementById('saveBtn').textContent    = 'Update Vacancy';
+  populateForm(job);
+  openModal('formModal');
+}
+
+function clearForm() {
+  ['fJobTitle','fLocation','fSalary','fPosition','fDescription',
+   'fApplyUrl','fMoreUrl','fClosingDate'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('fVacancyType').value = '';
+  document.getElementById('clubInput').value = '';
+  updatePickerCrest('');
+}
+
+function populateForm(job) {
+  document.getElementById('clubInput').value    = job.club || '';
+  document.getElementById('fJobTitle').value    = job.jobTitle || '';
+  document.getElementById('fLocation').value    = job.location || '';
+  document.getElementById('fVacancyType').value = job.vacancyType || '';
+  document.getElementById('fPosition').value    = job.position || '';
+  document.getElementById('fSalary').value      = job.salary || '';
+  document.getElementById('fDescription').value = job.description || '';
+  document.getElementById('fApplyUrl').value    = job.applyUrl || '';
+  document.getElementById('fMoreUrl').value     = job.moreUrl || '';
+  document.getElementById('fClosingDate').value = job.closingDate || '';
+
+  // Resolve crest for the club name
+  var club = STATE.clubs.find(function(c) {
+    return c.name.toLowerCase() === (job.club || '').toLowerCase();
+  });
+  updatePickerCrest(club ? (CREST_BASE + encodeURIComponent(club.name) + '.png') : '');
+}
+
+function saveJob() {
+  var club  = document.getElementById('clubInput').value.trim();
+  var title = document.getElementById('fJobTitle').value.trim();
+  if (!club)  { showToast('Club name is required.', 'error'); return; }
+  if (!title) { showToast('Job title is required.', 'error'); return; }
+
+  var data = {
+    'Club':          club,
+    'Job Title':     title,
+    'Location':      document.getElementById('fLocation').value.trim(),
+    'Vacancy Type':  document.getElementById('fVacancyType').value,
+    'Position':      document.getElementById('fPosition').value.trim(),
+    'Salary':        document.getElementById('fSalary').value.trim(),
+    'Description':   document.getElementById('fDescription').value.trim(),
+    'Apply URL':     document.getElementById('fApplyUrl').value.trim(),
+    'More Info URL': document.getElementById('fMoreUrl').value.trim(),
+    'Closing Date':  document.getElementById('fClosingDate').value.trim(),
+  };
+
+  document.getElementById('saveBtn').textContent = 'Saving…';
+  document.getElementById('saveBtn').disabled    = true;
+
+  var payload = STATE.editRowIndex
+    ? { action: 'update', password: STATE.password, rowIndex: STATE.editRowIndex, data: data }
+    : { action: 'add',    password: STATE.password, data: data };
+
+  apiPost(payload)
+    .then(function(res) {
+      if (res.error) throw new Error(res.error);
+      closeModal('formModal');
+      showToast(STATE.editRowIndex ? 'Vacancy updated.' : 'Vacancy added.', 'success');
+      refreshJobs();
+    })
+    .catch(function(err) { showToast(err.message, 'error'); })
+    .finally(function() {
+      document.getElementById('saveBtn').textContent = STATE.editRowIndex ? 'Update Vacancy' : 'Save Vacancy';
+      document.getElementById('saveBtn').disabled    = false;
+    });
+}
+
+/* ============================================================
+   MODAL: CONFIRM DELETE / RESTORE
+   ============================================================ */
+function confirmDelete(rowIndex, title) {
+  STATE.pendingAction   = 'delete';
+  STATE.pendingRowIndex = rowIndex;
+  STATE.pendingJobTitle = title;
+  document.getElementById('confirmTitle').textContent = 'Delete Vacancy';
+  document.getElementById('confirmText').textContent  = 'This vacancy will be hidden from the public jobs board. You can restore it later.';
+  document.getElementById('confirmJob').textContent   = title;
+  document.getElementById('confirmBtn').className     = 'btn btn--danger';
+  document.getElementById('confirmBtn').textContent   = 'Delete';
+  openModal('confirmModal');
+}
+
+function confirmRestore(rowIndex, title) {
+  STATE.pendingAction   = 'restore';
+  STATE.pendingRowIndex = rowIndex;
+  STATE.pendingJobTitle = title;
+  document.getElementById('confirmTitle').textContent = 'Restore Vacancy';
+  document.getElementById('confirmText').textContent  = 'This vacancy will be restored and visible on the public jobs board.';
+  document.getElementById('confirmJob').textContent   = title;
+  document.getElementById('confirmBtn').className     = 'btn btn--restore';
+  document.getElementById('confirmBtn').textContent   = 'Restore';
+  openModal('confirmModal');
+}
+
+function confirmAction() {
+  var action = STATE.pendingAction;
+  var ri     = STATE.pendingRowIndex;
+  closeModal('confirmModal');
+
+  apiPost({ action: action, password: STATE.password, rowIndex: ri })
+    .then(function(res) {
+      if (res.error) throw new Error(res.error);
+      showToast(action === 'delete' ? 'Vacancy deleted.' : 'Vacancy restored.', 'success');
+      refreshJobs();
+    })
+    .catch(function(err) { showToast(err.message, 'error'); });
+}
+
+/* ============================================================
+   API
+   ============================================================ */
+function apiFetch(query) {
+  return fetch(API_URL + query + '&cb=' + Date.now(), { cache: 'no-store' })
+    .then(function(r) { return r.json(); });
+}
+
+function apiPost(payload) {
+  return fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(payload),
+  }).then(function(r) { return r.json(); });
+}
+
+/* ============================================================
+   MODAL HELPERS
+   ============================================================ */
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className   = 'toast ' + (type || '');
+  setTimeout(function() { t.classList.add('show'); }, 10);
+  setTimeout(function() { t.classList.remove('show'); }, 3200);
+}
+
+/* ============================================================
+   DATE HELPERS
+   ============================================================ */
+function parseDateTime(str) {
+  if (!str || !str.trim()) return null;
+  var s = str.trim(), datePart, timePart = '00:00';
+  if (s.indexOf(' ') !== -1) {
+    var sp = s.split(' '); datePart = sp[0]; timePart = sp[1];
+  } else { datePart = s; }
+  var dp = datePart.split('/');
+  if (dp.length !== 3) return null;
+  var tp = timePart.split(':');
+  var d  = new Date(+dp[2], +dp[1]-1, +dp[0], +(tp[0]||0), +(tp[1]||0));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDateTime(date) {
+  if (!date) return '';
+  var days  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var months= ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var h = String(date.getHours()).padStart(2,'0');
+  var m = String(date.getMinutes()).padStart(2,'0');
+  return days[date.getDay()] + ', ' + date.getDate() + ' ' + months[date.getMonth()] +
+    ' ' + date.getFullYear() + ' ' + h + ':' + m;
+}
+
+/* ============================================================
+   ESCAPE HELPERS
+   ============================================================ */
+function esc(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escJ(str) {
+  return String(str||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+</script>
+</body>
+</html>
