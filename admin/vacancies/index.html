@@ -3,10 +3,17 @@
 <head>
 <!--
   National League Jobs Board — Admin Interface
-  Version: 1.8
+  Version: 1.9
   Date: 26/03/2026
 
   CHANGELOG
+  v1.9 (26/03/2026)
+    - Added Submissions tab — fetches from Submissions sheet, shows pending badge count
+    - Review modal: view submitter details, edit all fields, approve/reject with notes
+    - Approve copies to Jobs tab and publishes immediately
+    - Removed More Info URL from add/edit form — single Apply URL only
+    - Stats row now includes Pending submissions count
+
   v1.8 (26/03/2026)
     - Logo: "National League logo white.png" on red backgrounds
     - Split colour title: "Vacancies" red, "Admin" dimmed — both login and topbar
@@ -322,7 +329,7 @@ input[type="checkbox"] {
 <!-- App -->
 <div class="app" id="app">
   <div class="topbar">
-    <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png" alt="NL" onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png'">
+    <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png" alt="NL" onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
     <span class="topbar__title"><span style="color:var(--white)">Vacancies</span> <span style="color:rgba(255,255,255,0.55)">Admin</span></span>
     <button class="topbar__logout" onclick="doLogout()">Sign out</button>
   </div>
@@ -332,17 +339,21 @@ input[type="checkbox"] {
       <div class="stat stat--soon"><div class="stat__num" id="statSoon">—</div><div class="stat__label">Closing Soon</div></div>
       <div class="stat stat--expired"><div class="stat__num" id="statExpired">—</div><div class="stat__label">Expired</div></div>
       <div class="stat stat--deleted"><div class="stat__num" id="statDeleted">—</div><div class="stat__label">Deleted</div></div>
+      <div class="stat stat--pending" style="border-left:4px solid var(--amber);"><div class="stat__num" id="statPending" style="color:var(--amber);">—</div><div class="stat__label">Pending</div></div>
     </div>
     <div class="section-head">
-      <h2>Vacancies</h2>
-      <button class="btn btn--accent" onclick="openAddModal()">+ Add Vacancy</button>
+      <h2 id="sectionTitle">Vacancies</h2>
+      <button class="btn btn--accent" id="btnAddVacancy" onclick="openAddModal()">+ Add Vacancy</button>
     </div>
     <div class="tabs">
-      <button class="tab active" id="tabLive"    onclick="switchTab('live')">Live</button>
-      <button class="tab"        id="tabExpired" onclick="switchTab('expired')">Expired</button>
-      <button class="tab"        id="tabDeleted" onclick="switchTab('deleted')">Deleted</button>
+      <button class="tab active" id="tabLive"        onclick="switchTab('live')">Live</button>
+      <button class="tab"        id="tabExpired"     onclick="switchTab('expired')">Expired</button>
+      <button class="tab"        id="tabDeleted"     onclick="switchTab('deleted')">Deleted</button>
+      <button class="tab"        id="tabSubmissions" onclick="switchTab('submissions')">Submissions <span id="pendingBadge" style="display:none;background:var(--amber);color:#000;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px;"></span></button>
     </div>
-    <div class="job-table-wrap">
+
+    <!-- Jobs table -->
+    <div id="jobsTableWrap" class="job-table-wrap">
       <table class="job-table">
         <thead><tr>
           <th style="width:40px"></th><th>Club</th><th>Role</th><th>Type</th>
@@ -353,6 +364,20 @@ input[type="checkbox"] {
         </tbody>
       </table>
     </div>
+
+    <!-- Submissions table -->
+    <div id="subsTableWrap" class="job-table-wrap" style="display:none;">
+      <table class="job-table">
+        <thead><tr>
+          <th style="width:40px"></th><th>Club</th><th>Role</th><th>Submitted</th>
+          <th>Submitter</th><th>Status</th><th style="width:180px"></th>
+        </tr></thead>
+        <tbody id="subTableBody">
+          <tr class="loading-row"><td colspan="7">Loading submissions…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
   </div>
 </div>
 
@@ -403,13 +428,9 @@ input[type="checkbox"] {
           <label>Description</label>
           <textarea id="fDescription" placeholder="Full job description…"></textarea>
         </div>
-        <div class="form-group">
+        <div class="form-group span2">
           <label>Apply URL</label>
           <input type="url" id="fApplyUrl" placeholder="https://…">
-        </div>
-        <div class="form-group">
-          <label>More Info URL</label>
-          <input type="url" id="fMoreUrl" placeholder="https://…">
         </div>
         <div class="form-group span2">
           <label>Closing Date &amp; Time</label>
@@ -452,14 +473,99 @@ input[type="checkbox"] {
 
 <div class="toast" id="toast"></div>
 
+<!-- Submission Review Modal -->
+<div class="modal-backdrop" id="subModal">
+  <div class="modal" style="max-width:740px;">
+    <div class="modal__head">
+      <h3 id="subModalTitle">Review Submission</h3>
+      <button class="modal__close" onclick="closeModal('subModal')">×</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- Submitter info banner -->
+      <div id="subInfoBanner" style="background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:20px;font-size:14px;line-height:1.6;">
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group span2">
+          <label>Club</label>
+          <div class="club-picker">
+            <div class="club-picker__input-wrap">
+              <img class="club-picker__crest" id="subPickerCrest"
+                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="">
+              <input class="club-picker__input" id="subClubInput" type="text"
+                autocomplete="off" oninput="onSubClubInput(this.value)"
+                onblur="setTimeout(closeSubDropdown,150)">
+            </div>
+            <div class="club-picker__dropdown" id="subClubDropdown"></div>
+          </div>
+        </div>
+        <div class="form-group span2">
+          <label>Job Title</label>
+          <input type="text" id="subJobTitle">
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="subLocation">
+        </div>
+        <div class="form-group">
+          <label>Vacancy Type</label>
+          <select id="subVacancyType">
+            <option value="">— Select —</option>
+            <option>Permanent</option><option>Fixed Term</option><option>Contract</option>
+            <option>Casual</option><option>Part Time</option><option>Voluntary</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Department</label>
+          <input type="text" id="subDepartment">
+        </div>
+        <div class="form-group">
+          <label>Salary</label>
+          <input type="text" id="subSalary">
+        </div>
+        <div class="form-group span2">
+          <label>Description</label>
+          <textarea id="subDescription" style="min-height:120px;"></textarea>
+        </div>
+        <div class="form-group span2">
+          <label>Live Listing URL</label>
+          <input type="url" id="subLiveUrl">
+        </div>
+        <div class="form-group span2">
+          <label>Closing Date &amp; Time</label>
+          <div class="datetime-row">
+            <input type="date" id="subClosingDate">
+            <input type="time" id="subClosingTime" value="17:00">
+          </div>
+        </div>
+        <div class="form-group span2">
+          <label>Internal Notes</label>
+          <input type="text" id="subNotes" placeholder="Optional notes for your records">
+        </div>
+      </div>
+
+    </div>
+    <div class="modal__footer" style="justify-content:space-between;">
+      <button class="btn btn--danger" id="subRejectBtn" onclick="rejectSub()">Reject</button>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn--ghost" onclick="closeModal('subModal')">Cancel</button>
+        <button class="btn btn--ghost" onclick="saveSub()">Save Changes</button>
+        <button class="btn btn--accent" onclick="approveSub()">✓ Approve &amp; Publish</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 var API_URL        = 'https://script.google.com/macros/s/AKfycbz3aXu7-7Gp8_Sn33_ILnwTqV7vezItcZrJIV6cylJJ8SQbN7J1XooH75R8qfyVDWhW/exec';
 var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
 var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
 
 var STATE = {
-  password:'', clubs:[], allJobs:[], currentTab:'live',
-  editRowIndex:null, pendingAction:null, pendingRowIndex:null, pendingJobTitle:null,
+  password:'', clubs:[], allJobs:[], allSubs:[], currentTab:'live',
+  editRowIndex:null, reviewSubIndex:null,
+  pendingAction:null, pendingRowIndex:null, pendingJobTitle:null,
 };
 
 /* ── Login ── */
@@ -493,11 +599,12 @@ function doLogin() {
     .then(function(data) {
       if (data.error) throw new Error(data.error);
       STATE.password = pass;
-      _pwHash = simpleHash(pass); // cache for instant future checks
+      _pwHash = simpleHash(pass);
       document.getElementById('loginWrap').style.display = 'none';
       document.getElementById('app').classList.add('visible');
       loadClubs();
       processAllJobs(data.jobs || []);
+      refreshSubs();
     })
     .catch(function() {
       document.getElementById('loginLoading').classList.remove('show');
@@ -550,16 +657,226 @@ function updateStats(jobs) {
   document.getElementById('statDeleted').textContent = deleted;
 }
 
+function updateSubStats(subs) {
+  var pending = subs.filter(function(s) { return s.status === 'Pending'; }).length;
+  document.getElementById('statPending').textContent = pending;
+  var badge = document.getElementById('pendingBadge');
+  if (pending > 0) { badge.textContent = pending; badge.style.display = 'inline'; }
+  else { badge.style.display = 'none'; }
+}
+
 /* ── Table ── */
 function switchTab(tab) {
   STATE.currentTab = tab;
-  ['live','expired','deleted'].forEach(function(t) {
-    document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.toggle('active',t===tab);
+  ['live','expired','deleted','submissions'].forEach(function(t) {
+    var el = document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
+    if (el) el.classList.toggle('active', t===tab);
   });
-  renderTable();
+  var isSubmissions = tab === 'submissions';
+  document.getElementById('jobsTableWrap').style.display  = isSubmissions ? 'none' : '';
+  document.getElementById('subsTableWrap').style.display  = isSubmissions ? '' : 'none';
+  document.getElementById('btnAddVacancy').style.display  = isSubmissions ? 'none' : '';
+  document.getElementById('sectionTitle').textContent     = isSubmissions ? 'Submissions' : 'Vacancies';
+  if (isSubmissions) { renderSubsTable(); } else { renderTable(); }
 }
 
 function renderTable() {
+  var now=new Date(), tbody=document.getElementById('jobTableBody');
+  var filtered = STATE.allJobs.filter(function(j) {
+    var d = j.closingDate ? new Date(j.closingDate) : null;
+    if (STATE.currentTab==='deleted') return j.deleted;
+    if (j.deleted) return false;
+    return STATE.currentTab==='expired' ? (d&&d<now) : !(d&&d<now);
+  });
+  if (!filtered.length) { tbody.innerHTML='<tr class="empty-row"><td colspan="7">No vacancies in this category.</td></tr>'; return; }
+  var soon=new Date(now.getTime()+7*86400000);
+  tbody.innerHTML = filtered.map(function(j) {
+    var d=j.closingDate?new Date(j.closingDate):null;
+    var status,pillCls;
+    if (j.deleted)           { status='Deleted';      pillCls='deleted'; }
+    else if (d&&d<now)       { status='Expired';      pillCls='expired'; }
+    else if (d&&d<=soon)     { status='Closing Soon'; pillCls='soon'; }
+    else                     { status='Live';         pillCls='live'; }
+    var crest = j.crestUrl||FALLBACK_CREST;
+    var closing = d ? fmtDT(d) : '—';
+    var btns = j.deleted
+      ? '<button class="btn btn--restore btn--sm" onclick="confirmRestore('+j.rowIndex+',\''+escJ(j.jobTitle)+'\')">Restore</button>'
+      : '<button class="btn btn--ghost btn--sm" onclick="openEditModal('+j.rowIndex+')">Edit</button> '
+        +'<button class="btn btn--danger btn--sm" onclick="confirmDelete('+j.rowIndex+',\''+escJ(j.jobTitle)+'\')">Delete</button>';
+    return '<tr class="'+(j.deleted?'is-deleted':'')+'">'
+      +'<td><img class="job-crest" src="'+esc(crest)+'" alt="" onerror="this.src=\''+FALLBACK_CREST+'\'"></td>'
+      +'<td><strong style="font-variation-settings:\'wght\' 700">'+esc(j.club)+'</strong></td>'
+      +'<td>'+esc(j.jobTitle)+'</td>'
+      +'<td>'+esc(j.vacancyType||'—')+'</td>'
+      +'<td style="white-space:nowrap;font-size:12px;">'+closing+'</td>'
+      +'<td><span class="pill pill--'+pillCls+'">'+status+'</span></td>'
+      +'<td style="white-space:nowrap;">'+btns+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+/* ── Submissions ── */
+function refreshSubs() {
+  apiFetch('?action=submissions&password=' + encodeURIComponent(STATE.password))
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      STATE.allSubs = d.submissions || [];
+      updateSubStats(STATE.allSubs);
+      if (STATE.currentTab === 'submissions') renderSubsTable();
+    })
+    .catch(function(err) { console.error('[subs]', err); });
+}
+
+function renderSubsTable() {
+  var tbody = document.getElementById('subTableBody');
+  var subs  = STATE.allSubs;
+  if (!subs.length) { tbody.innerHTML='<tr class="empty-row"><td colspan="7">No submissions yet.</td></tr>'; return; }
+
+  tbody.innerHTML = subs.map(function(s) {
+    var crest = s.crestUrl||FALLBACK_CREST;
+    var when  = s.submittedAt ? fmtDT(new Date(s.submittedAt)) : '—';
+    var pillCls = s.status==='Approved' ? 'live' : s.status==='Rejected' ? 'expired' : 'soon';
+    var btns = s.status === 'Pending'
+      ? '<button class="btn btn--ghost btn--sm" onclick="openSubModal('+s.rowIndex+')">Review</button>'
+      : '<button class="btn btn--ghost btn--sm" onclick="openSubModal('+s.rowIndex+')">View</button>';
+    return '<tr>'
+      +'<td><img class="job-crest" src="'+esc(crest)+'" alt="" onerror="this.src=\''+FALLBACK_CREST+'\'"></td>'
+      +'<td><strong style="font-variation-settings:\'wght\' 700">'+esc(s.club)+'</strong></td>'
+      +'<td>'+esc(s.jobTitle)+'</td>'
+      +'<td style="font-size:12px;white-space:nowrap;">'+when+'</td>'
+      +'<td style="font-size:13px;">'+esc(s.submitterName)+'<br><span style="color:var(--text-muted);font-size:11px;">'+esc(s.submitterRole)+' · '+esc(s.submitterEmail)+'</span></td>'
+      +'<td><span class="pill pill--'+pillCls+'">'+esc(s.status)+'</span></td>'
+      +'<td style="white-space:nowrap;">'+btns+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+function openSubModal(rowIndex) {
+  var sub = STATE.allSubs.find(function(s) { return s.rowIndex === rowIndex; });
+  if (!sub) return;
+  STATE.reviewSubIndex = rowIndex;
+
+  // Populate banner
+  document.getElementById('subInfoBanner').innerHTML =
+    '<strong style="font-variation-settings:\'wght\' 800">Submitted by:</strong> '
+    +esc(sub.submitterName)+' &mdash; '+esc(sub.submitterRole)
+    +'<br><a href="mailto:'+esc(sub.submitterEmail)+'" style="color:var(--navy);">'+esc(sub.submitterEmail)+'</a>'
+    +(sub.liveListingUrl ? ' &nbsp;·&nbsp; <a href="'+esc(sub.liveListingUrl)+'" target="_blank" style="color:var(--navy);">View live listing ↗</a>' : '')
+    +'<br><span style="color:var(--text-muted);font-size:12px;">Submitted '+esc(sub.submittedAt ? fmtDT(new Date(sub.submittedAt)) : '—')+'</span>';
+
+  // Populate fields
+  document.getElementById('subClubInput').value    = sub.club||'';
+  document.getElementById('subJobTitle').value     = sub.jobTitle||'';
+  document.getElementById('subLocation').value     = sub.location||'';
+  document.getElementById('subVacancyType').value  = sub.vacancyType||'';
+  document.getElementById('subDepartment').value   = sub.position||'';
+  document.getElementById('subSalary').value       = sub.salary||'';
+  document.getElementById('subDescription').value  = sub.description||'';
+  document.getElementById('subLiveUrl').value      = sub.liveListingUrl||'';
+  document.getElementById('subNotes').value        = sub.notes||'';
+  setSubClosingFields(sub.closingDate||'');
+  updateSubCrest(sub.crestUrl||'');
+
+  // Update title and reject button based on status
+  document.getElementById('subModalTitle').textContent = sub.status === 'Pending' ? 'Review Submission' : 'Submission — ' + sub.status;
+  document.getElementById('subRejectBtn').style.display = sub.status === 'Rejected' ? 'none' : '';
+
+  openModal('subModal');
+}
+
+function setSubClosingFields(str) {
+  var di=document.getElementById('subClosingDate'), ti=document.getElementById('subClosingTime');
+  if (!str) { di.value=''; ti.value='17:00'; return; }
+  var d=new Date(str);
+  if (isNaN(d.getTime())) { di.value=''; ti.value='17:00'; return; }
+  di.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  ti.value=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+
+function buildSubClosingDateString() {
+  var dv=document.getElementById('subClosingDate').value;
+  if (!dv) return '';
+  var tv=document.getElementById('subClosingTime').value||'23:59';
+  var p=dv.split('-');
+  return p[2]+'/'+p[1]+'/'+p[0]+' '+tv;
+}
+
+function getSubFormData() {
+  return {
+    'Club':             document.getElementById('subClubInput').value.trim(),
+    'Job Title':        document.getElementById('subJobTitle').value.trim(),
+    'Location':         document.getElementById('subLocation').value.trim(),
+    'Vacancy Type':     document.getElementById('subVacancyType').value,
+    'Department':       document.getElementById('subDepartment').value.trim(),
+    'Salary':           document.getElementById('subSalary').value.trim(),
+    'Description':      document.getElementById('subDescription').value.trim(),
+    'Live Listing URL': document.getElementById('subLiveUrl').value.trim(),
+    'Closing Date':     buildSubClosingDateString(),
+    'Notes':            document.getElementById('subNotes').value.trim(),
+  };
+}
+
+function saveSub() {
+  apiPost({ action:'updateSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, data:getSubFormData() })
+    .then(function(res) {
+      if (res.error) throw new Error(res.error);
+      showToast('Submission updated.','success');
+      refreshSubs();
+    })
+    .catch(function(err) { showToast(err.message,'error'); });
+}
+
+function approveSub() {
+  var notes = document.getElementById('subNotes').value.trim();
+  // Save any edits first, then approve
+  apiPost({ action:'updateSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, data:getSubFormData() })
+    .then(function() {
+      return apiPost({ action:'approveSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, notes:notes });
+    })
+    .then(function(res) {
+      if (res.error) throw new Error(res.error);
+      closeModal('subModal');
+      showToast('Submission approved and published.','success');
+      refreshSubs();
+      refreshJobs();
+    })
+    .catch(function(err) { showToast(err.message,'error'); });
+}
+
+function rejectSub() {
+  var notes = document.getElementById('subNotes').value.trim();
+  apiPost({ action:'rejectSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, notes:notes })
+    .then(function(res) {
+      if (res.error) throw new Error(res.error);
+      closeModal('subModal');
+      showToast('Submission rejected.','success');
+      refreshSubs();
+    })
+    .catch(function(err) { showToast(err.message,'error'); });
+}
+
+/* ── Sub club picker ── */
+function onSubClubInput(val) {
+  var dd=document.getElementById('subClubDropdown');
+  if (!val.trim()) { dd.classList.remove('open'); updateSubCrest(''); return; }
+  var lower=val.toLowerCase();
+  var matches=STATE.clubs.filter(function(c){
+    return c.name.toLowerCase().indexOf(lower)!==-1||(c.short&&c.short.toLowerCase().indexOf(lower)!==-1);
+  }).slice(0,10);
+  var html=matches.map(function(c){
+    var cr=CREST_BASE+encodeURIComponent(c.name)+'.png';
+    return '<div class="club-picker__option" onmousedown="selectSubClub(\''+escJ(c.name)+'\',\''+escJ(cr)+'\')">'
+      +'<img src="'+esc(cr)+'" onerror="this.src=\''+FALLBACK_CREST+'\'">'
+      +'<span class="club-picker__option-name">'+esc(c.name)+'</span>'
+      +'<span class="club-picker__option-division">'+esc(c.division||'')+'</span>'
+      +'</div>';
+  }).join('');
+  html+='<div class="club-picker__freetext" onmousedown="selectSubClub(\''+escJ(val)+'\',\'\')">Use "'+esc(val)+'" as entered</div>';
+  dd.innerHTML=html; dd.classList.add('open');
+}
+function selectSubClub(name,cr) { document.getElementById('subClubInput').value=name; updateSubCrest(cr||(CREST_BASE+encodeURIComponent(name)+'.png')); closeSubDropdown(); }
+function updateSubCrest(url) { var img=document.getElementById('subPickerCrest'); img.src=url||FALLBACK_CREST; img.onerror=function(){this.src=FALLBACK_CREST;}; }
+function closeSubDropdown() { document.getElementById('subClubDropdown').classList.remove('open'); }
   var now=new Date(), tbody=document.getElementById('jobTableBody');
   var filtered = STATE.allJobs.filter(function(j) {
     var d = j.closingDate ? new Date(j.closingDate) : null;
@@ -673,7 +990,7 @@ function openEditModal(rowIndex) {
   populateForm(job); openModal('formModal');
 }
 function clearForm() {
-  ['fJobTitle','fLocation','fSalary','fPosition','fDescription','fApplyUrl','fMoreUrl'].forEach(function(id){document.getElementById(id).value='';});
+  ['fJobTitle','fLocation','fSalary','fPosition','fDescription','fApplyUrl'].forEach(function(id){document.getElementById(id).value='';});
   document.getElementById('fVacancyType').value='';
   document.getElementById('clubInput').value='';
   document.getElementById('fClosingDate').value='';
@@ -691,7 +1008,6 @@ function populateForm(job) {
   document.getElementById('fSalary').value      = job.salary||'';
   document.getElementById('fDescription').value = job.description||'';
   document.getElementById('fApplyUrl').value    = job.applyUrl||'';
-  document.getElementById('fMoreUrl').value     = job.moreUrl||'';
   setClosingDateFields(job.closingDate||'');
   updatePickerCrest(job.crestUrl||(CREST_BASE+encodeURIComponent(job.club||'')+'.png'));
 }
@@ -708,7 +1024,6 @@ function saveJob() {
     'Salary':document.getElementById('fSalary').value.trim(),
     'Description':document.getElementById('fDescription').value.trim(),
     'Apply URL':document.getElementById('fApplyUrl').value.trim(),
-    'More Info URL':document.getElementById('fMoreUrl').value.trim(),
     'Closing Date':buildClosingDateString(),
   };
   document.getElementById('saveBtn').textContent='Saving…';
