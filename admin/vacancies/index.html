@@ -3,10 +3,15 @@
 <head>
 <!--
   National League Jobs Board — Admin Interface
-  Version: 1.10
+  Version: 1.11
   Date: 30/03/2026
 
   CHANGELOG
+  v1.11 (30/03/2026)
+    - Added mandatory "Added By" field to Add Vacancy modal
+    - Hidden on Edit (historical record, not overwritten)
+    - Validated before save, written to Jobs sheet as Added By column
+
   v1.10 (30/03/2026)
     - Added mandatory "Approved By" field to submission review modal
     - Approve button validates Approved By before proceeding
@@ -449,6 +454,10 @@ input[type="checkbox"] {
             No specific time — expires end of closing day
           </label>
           <span class="form-hint">Leave date blank for no closing date</span>
+        </div>
+        <div class="form-group span2" id="addedByGroup">
+          <label>Added By <span style="color:var(--primary)">*</span></label>
+          <input type="text" id="fAddedBy" placeholder="Your name">
         </div>
       </div>
     </div>
@@ -959,6 +968,7 @@ function openAddModal() {
   STATE.editRowIndex=null;
   document.getElementById('modalTitle').textContent='Add Vacancy';
   document.getElementById('saveBtn').textContent='Save Vacancy';
+  document.getElementById('addedByGroup').style.display='';
   clearForm(); openModal('formModal');
 }
 function openEditModal(rowIndex) {
@@ -967,10 +977,11 @@ function openEditModal(rowIndex) {
   STATE.editRowIndex=rowIndex;
   document.getElementById('modalTitle').textContent='Edit Vacancy';
   document.getElementById('saveBtn').textContent='Update Vacancy';
+  document.getElementById('addedByGroup').style.display='none';
   populateForm(job); openModal('formModal');
 }
 function clearForm() {
-  ['fJobTitle','fLocation','fSalary','fPosition','fDescription','fApplyUrl'].forEach(function(id){document.getElementById(id).value='';});
+  ['fJobTitle','fLocation','fSalary','fPosition','fDescription','fApplyUrl','fAddedBy'].forEach(function(id){document.getElementById(id).value='';});
   document.getElementById('fVacancyType').value='';
   document.getElementById('clubInput').value='';
   document.getElementById('fClosingDate').value='';
@@ -996,6 +1007,9 @@ function saveJob() {
   var title=document.getElementById('fJobTitle').value.trim();
   if (!club)  { showToast('Club name is required.','error'); return; }
   if (!title) { showToast('Job title is required.','error'); return; }
+  var isNew = !STATE.editRowIndex;
+  var addedBy = isNew ? document.getElementById('fAddedBy').value.trim() : '';
+  if (isNew && !addedBy) { showToast('Please enter your name in "Added By".','error'); return; }
   var data = {
     'Club':club,'Job Title':title,
     'Location':document.getElementById('fLocation').value.trim(),
@@ -1005,6 +1019,7 @@ function saveJob() {
     'Description':document.getElementById('fDescription').value.trim(),
     'Apply URL':document.getElementById('fApplyUrl').value.trim(),
     'Closing Date':buildClosingDateString(),
+    'Added By':addedBy,
   };
   document.getElementById('saveBtn').textContent='Saving…';
   document.getElementById('saveBtn').disabled=true;
