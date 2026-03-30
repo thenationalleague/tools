@@ -1,15 +1,18 @@
 <!--
   NL Tools — Login Page
-  Version: v1.0
+  Version: v1.1
   Date: 30/03/2026
   Location: /tools/index.html
 
   Changelog:
+  v1.1 (30/03/2026) — Added email link (passwordless) sign-in completion.
+                       On load, detects if URL contains a Firebase email link
+                       and completes sign-in automatically (prompting for email
+                       if not stored in localStorage). Added forgot password
+                       link — sends Firebase password reset email.
   v1.0 (30/03/2026) — Initial build. Firebase Auth email/password login,
                        NL brand design system, redirects to /tools/portal/
-                       on successful authentication. Shows spinner while
-                       Firebase resolves existing session (avoids login
-                       flash for users who are already signed in).
+                       on successful authentication.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -33,6 +36,8 @@
       --navy:        #223b7c;
       --red:         #c0392b;
       --red-light:   #fdf0ef;
+      --green:       #1e7e34;
+      --green-light: #edf7ee;
       --white:       #ffffff;
       --off-white:   #f4f6f9;
       --text:        #1a2a44;
@@ -64,85 +69,54 @@
       justify-content: center;
     }
 
-    /* ── Auth-checking overlay ──
-       Covers the page while Firebase resolves whether a session already
-       exists. Prevents the login form flashing briefly for signed-in users. */
+    /* ── Auth-checking overlay ── */
     .auth-checking {
-      position: fixed;
-      inset: 0;
+      position: fixed; inset: 0;
       background: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       z-index: 999;
     }
     .spinner {
       width: 32px; height: 32px;
       border: 3px solid rgba(255,255,255,0.3);
       border-top-color: var(--white);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Login card ── */
     .login-box {
-      background: var(--white);
-      border-radius: 12px;
-      padding: 52px;
-      width: 100%;
-      max-width: 440px;
-      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
-      text-align: center;
+      background: var(--white); border-radius: 12px;
+      padding: 52px; width: 100%; max-width: 440px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4); text-align: center;
     }
-    .login-box img {
-      width: 90px;
-      margin-bottom: 24px;
-    }
+    .login-box img { width: 90px; margin-bottom: 24px; }
     .login-box h1 {
-      font-size: 28px;
-      font-weight: 900;
-      font-variation-settings: 'wght' 900;
-      text-transform: uppercase;
-      letter-spacing: -0.01em;
-      margin-bottom: 5px;
+      font-size: 28px; font-weight: 900; font-variation-settings: 'wght' 900;
+      text-transform: uppercase; letter-spacing: -0.01em; margin-bottom: 5px;
     }
     .login-box h1 .word-primary   { color: var(--primary); }
     .login-box h1 .word-secondary { color: var(--navy); }
     .login-box p.subtitle {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-bottom: 32px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-weight: 700;
-      font-variation-settings: 'wght' 700;
+      font-size: 12px; color: var(--text-muted); margin-bottom: 32px;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      font-weight: 700; font-variation-settings: 'wght' 700;
     }
 
     /* ── Form fields ── */
     .field { margin-bottom: 16px; text-align: left; }
     .field label {
-      display: block;
-      font-size: 11px;
-      font-weight: 800;
-      font-variation-settings: 'wght' 800;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--text-muted);
-      margin-bottom: 6px;
+      display: block; font-size: 11px; font-weight: 800;
+      font-variation-settings: 'wght' 800; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 6px;
     }
     .field input {
-      width: 100%;
-      padding: 11px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      font-family: var(--font);
-      font-size: 15px;
-      font-variation-settings: 'wght' 400;
-      color: var(--text);
-      background: var(--white);
+      width: 100%; padding: 11px 14px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      font-family: var(--font); font-size: 15px;
+      font-variation-settings: 'wght' 400; color: var(--text);
+      background: var(--white); outline: none;
       transition: border-color 0.15s, box-shadow 0.15s;
-      outline: none;
     }
     .field input:focus {
       border-color: var(--primary);
@@ -151,40 +125,52 @@
 
     /* ── Submit button ── */
     .btn-submit {
-      width: 100%;
-      margin-top: 8px;
-      padding: 13px 20px;
-      background: var(--primary);
-      color: var(--white);
-      border: none;
-      border-radius: var(--radius);
-      font-family: var(--font);
-      font-size: 13px;
-      font-weight: 900;
-      font-variation-settings: 'wght' 900;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      cursor: pointer;
-      transition: background 0.15s;
+      width: 100%; margin-top: 8px; padding: 13px 20px;
+      background: var(--primary); color: var(--white); border: none;
+      border-radius: var(--radius); font-family: var(--font);
+      font-size: 13px; font-weight: 900; font-variation-settings: 'wght' 900;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      cursor: pointer; transition: background 0.15s;
     }
     .btn-submit:hover:not(:disabled) { background: var(--primary-dim); }
     .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* ── Error message ── */
-    .error-msg {
-      display: none;
-      margin-top: 16px;
-      padding: 10px 14px;
-      background: var(--red-light);
-      border: 1px solid #f5c6c2;
-      border-radius: var(--radius);
-      font-size: 13px;
-      color: var(--red);
-      font-weight: 600;
-      font-variation-settings: 'wght' 600;
-      text-align: left;
+    /* ── Forgot password link ── */
+    .forgot-link {
+      display: inline-block; margin-top: 16px;
+      font-size: 12px; color: var(--text-muted);
+      text-decoration: none; cursor: pointer;
+      font-weight: 600; font-variation-settings: 'wght' 600;
+      transition: color 0.15s;
+      background: none; border: none; font-family: var(--font);
+      width: 100%; text-align: center;
     }
-    .error-msg.show { display: block; }
+    .forgot-link:hover { color: var(--primary); }
+
+    /* ── Status messages ── */
+    .status-msg {
+      display: none; margin-top: 16px; padding: 10px 14px;
+      border-radius: var(--radius); font-size: 13px;
+      font-weight: 600; font-variation-settings: 'wght' 600; text-align: left;
+    }
+    .status-msg.show  { display: block; }
+    .status-msg.error {
+      background: var(--red-light); border: 1px solid #f5c6c2; color: var(--red);
+    }
+    .status-msg.success {
+      background: var(--green-light); border: 1px solid #b8dfc0; color: var(--green);
+    }
+
+    /* ── Email confirmation prompt ──
+       Shown when a user clicks an invite link on a different device and we
+       can't retrieve their email from localStorage automatically. ── */
+    .confirm-email-prompt { display: none; }
+    .confirm-email-prompt.show { display: block; }
+    .confirm-email-prompt p {
+      font-size: 13px; color: var(--text-muted); margin-bottom: 16px;
+      text-align: left; font-variation-settings: 'wght' 400;
+      text-transform: none; letter-spacing: 0;
+    }
 
     /* ── Responsive ── */
     @media (max-width: 480px) {
@@ -194,41 +180,55 @@
 </head>
 <body>
 
-  <!-- Shown while Firebase resolves existing session state -->
+  <!-- Shown while Firebase resolves session / processes email link -->
   <div class="auth-checking" id="authChecking">
     <div class="spinner"></div>
   </div>
 
-  <!-- Login form — hidden until auth check confirms no active session -->
+  <!-- Standard login form -->
   <div class="login-box" id="loginBox" style="display:none;">
     <img
       src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
       alt="National League"
       onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-
     <h1>
       <span class="word-primary">NL</span>
       <span class="word-secondary">Tools</span>
     </h1>
     <p class="subtitle">Internal Staff Portal</p>
 
-    <div class="field">
-      <label for="emailInput">Email address</label>
-      <input type="email" id="emailInput"
-        placeholder="you@thenationalleague.org.uk"
-        autocomplete="email">
+    <!-- Email confirmation prompt — only shown when completing an invite
+         link on a different device to the one the link was opened on -->
+    <div class="confirm-email-prompt" id="confirmEmailPrompt">
+      <p>Please confirm your email address to complete sign-in.</p>
+      <div class="field">
+        <label for="confirmEmailInput">Your email address</label>
+        <input type="email" id="confirmEmailInput"
+          placeholder="you@thenationalleague.org.uk">
+      </div>
+      <button class="btn-submit" onclick="completeEmailLink()">Complete sign-in</button>
+      <div class="status-msg" id="confirmStatusMsg"></div>
     </div>
 
-    <div class="field">
-      <label for="passwordInput">Password</label>
-      <input type="password" id="passwordInput"
-        placeholder="••••••••"
-        autocomplete="current-password">
+    <!-- Standard password login form -->
+    <div id="passwordForm">
+      <div class="field">
+        <label for="emailInput">Email address</label>
+        <input type="email" id="emailInput"
+          placeholder="you@thenationalleague.org.uk"
+          autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="passwordInput">Password</label>
+        <input type="password" id="passwordInput"
+          placeholder="••••••••"
+          autocomplete="current-password">
+      </div>
+      <button class="btn-submit" id="signInBtn" onclick="doSignIn()">Sign in</button>
+      <button class="forgot-link" onclick="doForgotPassword()">Forgot your password?</button>
+      <div class="status-msg" id="statusMsg"></div>
     </div>
 
-    <button class="btn-submit" id="signInBtn" onclick="doSignIn()">Sign in</button>
-
-    <div class="error-msg" id="errorMsg"></div>
   </div>
 
   <script>
@@ -245,49 +245,114 @@
     firebase.initializeApp(firebaseConfig);
     var auth = firebase.auth();
 
-    // ── Session check on load ────────────────────────────────────────────────
-    // onAuthStateChanged fires once immediately with the current user or null.
-    // We use this to skip the login page entirely for users with a live session,
-    // and to hide the spinner and show the form for users who aren't signed in.
-    auth.onAuthStateChanged(function(user) {
-      if (user) {
-        window.location.replace('/tools/portal/');
+    // ── On load: check for email link in URL first, then check auth state ───
+    // isSignInWithEmailLink checks the current URL for Firebase's magic link
+    // parameters. If found, we complete the sign-in flow instead of showing
+    // the normal login form.
+    if (auth.isSignInWithEmailLink(window.location.href)) {
+      handleEmailLink();
+    } else {
+      // Normal load — check if already signed in
+      auth.onAuthStateChanged(function(user) {
+        if (user) {
+          window.location.replace('/tools/portal/');
+        } else {
+          showLoginForm();
+        }
+      });
+    }
+
+    // ── Handle incoming email invite link ────────────────────────────────────
+    function handleEmailLink() {
+      // We stored the email in localStorage when the invite was sent.
+      // If the user opens the link on the same device/browser, we get it
+      // automatically. If on a different device, localStorage is empty and
+      // we ask them to confirm their email.
+      var email = localStorage.getItem('nlToolsInviteEmail');
+
+      if (email) {
+        // Email known — complete sign-in silently
+        auth.signInWithEmailLink(email, window.location.href)
+          .then(function() {
+            localStorage.removeItem('nlToolsInviteEmail');
+            // Clean the URL before redirecting so the link can't be reused
+            window.history.replaceState(null, '', '/tools/');
+            window.location.replace('/tools/portal/');
+          })
+          .catch(function(err) {
+            // Link expired or already used — show form with error
+            showLoginForm();
+            showStatus('statusMsg', 'This invite link has expired or already been used. Contact your administrator.', 'error');
+          });
       } else {
+        // Email not in localStorage (different device) — ask user to confirm
         document.getElementById('authChecking').style.display = 'none';
         document.getElementById('loginBox').style.display = 'block';
-        document.getElementById('emailInput').focus();
+        document.getElementById('passwordForm').style.display = 'none';
+        document.getElementById('confirmEmailPrompt').classList.add('show');
+        document.getElementById('confirmEmailInput').focus();
+      }
+    }
+
+    // ── Complete email link sign-in after manual email confirmation ──────────
+    function completeEmailLink() {
+      var email = document.getElementById('confirmEmailInput').value.trim();
+      if (!email) {
+        showStatus('confirmStatusMsg', 'Please enter your email address.', 'error');
+        return;
+      }
+      auth.signInWithEmailLink(email, window.location.href)
+        .then(function() {
+          window.history.replaceState(null, '', '/tools/');
+          window.location.replace('/tools/portal/');
+        })
+        .catch(function(err) {
+          var msg = 'Sign-in failed. ';
+          if (err.code === 'auth/invalid-email')       msg += 'Invalid email address.';
+          else if (err.code === 'auth/invalid-action-code') msg += 'This link has expired or already been used.';
+          else msg += 'Contact your administrator.';
+          showStatus('confirmStatusMsg', msg, 'error');
+        });
+    }
+
+    // ── Standard password sign-in ────────────────────────────────────────────
+    function showLoginForm() {
+      document.getElementById('authChecking').style.display = 'none';
+      document.getElementById('loginBox').style.display = 'block';
+      document.getElementById('emailInput').focus();
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        if (document.getElementById('confirmEmailPrompt').classList.contains('show')) {
+          completeEmailLink();
+        } else {
+          doSignIn();
+        }
       }
     });
 
-    // ── Enter key submits form ───────────────────────────────────────────────
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') doSignIn();
-    });
-
-    // ── Sign-in ──────────────────────────────────────────────────────────────
     function doSignIn() {
       var email    = document.getElementById('emailInput').value.trim();
       var password = document.getElementById('passwordInput').value;
       var btn      = document.getElementById('signInBtn');
-      var errEl    = document.getElementById('errorMsg');
 
       if (!email || !password) {
-        showError('Please enter your email and password.');
+        showStatus('statusMsg', 'Please enter your email and password.', 'error');
         return;
       }
 
       btn.disabled    = true;
       btn.textContent = 'Signing in…';
-      errEl.classList.remove('show');
+      clearStatus('statusMsg');
 
       auth.signInWithEmailAndPassword(email, password)
         .then(function() {
-          // onAuthStateChanged handles the redirect — nothing needed here
+          // onAuthStateChanged fires and redirects
         })
         .catch(function(err) {
           btn.disabled    = false;
           btn.textContent = 'Sign in';
-          // Friendly error messages — don't expose Firebase internals
           var msg = 'Sign-in failed. Please try again.';
           if (err.code === 'auth/user-not-found'
            || err.code === 'auth/wrong-password'
@@ -300,14 +365,40 @@
           } else if (err.code === 'auth/user-disabled') {
             msg = 'This account has been disabled. Contact your administrator.';
           }
-          showError(msg);
+          showStatus('statusMsg', msg, 'error');
         });
     }
 
-    function showError(msg) {
-      var el = document.getElementById('errorMsg');
+    // ── Forgot password ──────────────────────────────────────────────────────
+    function doForgotPassword() {
+      var email = document.getElementById('emailInput').value.trim();
+      if (!email) {
+        showStatus('statusMsg', 'Enter your email address above first.', 'error');
+        return;
+      }
+      clearStatus('statusMsg');
+      auth.sendPasswordResetEmail(email)
+        .then(function() {
+          // Deliberately vague — don't confirm whether the account exists
+          showStatus('statusMsg', 'If that email has an account, a reset link has been sent.', 'success');
+        })
+        .catch(function(err) {
+          var msg = 'Could not send reset email. Try again.';
+          if (err.code === 'auth/invalid-email') msg = 'Please enter a valid email address.';
+          showStatus('statusMsg', msg, 'error');
+        });
+    }
+
+    // ── Status helpers ───────────────────────────────────────────────────────
+    function showStatus(elId, msg, type) {
+      var el = document.getElementById(elId);
       el.textContent = msg;
-      el.classList.add('show');
+      el.className   = 'status-msg show ' + (type || 'error');
+    }
+    function clearStatus(elId) {
+      var el = document.getElementById(elId);
+      el.className   = 'status-msg';
+      el.textContent = '';
     }
   </script>
 </body>
