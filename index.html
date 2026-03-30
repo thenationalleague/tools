@@ -1,175 +1,365 @@
-<!-- nl-tools root password gate v1.3 -->
-<!doctype html>
+<!--
+  NL Tools Portal — Login Page
+  Version: 1.0
+  Date: 30/03/2025
+  File: index.html
+  Location: thenationalleague/tools/ (repo root → served at /tools/)
+
+  Changelog:
+  v1.0 (30/03/2025) — Initial build. Firebase Auth email/password login.
+                       Redirects to dashboard.html on success.
+                       NL brand: red full-screen, centred white card, Carbona font.
+-->
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>National League</title>
-  <meta name="robots" content="noindex,nofollow" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NL Tools — Sign In</title>
 
-  <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+  <!-- Firebase compat CDN (globally scoped, no build tools needed) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 
   <style>
-    :root { color-scheme: light dark; }
-    * { box-sizing: border-box; }
+    /* ─── Reset ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ─── NL Brand tokens ───────────────────────────────────── */
+    :root {
+      --primary:     #9e0000;
+      --primary-dim: #7a0000;
+      --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
+      --navy-light:  #2a4a8c;
+      --red:         #c0392b;
+      --red-light:   #fdf0ef;
+      --white:       #ffffff;
+      --off-white:   #f4f6f9;
+      --text:        #1a2a44;
+      --text-muted:  #5a6a82;
+      --border:      #dde3ed;
+      --radius:      6px;
+      --font:        'carbona-variable','carbona',sans-serif;
+    }
+
+    /* ─── Carbona font ──────────────────────────────────────── */
+    @font-face {
+      font-family: "carbona-variable";
+      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+      font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+    }
+
+    /* ─── Body ──────────────────────────────────────────────── */
     body {
-      font-family: "carbona-variable", sans-serif;
-      font-weight: 400;
-      margin: 0;
-      background: #f6f7f9;
-    }
-
-    .wrap {
+      font-family: var(--font);
+      font-size: 17px;
+      line-height: 1.5;
+      font-variation-settings: 'wght' 400;
+      color: var(--text);
+      background: var(--primary);
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 20px;
     }
 
-    .card {
+    /* ─── Login layout ──────────────────────────────────────── */
+    .login-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    .login-box {
+      background: var(--white);
+      border-radius: 12px;
+      padding: 52px;
       width: 100%;
-      max-width: 480px;
-      background: white;
-      border-radius: 18px;
-      padding: 30px 28px 28px;
-      box-shadow: 0 12px 34px rgba(0,0,0,.08);
+      max-width: 440px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
       text-align: center;
     }
 
-    .logo {
-      width: 70px;
-      margin: 0 auto 14px;
-      display: block;
+    .login-box img {
+      width: 90px;
+      margin-bottom: 24px;
     }
 
-    h1 {
-      margin: 0 0 4px;
-      font-size: 22px;
-      font-weight: 800;
+    .login-box h1 {
+      font-size: 28px;
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+      margin-bottom: 5px;
+    }
+    .login-box h1 .word-primary   { color: var(--primary); }
+    .login-box h1 .word-secondary { color: var(--navy); }
+
+    .login-box p.subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
     }
 
-    p {
-      margin: 0 0 20px;
-      opacity: .7;
-      font-size: 14px;
-    }
-
-    form {
+    /* ─── Form ──────────────────────────────────────────────── */
+    .form-group {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 5px;
+      margin-bottom: 16px;
+      text-align: left;
     }
 
-    input[type="password"] {
-      padding: 14px;
-      border-radius: 10px;
-      border: 1px solid #d4d7dc;
-      font-size: 16px;
-      font-family: inherit;
+    .form-group label {
+      font-size: 10px;
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      color: var(--navy);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
     }
 
-    button {
-      padding: 14px;
-      border-radius: 10px;
+    .form-group input {
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 15px;
+      font-family: var(--font);
+      font-variation-settings: 'wght' 400;
+      color: var(--text);
+      background: var(--white);
+      transition: border-color 0.15s;
+      -webkit-appearance: none;
+      width: 100%;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
+    }
+
+    /* ─── Submit button ─────────────────────────────────────── */
+    .btn-submit {
+      width: 100%;
+      padding: 14px 32px;
+      background: var(--primary);
+      color: var(--white);
       border: none;
-      font-size: 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      font-family: var(--font);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
       cursor: pointer;
-      background: #9e0000;
-      color: white;
-      font-weight: 500;
-      font-family: inherit;
+      transition: background 0.15s;
+      margin-top: 8px;
+    }
+    .btn-submit:hover:not(:disabled) { background: var(--primary-dim); }
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
 
-    button:hover { opacity: .92; }
+    /* ─── Error message ─────────────────────────────────────── */
+    .error-msg {
+      display: none;
+      background: var(--red-light);
+      color: var(--red);
+      border: 1px solid #f5c6c2;
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+    .error-msg.show { display: block; }
 
-    .msg {
-      min-height: 20px;
-      font-size: 14px;
-      margin-top: 6px;
-      font-weight: 500;
+    /* ─── Spinner ───────────────────────────────────────────── */
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: var(--white);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Auth checking state ───────────────────────────────── */
+    .checking {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .checking-inner {
+      text-align: center;
+      color: rgba(255,255,255,0.8);
+      font-size: 13px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .checking-inner .spinner {
+      border-color: rgba(255,255,255,0.3);
+      border-top-color: var(--white);
+      width: 28px; height: 28px;
+      display: block;
+      margin: 0 auto 16px;
     }
 
-    .bad { color: #b00020; }
+    @media (max-width: 480px) {
+      .login-box { padding: 36px 28px; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
 
-      <img class="logo" src="https://images.gc.nationalleagueservices.co.uk/fit-in/170x170/c64a92f0-2748-11f0-956a-2f0bc148c6f8.png" alt="National League logo">
+  <!-- Shown while Firebase resolves auth state (prevents login flash if already signed in) -->
+  <div class="checking" id="checkingState">
+    <div class="checking-inner">
+      <div class="spinner"></div>
+      Checking session…
+    </div>
+  </div>
 
-      <h1>National League</h1>
-      <p>Enter password to continue</p>
+  <!-- Login card — hidden until auth check completes -->
+  <div class="login-wrap" id="loginWrap" style="display:none;">
+    <div class="login-box">
 
-      <form id="gate" autocomplete="off">
-        <input id="pw" type="password" placeholder="Password" required />
-        <button type="submit">Continue</button>
-        <div id="msg" class="msg"></div>
-      </form>
+      <img
+        src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
+        alt="National League"
+        onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+
+      <h1>
+        <span class="word-primary">NL</span>
+        <span class="word-secondary">Tools</span>
+      </h1>
+      <p class="subtitle">Internal Portal — Sign In</p>
+
+      <div class="error-msg" id="errorMsg"></div>
+
+      <div class="form-group">
+        <label for="emailInput">Email address</label>
+        <input type="email" id="emailInput" placeholder="you@thenationalleague.org.uk" autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <label for="passwordInput">Password</label>
+        <input type="password" id="passwordInput" placeholder="••••••••" autocomplete="current-password">
+      </div>
+
+      <button class="btn-submit" id="loginBtn" onclick="doLogin()">Sign In</button>
 
     </div>
   </div>
 
   <script>
-    const STORAGE_KEY = "nltools_gate_hash_v1";
-    const msgEl = document.getElementById("msg");
-    const pwEl = document.getElementById("pw");
-    const form = document.getElementById("gate");
+    // ─── Firebase config ──────────────────────────────────────
+    var firebaseConfig = {
+      apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+      authDomain:        "nl-tools.firebaseapp.com",
+      databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId:         "nl-tools",
+      storageBucket:     "nl-tools.firebasestorage.app",
+      messagingSenderId: "801354670005",
+      appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+    };
 
-    function setMsg(text, bad=false) {
-      msgEl.textContent = text || "";
-      msgEl.className = "msg" + (bad ? " bad" : "");
-    }
+    firebase.initializeApp(firebaseConfig);
+    var auth = firebase.auth();
 
-    async function sha1Hex(text) {
-      const enc = new TextEncoder().encode(text);
-      const buf = await crypto.subtle.digest("SHA-1", enc);
-      const arr = Array.from(new Uint8Array(buf));
-      return arr.map(b => b.toString(16).padStart(2, "0")).join("");
-    }
-
-    async function exists(url) {
-      try {
-        let r = await fetch(url, { method: "HEAD", cache: "no-store" });
-        if (r.ok) return true;
-        r = await fetch(url, { method: "GET", cache: "no-store" });
-        return r.ok;
-      } catch {
-        return false;
+    // ─── Auth state check ─────────────────────────────────────
+    // Runs once on load. If already signed in, skip login entirely.
+    auth.onAuthStateChanged(function(user) {
+      if (user) {
+        // Already authenticated — go straight to dashboard
+        window.location.replace('dashboard.html');
+      } else {
+        // Not signed in — show the login form
+        document.getElementById('checkingState').style.display = 'none';
+        document.getElementById('loginWrap').style.display = 'flex';
+        // Focus email field for convenience
+        document.getElementById('emailInput').focus();
       }
-    }
+    });
 
-    async function go(hash) {
-      const ok = await exists(`${hash}/index.html`);
-      if (ok) {
-        localStorage.setItem(STORAGE_KEY, hash);
-        window.location.href = `${hash}/`;
-        return true;
+    // ─── Login handler ────────────────────────────────────────
+    function doLogin() {
+      var email    = document.getElementById('emailInput').value.trim();
+      var password = document.getElementById('passwordInput').value;
+      var btn      = document.getElementById('loginBtn');
+
+      hideError();
+
+      if (!email || !password) {
+        showError('Please enter your email and password.');
+        return;
       }
-      return false;
+
+      // Loading state
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Signing in…';
+
+      auth.signInWithEmailAndPassword(email, password)
+        .then(function() {
+          // onAuthStateChanged will fire and redirect — nothing to do here
+        })
+        .catch(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+          showError(friendlyError(err.code));
+        });
     }
 
-    (async () => {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) await go(saved);
-    })();
+    // ─── Error helpers ────────────────────────────────────────
+    function showError(msg) {
+      var el = document.getElementById('errorMsg');
+      el.textContent = msg;
+      el.classList.add('show');
+    }
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      setMsg("");
+    function hideError() {
+      document.getElementById('errorMsg').classList.remove('show');
+    }
 
-      const pw = pwEl.value.trim();
-      if (!pw) return;
+    // Map Firebase error codes to plain English
+    function friendlyError(code) {
+      var map = {
+        'auth/invalid-email':       'That doesn\'t look like a valid email address.',
+        'auth/user-not-found':      'No account found with that email address.',
+        'auth/wrong-password':      'Incorrect password. Please try again.',
+        'auth/invalid-credential':  'Incorrect email or password. Please try again.',
+        'auth/too-many-requests':   'Too many failed attempts. Please wait a moment before trying again.',
+        'auth/user-disabled':       'This account has been disabled. Contact your administrator.',
+        'auth/network-request-failed': 'Network error. Check your connection and try again.',
+      };
+      return map[code] || 'Sign in failed. Please try again.';
+    }
 
-      const hash = await sha1Hex(pw);
-      const ok = await go(hash);
-
-      if (!ok) {
-        setMsg("Incorrect password", true);
-        pwEl.select();
+    // ─── Enter key support ────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var btn = document.getElementById('loginBtn');
+        if (btn && !btn.disabled) doLogin();
       }
     });
   </script>
+
 </body>
 </html>
