@@ -1,18 +1,18 @@
 <!--
   NL Tools — Login Page
-  Version: v1.1
+  Version: v1.2
   Date: 30/03/2026
   Location: /tools/index.html
 
   Changelog:
-  v1.1 (30/03/2026) — Added email link (passwordless) sign-in completion.
-                       On load, detects if URL contains a Firebase email link
-                       and completes sign-in automatically (prompting for email
-                       if not stored in localStorage). Added forgot password
-                       link — sends Firebase password reset email.
-  v1.0 (30/03/2026) — Initial build. Firebase Auth email/password login,
-                       NL brand design system, redirects to /tools/portal/
-                       on successful authentication.
+  v1.2 (30/03/2026) — After email link sign-in, detects first-time users
+                       (creationTime === lastSignInTime) and shows a set-password
+                       screen before allowing portal access. user.updatePassword()
+                       is called on submit. Existing users bypass this screen and
+                       go straight to portal as before. Also bumped Firebase CDN
+                       to 10.7.1 to match portal.
+  v1.1 (30/03/2026) — Email link sign-in completion + forgot password.
+  v1.0 (30/03/2026) — Initial build.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -21,15 +21,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NL Tools — Sign In</title>
 
-  <!-- Firebase compat CDN — globally scoped, no ES modules needed -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
   <style>
-    /* ── Reset ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    /* ── NL Brand tokens ── */
     :root {
       --primary:     #9e0000;
       --primary-dim: #7a0000;
@@ -47,7 +44,6 @@
       --font:        'carbona-variable','carbona',sans-serif;
     }
 
-    /* ── Carbona font ── */
     @font-face {
       font-family: "carbona-variable";
       src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
@@ -55,39 +51,29 @@
       font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
     }
 
-    /* ── Body ── */
     body {
-      font-family: var(--font);
-      font-size: 17px;
-      line-height: 1.5;
-      font-variation-settings: 'wght' 400;
-      color: var(--text);
-      background: var(--primary);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      font-family: var(--font); font-size: 17px; line-height: 1.5;
+      font-variation-settings: 'wght' 400; color: var(--text);
+      background: var(--primary); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
     }
 
-    /* ── Auth-checking overlay ── */
+    /* ── Auth overlay ── */
     .auth-checking {
-      position: fixed; inset: 0;
-      background: var(--primary);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 999;
+      position: fixed; inset: 0; background: var(--primary);
+      display: flex; align-items: center; justify-content: center; z-index: 999;
     }
     .spinner {
       width: 32px; height: 32px;
-      border: 3px solid rgba(255,255,255,0.3);
-      border-top-color: var(--white);
+      border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--white);
       border-radius: 50%; animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Login card ── */
     .login-box {
-      background: var(--white); border-radius: 12px;
-      padding: 52px; width: 100%; max-width: 440px;
+      background: var(--white); border-radius: 12px; padding: 52px;
+      width: 100%; max-width: 440px;
       box-shadow: 0 8px 40px rgba(0,0,0,0.4); text-align: center;
     }
     .login-box img { width: 90px; margin-bottom: 24px; }
@@ -103,7 +89,7 @@
       font-weight: 700; font-variation-settings: 'wght' 700;
     }
 
-    /* ── Form fields ── */
+    /* ── Fields ── */
     .field { margin-bottom: 16px; text-align: left; }
     .field label {
       display: block; font-size: 11px; font-weight: 800;
@@ -119,11 +105,16 @@
       transition: border-color 0.15s, box-shadow 0.15s;
     }
     .field input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
+      border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
     }
 
-    /* ── Submit button ── */
+    /* ── Hint text under field ── */
+    .field-hint {
+      font-size: 11px; color: var(--text-muted); margin-top: 5px;
+      font-variation-settings: 'wght' 400; text-align: left;
+    }
+
+    /* ── Buttons ── */
     .btn-submit {
       width: 100%; margin-top: 8px; padding: 13px 20px;
       background: var(--primary); color: var(--white); border: none;
@@ -135,15 +126,12 @@
     .btn-submit:hover:not(:disabled) { background: var(--primary-dim); }
     .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* ── Forgot password link ── */
     .forgot-link {
-      display: inline-block; margin-top: 16px;
-      font-size: 12px; color: var(--text-muted);
-      text-decoration: none; cursor: pointer;
+      display: inline-block; margin-top: 16px; font-size: 12px;
+      color: var(--text-muted); cursor: pointer;
       font-weight: 600; font-variation-settings: 'wght' 600;
-      transition: color 0.15s;
-      background: none; border: none; font-family: var(--font);
-      width: 100%; text-align: center;
+      transition: color 0.15s; background: none; border: none;
+      font-family: var(--font); width: 100%; text-align: center;
     }
     .forgot-link:hover { color: var(--primary); }
 
@@ -153,26 +141,24 @@
       border-radius: var(--radius); font-size: 13px;
       font-weight: 600; font-variation-settings: 'wght' 600; text-align: left;
     }
-    .status-msg.show  { display: block; }
-    .status-msg.error {
-      background: var(--red-light); border: 1px solid #f5c6c2; color: var(--red);
+    .status-msg.show    { display: block; }
+    .status-msg.error   { background: var(--red-light);   border: 1px solid #f5c6c2; color: var(--red); }
+    .status-msg.success { background: var(--green-light); border: 1px solid #b8dfc0; color: var(--green); }
+
+    /* ── Screens — only one visible at a time ── */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── Password strength indicator ── */
+    .strength-bar {
+      height: 3px; border-radius: 2px; margin-top: 6px;
+      background: var(--border); overflow: hidden;
     }
-    .status-msg.success {
-      background: var(--green-light); border: 1px solid #b8dfc0; color: var(--green);
+    .strength-bar__fill {
+      height: 100%; width: 0; border-radius: 2px;
+      transition: width 0.2s, background 0.2s;
     }
 
-    /* ── Email confirmation prompt ──
-       Shown when a user clicks an invite link on a different device and we
-       can't retrieve their email from localStorage automatically. ── */
-    .confirm-email-prompt { display: none; }
-    .confirm-email-prompt.show { display: block; }
-    .confirm-email-prompt p {
-      font-size: 13px; color: var(--text-muted); margin-bottom: 16px;
-      text-align: left; font-variation-settings: 'wght' 400;
-      text-transform: none; letter-spacing: 0;
-    }
-
-    /* ── Responsive ── */
     @media (max-width: 480px) {
       .login-box { padding: 36px 24px; margin: 16px; }
     }
@@ -180,12 +166,10 @@
 </head>
 <body>
 
-  <!-- Shown while Firebase resolves session / processes email link -->
   <div class="auth-checking" id="authChecking">
     <div class="spinner"></div>
   </div>
 
-  <!-- Standard login form -->
   <div class="login-box" id="loginBox" style="display:none;">
     <img
       src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
@@ -195,44 +179,65 @@
       <span class="word-primary">NL</span>
       <span class="word-secondary">Tools</span>
     </h1>
-    <p class="subtitle">Internal Staff Portal</p>
+    <p class="subtitle" id="cardSubtitle">Internal Staff Portal</p>
 
-    <!-- Email confirmation prompt — only shown when completing an invite
-         link on a different device to the one the link was opened on -->
-    <div class="confirm-email-prompt" id="confirmEmailPrompt">
-      <p>Please confirm your email address to complete sign-in.</p>
+    <!-- ── Screen 1: Standard sign-in ── -->
+    <div class="screen active" id="screenSignIn">
+      <div class="field">
+        <label for="emailInput">Email address</label>
+        <input type="email" id="emailInput"
+          placeholder="you@thenationalleague.org.uk" autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="passwordInput">Password</label>
+        <input type="password" id="passwordInput"
+          placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-submit" id="signInBtn" onclick="doSignIn()">Sign in</button>
+      <button class="forgot-link" onclick="doForgotPassword()">Forgot your password?</button>
+      <div class="status-msg" id="signInStatus"></div>
+    </div>
+
+    <!-- ── Screen 2: Confirm email (different-device invite link) ── -->
+    <div class="screen" id="screenConfirmEmail">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;text-align:left;">
+        Please confirm your email address to complete sign-in.
+      </p>
       <div class="field">
         <label for="confirmEmailInput">Your email address</label>
         <input type="email" id="confirmEmailInput"
           placeholder="you@thenationalleague.org.uk">
       </div>
-      <button class="btn-submit" onclick="completeEmailLink()">Complete sign-in</button>
-      <div class="status-msg" id="confirmStatusMsg"></div>
+      <button class="btn-submit" onclick="completeEmailLink()">Continue</button>
+      <div class="status-msg" id="confirmEmailStatus"></div>
     </div>
 
-    <!-- Standard password login form -->
-    <div id="passwordForm">
+    <!-- ── Screen 3: Set password (first sign-in via invite link) ── -->
+    <div class="screen" id="screenSetPassword">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;text-align:left;">
+        Welcome. Please set a password for your account — you'll use this to sign in from now on.
+      </p>
       <div class="field">
-        <label for="emailInput">Email address</label>
-        <input type="email" id="emailInput"
-          placeholder="you@thenationalleague.org.uk"
-          autocomplete="email">
+        <label for="newPasswordInput">Choose a password</label>
+        <input type="password" id="newPasswordInput"
+          placeholder="At least 8 characters"
+          oninput="updateStrength(this.value)">
+        <div class="strength-bar">
+          <div class="strength-bar__fill" id="strengthFill"></div>
+        </div>
+        <div class="field-hint" id="strengthLabel"></div>
       </div>
       <div class="field">
-        <label for="passwordInput">Password</label>
-        <input type="password" id="passwordInput"
-          placeholder="••••••••"
-          autocomplete="current-password">
+        <label for="confirmPasswordInput">Confirm password</label>
+        <input type="password" id="confirmPasswordInput" placeholder="••••••••">
       </div>
-      <button class="btn-submit" id="signInBtn" onclick="doSignIn()">Sign in</button>
-      <button class="forgot-link" onclick="doForgotPassword()">Forgot your password?</button>
-      <div class="status-msg" id="statusMsg"></div>
+      <button class="btn-submit" id="setPasswordBtn" onclick="doSetPassword()">Set password &amp; continue</button>
+      <div class="status-msg" id="setPasswordStatus"></div>
     </div>
 
   </div>
 
   <script>
-    // ── Firebase init ────────────────────────────────────────────────────────
     var firebaseConfig = {
       apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
       authDomain:        "nl-tools.firebaseapp.com",
@@ -245,111 +250,160 @@
     firebase.initializeApp(firebaseConfig);
     var auth = firebase.auth();
 
-    // ── On load: check for email link in URL first, then check auth state ───
-    // isSignInWithEmailLink checks the current URL for Firebase's magic link
-    // parameters. If found, we complete the sign-in flow instead of showing
-    // the normal login form.
+    // ── On load ──────────────────────────────────────────────────────────────
     if (auth.isSignInWithEmailLink(window.location.href)) {
       handleEmailLink();
     } else {
-      // Normal load — check if already signed in
       auth.onAuthStateChanged(function(user) {
         if (user) {
           window.location.replace('/tools/portal/');
         } else {
-          showLoginForm();
+          showBox();
+          showScreen('screenSignIn');
+          document.getElementById('emailInput').focus();
         }
       });
     }
 
-    // ── Handle incoming email invite link ────────────────────────────────────
+    // ── Email link handling ──────────────────────────────────────────────────
     function handleEmailLink() {
-      // We stored the email in localStorage when the invite was sent.
-      // If the user opens the link on the same device/browser, we get it
-      // automatically. If on a different device, localStorage is empty and
-      // we ask them to confirm their email.
       var email = localStorage.getItem('nlToolsInviteEmail');
-
       if (email) {
-        // Email known — complete sign-in silently
-        auth.signInWithEmailLink(email, window.location.href)
-          .then(function() {
-            localStorage.removeItem('nlToolsInviteEmail');
-            // Clean the URL before redirecting so the link can't be reused
-            window.history.replaceState(null, '', '/tools/');
-            window.location.replace('/tools/portal/');
-          })
-          .catch(function(err) {
-            // Link expired or already used — show form with error
-            showLoginForm();
-            showStatus('statusMsg', 'This invite link has expired or already been used. Contact your administrator.', 'error');
-          });
+        completeSignInWithLink(email);
       } else {
-        // Email not in localStorage (different device) — ask user to confirm
-        document.getElementById('authChecking').style.display = 'none';
-        document.getElementById('loginBox').style.display = 'block';
-        document.getElementById('passwordForm').style.display = 'none';
-        document.getElementById('confirmEmailPrompt').classList.add('show');
+        // Different device — ask for email confirmation first
+        showBox();
+        showScreen('screenConfirmEmail');
         document.getElementById('confirmEmailInput').focus();
       }
     }
 
-    // ── Complete email link sign-in after manual email confirmation ──────────
-    function completeEmailLink() {
-      var email = document.getElementById('confirmEmailInput').value.trim();
-      if (!email) {
-        showStatus('confirmStatusMsg', 'Please enter your email address.', 'error');
-        return;
-      }
+    // Called either automatically (email from localStorage) or after manual
+    // confirmation on a different device.
+    function completeSignInWithLink(email) {
       auth.signInWithEmailLink(email, window.location.href)
-        .then(function() {
+        .then(function(result) {
+          localStorage.removeItem('nlToolsInviteEmail');
           window.history.replaceState(null, '', '/tools/');
-          window.location.replace('/tools/portal/');
+
+          // Detect first-time sign-in by comparing creation and last sign-in times.
+          // If they match to within a second, this is the very first sign-in.
+          var meta     = result.user.metadata;
+          var created  = new Date(meta.creationTime).getTime();
+          var lastIn   = new Date(meta.lastSignInTime).getTime();
+          var isFirst  = Math.abs(created - lastIn) < 2000;
+
+          if (isFirst) {
+            // First sign-in — prompt for password before portal access
+            showBox();
+            document.getElementById('cardSubtitle').textContent = 'Welcome to NL Tools';
+            showScreen('screenSetPassword');
+            document.getElementById('newPasswordInput').focus();
+          } else {
+            window.location.replace('/tools/portal/');
+          }
         })
         .catch(function(err) {
-          var msg = 'Sign-in failed. ';
-          if (err.code === 'auth/invalid-email')       msg += 'Invalid email address.';
-          else if (err.code === 'auth/invalid-action-code') msg += 'This link has expired or already been used.';
-          else msg += 'Contact your administrator.';
-          showStatus('confirmStatusMsg', msg, 'error');
+          showBox();
+          showScreen('screenSignIn');
+          var msg = 'This invite link has expired or already been used. Contact your administrator.';
+          if (err.code === 'auth/invalid-action-code') msg = 'This link has expired or already been used.';
+          showStatus('signInStatus', msg, 'error');
         });
     }
 
-    // ── Standard password sign-in ────────────────────────────────────────────
-    function showLoginForm() {
-      document.getElementById('authChecking').style.display = 'none';
-      document.getElementById('loginBox').style.display = 'block';
-      document.getElementById('emailInput').focus();
+    // Triggered from screen 2 (different-device confirm)
+    function completeEmailLink() {
+      var email = document.getElementById('confirmEmailInput').value.trim();
+      if (!email) {
+        showStatus('confirmEmailStatus', 'Please enter your email address.', 'error');
+        return;
+      }
+      completeSignInWithLink(email);
     }
 
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') {
-        if (document.getElementById('confirmEmailPrompt').classList.contains('show')) {
-          completeEmailLink();
-        } else {
-          doSignIn();
-        }
-      }
-    });
+    // ── Set password (screen 3) ──────────────────────────────────────────────
+    function doSetPassword() {
+      var pw1 = document.getElementById('newPasswordInput').value;
+      var pw2 = document.getElementById('confirmPasswordInput').value;
+      var btn = document.getElementById('setPasswordBtn');
 
+      if (pw1.length < 8) {
+        showStatus('setPasswordStatus', 'Password must be at least 8 characters.', 'error');
+        return;
+      }
+      if (pw1 !== pw2) {
+        showStatus('setPasswordStatus', 'Passwords don\'t match.', 'error');
+        return;
+      }
+
+      btn.disabled    = true;
+      btn.textContent = 'Saving…';
+
+      var user = auth.currentUser;
+      if (!user) {
+        showStatus('setPasswordStatus', 'Session expired. Please use your invite link again.', 'error');
+        btn.disabled    = false;
+        btn.textContent = 'Set password & continue';
+        return;
+      }
+
+      user.updatePassword(pw1)
+        .then(function() {
+          window.location.replace('/tools/portal/');
+        })
+        .catch(function(err) {
+          btn.disabled    = false;
+          btn.textContent = 'Set password & continue';
+          var msg = 'Failed to set password. Try again.';
+          if (err.code === 'auth/weak-password') msg = 'Password too weak — please choose something stronger.';
+          if (err.code === 'auth/requires-recent-login') msg = 'Session expired. Please use your invite link again.';
+          showStatus('setPasswordStatus', msg, 'error');
+        });
+    }
+
+    // ── Password strength indicator ──────────────────────────────────────────
+    function updateStrength(pw) {
+      var fill  = document.getElementById('strengthFill');
+      var label = document.getElementById('strengthLabel');
+      var score = 0;
+      if (pw.length >= 8)                        score++;
+      if (pw.length >= 12)                       score++;
+      if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+      if (/[0-9]/.test(pw))                      score++;
+      if (/[^A-Za-z0-9]/.test(pw))               score++;
+
+      var levels = [
+        { pct: '0%',   colour: 'var(--border)',   text: '' },
+        { pct: '25%',  colour: 'var(--red)',       text: 'Weak' },
+        { pct: '50%',  colour: 'var(--amber)',     text: 'Fair' },
+        { pct: '75%',  colour: 'var(--amber)',     text: 'Good' },
+        { pct: '90%',  colour: 'var(--green)',     text: 'Strong' },
+        { pct: '100%', colour: 'var(--green)',     text: 'Very strong' },
+      ];
+      var l = levels[Math.min(score, 5)];
+      fill.style.width      = pw.length ? l.pct    : '0%';
+      fill.style.background = pw.length ? l.colour : 'var(--border)';
+      label.textContent     = pw.length ? l.text   : '';
+    }
+
+    // ── Standard sign-in ─────────────────────────────────────────────────────
     function doSignIn() {
       var email    = document.getElementById('emailInput').value.trim();
       var password = document.getElementById('passwordInput').value;
       var btn      = document.getElementById('signInBtn');
 
       if (!email || !password) {
-        showStatus('statusMsg', 'Please enter your email and password.', 'error');
+        showStatus('signInStatus', 'Please enter your email and password.', 'error');
         return;
       }
 
       btn.disabled    = true;
       btn.textContent = 'Signing in…';
-      clearStatus('statusMsg');
+      clearStatus('signInStatus');
 
       auth.signInWithEmailAndPassword(email, password)
-        .then(function() {
-          // onAuthStateChanged fires and redirects
-        })
+        .then(function() { /* onAuthStateChanged handles redirect */ })
         .catch(function(err) {
           btn.disabled    = false;
           btn.textContent = 'Sign in';
@@ -365,31 +419,50 @@
           } else if (err.code === 'auth/user-disabled') {
             msg = 'This account has been disabled. Contact your administrator.';
           }
-          showStatus('statusMsg', msg, 'error');
+          showStatus('signInStatus', msg, 'error');
         });
     }
 
-    // ── Forgot password ──────────────────────────────────────────────────────
+    // ── Forgot password ───────────────────────────────────────────────────────
     function doForgotPassword() {
       var email = document.getElementById('emailInput').value.trim();
       if (!email) {
-        showStatus('statusMsg', 'Enter your email address above first.', 'error');
+        showStatus('signInStatus', 'Enter your email address above first.', 'error');
         return;
       }
-      clearStatus('statusMsg');
+      clearStatus('signInStatus');
       auth.sendPasswordResetEmail(email)
         .then(function() {
-          // Deliberately vague — don't confirm whether the account exists
-          showStatus('statusMsg', 'If that email has an account, a reset link has been sent.', 'success');
+          showStatus('signInStatus', 'If that email has an account, a reset link has been sent.', 'success');
         })
         .catch(function(err) {
           var msg = 'Could not send reset email. Try again.';
           if (err.code === 'auth/invalid-email') msg = 'Please enter a valid email address.';
-          showStatus('statusMsg', msg, 'error');
+          showStatus('signInStatus', msg, 'error');
         });
     }
 
-    // ── Status helpers ───────────────────────────────────────────────────────
+    // ── Enter key ────────────────────────────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      var active = document.querySelector('.screen.active');
+      if (!active) return;
+      if (active.id === 'screenSignIn')        doSignIn();
+      if (active.id === 'screenConfirmEmail')  completeEmailLink();
+      if (active.id === 'screenSetPassword')   doSetPassword();
+    });
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
+    function showBox() {
+      document.getElementById('authChecking').style.display = 'none';
+      document.getElementById('loginBox').style.display     = 'block';
+    }
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(function(s) {
+        s.classList.remove('active');
+      });
+      document.getElementById(id).classList.add('active');
+    }
     function showStatus(elId, msg, type) {
       var el = document.getElementById(elId);
       el.textContent = msg;
@@ -397,8 +470,7 @@
     }
     function clearStatus(elId) {
       var el = document.getElementById(elId);
-      el.className   = 'status-msg';
-      el.textContent = '';
+      el.className = 'status-msg'; el.textContent = '';
     }
   </script>
 </body>
