@@ -3,10 +3,16 @@
 <head>
 <!--
   National League Jobs Board — Admin Interface
-  Version: 1.9
-  Date: 26/03/2026
+  Version: 1.10
+  Date: 30/03/2026
 
   CHANGELOG
+  v1.10 (30/03/2026)
+    - Added mandatory "Approved By" field to submission review modal
+    - Approve button validates Approved By before proceeding
+    - Submissions table shows "Approved: [name]" in status pill
+    - Approved By passed to Code.gs and written to Submissions sheet
+
   v1.9 (26/03/2026)
     - Added Submissions tab — fetches from Submissions sheet, shows pending badge count
     - Review modal: view submitter details, edit all fields, approve/reject with notes
@@ -540,6 +546,10 @@ input[type="checkbox"] {
           </div>
         </div>
         <div class="form-group span2">
+          <label>Approved By <span style="color:var(--primary)">*</span></label>
+          <input type="text" id="subApprovedBy" placeholder="Your name — required before approving">
+        </div>
+        <div class="form-group span2">
           <label>Internal Notes</label>
           <input type="text" id="subNotes" placeholder="Optional notes for your records">
         </div>
@@ -736,6 +746,7 @@ function renderSubsTable() {
     var crest = s.crestUrl||FALLBACK_CREST;
     var when  = s.submittedAt ? fmtDT(new Date(s.submittedAt)) : '—';
     var pillCls = s.status==='Approved' ? 'live' : s.status==='Rejected' ? 'expired' : 'soon';
+    var statusLabel = s.status==='Approved' && s.approvedBy ? 'Approved: '+s.approvedBy : s.status;
     var btns = s.status === 'Pending'
       ? '<button class="btn btn--ghost btn--sm" onclick="openSubModal('+s.rowIndex+')">Review</button>'
       : '<button class="btn btn--ghost btn--sm" onclick="openSubModal('+s.rowIndex+')">View</button>';
@@ -745,7 +756,7 @@ function renderSubsTable() {
       +'<td>'+esc(s.jobTitle)+'</td>'
       +'<td style="font-size:12px;white-space:nowrap;">'+when+'</td>'
       +'<td style="font-size:13px;">'+esc(s.submitterName)+'<br><span style="color:var(--text-muted);font-size:11px;">'+esc(s.submitterRole)+' · '+esc(s.submitterEmail)+'</span></td>'
-      +'<td><span class="pill pill--'+pillCls+'">'+esc(s.status)+'</span></td>'
+      +'<td><span class="pill pill--'+pillCls+'">'+esc(statusLabel)+'</span></td>'
       +'<td style="white-space:nowrap;">'+btns+'</td>'
       +'</tr>';
   }).join('');
@@ -773,6 +784,7 @@ function openSubModal(rowIndex) {
   document.getElementById('subSalary').value       = sub.salary||'';
   document.getElementById('subDescription').value  = sub.description||'';
   document.getElementById('subLiveUrl').value      = sub.liveListingUrl||'';
+  document.getElementById('subApprovedBy').value  = sub.approvedBy||'';
   document.getElementById('subNotes').value        = sub.notes||'';
   setSubClosingFields(sub.closingDate||'');
   updateSubCrest(sub.crestUrl||'');
@@ -827,11 +839,12 @@ function saveSub() {
 }
 
 function approveSub() {
-  var notes = document.getElementById('subNotes').value.trim();
-  // Save any edits first, then approve
+  var approvedBy = document.getElementById('subApprovedBy').value.trim();
+  var notes      = document.getElementById('subNotes').value.trim();
+  if (!approvedBy) { showToast('Please enter your name in "Approved By" before approving.','error'); return; }
   apiPost({ action:'updateSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, data:getSubFormData() })
     .then(function() {
-      return apiPost({ action:'approveSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, notes:notes });
+      return apiPost({ action:'approveSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, approvedBy:approvedBy, notes:notes });
     })
     .then(function(res) {
       if (res.error) throw new Error(res.error);
