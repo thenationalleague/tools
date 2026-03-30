@@ -1,21 +1,15 @@
 <!--
   NL Tools — Portal Dashboard
-  Version: v1.1
+  Version: v1.2
   Date: 30/03/2026
   Location: /tools/portal/index.html
 
   Changelog:
-  v1.1 (30/03/2026) — Replaced password-based user creation with Firebase
-                       email link invite flow. Handles ?guard= redirect flags
-                       from auth-guard.js with appropriate toasts. Cleans URL
-                       after flag is read.
-                       Detail: replaced password-based user creation with Firebase
-                       email link invite flow. Admin panel now takes name +
-                       email only. Sends invite link via Firebase; stores
-                       email in localStorage so same-device sign-in completes
-                       automatically. Removed secondary app instance entirely.
-  v1.0 (30/03/2026) — Initial build. Auth-guarded dashboard. Tool tiles,
-                       super-admin panel with user management and tool toggles.
+  v1.2 (30/03/2026) — renderTiles now shows tools with visibleToAll:true for
+                       every authenticated user regardless of individual access.
+                       Universal tiles appear first (e.g. welcome tile).
+  v1.1 (30/03/2026) — Invite flow, guard flag handling.
+  v1.0 (30/03/2026) — Initial build.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -393,17 +387,27 @@
 
     // ── Render tiles ─────────────────────────────────────────────────────────
     function renderTiles(userTools) {
-      var grid      = document.getElementById('tilesGrid');
+      var grid = document.getElementById('tilesGrid');
+
+      // Tools the user has been explicitly granted
       var permitted = Object.keys(userTools).filter(function(k) {
         return userTools[k] === true && STATE.toolsCat[k];
       });
 
-      if (!permitted.length) {
+      // Tools marked visibleToAll — shown to every authenticated user
+      // regardless of their individual permissions (e.g. welcome, help)
+      var universal = Object.keys(STATE.toolsCat).filter(function(k) {
+        return STATE.toolsCat[k].visibleToAll === true && permitted.indexOf(k) === -1;
+      });
+
+      var allTiles = universal.concat(permitted);
+
+      if (!allTiles.length) {
         grid.innerHTML = '<div class="no-tools"><strong>No tools yet</strong>You haven\'t been granted access to any tools. Contact your administrator.</div>';
         return;
       }
 
-      grid.innerHTML = permitted.map(function(k) {
+      grid.innerHTML = allTiles.map(function(k) {
         var t = STATE.toolsCat[k];
         return '<a class="tile" href="' + esc(t.url) + '">'
           + '<div class="tile__icon">'  + esc(t.icon || '🔧') + '</div>'
