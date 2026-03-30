@@ -1,14 +1,15 @@
 <!--
-  NL Tools Portal — Login Page
-  Version: 1.0
-  Date: 30/03/2025
-  File: index.html
-  Location: thenationalleague/tools/ (repo root → served at /tools/)
+  NL Tools — Login Page
+  Version: v1.0
+  Date: 30/03/2026
+  Location: /tools/index.html
 
   Changelog:
-  v1.0 (30/03/2025) — Initial build. Firebase Auth email/password login.
-                       Redirects to dashboard.html on success.
-                       NL brand: red full-screen, centred white card, Carbona font.
+  v1.0 (30/03/2026) — Initial build. Firebase Auth email/password login,
+                       NL brand design system, redirects to /tools/portal/
+                       on successful authentication. Shows spinner while
+                       Firebase resolves existing session (avoids login
+                       flash for users who are already signed in).
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -17,21 +18,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NL Tools — Sign In</title>
 
-  <!-- Firebase compat CDN (globally scoped, no build tools needed) -->
+  <!-- Firebase compat CDN — globally scoped, no ES modules needed -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 
   <style>
-    /* ─── Reset ─────────────────────────────────────────────── */
+    /* ── Reset ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    /* ─── NL Brand tokens ───────────────────────────────────── */
+    /* ── NL Brand tokens ── */
     :root {
       --primary:     #9e0000;
       --primary-dim: #7a0000;
       --navy:        #223b7c;
-      --navy-mid:    #1a2f63;
-      --navy-light:  #2a4a8c;
       --red:         #c0392b;
       --red-light:   #fdf0ef;
       --white:       #ffffff;
@@ -43,7 +42,7 @@
       --font:        'carbona-variable','carbona',sans-serif;
     }
 
-    /* ─── Carbona font ──────────────────────────────────────── */
+    /* ── Carbona font ── */
     @font-face {
       font-family: "carbona-variable";
       src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
@@ -51,7 +50,7 @@
       font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
     }
 
-    /* ─── Body ──────────────────────────────────────────────── */
+    /* ── Body ── */
     body {
       font-family: var(--font);
       font-size: 17px;
@@ -60,17 +59,33 @@
       color: var(--text);
       background: var(--primary);
       min-height: 100vh;
-    }
-
-    /* ─── Login layout ──────────────────────────────────────── */
-    .login-wrap {
-      min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 24px 16px;
     }
 
+    /* ── Auth-checking overlay ──
+       Covers the page while Firebase resolves whether a session already
+       exists. Prevents the login form flashing briefly for signed-in users. */
+    .auth-checking {
+      position: fixed;
+      inset: 0;
+      background: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-top-color: var(--white);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Login card ── */
     .login-box {
       background: var(--white);
       border-radius: 12px;
@@ -80,12 +95,10 @@
       box-shadow: 0 8px 40px rgba(0,0,0,0.4);
       text-align: center;
     }
-
     .login-box img {
       width: 90px;
       margin-bottom: 24px;
     }
-
     .login-box h1 {
       font-size: 28px;
       font-weight: 900;
@@ -96,7 +109,6 @@
     }
     .login-box h1 .word-primary   { color: var(--primary); }
     .login-box h1 .word-secondary { color: var(--navy); }
-
     .login-box p.subtitle {
       font-size: 12px;
       color: var(--text-muted);
@@ -107,170 +119,120 @@
       font-variation-settings: 'wght' 700;
     }
 
-    /* ─── Form ──────────────────────────────────────────────── */
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      margin-bottom: 16px;
-      text-align: left;
-    }
-
-    .form-group label {
-      font-size: 10px;
-      font-weight: 900;
-      font-variation-settings: 'wght' 900;
-      color: var(--navy);
+    /* ── Form fields ── */
+    .field { margin-bottom: 16px; text-align: left; }
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
       text-transform: uppercase;
       letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
     }
-
-    .form-group input {
-      padding: 9px 11px;
+    .field input {
+      width: 100%;
+      padding: 11px 14px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      font-size: 15px;
       font-family: var(--font);
+      font-size: 15px;
       font-variation-settings: 'wght' 400;
       color: var(--text);
       background: var(--white);
-      transition: border-color 0.15s;
-      -webkit-appearance: none;
-      width: 100%;
-    }
-
-    .form-group input:focus {
+      transition: border-color 0.15s, box-shadow 0.15s;
       outline: none;
+    }
+    .field input:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
     }
 
-    /* ─── Submit button ─────────────────────────────────────── */
+    /* ── Submit button ── */
     .btn-submit {
       width: 100%;
-      padding: 14px 32px;
+      margin-top: 8px;
+      padding: 13px 20px;
       background: var(--primary);
       color: var(--white);
       border: none;
       border-radius: var(--radius);
+      font-family: var(--font);
       font-size: 13px;
       font-weight: 900;
       font-variation-settings: 'wght' 900;
-      font-family: var(--font);
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       cursor: pointer;
       transition: background 0.15s;
-      margin-top: 8px;
     }
     .btn-submit:hover:not(:disabled) { background: var(--primary-dim); }
-    .btn-submit:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
+    .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* ─── Error message ─────────────────────────────────────── */
+    /* ── Error message ── */
     .error-msg {
       display: none;
+      margin-top: 16px;
+      padding: 10px 14px;
       background: var(--red-light);
-      color: var(--red);
       border: 1px solid #f5c6c2;
       border-radius: var(--radius);
-      padding: 10px 14px;
       font-size: 13px;
-      font-weight: 700;
-      font-variation-settings: 'wght' 700;
-      margin-bottom: 16px;
+      color: var(--red);
+      font-weight: 600;
+      font-variation-settings: 'wght' 600;
       text-align: left;
     }
     .error-msg.show { display: block; }
 
-    /* ─── Spinner ───────────────────────────────────────────── */
-    .spinner {
-      display: inline-block;
-      width: 16px; height: 16px;
-      border: 2px solid rgba(255,255,255,0.4);
-      border-top-color: var(--white);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* ─── Auth checking state ───────────────────────────────── */
-    .checking {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    .checking-inner {
-      text-align: center;
-      color: rgba(255,255,255,0.8);
-      font-size: 13px;
-      font-weight: 700;
-      font-variation-settings: 'wght' 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
-    .checking-inner .spinner {
-      border-color: rgba(255,255,255,0.3);
-      border-top-color: var(--white);
-      width: 28px; height: 28px;
-      display: block;
-      margin: 0 auto 16px;
-    }
-
+    /* ── Responsive ── */
     @media (max-width: 480px) {
-      .login-box { padding: 36px 28px; }
+      .login-box { padding: 36px 24px; margin: 16px; }
     }
   </style>
 </head>
 <body>
 
-  <!-- Shown while Firebase resolves auth state (prevents login flash if already signed in) -->
-  <div class="checking" id="checkingState">
-    <div class="checking-inner">
-      <div class="spinner"></div>
-      Checking session…
-    </div>
+  <!-- Shown while Firebase resolves existing session state -->
+  <div class="auth-checking" id="authChecking">
+    <div class="spinner"></div>
   </div>
 
-  <!-- Login card — hidden until auth check completes -->
-  <div class="login-wrap" id="loginWrap" style="display:none;">
-    <div class="login-box">
+  <!-- Login form — hidden until auth check confirms no active session -->
+  <div class="login-box" id="loginBox" style="display:none;">
+    <img
+      src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
+      alt="National League"
+      onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
 
-      <img
-        src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
-        alt="National League"
-        onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <h1>
+      <span class="word-primary">NL</span>
+      <span class="word-secondary">Tools</span>
+    </h1>
+    <p class="subtitle">Internal Staff Portal</p>
 
-      <h1>
-        <span class="word-primary">NL</span>
-        <span class="word-secondary">Tools</span>
-      </h1>
-      <p class="subtitle">Internal Portal — Sign In</p>
-
-      <div class="error-msg" id="errorMsg"></div>
-
-      <div class="form-group">
-        <label for="emailInput">Email address</label>
-        <input type="email" id="emailInput" placeholder="you@thenationalleague.org.uk" autocomplete="email">
-      </div>
-
-      <div class="form-group">
-        <label for="passwordInput">Password</label>
-        <input type="password" id="passwordInput" placeholder="••••••••" autocomplete="current-password">
-      </div>
-
-      <button class="btn-submit" id="loginBtn" onclick="doLogin()">Sign In</button>
-
+    <div class="field">
+      <label for="emailInput">Email address</label>
+      <input type="email" id="emailInput"
+        placeholder="you@thenationalleague.org.uk"
+        autocomplete="email">
     </div>
+
+    <div class="field">
+      <label for="passwordInput">Password</label>
+      <input type="password" id="passwordInput"
+        placeholder="••••••••"
+        autocomplete="current-password">
+    </div>
+
+    <button class="btn-submit" id="signInBtn" onclick="doSignIn()">Sign in</button>
+
+    <div class="error-msg" id="errorMsg"></div>
   </div>
 
   <script>
-    // ─── Firebase config ──────────────────────────────────────
+    // ── Firebase init ────────────────────────────────────────────────────────
     var firebaseConfig = {
       apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
       authDomain:        "nl-tools.firebaseapp.com",
@@ -280,86 +242,73 @@
       messagingSenderId: "801354670005",
       appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
     };
-
     firebase.initializeApp(firebaseConfig);
     var auth = firebase.auth();
 
-    // ─── Auth state check ─────────────────────────────────────
-    // Runs once on load. If already signed in, skip login entirely.
+    // ── Session check on load ────────────────────────────────────────────────
+    // onAuthStateChanged fires once immediately with the current user or null.
+    // We use this to skip the login page entirely for users with a live session,
+    // and to hide the spinner and show the form for users who aren't signed in.
     auth.onAuthStateChanged(function(user) {
       if (user) {
-        // Already authenticated — go straight to dashboard
-        window.location.replace('dashboard.html');
+        window.location.replace('/tools/portal/');
       } else {
-        // Not signed in — show the login form
-        document.getElementById('checkingState').style.display = 'none';
-        document.getElementById('loginWrap').style.display = 'flex';
-        // Focus email field for convenience
+        document.getElementById('authChecking').style.display = 'none';
+        document.getElementById('loginBox').style.display = 'block';
         document.getElementById('emailInput').focus();
       }
     });
 
-    // ─── Login handler ────────────────────────────────────────
-    function doLogin() {
+    // ── Enter key submits form ───────────────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doSignIn();
+    });
+
+    // ── Sign-in ──────────────────────────────────────────────────────────────
+    function doSignIn() {
       var email    = document.getElementById('emailInput').value.trim();
       var password = document.getElementById('passwordInput').value;
-      var btn      = document.getElementById('loginBtn');
-
-      hideError();
+      var btn      = document.getElementById('signInBtn');
+      var errEl    = document.getElementById('errorMsg');
 
       if (!email || !password) {
         showError('Please enter your email and password.');
         return;
       }
 
-      // Loading state
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Signing in…';
+      btn.disabled    = true;
+      btn.textContent = 'Signing in…';
+      errEl.classList.remove('show');
 
       auth.signInWithEmailAndPassword(email, password)
         .then(function() {
-          // onAuthStateChanged will fire and redirect — nothing to do here
+          // onAuthStateChanged handles the redirect — nothing needed here
         })
         .catch(function(err) {
-          btn.disabled = false;
-          btn.textContent = 'Sign In';
-          showError(friendlyError(err.code));
+          btn.disabled    = false;
+          btn.textContent = 'Sign in';
+          // Friendly error messages — don't expose Firebase internals
+          var msg = 'Sign-in failed. Please try again.';
+          if (err.code === 'auth/user-not-found'
+           || err.code === 'auth/wrong-password'
+           || err.code === 'auth/invalid-credential') {
+            msg = 'Incorrect email or password.';
+          } else if (err.code === 'auth/invalid-email') {
+            msg = 'Please enter a valid email address.';
+          } else if (err.code === 'auth/too-many-requests') {
+            msg = 'Too many failed attempts. Please wait a moment and try again.';
+          } else if (err.code === 'auth/user-disabled') {
+            msg = 'This account has been disabled. Contact your administrator.';
+          }
+          showError(msg);
         });
     }
 
-    // ─── Error helpers ────────────────────────────────────────
     function showError(msg) {
       var el = document.getElementById('errorMsg');
       el.textContent = msg;
       el.classList.add('show');
     }
-
-    function hideError() {
-      document.getElementById('errorMsg').classList.remove('show');
-    }
-
-    // Map Firebase error codes to plain English
-    function friendlyError(code) {
-      var map = {
-        'auth/invalid-email':       'That doesn\'t look like a valid email address.',
-        'auth/user-not-found':      'No account found with that email address.',
-        'auth/wrong-password':      'Incorrect password. Please try again.',
-        'auth/invalid-credential':  'Incorrect email or password. Please try again.',
-        'auth/too-many-requests':   'Too many failed attempts. Please wait a moment before trying again.',
-        'auth/user-disabled':       'This account has been disabled. Contact your administrator.',
-        'auth/network-request-failed': 'Network error. Check your connection and try again.',
-      };
-      return map[code] || 'Sign in failed. Please try again.';
-    }
-
-    // ─── Enter key support ────────────────────────────────────
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') {
-        var btn = document.getElementById('loginBtn');
-        if (btn && !btn.disabled) doLogin();
-      }
-    });
   </script>
-
 </body>
 </html>
