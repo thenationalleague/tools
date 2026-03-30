@@ -1,16 +1,16 @@
 <!--
   NL Tools — Login Page
-  Version: v1.2
+  Version: v1.3
   Date: 30/03/2026
   Location: /tools/index.html
 
   Changelog:
-  v1.2 (30/03/2026) — After email link sign-in, detects first-time users
-                       (creationTime === lastSignInTime) and shows a set-password
-                       screen before allowing portal access. user.updatePassword()
-                       is called on submit. Existing users bypass this screen and
-                       go straight to portal as before. Also bumped Firebase CDN
-                       to 10.7.1 to match portal.
+  v1.3 (30/03/2026) — On successful password set, writes real UID-keyed user
+                       record to RTDB (preserving name from pending record) and
+                       deletes pending_ record in a single atomic update.
+                       Added firebase-database-compat CDN script.
+  v1.2 (30/03/2026) — First sign-in via invite link now shows set-password
+                       screen with strength indicator before portal access.
   v1.1 (30/03/2026) — Email link sign-in completion + forgot password.
   v1.0 (30/03/2026) — Initial build.
 -->
@@ -23,6 +23,7 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -249,6 +250,11 @@
     };
     firebase.initializeApp(firebaseConfig);
     var auth = firebase.auth();
+    var db   = firebase.database();
+
+    // pendingEmail is captured at link-completion time so doSetPassword
+    // can use it to find and delete the pending RTDB record.
+    var pendingEmail = null;
 
     // ── On load ──────────────────────────────────────────────────────────────
     if (auth.isSignInWithEmailLink(window.location.href)) {
@@ -285,6 +291,7 @@
         .then(function(result) {
           localStorage.removeItem('nlToolsInviteEmail');
           window.history.replaceState(null, '', '/tools/');
+          pendingEmail = email; // store for pending record cleanup
 
           // Detect first-time sign-in by comparing creation and last sign-in times.
           // If they match to within a second, this is the very first sign-in.
@@ -349,6 +356,30 @@
       }
 
       user.updatePassword(pw1)
+        .then(function() {
+          // Write the real UID-keyed user record to RTDB, copying name/email
+          // from the pending record, then delete the pending record.
+          // If pendingEmail isn't set (e.g. page was refreshed), we write a
+          // minimal record using the Auth account's email.
+          var email      = pendingEmail || user.email;
+          var pendingKey = 'pending_' + email.replace(/\./g, ',').replace(/@/g, '_at_');
+
+          // Read pending record first to preserve name if available
+          return db.ref('users/' + pendingKey).once('value')
+            .then(function(snap) {
+              var pending = snap.val() || {};
+              var writes  = {};
+              // Write real user record under their UID
+              writes['users/' + user.uid] = {
+                name:  pending.name  || '',
+                email: email,
+                tools: pending.tools || {}
+              };
+              // Delete the pending record
+              writes['users/' + pendingKey] = null;
+              return db.ref().update(writes);
+            });
+        })
         .then(function() {
           window.location.replace('/tools/portal/');
         })
