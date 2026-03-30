@@ -3,10 +3,17 @@
 <head>
 <!--
   National League Jobs Board — Admin Interface
-  Version: 1.11
+  Version: 1.12
   Date: 30/03/2026
 
   CHANGELOG
+  v1.12 (30/03/2026)
+    - All action buttons now show a processing state when clicked
+    - Approve → "Publishing…", Reject → "Rejecting…", Save → "Saving…"
+    - All three sub modal buttons disabled together during any action
+    - Confirm modal delete/restore button shows "Deleting…" / "Restoring…"
+    - Buttons restore to original labels on error
+
   v1.11 (30/03/2026)
     - Added mandatory "Added By" field to Add Vacancy modal
     - Hidden on Edit (historical record, not overwritten)
@@ -569,8 +576,8 @@ input[type="checkbox"] {
       <button class="btn btn--danger" id="subRejectBtn" onclick="rejectSub()">Reject</button>
       <div style="display:flex;gap:10px;">
         <button class="btn btn--ghost" onclick="closeModal('subModal')">Cancel</button>
-        <button class="btn btn--ghost" onclick="saveSub()">Save Changes</button>
-        <button class="btn btn--accent" onclick="approveSub()">✓ Approve &amp; Publish</button>
+        <button class="btn btn--ghost" id="subSaveBtn" onclick="saveSub()">Save Changes</button>
+        <button class="btn btn--accent" id="subApproveBtn" onclick="approveSub()">✓ Approve &amp; Publish</button>
       </div>
     </div>
   </div>
@@ -837,20 +844,50 @@ function getSubFormData() {
   };
 }
 
+/* ── Sub modal button state ── */
+function setSubModalBtns(loading, loadingLabel) {
+  var btns = ['subRejectBtn','subSaveBtn','subApproveBtn'];
+  btns.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = loading;
+    el.style.opacity = loading ? '0.6' : '';
+    el.style.cursor  = loading ? 'wait' : '';
+  });
+  if (loading && loadingLabel) {
+    var approveBtn = document.getElementById('subApproveBtn');
+    var rejectBtn  = document.getElementById('subRejectBtn');
+    var saveBtn    = document.getElementById('subSaveBtn');
+    if (loadingLabel === 'approve' && approveBtn) approveBtn.textContent = 'Publishing…';
+    if (loadingLabel === 'reject'  && rejectBtn)  rejectBtn.textContent  = 'Rejecting…';
+    if (loadingLabel === 'save'    && saveBtn)     saveBtn.textContent    = 'Saving…';
+  } else {
+    var a = document.getElementById('subApproveBtn');
+    var r = document.getElementById('subRejectBtn');
+    var s = document.getElementById('subSaveBtn');
+    if (a) a.textContent = '✓ Approve & Publish';
+    if (r) r.textContent = 'Reject';
+    if (s) s.textContent = 'Save Changes';
+  }
+}
+
 function saveSub() {
+  setSubModalBtns(true, 'save');
   apiPost({ action:'updateSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, data:getSubFormData() })
     .then(function(res) {
       if (res.error) throw new Error(res.error);
       showToast('Submission updated.','success');
       refreshSubs();
     })
-    .catch(function(err) { showToast(err.message,'error'); });
+    .catch(function(err) { showToast(err.message,'error'); })
+    .finally(function() { setSubModalBtns(false); });
 }
 
 function approveSub() {
   var approvedBy = document.getElementById('subApprovedBy').value.trim();
   var notes      = document.getElementById('subNotes').value.trim();
   if (!approvedBy) { showToast('Please enter your name in "Approved By" before approving.','error'); return; }
+  setSubModalBtns(true, 'approve');
   apiPost({ action:'updateSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, data:getSubFormData() })
     .then(function() {
       return apiPost({ action:'approveSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, approvedBy:approvedBy, notes:notes });
@@ -862,11 +899,12 @@ function approveSub() {
       refreshSubs();
       refreshJobs();
     })
-    .catch(function(err) { showToast(err.message,'error'); });
+    .catch(function(err) { showToast(err.message,'error'); setSubModalBtns(false); });
 }
 
 function rejectSub() {
   var notes = document.getElementById('subNotes').value.trim();
+  setSubModalBtns(true, 'reject');
   apiPost({ action:'rejectSubmission', password:STATE.password, rowIndex:STATE.reviewSubIndex, notes:notes })
     .then(function(res) {
       if (res.error) throw new Error(res.error);
@@ -874,7 +912,7 @@ function rejectSub() {
       showToast('Submission rejected.','success');
       refreshSubs();
     })
-    .catch(function(err) { showToast(err.message,'error'); });
+    .catch(function(err) { showToast(err.message,'error'); setSubModalBtns(false); });
 }
 
 /* ── Sub club picker ── */
@@ -1061,6 +1099,9 @@ function confirmRestore(ri,title) {
 }
 function confirmAction() {
   var action=STATE.pendingAction, ri=STATE.pendingRowIndex;
+  var btn = document.getElementById('confirmBtn');
+  btn.disabled = true;
+  btn.textContent = action==='delete' ? 'Deleting…' : 'Restoring…';
   closeModal('confirmModal');
   apiPost({action:action,password:STATE.password,rowIndex:ri})
     .then(function(res){
@@ -1068,7 +1109,11 @@ function confirmAction() {
       showToast(action==='delete'?'Vacancy deleted.':'Vacancy restored.','success');
       refreshJobs();
     })
-    .catch(function(err){showToast(err.message,'error');});
+    .catch(function(err){showToast(err.message,'error');})
+    .finally(function(){
+      btn.disabled = false;
+      btn.textContent = 'Confirm';
+    });
 }
 
 /* ── API ── */
