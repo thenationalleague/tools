@@ -1,4 +1,3 @@
-
 <!--
   NL Tools — Portal Dashboard
   Version: v1.1
@@ -7,6 +6,10 @@
 
   Changelog:
   v1.1 (30/03/2026) — Replaced password-based user creation with Firebase
+                       email link invite flow. Handles ?guard= redirect flags
+                       from auth-guard.js with appropriate toasts. Cleans URL
+                       after flag is read.
+                       Detail: replaced password-based user creation with Firebase
                        email link invite flow. Admin panel now takes name +
                        email only. Sends invite link via Firebase; stores
                        email in localStorage so same-device sign-in completes
@@ -374,6 +377,12 @@
           if (STATE.isAdmin) loadAdminPanel();
           document.getElementById('authChecking').style.display = 'none';
           document.getElementById('pageWrap').style.display     = 'block';
+          // Show toast if redirected here by auth-guard.js
+          var params = new URLSearchParams(window.location.search);
+          var guard  = params.get('guard');
+          if (guard === 'denied') showToast('You don\'t have access to that tool.', 'error');
+          if (guard === 'error')  showToast('Access check failed. Try again.', 'error');
+          if (guard) window.history.replaceState(null, '', '/tools/portal/');
         })
         .catch(function() {
           document.getElementById('authChecking').style.display = 'none';
