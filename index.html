@@ -1,16 +1,15 @@
 <!--
   NL Tools — Login Page
-  Version: v1.3
+  Version: v1.4
   Date: 30/03/2026
   Location: /tools/index.html
 
   Changelog:
-  v1.3 (30/03/2026) — On successful password set, writes real UID-keyed user
-                       record to RTDB (preserving name from pending record) and
-                       deletes pending_ record in a single atomic update.
-                       Added firebase-database-compat CDN script.
-  v1.2 (30/03/2026) — First sign-in via invite link now shows set-password
-                       screen with strength indicator before portal access.
+  v1.4 (30/03/2026) — Added Screen 4: request access form. Toggle link on
+                       sign-in screen. Posts to GAS notification script.
+                       Shows confirmation on success, locks form.
+  v1.3 (30/03/2026) — Pending record cleanup on password set.
+  v1.2 (30/03/2026) — Set-password screen on first invite sign-in.
   v1.1 (30/03/2026) — Email link sign-in completion + forgot password.
   v1.0 (30/03/2026) — Initial build.
 -->
@@ -197,6 +196,9 @@
       <button class="btn-submit" id="signInBtn" onclick="doSignIn()">Sign in</button>
       <button class="forgot-link" onclick="doForgotPassword()">Forgot your password?</button>
       <div class="status-msg" id="signInStatus"></div>
+      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+        <button class="forgot-link" style="color:var(--navy);" onclick="showScreen('screenRequestAccess')">Don't have an account? Request access →</button>
+      </div>
     </div>
 
     <!-- ── Screen 2: Confirm email (different-device invite link) ── -->
@@ -234,6 +236,27 @@
       </div>
       <button class="btn-submit" id="setPasswordBtn" onclick="doSetPassword()">Set password &amp; continue</button>
       <div class="status-msg" id="setPasswordStatus"></div>
+    </div>
+
+    <!-- ── Screen 4: Request access ── -->
+    <div class="screen" id="screenRequestAccess">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;text-align:left;">
+        Submit your details and an administrator will review your request. You'll receive a confirmation email and an invite once approved.
+      </p>
+      <div class="field">
+        <label for="requestNameInput">Full name</label>
+        <input type="text" id="requestNameInput" placeholder="Jane Smith">
+      </div>
+      <div class="field">
+        <label for="requestEmailInput">Email address</label>
+        <input type="email" id="requestEmailInput"
+          placeholder="you@thenationalleague.org.uk">
+      </div>
+      <button class="btn-submit" id="requestBtn" onclick="doRequestAccess()">Request access</button>
+      <div class="status-msg" id="requestStatus"></div>
+      <div style="margin-top:16px;">
+        <button class="forgot-link" onclick="showScreen('screenSignIn');document.getElementById('cardSubtitle').textContent='Internal Staff Portal';">← Back to sign in</button>
+      </div>
     </div>
 
   </div>
@@ -473,14 +496,58 @@
         });
     }
 
+    // ── Request access ────────────────────────────────────────────────────────
+    // GAS deployment URL — update after deploying portal-notifications-v1.0.gs
+    var NOTIFICATION_URL = 'https://script.google.com/macros/s/AKfycbx0OWIGn8LbXXlf1m2H20-FpV16rHDrHETYOszO4_WtpWBJPuGAxxmwL-1ghtBNMQoQ/exec';
+
+    function doRequestAccess() {
+      var name  = document.getElementById('requestNameInput').value.trim();
+      var email = document.getElementById('requestEmailInput').value.trim();
+      var btn   = document.getElementById('requestBtn');
+
+      if (!name || !email) {
+        showStatus('requestStatus', 'Please enter your name and email address.', 'error');
+        return;
+      }
+
+      btn.disabled    = true;
+      btn.textContent = 'Sending…';
+      clearStatus('requestStatus');
+
+      // POST to GAS — must use text/plain to avoid CORS preflight
+      fetch(NOTIFICATION_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify({ action: 'requestAccess', name: name, email: email })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled    = false;
+        btn.textContent = 'Request access';
+        if (data.error) {
+          showStatus('requestStatus', data.error, 'error');
+          return;
+        }
+        // Success — show confirmation and lock the form
+        btn.style.display = 'none';
+        showStatus('requestStatus', 'Request sent! Check your email for a confirmation. You\'ll receive an invite once your access has been approved.', 'success');
+      })
+      .catch(function() {
+        btn.disabled    = false;
+        btn.textContent = 'Request access';
+        showStatus('requestStatus', 'Failed to send request. Please try again.', 'error');
+      });
+    }
+
     // ── Enter key ────────────────────────────────────────────────────────────
     document.addEventListener('keydown', function(e) {
       if (e.key !== 'Enter') return;
       var active = document.querySelector('.screen.active');
       if (!active) return;
-      if (active.id === 'screenSignIn')        doSignIn();
-      if (active.id === 'screenConfirmEmail')  completeEmailLink();
-      if (active.id === 'screenSetPassword')   doSetPassword();
+      if (active.id === 'screenSignIn')           doSignIn();
+      if (active.id === 'screenConfirmEmail')     completeEmailLink();
+      if (active.id === 'screenSetPassword')      doSetPassword();
+      if (active.id === 'screenRequestAccess')    doRequestAccess();
     });
 
     // ── UI helpers ────────────────────────────────────────────────────────────
