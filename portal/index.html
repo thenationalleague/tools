@@ -1,1 +1,576 @@
 
+<!--
+  NL Tools — Portal Dashboard
+  Version: v1.1
+  Date: 30/03/2026
+  Location: /tools/portal/index.html
+
+  Changelog:
+  v1.1 (30/03/2026) — Replaced password-based user creation with Firebase
+                       email link invite flow. Admin panel now takes name +
+                       email only. Sends invite link via Firebase; stores
+                       email in localStorage so same-device sign-in completes
+                       automatically. Removed secondary app instance entirely.
+  v1.0 (30/03/2026) — Initial build. Auth-guarded dashboard. Tool tiles,
+                       super-admin panel with user management and tool toggles.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NL Tools — Portal</title>
+
+  <!-- Firebase compat CDN -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── NL Brand tokens ── */
+    :root {
+      --primary:     #9e0000;
+      --primary-dim: #7a0000;
+      --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
+      --navy-light:  #2a4a8c;
+      --red:         #c0392b;
+      --red-light:   #fdf0ef;
+      --green:       #1e7e34;
+      --green-light: #edf7ee;
+      --amber:       #e67e22;
+      --amber-light: #fef6ec;
+      --white:       #ffffff;
+      --off-white:   #f4f6f9;
+      --text:        #1a2a44;
+      --text-muted:  #5a6a82;
+      --border:      #dde3ed;
+      --radius:      6px;
+      --shadow:      0 2px 12px rgba(10,22,40,0.10);
+      --font:        'carbona-variable','carbona',sans-serif;
+    }
+
+    /* ── Carbona font ── */
+    @font-face {
+      font-family: "carbona-variable";
+      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+      font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+    }
+
+    /* ── Body ── */
+    body {
+      font-family: var(--font); font-size: 17px; line-height: 1.5;
+      font-variation-settings: 'wght' 400; color: var(--text);
+      background: var(--off-white); min-height: 100vh;
+    }
+
+    /* ── Auth overlay ── */
+    .auth-checking {
+      position: fixed; inset: 0; background: var(--primary);
+      display: flex; align-items: center; justify-content: center; z-index: 999;
+    }
+    .spinner {
+      display: inline-block; width: 28px; height: 28px;
+      border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--white);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Topbar ── */
+    .topbar {
+      background: var(--primary); color: var(--white);
+      padding: 0 28px; height: 72px;
+      display: flex; align-items: center; gap: 18px;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      border-bottom: 7px solid var(--navy);
+    }
+    .topbar img { height: 42px; }
+    .topbar__title {
+      font-weight: 900; font-variation-settings: 'wght' 900;
+      font-size: 20px; flex: 1; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .topbar__title .word-primary   { color: var(--white); }
+    .topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
+    .topbar__user {
+      font-size: 12px; color: rgba(255,255,255,0.7);
+      font-weight: 600; font-variation-settings: 'wght' 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .topbar__btn {
+      background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
+      padding: 8px 18px; border-radius: var(--radius); font-size: 12px;
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: all 0.15s; font-family: var(--font);
+    }
+    .topbar__btn:hover { background: rgba(255,255,255,0.12); }
+
+    /* ── Page ── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    /* ── Section heading ── */
+    .section-head {
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text-muted); margin-bottom: 16px;
+    }
+
+    /* ── Tool tiles ── */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px; margin-bottom: 48px;
+    }
+    .tile {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 28px 24px;
+      box-shadow: var(--shadow); text-decoration: none; color: var(--text);
+      display: flex; flex-direction: column; gap: 10px;
+      transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+    }
+    .tile:hover {
+      box-shadow: 0 6px 24px rgba(10,22,40,0.15);
+      transform: translateY(-2px); border-color: var(--primary);
+    }
+    .tile__icon  { font-size: 32px; line-height: 1; }
+    .tile__label { font-size: 16px; font-weight: 800; font-variation-settings: 'wght' 800; }
+    .tile__desc  { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+    .tile__arrow {
+      margin-top: auto; padding-top: 8px;
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary);
+    }
+
+    /* ── No tools state ── */
+    .no-tools {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 40px;
+      text-align: center; color: var(--text-muted); font-size: 14px;
+    }
+    .no-tools strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
+
+    /* ── Admin panel ── */
+    .admin-panel {
+      background: var(--white); border: 2px solid var(--navy);
+      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+    }
+    .admin-panel__head {
+      background: var(--navy); color: var(--white);
+      padding: 16px 24px; display: flex; align-items: center; gap: 12px;
+    }
+    .admin-panel__head h2 {
+      font-size: 13px; font-weight: 900; font-variation-settings: 'wght' 900;
+      text-transform: uppercase; letter-spacing: 0.1em; flex: 1;
+    }
+    .pill-admin {
+      background: var(--primary); color: var(--white);
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      padding: 3px 10px; border-radius: 12px;
+    }
+
+    /* ── Invite form ── */
+    .invite-form {
+      padding: 20px 24px; border-bottom: 1px solid var(--border);
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+    }
+    .invite-form .field { margin: 0; flex: 1; min-width: 180px; }
+    .invite-form .field label {
+      display: block; font-size: 11px; font-weight: 800;
+      font-variation-settings: 'wght' 800; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 5px;
+    }
+    .invite-form .field input {
+      width: 100%; padding: 9px 12px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      font-family: var(--font); font-size: 14px;
+      font-variation-settings: 'wght' 400; color: var(--text);
+      outline: none; transition: border-color 0.15s;
+    }
+    .invite-form .field input:focus {
+      border-color: var(--navy); box-shadow: 0 0 0 3px rgba(34,59,124,0.10);
+    }
+    .invite-status {
+      width: 100%; font-size: 12px; padding: 8px 12px;
+      border-radius: var(--radius); display: none;
+      font-weight: 600; font-variation-settings: 'wght' 600;
+    }
+    .invite-status.show   { display: block; }
+    .invite-status.success { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
+    .invite-status.error   { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 9px 18px; border-radius: var(--radius);
+      font-family: var(--font); font-size: 11px; font-weight: 900;
+      font-variation-settings: 'wght' 900; text-transform: uppercase;
+      letter-spacing: 0.08em; cursor: pointer; border: none;
+      transition: background 0.15s; white-space: nowrap;
+    }
+    .btn--navy   { background: var(--navy);     color: var(--white); }
+    .btn--navy:hover:not(:disabled)   { background: var(--navy-mid); }
+    .btn--danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
+    .btn--danger:hover:not(:disabled) { background: #fae0de; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Users table ── */
+    .users-table-wrap { overflow-x: auto; }
+    .users-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .users-table th {
+      background: var(--off-white); color: var(--text-muted);
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border);
+    }
+    .users-table td {
+      padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: middle;
+    }
+    .users-table tr:last-child td { border-bottom: none; }
+    .users-table tr:hover td { background: var(--off-white); }
+    .user-email { font-weight: 600; font-variation-settings: 'wght' 600; }
+    .user-name  { font-size: 12px; color: var(--text-muted); }
+
+    /* ── Tool access toggles ── */
+    .tool-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+    .toggle-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 12px; cursor: pointer;
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      border: none; font-family: var(--font); transition: opacity 0.15s;
+    }
+    .toggle-pill.on  { background: var(--green-light); color: var(--green); }
+    .toggle-pill.off { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
+    .toggle-pill:hover { opacity: 0.75; }
+    .toggle-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .toggle-pill.on  .dot { background: var(--green); }
+    .toggle-pill.off .dot { background: var(--text-muted); }
+
+    /* ── Pending invite badge ── */
+    .badge-pending {
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      background: var(--amber-light); color: var(--amber);
+      padding: 2px 8px; border-radius: 10px;
+    }
+    .badge-admin {
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      background: var(--navy); color: var(--white);
+      padding: 2px 8px; border-radius: 10px;
+    }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--navy); color: var(--white);
+      padding: 12px 18px; border-radius: var(--radius);
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 999;
+      transform: translateY(80px); opacity: 0;
+      transition: all 0.25s ease; max-width: 300px; pointer-events: none;
+    }
+    .toast.show    { transform: translateY(0); opacity: 1; }
+    .toast.success { border-left: 4px solid var(--green); }
+    .toast.error   { border-left: 4px solid var(--red); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .topbar { padding: 0 16px; gap: 10px; }
+      .topbar__user { display: none; }
+      .page { padding: 24px 16px 60px; }
+      .invite-form { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="auth-checking" id="authChecking">
+    <div class="spinner"></div>
+  </div>
+
+  <div id="pageWrap" style="display:none;">
+
+    <div class="topbar">
+      <img
+        src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
+        alt="National League"
+        onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+      <span class="topbar__title">
+        <span class="word-primary">NL</span>
+        <span class="word-secondary">Tools</span>
+      </span>
+      <span class="topbar__user" id="topbarUser"></span>
+      <button class="topbar__btn" onclick="doSignOut()">Sign out</button>
+    </div>
+
+    <div class="page">
+      <div class="section-head">Your tools</div>
+      <div class="tiles" id="tilesGrid"></div>
+      <div id="adminSection"></div>
+    </div>
+
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ── Firebase init ────────────────────────────────────────────────────────
+    var firebaseConfig = {
+      apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+      authDomain:        "nl-tools.firebaseapp.com",
+      databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId:         "nl-tools",
+      storageBucket:     "nl-tools.firebasestorage.app",
+      messagingSenderId: "801354670005",
+      appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+    };
+    firebase.initializeApp(firebaseConfig);
+    var auth = firebase.auth();
+    var db   = firebase.database();
+
+    // ── State ────────────────────────────────────────────────────────────────
+    var STATE = {
+      user:     null,
+      isAdmin:  false,
+      toolsCat: {},
+      allUsers: {}
+    };
+
+    // ── Escape helpers ───────────────────────────────────────────────────────
+    function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+    // ── Auth guard ───────────────────────────────────────────────────────────
+    auth.onAuthStateChanged(function(user) {
+      if (!user) { window.location.replace('/tools/'); return; }
+      STATE.user = user;
+      document.getElementById('topbarUser').textContent = user.email;
+      init();
+    });
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+    function init() {
+      var uid = STATE.user.uid;
+
+      var adminPromise     = db.ref('admins/' + uid).once('value')
+        .then(function(s) { STATE.isAdmin = s.val() === true; });
+
+      var cataloguePromise = db.ref('tools').once('value')
+        .then(function(s) { STATE.toolsCat = s.val() || {}; });
+
+      var userToolsPromise = db.ref('users/' + uid + '/tools').once('value')
+        .then(function(s) { return s.val() || {}; });
+
+      Promise.all([adminPromise, cataloguePromise, userToolsPromise])
+        .then(function(results) {
+          renderTiles(results[2]);
+          if (STATE.isAdmin) loadAdminPanel();
+          document.getElementById('authChecking').style.display = 'none';
+          document.getElementById('pageWrap').style.display     = 'block';
+        })
+        .catch(function() {
+          document.getElementById('authChecking').style.display = 'none';
+          document.getElementById('pageWrap').style.display     = 'block';
+          showToast('Failed to load portal data. Try refreshing.', 'error');
+        });
+    }
+
+    // ── Render tiles ─────────────────────────────────────────────────────────
+    function renderTiles(userTools) {
+      var grid      = document.getElementById('tilesGrid');
+      var permitted = Object.keys(userTools).filter(function(k) {
+        return userTools[k] === true && STATE.toolsCat[k];
+      });
+
+      if (!permitted.length) {
+        grid.innerHTML = '<div class="no-tools"><strong>No tools yet</strong>You haven\'t been granted access to any tools. Contact your administrator.</div>';
+        return;
+      }
+
+      grid.innerHTML = permitted.map(function(k) {
+        var t = STATE.toolsCat[k];
+        return '<a class="tile" href="' + esc(t.url) + '">'
+          + '<div class="tile__icon">'  + esc(t.icon || '🔧') + '</div>'
+          + '<div class="tile__label">' + esc(t.label) + '</div>'
+          + '<div class="tile__desc">'  + esc(t.description || '') + '</div>'
+          + '<div class="tile__arrow">Open →</div>'
+          + '</a>';
+      }).join('');
+    }
+
+    // ── Admin panel ──────────────────────────────────────────────────────────
+    function loadAdminPanel() {
+      db.ref('users').once('value').then(function(snap) {
+        STATE.allUsers = snap.val() || {};
+        renderAdminPanel();
+      });
+    }
+
+    function renderAdminPanel() {
+      document.getElementById('adminSection').innerHTML = ''
+        + '<div class="section-head" style="margin-top:0;">User management</div>'
+        + '<div class="admin-panel">'
+        +   '<div class="admin-panel__head">'
+        +     '<h2>Access Control</h2>'
+        +     '<span class="pill-admin">Super Admin</span>'
+        +   '</div>'
+        +   '<div class="invite-form">'
+        +     '<div class="field"><label>Full name</label>'
+        +       '<input type="text" id="newName" placeholder="Jane Smith"></div>'
+        +     '<div class="field"><label>Email address</label>'
+        +       '<input type="email" id="newEmail" placeholder="jane@thenationalleague.org.uk"></div>'
+        +     '<button class="btn btn--navy" id="inviteBtn" onclick="sendInvite()">Send invite</button>'
+        +     '<div class="invite-status" id="inviteStatus"></div>'
+        +   '</div>'
+        +   '<div class="users-table-wrap">' + buildUsersTable() + '</div>'
+        + '</div>';
+    }
+
+    function buildUsersTable() {
+      var uids  = Object.keys(STATE.allUsers);
+      var tools = Object.keys(STATE.toolsCat);
+
+      if (!uids.length) {
+        return '<p style="padding:20px 24px;color:var(--text-muted);font-size:14px;">No users yet.</p>';
+      }
+
+      var toolHeaders = tools.map(function(k) {
+        return '<th>' + esc(STATE.toolsCat[k].label) + '</th>';
+      }).join('');
+
+      var rows = uids.map(function(uid) {
+        var u         = STATE.allUsers[uid];
+        var isMe      = uid === STATE.user.uid;
+        var isPending = u.pending === true;
+        var userTools = u.tools || {};
+
+        var toggles = tools.map(function(toolKey) {
+          var on = userTools[toolKey] === true;
+          // Disable toggles for pending users — they haven't accepted yet
+          var disabled = isPending ? ' disabled style="opacity:0.4;cursor:not-allowed;"' : '';
+          return '<td>'
+            + '<button class="toggle-pill ' + (on ? 'on' : 'off') + '"'
+            + disabled
+            + (isPending ? '' : ' onclick="toggleTool(\'' + escJ(uid) + '\',\'' + escJ(toolKey) + '\',' + on + ')"')
+            + '><span class="dot"></span>' + (on ? 'On' : 'Off') + '</button>'
+            + '</td>';
+        }).join('');
+
+        var badges = isMe ? ' <span class="badge-admin">Admin</span>' : '';
+        if (isPending) badges += ' <span class="badge-pending">Invite sent</span>';
+
+        return '<tr>'
+          + '<td><div class="user-email">' + esc(u.email || '') + badges + '</div>'
+          +     '<div class="user-name">'  + esc(u.name  || '') + '</div></td>'
+          + toggles
+          + '</tr>';
+      }).join('');
+
+      return '<table class="users-table"><thead><tr><th>User</th>'
+        + toolHeaders + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    // ── Send invite ──────────────────────────────────────────────────────────
+    // Uses Firebase sendSignInLinkToEmail. No account is created here —
+    // the account is created by Firebase when the recipient clicks the link.
+    // We write a pending RTDB record now so the user appears in the table
+    // immediately, marked as "Invite sent". Once they sign in via the link,
+    // Firebase creates the Auth account and the pending flag can be cleared.
+    function sendInvite() {
+      var name  = document.getElementById('newName').value.trim();
+      var email = document.getElementById('newEmail').value.trim();
+      var btn   = document.getElementById('inviteBtn');
+
+      if (!name || !email) {
+        showInviteStatus('Please enter both a name and email address.', 'error');
+        return;
+      }
+
+      btn.disabled    = true;
+      btn.textContent = 'Sending…';
+
+      var actionSettings = {
+        url:             'https://thenationalleague.github.io/tools/',
+        handleCodeInApp: true
+      };
+
+      auth.sendSignInLinkToEmail(email, actionSettings)
+        .then(function() {
+          // Write pending user record to RTDB
+          // UID not yet known (account doesn't exist) — use email as key,
+          // sanitised for RTDB (replace . with ,)
+          var pendingKey = 'pending_' + email.replace(/\./g, ',').replace(/@/g, '_at_');
+          return db.ref('users/' + pendingKey).set({
+            name:    name,
+            email:   email,
+            pending: true,
+            tools:   {}
+          });
+        })
+        .then(function() {
+          // Store email locally so same-device sign-in completes automatically
+          localStorage.setItem('nlToolsInviteEmail', email);
+          // Reload users list
+          return db.ref('users').once('value');
+        })
+        .then(function(snap) {
+          STATE.allUsers = snap.val() || {};
+          renderAdminPanel();
+          showInviteStatus('Invite sent to ' + email, 'success');
+          btn.disabled    = false;
+          btn.textContent = 'Send invite';
+        })
+        .catch(function(err) {
+          btn.disabled    = false;
+          btn.textContent = 'Send invite';
+          var msg = 'Failed to send invite. Try again.';
+          if (err.code === 'auth/invalid-email')    msg = 'Invalid email address.';
+          if (err.code === 'auth/missing-email')    msg = 'Please enter an email address.';
+          showInviteStatus(msg, 'error');
+        });
+    }
+
+    // ── Toggle tool access ───────────────────────────────────────────────────
+    function toggleTool(uid, toolKey, current) {
+      var newVal = !current;
+      db.ref('users/' + uid + '/tools/' + toolKey).set(newVal)
+        .then(function() {
+          if (!STATE.allUsers[uid].tools) STATE.allUsers[uid].tools = {};
+          STATE.allUsers[uid].tools[toolKey] = newVal;
+          document.querySelector('.users-table-wrap').innerHTML = buildUsersTable();
+          showToast(newVal ? 'Access granted' : 'Access revoked', 'success');
+        })
+        .catch(function() {
+          showToast('Failed to update access. Try again.', 'error');
+        });
+    }
+
+    // ── Sign out ─────────────────────────────────────────────────────────────
+    function doSignOut() {
+      auth.signOut().then(function() { window.location.replace('/tools/'); });
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function showInviteStatus(msg, type) {
+      var el = document.getElementById('inviteStatus');
+      if (!el) return;
+      el.textContent = msg;
+      el.className   = 'invite-status show ' + type;
+    }
+
+    function showToast(msg, type) {
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className   = 'toast ' + (type || 'success') + ' show';
+      setTimeout(function() { t.classList.remove('show'); }, 3000);
+    }
+  </script>
+</body>
+</html>
