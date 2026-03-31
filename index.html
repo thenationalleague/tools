@@ -1,10 +1,14 @@
 <!--
   NL Tools — Login Page
-  Version: v1.7
+  Version: v1.9
   Date: 31/03/2026
   Location: /tools/index.html
 
   Changelog:
+  v1.9 (31/03/2026) — Club field replaced with dropdown populated from
+                       clubs-meta.json. Clubs sorted alphabetically with
+                       division shown. Clubs and tools loaded in parallel.
+  v1.8 (31/03/2026) — Tool checkbox font explicitly set to carbona-variable.
   v1.7 (31/03/2026) — Tool checkbox label and description no longer all-caps.
   v1.6 (30/03/2026) — Subtitle updated to "Club & Staff Portal".
   v1.5 (30/03/2026) — Request form with dynamic club-tier tool checkboxes.
@@ -97,7 +101,8 @@
     }
     .field input[type="email"],
     .field input[type="password"],
-    .field input[type="text"] {
+    .field input[type="text"],
+    .field select {
       width: 100%; padding: 11px 14px;
       border: 1px solid var(--border); border-radius: var(--radius);
       font-family: var(--font); font-size: 15px;
@@ -105,7 +110,9 @@
       background: var(--white); outline: none;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .field input:focus {
+    .field select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235a6a82' d='M6 8L0 0h12z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; cursor: pointer; }
+    .field input:focus,
+    .field select:focus {
       border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
     }
 
@@ -116,13 +123,13 @@
       padding: 10px 12px; border: 1px solid var(--border);
       border-radius: var(--radius); cursor: pointer;
       transition: border-color 0.15s, background 0.15s;
-      text-align: left;
+      text-align: left; font-family: var(--font);
     }
     .tool-checkbox:hover { border-color: var(--primary); background: var(--off-white); }
     .tool-checkbox input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--primary); cursor: pointer; }
     .tool-checkbox__icon  { font-size: 20px; flex-shrink: 0; }
-    .tool-checkbox__label { font-size: 14px; font-weight: 700; font-variation-settings: 'wght' 700; flex: 1; text-transform: none; letter-spacing: normal; }
-    .tool-checkbox__desc  { font-size: 12px; color: var(--text-muted); text-transform: none; }
+    .tool-checkbox__label { font-size: 14px; font-weight: 700; font-variation-settings: 'wght' 700; flex: 1; text-transform: none; letter-spacing: normal; font-family: var(--font); }
+    .tool-checkbox__desc  { font-size: 12px; color: var(--text-muted); text-transform: none; font-family: var(--font); }
 
     .field-hint {
       font-size: 11px; color: var(--text-muted); margin-top: 5px;
@@ -254,7 +261,9 @@
       </div>
       <div class="field">
         <label for="requestClubInput">Club</label>
-        <input type="text" id="requestClubInput" placeholder="e.g. Aldershot Town">
+        <select id="requestClubInput">
+          <option value="">Loading clubs…</option>
+        </select>
       </div>
       <div class="field" id="toolsField">
         <label>Tools requested</label>
@@ -398,43 +407,58 @@
     }
 
     // ── Request access ────────────────────────────────────────────────────────
+    var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+
     function goToRequest() {
-      // Load club-tier tools from RTDB before showing the screen
       document.getElementById('cardSubtitle').textContent = 'Request Access';
       showScreen('screenRequestAccess');
-      loadClubTools();
+      // Load clubs and tools in parallel
+      Promise.all([
+        fetch(CLUBS_META_URL + '?cb=' + Date.now()).then(function(r){ return r.json(); }),
+        db.ref('tools').once('value').then(function(s){ return s.val() || {}; })
+      ])
+      .then(function(results) {
+        populateClubDropdown(results[0]);
+        populateToolCheckboxes(results[1]);
+      })
+      .catch(function() {
+        document.getElementById('requestClubInput').innerHTML = '<option value="">Could not load clubs</option>';
+        document.getElementById('toolCheckboxes').innerHTML   = '<div style="font-size:13px;color:var(--text-muted);">Could not load tools. Try again.</div>';
+      });
     }
 
-    function loadClubTools() {
-      var container = document.getElementById('toolCheckboxes');
-      db.ref('tools').once('value')
-        .then(function(snap) {
-          var tools = snap.val() || {};
-          // Only show tools with tier === 'club'
-          var clubTools = Object.keys(tools).filter(function(k) {
-            return tools[k].tier === 'club';
-          });
-
-          if (!clubTools.length) {
-            container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">No tools currently available for club access.</div>';
-            return;
-          }
-
-          container.innerHTML = clubTools.map(function(k) {
-            var t = tools[k];
-            return '<label class="tool-checkbox">'
-              + '<input type="checkbox" name="toolRequest" value="' + esc(k) + '">'
-              + '<span class="tool-checkbox__icon">' + esc(t.icon || '🔧') + '</span>'
-              + '<span>'
-              +   '<span class="tool-checkbox__label">' + esc(t.label) + '</span><br>'
-              +   '<span class="tool-checkbox__desc">'  + esc(t.description || '') + '</span>'
-              + '</span>'
-              + '</label>';
+    function populateClubDropdown(clubs) {
+      var select = document.getElementById('requestClubInput');
+      if (!clubs || !clubs.length) {
+        select.innerHTML = '<option value="">No clubs found</option>';
+        return;
+      }
+      // Sort alphabetically by name
+      clubs.sort(function(a, b) { return (a.name||'').localeCompare(b.name||''); });
+      select.innerHTML = '<option value="">Select your club…</option>'
+        + clubs.map(function(c) {
+            return '<option value="' + esc(c.name) + '">' + esc(c.name) + (c.division ? ' — ' + esc(c.division) : '') + '</option>';
           }).join('');
-        })
-        .catch(function() {
-          container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);">Could not load tools. Try again.</div>';
-        });
+    }
+
+    function populateToolCheckboxes(tools) {
+      var container = document.getElementById('toolCheckboxes');
+      var clubTools = Object.keys(tools).filter(function(k) { return tools[k].tier === 'club'; });
+      if (!clubTools.length) {
+        container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">No tools currently available for club access.</div>';
+        return;
+      }
+      container.innerHTML = clubTools.map(function(k) {
+        var t = tools[k];
+        return '<label class="tool-checkbox">'
+          + '<input type="checkbox" name="toolRequest" value="' + esc(k) + '">'
+          + '<span class="tool-checkbox__icon">' + esc(t.icon || '🔧') + '</span>'
+          + '<span>'
+          +   '<span class="tool-checkbox__label">' + esc(t.label) + '</span><br>'
+          +   '<span class="tool-checkbox__desc">'  + esc(t.description || '') + '</span>'
+          + '</span>'
+          + '</label>';
+      }).join('');
     }
 
     function doRequestAccess() {
@@ -443,12 +467,15 @@
       var club  = document.getElementById('requestClubInput').value.trim();
       var btn   = document.getElementById('requestBtn');
 
-      // Collect checked tools
       var checked = Array.from(document.querySelectorAll('input[name="toolRequest"]:checked'))
         .map(function(el) { return el.value; });
 
-      if (!name || !email || !club) {
-        showStatus('requestStatus', 'Please fill in your name, email and club.', 'error');
+      if (!name || !email) {
+        showStatus('requestStatus', 'Please fill in your name and email address.', 'error');
+        return;
+      }
+      if (!club) {
+        showStatus('requestStatus', 'Please select your club.', 'error');
         return;
       }
       if (!checked.length) {
