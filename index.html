@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v1.2 (conversation turn 6)
+  Version: v1.3 (conversation turn 7)
   Date: 31/03/2026
   File: /tools/index.html
 
@@ -70,7 +70,7 @@ body {
   line-height: 1.5;
   font-variation-settings: 'wght' 400;
   color: var(--text);
-  background: var(--navy);
+  background: var(--primary);
   min-height: 100vh;
 }
 
@@ -532,10 +532,9 @@ body {
                 onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
               <input class="club-picker__input" id="suClubInput" type="text"
                 placeholder="Search club name…" autocomplete="off"
-                oninput="onSuClubInput(this.value)"
-                onblur="setTimeout(closeSuClubDropdown, 150)">
+                oninput="onSuClubInput(this.value)">
             </div>
-            <div class="club-picker__dropdown" id="suClubDropdown" onmousedown="event.preventDefault()"></div>
+            <div class="club-picker__dropdown" id="suClubDropdown"></div>
           </div>
           <input type="hidden" id="suClub">
         </div>
@@ -611,10 +610,6 @@ var db   = firebase.database();
 /* -- Constants ------------------------------------------------------------- */
 var PORTAL_URL = '/tools/portal/';
 var GAS_URL    = 'https://script.google.com/macros/s/AKfycbx0OWIGn8LbXXlf1m2H20-FpV16rHDrHETYOszO4_WtpWBJPuGAxxmwL-1ghtBNMQoQ/exec';
-var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
-var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
-var suClubsData    = [];  /* Populated once from clubs-meta.json */
 
 /* -- Escape helpers -------------------------------------------------------- */
 function esc(s)  { s = String(s||''); s = s.replace(/&/g,'&amp;'); s = s.replace(/</g,'&lt;'); s = s.replace(/>/g,'&gt;'); s = s.replace(/"/g,'&quot;'); return s; }
@@ -640,8 +635,8 @@ function showPanel(id) {
     document.getElementById('pageSubtitle').innerHTML = info.sub;
   }
 
-  /* Load tools when sign-up panel opens */
-  if (id === 'panelSignUp') loadSignupTools();
+  /* Load tools and init picker when sign-up panel opens */
+  if (id === 'panelSignUp') { loadSignupTools(); initSuClubPicker(); }
 
   clearAllMsgs();
 }
@@ -792,65 +787,81 @@ function doSetPassword() {
 
 
 /* -- Club picker (sign-up) -------------------------------------------------- */
-/*
- * Loads clubs-meta.json once and filters against the user's input.
- * Selecting a club from the dropdown writes the name to the hidden #suClub field
- * and updates the crest preview. The freetext fallback lets users type any name
- * if their club isn't in the list.
- */
+
+var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
+var suClubsData    = [];
 
 function loadSuClubs() {
   if (suClubsData.length) return Promise.resolve();
   return fetch(CLUBS_META_URL + '?cb=' + Date.now())
     .then(function(r) { return r.json(); })
-    .then(function(data) {
-      suClubsData = data.clubs || [];
-    })
-    .catch(function() {
-      suClubsData = [];
-    });
+    .then(function(data) { suClubsData = data.clubs || []; })
+    .catch(function() { suClubsData = []; });
 }
 
-function onSuClubInput(val) {
+function renderSuClubList(filter) {
   var dd = document.getElementById('suClubDropdown');
-  /* Clear confirmed value whenever user edits the text */
-  document.getElementById('suClub').value = '';
+  var q  = (filter || '').toLowerCase().trim();
 
-  if (!val.trim()) {
-    dd.classList.remove('open');
-    setSuClubCrest('');
-    return;
+  var matches = q
+    ? suClubsData.filter(function(c) {
+        return c.name.toLowerCase().indexOf(q) !== -1 ||
+               (c.short && c.short.toLowerCase().indexOf(q) !== -1);
+      }).slice(0, 12)
+    : suClubsData.slice(0, 12);
+
+  dd.innerHTML = '';
+
+  if (matches.length === 0) {
+      var emptyEl = document.createElement('div');
+  emptyEl.style.cssText = 'padding:10px 14px;font-size:13px;color:#aab4c4;';
+  emptyEl.textContent = 'No clubs found';
+  dd.appendChild(emptyEl);
+  dd.classList.add('open');
+  return;
   }
 
-  /* Load clubs on first keystroke if not yet loaded */
-  loadSuClubs().then(function() {
-    var lower = val.toLowerCase();
-    var matches = suClubsData.filter(function(c) {
-      return c.name.toLowerCase().indexOf(lower) !== -1 ||
-             (c.short && c.short.toLowerCase().indexOf(lower) !== -1);
-    }).slice(0, 12);
+  matches.forEach(function(c) {
+    var item = document.createElement('div');
+    item.className = 'club-picker__option';
 
-    var html = matches.map(function(c) {
-      var cr = CREST_BASE + encodeURIComponent(c.name) + '.png';
-      return '<div class="club-picker__option" onmousedown="selectSuClub(' + JSON.stringify(c.name) + ',' + JSON.stringify(cr) + ')">'
-        + '<img src="' + esc(cr) + '" onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'">'  
-        + '<span class="club-picker__option-name">' + esc(c.name) + '<\/span>'
-        + '<span class="club-picker__option-div">' + esc(c.division || '') + '<\/span>'
-        + '<\/div>';
-    }).join('');
+    var img = document.createElement('img');
+    img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
+    img.style.width  = '28px';
+    img.style.height = '28px';
+    img.style.objectFit = 'contain';
+    img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
 
-    /* Freetext fallback */
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'club-picker__option-name';
+    nameSpan.textContent = c.name;
 
-    dd.innerHTML = html;
-    dd.classList.add('open');
+    var divSpan = document.createElement('span');
+    divSpan.className = 'club-picker__option-div';
+    divSpan.textContent = c.division || '';
+
+    item.appendChild(img);
+    item.appendChild(nameSpan);
+    item.appendChild(divSpan);
+
+    /* Use click, not mousedown - no blur race since we removed onblur */
+    item.addEventListener('click', function() {
+      selectSuClub(c.name, CREST_BASE + encodeURIComponent(c.name) + '.png');
+    });
+
+    dd.appendChild(item);
   });
+
+  dd.classList.add('open');
 }
 
 function selectSuClub(name, crestUrl) {
   document.getElementById('suClubInput').value = name;
-  document.getElementById('suClub').value = name;
-  setSuClubCrest(crestUrl || (CREST_BASE + encodeURIComponent(name) + '.png'));
-  closeSuClubDropdown();
+  document.getElementById('suClub').value      = name;
+  setSuClubCrest(crestUrl);
+  document.getElementById('suClubDropdown').classList.remove('open');
 }
 
 function setSuClubCrest(url) {
@@ -859,9 +870,32 @@ function setSuClubCrest(url) {
   img.src = url || FALLBACK_CREST;
 }
 
-function closeSuClubDropdown() {
-  var dd = document.getElementById('suClubDropdown');
-  if (dd) dd.classList.remove('open');
+function onSuClubInput(val) {
+  document.getElementById('suClub').value = '';
+  setSuClubCrest('');
+  if (!val.trim()) {
+    document.getElementById('suClubDropdown').classList.remove('open');
+    return;
+  }
+  loadSuClubs().then(function() { renderSuClubList(val); });
+}
+
+function initSuClubPicker() {
+  var input = document.getElementById('suClubInput');
+  var dd    = document.getElementById('suClubDropdown');
+
+  /* Open dropdown on focus if input has a value */
+  input.addEventListener('focus', function() {
+    if (input.value.trim() && suClubsData.length) renderSuClubList(input.value);
+  });
+
+  /* Close when clicking outside the picker entirely */
+  document.addEventListener('click', function(e) {
+    var picker = document.querySelector('.club-picker');
+    if (picker && !picker.contains(e.target)) {
+      dd.classList.remove('open');
+    }
+  });
 }
 
 /* -- Club sign-up: tool loading -------------------------------------------- */
