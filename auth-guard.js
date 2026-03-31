@@ -1,109 +1,150 @@
 /*
-  NL Tools — Auth Guard
-  Version: v1.2
-  Date: 30/03/2026
-  Location: /tools/auth-guard.js
+ * auth-guard.js — NL Tools v2
+ * Version: v1.0 (conversation turn 3)
+ * Date: 31/03/2025
+ *
+ * Changelog:
+ * v1.0 — Initial v2 build. Rebuilt from scratch for v2 two-toggle access model.
+ *         Reads users/{uid}/tools/{key}/access (not the v1 boolean at tools/{key}).
+ *         Superadmin bypasses all checks.
+ *         Admin bypasses tier checks but still requires explicit access grant.
+ *         Redirects to /tools/portal/?guard=denied|error on failure.
+ *         Redirects to /tools/ if unauthenticated.
+ *         Shows full-screen red spinner overlay while checking.
+ *
+ * Usage (include on every tool page):
+ *   <script>
+ *     var NL_TOOL_KEY = 'ao-vacancies';
+ *     window.nlAuthReady = function(user, userData) {
+ *       // user = Firebase Auth user object
+ *       // userData = full user record from RTDB
+ *       document.getElementById('pageWrap').style.display = 'block';
+ *     };
+ *   </script>
+ *   <script src="/tools/auth-guard.js"></script>
+ *
+ * Requires: Firebase compat CDN (app + auth + database) already loaded on the page.
+ * NL_TOOL_KEY must be defined before this script is included.
+ * window.nlAuthReady must be defined before this script is included.
+ */
 
-  Changelog:
-  v1.2 (30/03/2026) — Removed admins/ node dependency. Role now read from
-                       users/{uid}/role. Superadmin and admin both bypass
-                       tier checks. Tier enforcement unchanged.
-  v1.1 (30/03/2026) — Tier enforcement added.
-  v1.0 (30/03/2026) — Initial build.
+(function () {
 
-  USAGE
-  -----
-    <script>
-      var NL_TOOL_KEY = 'vacancies-admin';
-      window.nlAuthReady = function(user) {
-        document.getElementById('pageWrap').style.display = 'block';
-      };
-    </script>
-    <script src="/tools/auth-guard.js"></script>
+  /* ─── Validate host page has set required globals ─────────────────────── */
+  if (typeof NL_TOOL_KEY === 'undefined' || !NL_TOOL_KEY) {
+    console.error('[auth-guard] NL_TOOL_KEY is not defined. Include this script after setting NL_TOOL_KEY.');
+    return;
+  }
+  if (typeof window.nlAuthReady !== 'function') {
+    console.error('[auth-guard] window.nlAuthReady is not defined. Include this script after defining nlAuthReady.');
+    return;
+  }
 
-  ACCESS MATRIX
-  -------------
-    Tool tier 'staff' → role must be staff, admin, or superadmin
-    Tool tier 'club'  → role must be club, staff, admin, or superadmin
-    Tool tier 'all'   → any authenticated user
-    No tier set       → treated as 'staff' (safe default)
-
-  Admins and superadmins bypass tier checks but still need explicit tool access.
-  Superadmins bypass everything including tool access checks.
-*/
-
-(function() {
-  'use strict';
-
-  // ── Overlay ───────────────────────────────────────────────────────────────
+  /* ─── Spinner overlay ─────────────────────────────────────────────────── */
   var overlay = document.createElement('div');
-  overlay.id  = 'nlAuthOverlay';
-  overlay.innerHTML = '<div style="position:fixed;inset:0;background:#9e0000;display:flex;align-items:center;justify-content:center;z-index:99999;">'
-    + '<div style="width:32px;height:32px;border:3px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:nlSpin 0.7s linear infinite;"></div></div>'
-    + '<style>@keyframes nlSpin{to{transform:rotate(360deg)}}</style>';
+  overlay.id = 'nlAuthOverlay';
+  overlay.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:99999',
+    'background:#9e0000',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'flex-direction:column', 'gap:20px'
+  ].join(';');
+
+  var spinnerEl = document.createElement('div');
+  spinnerEl.style.cssText = [
+    'width:36px', 'height:36px',
+    'border:3px solid rgba(255,255,255,0.3)',
+    'border-top-color:#fff',
+    'border-radius:50%',
+    'animation:nlSpin 0.7s linear infinite'
+  ].join(';');
+
+  var styleEl = document.createElement('style');
+  styleEl.textContent = '@keyframes nlSpin{to{transform:rotate(360deg)}}';
+
+  overlay.appendChild(spinnerEl);
+  document.head.appendChild(styleEl);
   document.body.appendChild(overlay);
 
-  // ── Validate ──────────────────────────────────────────────────────────────
-  if (typeof NL_TOOL_KEY === 'undefined' || !NL_TOOL_KEY) {
-    console.error('[NL Auth Guard] NL_TOOL_KEY is not defined.');
-    _fail('config'); return;
-  }
-  if (typeof firebase === 'undefined') {
-    console.error('[NL Auth Guard] Firebase is not loaded.');
-    _fail('config'); return;
-  }
-
-  var auth = firebase.auth();
-  var db   = firebase.database();
-
-  // ── Auth check ────────────────────────────────────────────────────────────
-  auth.onAuthStateChanged(function(user) {
-    if (!user) { window.location.replace('/tools/'); return; }
-
-    Promise.all([
-      db.ref('users/' + user.uid + '/tools/' + NL_TOOL_KEY).once('value'),
-      db.ref('tools/' + NL_TOOL_KEY + '/tier').once('value'),
-      db.ref('users/' + user.uid + '/role').once('value')
-    ])
-    .then(function(results) {
-      var hasAccess = results[0].val() === true;
-      var toolTier  = results[1].val() || 'staff';
-      var userRole  = results[2].val() || 'staff';
-      var isAdmin   = userRole === 'admin' || userRole === 'superadmin';
-
-      // Superadmins bypass everything
-      if (userRole === 'superadmin') { _pass(user); return; }
-
-      // Check explicit tool access
-      if (!hasAccess) { _fail('denied'); return; }
-
-      // Admins bypass tier checks but need explicit access (checked above)
-      if (isAdmin) { _pass(user); return; }
-
-      // Tier check for staff and club
-      if (toolTier === 'staff' && userRole === 'club') { _fail('tier'); return; }
-
-      _pass(user);
-    })
-    .catch(function(err) {
-      console.error('[NL Auth Guard] Read failed:', err);
-      _fail('error');
-    });
-  });
-
-  function _pass(user) {
-    var el = document.getElementById('nlAuthOverlay');
-    if (el) el.parentNode.removeChild(el);
-    if (typeof window.nlAuthReady === 'function') {
-      window.nlAuthReady(user);
-    } else {
-      console.warn('[NL Auth Guard] window.nlAuthReady is not defined.');
+  function removeOverlay() {
+    if (overlay && overlay.parentNode) {
+      overlay.parentNode.removeChild(overlay);
     }
   }
 
-  function _fail(reason) {
-    if (reason === 'config') return;
-    window.location.replace('/tools/portal/?guard=' + reason);
+  /* ─── Firebase refs ───────────────────────────────────────────────────── */
+  var auth = firebase.auth();
+  var db   = firebase.database();
+
+  /* ─── Redirect helpers ────────────────────────────────────────────────── */
+  var PORTAL_URL = '/tools/portal/';
+  var LOGIN_URL  = '/tools/';
+
+  function redirectTo(url) {
+    window.location.replace(url);
   }
+
+  /* ─── Main auth state listener ────────────────────────────────────────── */
+  auth.onAuthStateChanged(function (user) {
+
+    if (!user) {
+      /* Not signed in — send to login */
+      redirectTo(LOGIN_URL);
+      return;
+    }
+
+    /* Signed in — fetch user record from RTDB */
+    db.ref('users/' + user.uid).once('value')
+      .then(function (snap) {
+
+        if (!snap.exists()) {
+          /* No user record — deny */
+          redirectTo(PORTAL_URL + '?guard=error');
+          return;
+        }
+
+        var userData = snap.val();
+        var role = userData.role || '';
+
+        /* ── Superadmin: bypass everything ─────────────────────────────── */
+        if (role === 'superadmin') {
+          removeOverlay();
+          window.nlAuthReady(user, userData);
+          return;
+        }
+
+        /* ── Pending users: deny ────────────────────────────────────────── */
+        if (userData.pending === true) {
+          redirectTo(PORTAL_URL + '?guard=pending');
+          return;
+        }
+
+        /* ── Check access toggle ────────────────────────────────────────── */
+        /*
+         * v2 structure: users/{uid}/tools/{key}/access: bool
+         * v1 was:       users/{uid}/tools/{key}: true/false  ← DO NOT USE
+         *
+         * Admin role bypasses tier restrictions but still needs an explicit
+         * access grant on the tool (admin panel must assign it).
+         */
+        var toolEntry = userData.tools && userData.tools[NL_TOOL_KEY];
+        var hasAccess = toolEntry && toolEntry.access === true;
+
+        if (!hasAccess) {
+          redirectTo(PORTAL_URL + '?guard=denied');
+          return;
+        }
+
+        /* ── Access granted ─────────────────────────────────────────────── */
+        removeOverlay();
+        window.nlAuthReady(user, userData);
+
+      })
+      .catch(function (err) {
+        console.error('[auth-guard] RTDB read failed:', err);
+        redirectTo(PORTAL_URL + '?guard=error');
+      });
+
+  });
 
 })();
