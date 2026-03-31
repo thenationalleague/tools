@@ -1,10 +1,13 @@
 <!--
   NL Tools — Portal Dashboard
-  Version: v2.0
+  Version: v2.1
   Date: 31/03/2026
   Location: /tools/portal/index.html
 
   Changelog:
+  v2.1 (31/03/2026) — Users table columns grouped by department with spanning
+                       headers. Available tiles show department pill. Staff
+                       dashboard stays flat.
   v2.0 (31/03/2026) — Removed diagnostic console logging from init.
   v1.9 (31/03/2026) — Fixed logo filename to 'rose white'.
   v1.8 (31/03/2026) — Fixed topbar logo onerror loop.
@@ -142,7 +145,12 @@
     .tile--available:hover { opacity: 1; border-color: var(--navy); }
     .tile--available .tile__icon  { font-size: 22px; }
     .tile--available .tile__label { font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700; color: var(--text-muted); }
+    .tile--available .tile__dept  { font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); background: var(--off-white); border: 1px solid var(--border); padding: 2px 6px; border-radius: 8px; display: inline-block; }
     .tile--available .tile__req   { font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--navy); margin-top: auto; }
+
+    /* ── Department header row in users table ── */
+    .data-table th.th-dept-head { background: var(--text); color: var(--white); font-size: 10px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.12em; text-align: center; border-left: 2px solid var(--white); }
+    .data-table th.th-dept-head:first-of-type { border-left: none; }
 
     .no-tools { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
     .no-tools strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
@@ -319,7 +327,7 @@
       </div>
 
       <div class="section-head">Your tools</div>
-      <div class="tiles" id="tilesGrid"></div>
+      <div id="tilesGrid"></div>
       <div class="available-section" id="availableSection" style="display:none;">
         <div class="available-toggle" id="availableToggle" onclick="toggleAvailable()">
           <span class="available-toggle__label">More tools available</span>
@@ -617,24 +625,34 @@
 
     function renderAvailableTiles(keys) {
       var section = document.getElementById('availableSection');
-      var tilesEl = document.getElementById('availableTiles');
       var countEl = document.getElementById('availableCount');
       if (!keys.length) { section.style.display = 'none'; return; }
       section.style.display = 'block';
       countEl.textContent   = keys.length;
-      tilesEl.innerHTML = keys.map(function(k) {
-        var t = STATE.toolsCat[k];
-        return '<div class="tile--available" onclick="openToolRequest(\'' + escJ(k) + '\')">'
-          + '<div class="tile__icon">' + esc(t.icon || '🔧') + '</div>'
-          + '<div class="tile__label">' + esc(t.label) + '</div>'
-          + '<div class="tile__req">Request access →</div>'
-          + '</div>';
-      }).join('');
+      section.innerHTML = '<div class="available-toggle" id="availableToggle" onclick="toggleAvailable()">'
+        + '<span class="available-toggle__label">More tools available</span>'
+        + '<span class="available-toggle__count" id="availableCount">' + keys.length + '</span>'
+        + '<span class="available-toggle__chevron">▼</span>'
+        + '</div>'
+        + '<div class="available-tiles" id="availableTiles">'
+        + keys.map(function(k) {
+            var t    = STATE.toolsCat[k];
+            var dept = t.department || '';
+            return '<div class="tile--available" onclick="openToolRequest(\'' + escJ(k) + '\')">'
+              + '<div class="tile__icon">' + esc(t.icon || '🔧') + '</div>'
+              + '<div class="tile__label">' + esc(t.label) + '</div>'
+              + (dept ? '<div><span class="tile__dept">' + esc(dept) + '</span></div>' : '')
+              + '<div class="tile__req">Request access →</div>'
+              + '</div>';
+          }).join('')
+        + '</div>';
     }
 
     function toggleAvailable() {
-      document.getElementById('availableToggle').classList.toggle('open');
-      document.getElementById('availableTiles').classList.toggle('open');
+      var toggle = document.getElementById('availableToggle');
+      var tiles  = document.getElementById('availableTiles');
+      if (toggle) toggle.classList.toggle('open');
+      if (tiles)  tiles.classList.toggle('open');
     }
 
     // ── Tool request modal ────────────────────────────────────────────────────
@@ -765,16 +783,51 @@
       var staffTools = Object.keys(STATE.toolsCat).filter(function(k){ return STATE.toolsCat[k].tier==='staff' && !STATE.toolsCat[k].visibleToAll; });
       var clubTools  = Object.keys(STATE.toolsCat).filter(function(k){ return STATE.toolsCat[k].tier==='club'  && !STATE.toolsCat[k].visibleToAll; });
 
-      var staffHeaders = staffTools.map(function(k){ return '<th class="th-staff">' + esc(STATE.toolsCat[k].label) + '</th>'; }).join('');
-      var clubHeaders  = clubTools.map(function(k) { return '<th class="th-club">'  + esc(STATE.toolsCat[k].label) + '</th>'; }).join('');
+      // Group tools by department for header rows
+      function groupByDept(tools) {
+        var depts = {};
+        tools.forEach(function(k) {
+          var dept = STATE.toolsCat[k].department || 'General';
+          if (!depts[dept]) depts[dept] = [];
+          depts[dept].push(k);
+        });
+        return depts;
+      }
+      var staffDepts = groupByDept(staffTools);
+      var clubDepts  = groupByDept(clubTools);
+
+      // Build two header rows: dept spanning headers + tool name headers
+      function buildDeptHeaders(depts, thClass) {
+        return Object.keys(depts).map(function(dept) {
+          var count = depts[dept].length;
+          return '<th class="th-dept-head" colspan="' + count + '">' + esc(dept) + '</th>';
+        }).join('');
+      }
+      function buildToolHeaders(depts, thClass) {
+        var allKeys = [];
+        Object.keys(depts).forEach(function(d){ allKeys = allKeys.concat(depts[d]); });
+        return allKeys.map(function(k){ return '<th class="' + thClass + '">' + esc(STATE.toolsCat[k].label) + '</th>'; }).join('');
+      }
+
+      var staffDeptHeaders = buildDeptHeaders(staffDepts, 'th-staff');
+      var clubDeptHeaders  = buildDeptHeaders(clubDepts,  'th-club');
+      var staffToolHeaders = buildToolHeaders(staffDepts, 'th-staff');
+      var clubToolHeaders  = buildToolHeaders(clubDepts,  'th-club');
+
+      // Ordered tool keys following dept grouping
+      var staffOrdered = [];
+      Object.keys(staffDepts).forEach(function(d){ staffOrdered = staffOrdered.concat(staffDepts[d]); });
+      var clubOrdered = [];
+      Object.keys(clubDepts).forEach(function(d){ clubOrdered = clubOrdered.concat(clubDepts[d]); });
 
       var rows = allRows.map(function(uid) {
-        var u         = STATE.allUsers[uid];
-        var isPending = uid.startsWith('pending_');
-        var userRole  = u.role || 'staff';
-        var isMe      = uid === STATE.user.uid;
-        var userTier  = userRole === 'club' ? 'club' : 'staff';
+        var u           = STATE.allUsers[uid];
+        var isPending   = uid.startsWith('pending_');
+        var userRole    = u.role || 'staff';
+        var isMe        = uid === STATE.user.uid;
+        var userTier    = userRole === 'club' ? 'club' : 'staff';
         var isProtected = (userRole === 'admin' || userRole === 'superadmin') && !STATE.perms.isSuperAdmin;
+        var viewerIsAdmin = STATE.perms.isAdmin;
 
         function buildToggle(toolKey) {
           var t        = STATE.toolsCat[toolKey];
@@ -789,15 +842,10 @@
             + title + '><span class="dot"></span>' + (on?'On':'Off') + '</button></td>';
         }
 
-        // Admins and superadmins see all tool columns with full toggles.
-        // For non-admin viewers, only own-tier columns render as toggles;
-        // the other tier renders as empty cells.
-        var viewerIsAdmin = STATE.perms.isAdmin;
-
-        var staffCells = staffTools.map(function(k){
+        var staffCells = staffOrdered.map(function(k){
           return (viewerIsAdmin || userTier === 'staff') ? buildToggle(k) : '<td></td>';
         }).join('');
-        var clubCells = clubTools.map(function(k){
+        var clubCells = clubOrdered.map(function(k){
           return (viewerIsAdmin || userTier === 'club') ? buildToggle(k) : '<td></td>';
         }).join('');
 
@@ -810,9 +858,20 @@
           + staffCells + clubCells + '</tr>';
       }).join('');
 
-      return '<table class="data-table"><thead><tr>'
-        + '<th class="th-user">User</th>' + staffHeaders + clubHeaders
-        + '</tr></thead><tbody>' + rows + '</tbody></table>';
+      return '<table class="data-table">'
+        + '<thead>'
+        + '<tr><th class="th-user" rowspan="2">User</th>'
+        + (staffDeptHeaders ? '<th class="th-dept-head" colspan="' + staffOrdered.length + '" style="background:var(--navy-faint);color:var(--navy);">Staff</th>' : '')
+        + (clubDeptHeaders  ? '<th class="th-dept-head" colspan="' + clubOrdered.length  + '" style="background:var(--amber-faint);color:var(--amber);">Club</th>'  : '')
+        + '</tr>'
+        + '<tr>'
+        + staffDeptHeaders + clubDeptHeaders
+        + '</tr>'
+        + '<tr>'
+        + staffToolHeaders + clubToolHeaders
+        + '</tr>'
+        + '</thead>'
+        + '<tbody>' + rows + '</tbody></table>';
     }
 
     // ── Invite form ───────────────────────────────────────────────────────────
