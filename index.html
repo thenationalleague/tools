@@ -1,13 +1,15 @@
 <!--
   NL Tools — Login Page
-  Version: v1.4
+  Version: v1.5
   Date: 30/03/2026
   Location: /tools/index.html
 
   Changelog:
-  v1.4 (30/03/2026) — Added Screen 4: request access form. Toggle link on
-                       sign-in screen. Posts to GAS notification script.
-                       Shows confirmation on success, locks form.
+  v1.5 (30/03/2026) — Request form fetches club-tier tools from RTDB and
+                       shows as checkboxes. Writes request record to RTDB
+                       /requests/ node (client-side). Role implicitly 'club'.
+                       GAS notification still fires for email alerts.
+  v1.4 (30/03/2026) — Request access screen + GAS notification.
   v1.3 (30/03/2026) — Pending record cleanup on password set.
   v1.2 (30/03/2026) — Set-password screen on first invite sign-in.
   v1.1 (30/03/2026) — Email link sign-in completion + forgot password.
@@ -31,6 +33,7 @@
       --primary:     #9e0000;
       --primary-dim: #7a0000;
       --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
       --red:         #c0392b;
       --red-light:   #fdf0ef;
       --green:       #1e7e34;
@@ -58,7 +61,6 @@
       display: flex; align-items: center; justify-content: center;
     }
 
-    /* ── Auth overlay ── */
     .auth-checking {
       position: fixed; inset: 0; background: var(--primary);
       display: flex; align-items: center; justify-content: center; z-index: 999;
@@ -70,7 +72,6 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Login card ── */
     .login-box {
       background: var(--white); border-radius: 12px; padding: 52px;
       width: 100%; max-width: 440px;
@@ -89,14 +90,15 @@
       font-weight: 700; font-variation-settings: 'wght' 700;
     }
 
-    /* ── Fields ── */
     .field { margin-bottom: 16px; text-align: left; }
     .field label {
       display: block; font-size: 11px; font-weight: 800;
       font-variation-settings: 'wght' 800; text-transform: uppercase;
       letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 6px;
     }
-    .field input {
+    .field input[type="email"],
+    .field input[type="password"],
+    .field input[type="text"] {
       width: 100%; padding: 11px 14px;
       border: 1px solid var(--border); border-radius: var(--radius);
       font-family: var(--font); font-size: 15px;
@@ -108,13 +110,26 @@
       border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
     }
 
-    /* ── Hint text under field ── */
+    /* ── Tool checkboxes ── */
+    .tool-checkboxes { display: flex; flex-direction: column; gap: 8px; }
+    .tool-checkbox {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid var(--border);
+      border-radius: var(--radius); cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      text-align: left;
+    }
+    .tool-checkbox:hover { border-color: var(--primary); background: var(--off-white); }
+    .tool-checkbox input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--primary); cursor: pointer; }
+    .tool-checkbox__icon  { font-size: 20px; flex-shrink: 0; }
+    .tool-checkbox__label { font-size: 14px; font-weight: 700; font-variation-settings: 'wght' 700; flex: 1; }
+    .tool-checkbox__desc  { font-size: 12px; color: var(--text-muted); }
+
     .field-hint {
       font-size: 11px; color: var(--text-muted); margin-top: 5px;
       font-variation-settings: 'wght' 400; text-align: left;
     }
 
-    /* ── Buttons ── */
     .btn-submit {
       width: 100%; margin-top: 8px; padding: 13px 20px;
       background: var(--primary); color: var(--white); border: none;
@@ -135,7 +150,6 @@
     }
     .forgot-link:hover { color: var(--primary); }
 
-    /* ── Status messages ── */
     .status-msg {
       display: none; margin-top: 16px; padding: 10px 14px;
       border-radius: var(--radius); font-size: 13px;
@@ -145,19 +159,11 @@
     .status-msg.error   { background: var(--red-light);   border: 1px solid #f5c6c2; color: var(--red); }
     .status-msg.success { background: var(--green-light); border: 1px solid #b8dfc0; color: var(--green); }
 
-    /* ── Screens — only one visible at a time ── */
     .screen { display: none; }
     .screen.active { display: block; }
 
-    /* ── Password strength indicator ── */
-    .strength-bar {
-      height: 3px; border-radius: 2px; margin-top: 6px;
-      background: var(--border); overflow: hidden;
-    }
-    .strength-bar__fill {
-      height: 100%; width: 0; border-radius: 2px;
-      transition: width 0.2s, background 0.2s;
-    }
+    .strength-bar { height: 3px; border-radius: 2px; margin-top: 6px; background: var(--border); overflow: hidden; }
+    .strength-bar__fill { height: 100%; width: 0; border-radius: 2px; transition: width 0.2s, background 0.2s; }
 
     @media (max-width: 480px) {
       .login-box { padding: 36px 24px; margin: 16px; }
@@ -181,7 +187,7 @@
     </h1>
     <p class="subtitle" id="cardSubtitle">Internal Staff Portal</p>
 
-    <!-- ── Screen 1: Standard sign-in ── -->
+    <!-- ── Screen 1: Sign in ── -->
     <div class="screen active" id="screenSignIn">
       <div class="field">
         <label for="emailInput">Email address</label>
@@ -197,7 +203,7 @@
       <button class="forgot-link" onclick="doForgotPassword()">Forgot your password?</button>
       <div class="status-msg" id="signInStatus"></div>
       <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
-        <button class="forgot-link" style="color:var(--navy);" onclick="showScreen('screenRequestAccess')">Don't have an account? Request access →</button>
+        <button class="forgot-link" style="color:var(--navy);" onclick="goToRequest()">Club representative? Request access →</button>
       </div>
     </div>
 
@@ -208,26 +214,22 @@
       </p>
       <div class="field">
         <label for="confirmEmailInput">Your email address</label>
-        <input type="email" id="confirmEmailInput"
-          placeholder="you@thenationalleague.org.uk">
+        <input type="email" id="confirmEmailInput" placeholder="you@thenationalleague.org.uk">
       </div>
       <button class="btn-submit" onclick="completeEmailLink()">Continue</button>
       <div class="status-msg" id="confirmEmailStatus"></div>
     </div>
 
-    <!-- ── Screen 3: Set password (first sign-in via invite link) ── -->
+    <!-- ── Screen 3: Set password ── -->
     <div class="screen" id="screenSetPassword">
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;text-align:left;">
         Welcome. Please set a password for your account — you'll use this to sign in from now on.
       </p>
       <div class="field">
         <label for="newPasswordInput">Choose a password</label>
-        <input type="password" id="newPasswordInput"
-          placeholder="At least 8 characters"
+        <input type="password" id="newPasswordInput" placeholder="At least 8 characters"
           oninput="updateStrength(this.value)">
-        <div class="strength-bar">
-          <div class="strength-bar__fill" id="strengthFill"></div>
-        </div>
+        <div class="strength-bar"><div class="strength-bar__fill" id="strengthFill"></div></div>
         <div class="field-hint" id="strengthLabel"></div>
       </div>
       <div class="field">
@@ -238,10 +240,10 @@
       <div class="status-msg" id="setPasswordStatus"></div>
     </div>
 
-    <!-- ── Screen 4: Request access ── -->
+    <!-- ── Screen 4: Request access (club only) ── -->
     <div class="screen" id="screenRequestAccess">
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;text-align:left;">
-        Submit your details and an administrator will review your request. You'll receive a confirmation email and an invite once approved.
+        Request access to NL Tools as a club representative. Select the tools you need and an administrator will review your request.
       </p>
       <div class="field">
         <label for="requestNameInput">Full name</label>
@@ -249,10 +251,19 @@
       </div>
       <div class="field">
         <label for="requestEmailInput">Email address</label>
-        <input type="email" id="requestEmailInput"
-          placeholder="you@thenationalleague.org.uk">
+        <input type="email" id="requestEmailInput" placeholder="jane@yourclub.co.uk">
       </div>
-      <button class="btn-submit" id="requestBtn" onclick="doRequestAccess()">Request access</button>
+      <div class="field">
+        <label for="requestClubInput">Club</label>
+        <input type="text" id="requestClubInput" placeholder="e.g. Aldershot Town">
+      </div>
+      <div class="field" id="toolsField">
+        <label>Tools requested</label>
+        <div class="tool-checkboxes" id="toolCheckboxes">
+          <div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading available tools…</div>
+        </div>
+      </div>
+      <button class="btn-submit" id="requestBtn" onclick="doRequestAccess()">Submit request</button>
       <div class="status-msg" id="requestStatus"></div>
       <div style="margin-top:16px;">
         <button class="forgot-link" onclick="showScreen('screenSignIn');document.getElementById('cardSubtitle').textContent='Internal Staff Portal';">← Back to sign in</button>
@@ -275,9 +286,8 @@
     var auth = firebase.auth();
     var db   = firebase.database();
 
-    // pendingEmail is captured at link-completion time so doSetPassword
-    // can use it to find and delete the pending RTDB record.
-    var pendingEmail = null;
+    var NOTIFICATION_URL = 'https://script.google.com/macros/s/AKfycbx0OWIGn8LbXXlf1m2H20-FpV16rHDrHETYOszO4_WtpWBJPuGAxxmwL-1ghtBNMQoQ/exec';
+    var pendingEmail     = null;
 
     // ── On load ──────────────────────────────────────────────────────────────
     if (auth.isSignInWithEmailLink(window.location.href)) {
@@ -300,31 +310,25 @@
       if (email) {
         completeSignInWithLink(email);
       } else {
-        // Different device — ask for email confirmation first
         showBox();
         showScreen('screenConfirmEmail');
         document.getElementById('confirmEmailInput').focus();
       }
     }
 
-    // Called either automatically (email from localStorage) or after manual
-    // confirmation on a different device.
     function completeSignInWithLink(email) {
       auth.signInWithEmailLink(email, window.location.href)
         .then(function(result) {
           localStorage.removeItem('nlToolsInviteEmail');
           window.history.replaceState(null, '', '/tools/');
-          pendingEmail = email; // store for pending record cleanup
+          pendingEmail = email;
 
-          // Detect first-time sign-in by comparing creation and last sign-in times.
-          // If they match to within a second, this is the very first sign-in.
-          var meta     = result.user.metadata;
-          var created  = new Date(meta.creationTime).getTime();
-          var lastIn   = new Date(meta.lastSignInTime).getTime();
-          var isFirst  = Math.abs(created - lastIn) < 2000;
+          var meta    = result.user.metadata;
+          var created = new Date(meta.creationTime).getTime();
+          var lastIn  = new Date(meta.lastSignInTime).getTime();
+          var isFirst = Math.abs(created - lastIn) < 2000;
 
           if (isFirst) {
-            // First sign-in — prompt for password before portal access
             showBox();
             document.getElementById('cardSubtitle').textContent = 'Welcome to NL Tools';
             showScreen('screenSetPassword');
@@ -342,103 +346,155 @@
         });
     }
 
-    // Triggered from screen 2 (different-device confirm)
     function completeEmailLink() {
       var email = document.getElementById('confirmEmailInput').value.trim();
-      if (!email) {
-        showStatus('confirmEmailStatus', 'Please enter your email address.', 'error');
-        return;
-      }
+      if (!email) { showStatus('confirmEmailStatus', 'Please enter your email address.', 'error'); return; }
       completeSignInWithLink(email);
     }
 
-    // ── Set password (screen 3) ──────────────────────────────────────────────
+    // ── Set password ─────────────────────────────────────────────────────────
     function doSetPassword() {
       var pw1 = document.getElementById('newPasswordInput').value;
       var pw2 = document.getElementById('confirmPasswordInput').value;
       var btn = document.getElementById('setPasswordBtn');
 
-      if (pw1.length < 8) {
-        showStatus('setPasswordStatus', 'Password must be at least 8 characters.', 'error');
-        return;
-      }
-      if (pw1 !== pw2) {
-        showStatus('setPasswordStatus', 'Passwords don\'t match.', 'error');
-        return;
-      }
+      if (pw1.length < 8) { showStatus('setPasswordStatus', 'Password must be at least 8 characters.', 'error'); return; }
+      if (pw1 !== pw2)    { showStatus('setPasswordStatus', 'Passwords don\'t match.', 'error'); return; }
 
-      btn.disabled    = true;
-      btn.textContent = 'Saving…';
+      btn.disabled = true; btn.textContent = 'Saving…';
 
       var user = auth.currentUser;
       if (!user) {
         showStatus('setPasswordStatus', 'Session expired. Please use your invite link again.', 'error');
-        btn.disabled    = false;
-        btn.textContent = 'Set password & continue';
+        btn.disabled = false; btn.textContent = 'Set password & continue';
         return;
       }
 
       user.updatePassword(pw1)
         .then(function() {
-          // Write the real UID-keyed user record to RTDB, copying name/email
-          // from the pending record, then delete the pending record.
-          // If pendingEmail isn't set (e.g. page was refreshed), we write a
-          // minimal record using the Auth account's email.
           var email      = pendingEmail || user.email;
           var pendingKey = 'pending_' + email.replace(/\./g, ',').replace(/@/g, '_at_');
-
-          // Read pending record first to preserve name if available
           return db.ref('users/' + pendingKey).once('value')
             .then(function(snap) {
               var pending = snap.val() || {};
               var writes  = {};
-              // Write real user record under their UID
               writes['users/' + user.uid] = {
                 name:  pending.name  || '',
                 email: email,
+                role:  pending.role  || 'staff',
                 tools: pending.tools || {}
               };
-              // Delete the pending record
               writes['users/' + pendingKey] = null;
               return db.ref().update(writes);
             });
         })
-        .then(function() {
-          window.location.replace('/tools/portal/');
-        })
+        .then(function() { window.location.replace('/tools/portal/'); })
         .catch(function(err) {
-          btn.disabled    = false;
-          btn.textContent = 'Set password & continue';
+          btn.disabled = false; btn.textContent = 'Set password & continue';
           var msg = 'Failed to set password. Try again.';
-          if (err.code === 'auth/weak-password') msg = 'Password too weak — please choose something stronger.';
+          if (err.code === 'auth/weak-password')        msg = 'Password too weak — please choose something stronger.';
           if (err.code === 'auth/requires-recent-login') msg = 'Session expired. Please use your invite link again.';
           showStatus('setPasswordStatus', msg, 'error');
         });
     }
 
-    // ── Password strength indicator ──────────────────────────────────────────
-    function updateStrength(pw) {
-      var fill  = document.getElementById('strengthFill');
-      var label = document.getElementById('strengthLabel');
-      var score = 0;
-      if (pw.length >= 8)                        score++;
-      if (pw.length >= 12)                       score++;
-      if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
-      if (/[0-9]/.test(pw))                      score++;
-      if (/[^A-Za-z0-9]/.test(pw))               score++;
+    // ── Request access ────────────────────────────────────────────────────────
+    function goToRequest() {
+      // Load club-tier tools from RTDB before showing the screen
+      document.getElementById('cardSubtitle').textContent = 'Request Access';
+      showScreen('screenRequestAccess');
+      loadClubTools();
+    }
 
-      var levels = [
-        { pct: '0%',   colour: 'var(--border)',   text: '' },
-        { pct: '25%',  colour: 'var(--red)',       text: 'Weak' },
-        { pct: '50%',  colour: 'var(--amber)',     text: 'Fair' },
-        { pct: '75%',  colour: 'var(--amber)',     text: 'Good' },
-        { pct: '90%',  colour: 'var(--green)',     text: 'Strong' },
-        { pct: '100%', colour: 'var(--green)',     text: 'Very strong' },
-      ];
-      var l = levels[Math.min(score, 5)];
-      fill.style.width      = pw.length ? l.pct    : '0%';
-      fill.style.background = pw.length ? l.colour : 'var(--border)';
-      label.textContent     = pw.length ? l.text   : '';
+    function loadClubTools() {
+      var container = document.getElementById('toolCheckboxes');
+      db.ref('tools').once('value')
+        .then(function(snap) {
+          var tools = snap.val() || {};
+          // Only show tools with tier === 'club'
+          var clubTools = Object.keys(tools).filter(function(k) {
+            return tools[k].tier === 'club';
+          });
+
+          if (!clubTools.length) {
+            container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">No tools currently available for club access.</div>';
+            return;
+          }
+
+          container.innerHTML = clubTools.map(function(k) {
+            var t = tools[k];
+            return '<label class="tool-checkbox">'
+              + '<input type="checkbox" name="toolRequest" value="' + esc(k) + '">'
+              + '<span class="tool-checkbox__icon">' + esc(t.icon || '🔧') + '</span>'
+              + '<span>'
+              +   '<span class="tool-checkbox__label">' + esc(t.label) + '</span><br>'
+              +   '<span class="tool-checkbox__desc">'  + esc(t.description || '') + '</span>'
+              + '</span>'
+              + '</label>';
+          }).join('');
+        })
+        .catch(function() {
+          container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);">Could not load tools. Try again.</div>';
+        });
+    }
+
+    function doRequestAccess() {
+      var name  = document.getElementById('requestNameInput').value.trim();
+      var email = document.getElementById('requestEmailInput').value.trim();
+      var club  = document.getElementById('requestClubInput').value.trim();
+      var btn   = document.getElementById('requestBtn');
+
+      // Collect checked tools
+      var checked = Array.from(document.querySelectorAll('input[name="toolRequest"]:checked'))
+        .map(function(el) { return el.value; });
+
+      if (!name || !email || !club) {
+        showStatus('requestStatus', 'Please fill in your name, email and club.', 'error');
+        return;
+      }
+      if (!checked.length) {
+        showStatus('requestStatus', 'Please select at least one tool.', 'error');
+        return;
+      }
+
+      btn.disabled = true; btn.textContent = 'Sending…';
+      clearStatus('requestStatus');
+
+      // Write request to RTDB — keyed by timestamp so multiple requests don't collide
+      var reqKey = 'req_' + Date.now();
+      var reqData = {
+        name:      name,
+        email:     email,
+        club:      club,
+        tools:     checked,
+        role:      'club',
+        status:    'pending',
+        createdAt: new Date().toISOString()
+      };
+
+      db.ref('requests/' + reqKey).set(reqData)
+        .then(function() {
+          // Fire GAS notification email (non-blocking)
+          return fetch(NOTIFICATION_URL + '?cb=' + Date.now(), {
+            method:  'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body:    JSON.stringify({
+              action: 'requestAccess',
+              name:   name,
+              email:  email,
+              club:   club,
+              tools:  checked.join(', ')
+            })
+          }).catch(function() {}); // don't fail if GAS is slow
+        })
+        .then(function() {
+          btn.style.display = 'none';
+          showStatus('requestStatus', 'Request submitted! You\'ll receive a confirmation email shortly and an invite once your access has been approved.', 'success');
+        })
+        .catch(function() {
+          btn.disabled = false; btn.textContent = 'Submit request';
+          showStatus('requestStatus', 'Failed to submit request. Please try again.', 'error');
+        });
     }
 
     // ── Standard sign-in ─────────────────────────────────────────────────────
@@ -447,32 +503,22 @@
       var password = document.getElementById('passwordInput').value;
       var btn      = document.getElementById('signInBtn');
 
-      if (!email || !password) {
-        showStatus('signInStatus', 'Please enter your email and password.', 'error');
-        return;
-      }
+      if (!email || !password) { showStatus('signInStatus', 'Please enter your email and password.', 'error'); return; }
 
-      btn.disabled    = true;
-      btn.textContent = 'Signing in…';
+      btn.disabled = true; btn.textContent = 'Signing in…';
       clearStatus('signInStatus');
 
       auth.signInWithEmailAndPassword(email, password)
-        .then(function() { /* onAuthStateChanged handles redirect */ })
+        .then(function() {})
         .catch(function(err) {
-          btn.disabled    = false;
-          btn.textContent = 'Sign in';
+          btn.disabled = false; btn.textContent = 'Sign in';
           var msg = 'Sign-in failed. Please try again.';
           if (err.code === 'auth/user-not-found'
            || err.code === 'auth/wrong-password'
-           || err.code === 'auth/invalid-credential') {
-            msg = 'Incorrect email or password.';
-          } else if (err.code === 'auth/invalid-email') {
-            msg = 'Please enter a valid email address.';
-          } else if (err.code === 'auth/too-many-requests') {
-            msg = 'Too many failed attempts. Please wait a moment and try again.';
-          } else if (err.code === 'auth/user-disabled') {
-            msg = 'This account has been disabled. Contact your administrator.';
-          }
+           || err.code === 'auth/invalid-credential') { msg = 'Incorrect email or password.'; }
+          else if (err.code === 'auth/invalid-email')     { msg = 'Please enter a valid email address.'; }
+          else if (err.code === 'auth/too-many-requests') { msg = 'Too many failed attempts. Please wait a moment and try again.'; }
+          else if (err.code === 'auth/user-disabled')     { msg = 'This account has been disabled. Contact your administrator.'; }
           showStatus('signInStatus', msg, 'error');
         });
     }
@@ -480,15 +526,10 @@
     // ── Forgot password ───────────────────────────────────────────────────────
     function doForgotPassword() {
       var email = document.getElementById('emailInput').value.trim();
-      if (!email) {
-        showStatus('signInStatus', 'Enter your email address above first.', 'error');
-        return;
-      }
+      if (!email) { showStatus('signInStatus', 'Enter your email address above first.', 'error'); return; }
       clearStatus('signInStatus');
       auth.sendPasswordResetEmail(email)
-        .then(function() {
-          showStatus('signInStatus', 'If that email has an account, a reset link has been sent.', 'success');
-        })
+        .then(function() { showStatus('signInStatus', 'If that email has an account, a reset link has been sent.', 'success'); })
         .catch(function(err) {
           var msg = 'Could not send reset email. Try again.';
           if (err.code === 'auth/invalid-email') msg = 'Please enter a valid email address.';
@@ -496,47 +537,28 @@
         });
     }
 
-    // ── Request access ────────────────────────────────────────────────────────
-    // GAS deployment URL — update after deploying portal-notifications-v1.0.gs
-    var NOTIFICATION_URL = 'https://script.google.com/macros/s/AKfycbx0OWIGn8LbXXlf1m2H20-FpV16rHDrHETYOszO4_WtpWBJPuGAxxmwL-1ghtBNMQoQ/exec';
-
-    function doRequestAccess() {
-      var name  = document.getElementById('requestNameInput').value.trim();
-      var email = document.getElementById('requestEmailInput').value.trim();
-      var btn   = document.getElementById('requestBtn');
-
-      if (!name || !email) {
-        showStatus('requestStatus', 'Please enter your name and email address.', 'error');
-        return;
-      }
-
-      btn.disabled    = true;
-      btn.textContent = 'Sending…';
-      clearStatus('requestStatus');
-
-      // POST to GAS — must use text/plain to avoid CORS preflight
-      fetch(NOTIFICATION_URL + '?cb=' + Date.now(), {
-        method:  'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body:    JSON.stringify({ action: 'requestAccess', name: name, email: email })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        btn.disabled    = false;
-        btn.textContent = 'Request access';
-        if (data.error) {
-          showStatus('requestStatus', data.error, 'error');
-          return;
-        }
-        // Success — show confirmation and lock the form
-        btn.style.display = 'none';
-        showStatus('requestStatus', 'Request sent! Check your email for a confirmation. You\'ll receive an invite once your access has been approved.', 'success');
-      })
-      .catch(function() {
-        btn.disabled    = false;
-        btn.textContent = 'Request access';
-        showStatus('requestStatus', 'Failed to send request. Please try again.', 'error');
-      });
+    // ── Password strength ─────────────────────────────────────────────────────
+    function updateStrength(pw) {
+      var fill = document.getElementById('strengthFill');
+      var label = document.getElementById('strengthLabel');
+      var score = 0;
+      if (pw.length >= 8)                        score++;
+      if (pw.length >= 12)                       score++;
+      if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+      if (/[0-9]/.test(pw))                      score++;
+      if (/[^A-Za-z0-9]/.test(pw))               score++;
+      var levels = [
+        { pct: '0%',   colour: 'var(--border)', text: '' },
+        { pct: '25%',  colour: 'var(--red)',    text: 'Weak' },
+        { pct: '50%',  colour: 'var(--amber)',  text: 'Fair' },
+        { pct: '75%',  colour: 'var(--amber)',  text: 'Good' },
+        { pct: '90%',  colour: 'var(--green)',  text: 'Strong' },
+        { pct: '100%', colour: 'var(--green)',  text: 'Very strong' }
+      ];
+      var l = levels[Math.min(score, 5)];
+      fill.style.width      = pw.length ? l.pct    : '0%';
+      fill.style.background = pw.length ? l.colour : 'var(--border)';
+      label.textContent     = pw.length ? l.text   : '';
     }
 
     // ── Enter key ────────────────────────────────────────────────────────────
@@ -544,27 +566,25 @@
       if (e.key !== 'Enter') return;
       var active = document.querySelector('.screen.active');
       if (!active) return;
-      if (active.id === 'screenSignIn')           doSignIn();
-      if (active.id === 'screenConfirmEmail')     completeEmailLink();
-      if (active.id === 'screenSetPassword')      doSetPassword();
-      if (active.id === 'screenRequestAccess')    doRequestAccess();
+      if (active.id === 'screenSignIn')        doSignIn();
+      if (active.id === 'screenConfirmEmail')  completeEmailLink();
+      if (active.id === 'screenSetPassword')   doSetPassword();
+      if (active.id === 'screenRequestAccess') doRequestAccess();
     });
 
     // ── UI helpers ────────────────────────────────────────────────────────────
+    function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function showBox() {
       document.getElementById('authChecking').style.display = 'none';
       document.getElementById('loginBox').style.display     = 'block';
     }
     function showScreen(id) {
-      document.querySelectorAll('.screen').forEach(function(s) {
-        s.classList.remove('active');
-      });
+      document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
       document.getElementById(id).classList.add('active');
     }
     function showStatus(elId, msg, type) {
       var el = document.getElementById(elId);
-      el.textContent = msg;
-      el.className   = 'status-msg show ' + (type || 'error');
+      el.textContent = msg; el.className = 'status-msg show ' + (type || 'error');
     }
     function clearStatus(elId) {
       var el = document.getElementById(elId);
