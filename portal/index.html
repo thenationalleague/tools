@@ -1,1105 +1,2188 @@
+<!DOCTYPE html>
 <!--
-  NL Tools — Portal Dashboard
-  Version: v2.1
+  NL Tools -- Portal Dashboard
+  Version: v1.0 (conversation turn 9)
   Date: 31/03/2026
-  Location: /tools/portal/index.html
+  File: /tools/portal/index.html
 
   Changelog:
-  v2.1 (31/03/2026) — Users table columns grouped by department with spanning
-                       headers. Available tiles show department pill. Staff
-                       dashboard stays flat.
-  v2.0 (31/03/2026) — Removed diagnostic console logging from init.
-  v1.9 (31/03/2026) — Fixed logo filename to 'rose white'.
-  v1.8 (31/03/2026) — Fixed topbar logo onerror loop.
-  v1.7 (31/03/2026) — Diagnostic logging, welcome-messages empty string fix.
-  v1.6 (31/03/2026) — Fixed welcome card hover flicker. Users table admin fix.
-  v1.5 (31/03/2026) — Role pill, white logo, available filter, welcome carousel.
-  v1.4 (30/03/2026) — Full role hierarchy rebuild.
-  v1.3 (30/03/2026) — Role-aware invite, requests queue.
-  v1.2 (30/03/2026) — visibleToAll tile support.
-  v1.1 (30/03/2026) — Invite flow, guard flag handling.
-  v1.0 (30/03/2026) — Initial build.
+  v1.0 -- Initial v2 build. Rebuilt from scratch.
+         Sections: topbar (with club crest for club users), welcome carousel
+         (collapsible, admin-editable via Quill), tool tile grid (flat, no dept
+         labels), available tools section (tools in tier not yet granted),
+         admin panel (requests, users table with two-toggle access+admin columns,
+         invite, welcome message editor, audit log placeholder).
+         Reads v2 RTDB structure: users/{uid}/tools/{key}/access + /admin.
+         Superadmin and admin roles unlock admin panel.
+         guard= query param shows contextual banner (denied/pending/error).
+         No GAS dependency -- notifications deferred to v2 GAS build.
+         Firebase compat CDN only. No ES modules. No build tools.
+         All HTML built via DOM methods -- no innerHTML with closing tags.
 -->
-<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NL Tools — Portal</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NL Tools</title>
 
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<!-- Firebase compat CDN -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
-  <!-- Quill rich text editor — only used in admin welcome message panel -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
+<!-- Quill (welcome message editor) -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
 
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<style>
+/* -- Font ------------------------------------------------------------------ */
+@font-face {
+  font-family: "carbona-variable";
+  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+}
 
-    :root {
-      --primary:        #9e0000;
-      --primary-dim:    #7a0000;
-      --navy:           #223b7c;
-      --navy-mid:       #1a2f63;
-      --navy-light:     #2a4a8c;
-      --navy-faint:     #edf0f8;
-      --red:            #c0392b;
-      --red-light:      #fdf0ef;
-      --green:          #1e7e34;
-      --green-light:    #edf7ee;
-      --amber:          #e67e22;
-      --amber-light:    #fef6ec;
-      --amber-faint:    #fef9f2;
-      --white:          #ffffff;
-      --off-white:      #f4f6f9;
-      --text:           #1a2a44;
-      --text-muted:     #5a6a82;
-      --border:         #dde3ed;
-      --radius:         6px;
-      --shadow:         0 2px 12px rgba(10,22,40,0.10);
-      --font:           'carbona-variable','carbona',sans-serif;
-    }
+/* -- Reset & variables ----------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    @font-face {
-      font-family: "carbona-variable";
-      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-      font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
-    }
+:root {
+  --primary:     #9e0000;
+  --primary-dim: #7a0000;
+  --navy:        #223b7c;
+  --navy-mid:    #1a2f63;
+  --navy-light:  #2a4a8c;
+  --red:         #c0392b;
+  --red-light:   #fdf0ef;
+  --green:       #1e7e34;
+  --green-light: #edf7ee;
+  --amber:       #e67e22;
+  --amber-light: #fef6ec;
+  --white:       #ffffff;
+  --off-white:   #f4f6f9;
+  --text:        #1a2a44;
+  --text-muted:  #5a6a82;
+  --border:      #dde3ed;
+  --radius:      6px;
+  --shadow:      0 2px 12px rgba(10,22,40,0.10);
+  --font:        'carbona-variable','carbona',sans-serif;
+}
 
-    body { font-family: var(--font); font-size: 17px; line-height: 1.5; font-variation-settings: 'wght' 400; color: var(--text); background: var(--off-white); min-height: 100vh; }
+body {
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  font-variation-settings: 'wght' 400;
+  color: var(--text);
+  background: var(--off-white);
+  min-height: 100vh;
+}
 
-    /* ── Auth overlay ── */
-    .auth-checking { position: fixed; inset: 0; background: var(--primary); display: flex; align-items: center; justify-content: center; z-index: 999; }
-    .spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--white); border-radius: 50%; animation: spin 0.7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+/* -- Topbar ---------------------------------------------------------------- */
+.topbar {
+  background: var(--primary);
+  color: var(--white);
+  padding: 0 28px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border-bottom: 7px solid var(--navy);
+}
+.topbar__logo { height: 42px; flex-shrink: 0; }
+.topbar__title {
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  font-size: 20px;
+  flex: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--white);
+}
+.topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.8);
+}
+.topbar__club-crest {
+  height: 36px;
+  width: 36px;
+  object-fit: contain;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  padding: 2px;
+  flex-shrink: 0;
+}
+.topbar__name {
+  font-size: 13px;
+  color: rgba(255,255,255,0.9);
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  white-space: nowrap;
+}
+.topbar__version {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+}
+.topbar__btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: var(--white);
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font);
+  white-space: nowrap;
+}
+.topbar__btn:hover { background: rgba(255,255,255,0.12); }
 
-    /* ── Topbar ── */
-    .topbar { background: var(--primary); color: var(--white); padding: 0 28px; height: 72px; display: flex; align-items: center; gap: 18px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.3); border-bottom: 7px solid var(--navy); }
-    .topbar img { height: 42px; }
-    .topbar__title { font-weight: 900; font-variation-settings: 'wght' 900; font-size: 20px; flex: 1; text-transform: uppercase; letter-spacing: 0.04em; }
-    .topbar__title .word-primary   { color: var(--white); }
-    .topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
-    .topbar__user { font-size: 12px; color: rgba(255,255,255,0.85); font-weight: 600; font-variation-settings: 'wght' 600; letter-spacing: 0.04em; display: flex; align-items: center; gap: 8px; }
-    .topbar__role-pill { font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 8px; border-radius: 10px; background: rgba(255,255,255,0.18); color: var(--white); border: 1px solid rgba(255,255,255,0.25); }
-    .topbar__btn { background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white); padding: 8px 18px; border-radius: var(--radius); font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s; font-family: var(--font); }
-    .topbar__btn:hover { background: rgba(255,255,255,0.12); }
+/* -- Page body ------------------------------------------------------------- */
+.page-body {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
 
-    /* ── Page ── */
-    .page { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+/* -- Auth loading overlay -------------------------------------------------- */
+@keyframes nlSpin { to { transform: rotate(360deg); } }
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.auth-overlay__spinner {
+  width: 36px; height: 36px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: nlSpin 0.7s linear infinite;
+}
 
-    /* ── Section heading ── */
-    .section-head { font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 16px; }
+/* -- Banner ---------------------------------------------------------------- */
+.banner {
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.banner--error  { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
+.banner--amber  { background: var(--amber-light);  color: var(--amber); border: 1px solid #f0cfa0; }
+.banner--info   { background: #eef2ff; color: var(--navy); border: 1px solid #c7d2f8; }
 
-    /* ── Welcome carousel ── */
-    .welcome-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 32px; overflow: hidden; }
-    .welcome-card__head { padding: 14px 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; border-bottom: 1px solid var(--border); }
-    .welcome-card__head:hover { background: var(--off-white); }
-    .welcome-card__head:hover .welcome-card__nav-btn { border-color: var(--border); }
-    .welcome-card__head-title { font-size: 12px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); flex: 1; }
-    .welcome-card__nav { display: flex; align-items: center; gap: 10px; }
-    .welcome-card__counter { font-size: 11px; font-weight: 700; color: var(--text-muted); }
-    .welcome-card__nav-btn { background: none; border: 1px solid var(--border); border-radius: 4px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 11px; color: var(--text-muted); transition: all 0.15s; }
-    .welcome-card__nav-btn:hover:not(:disabled) { border-color: var(--navy); color: var(--navy); }
-    .welcome-card__nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-    .welcome-card__chevron { font-size: 10px; color: var(--text-muted); transition: transform 0.2s; margin-left: 4px; }
-    .welcome-card__head.collapsed .welcome-card__chevron { transform: rotate(-90deg); }
-    .welcome-card__body { padding: 24px 28px; }
-    .welcome-card__body.collapsed { display: none; }
-    .welcome-card__content { font-size: 15px; line-height: 1.6; color: var(--text); }
-    .welcome-card__content h1, .welcome-card__content h2 { margin-bottom: 10px; }
-    .welcome-card__content p  { margin-bottom: 10px; }
-    .welcome-card__content ul, .welcome-card__content ol { margin: 0 0 10px 20px; }
-    .welcome-card__content a  { color: var(--navy); }
-    .welcome-card__empty { padding: 24px 28px; color: var(--text-muted); font-size: 14px; font-style: italic; }
+/* -- Section header -------------------------------------------------------- */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.section-head__title {
+  font-size: 11px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  flex: 1;
+}
+.section-head__action {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  text-decoration: underline;
+  padding: 0;
+}
 
-    /* ── Active tiles ── */
-    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
-    .tile { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 24px; box-shadow: var(--shadow); text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 10px; transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s; }
-    .tile:hover { box-shadow: 0 6px 24px rgba(10,22,40,0.15); transform: translateY(-2px); border-color: var(--primary); }
-    .tile__icon  { font-size: 32px; line-height: 1; }
-    .tile__label { font-size: 16px; font-weight: 800; font-variation-settings: 'wght' 800; }
-    .tile__desc  { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
-    .tile__arrow { margin-top: auto; padding-top: 8px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary); }
-    .tile__placeholder { margin-top: auto; padding-top: 8px; font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
-    .tile__children { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-    .tile__child { font-size: 12px; padding: 4px 0; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 6px; text-decoration: none; color: var(--text); transition: color 0.15s; }
-    .tile__child:hover { color: var(--primary); }
-    .tile__child::before { content: '→'; font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
-    .tile__children-collapsed { display: none; }
-    .tile__expand-btn { margin-top: 8px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary); background: none; border: none; cursor: pointer; font-family: var(--font); padding: 0; text-align: left; }
+/* -- Welcome carousel ------------------------------------------------------ */
+.welcome-wrap {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 32px;
+  overflow: hidden;
+}
+.welcome-header {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.welcome-header.open { border-bottom-color: var(--border); }
+.welcome-header__icon { font-size: 18px; margin-right: 12px; }
+.welcome-header__title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+}
+.welcome-header__count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-right: 10px;
+}
+.welcome-header__chevron {
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+.welcome-header.open .welcome-header__chevron { transform: rotate(180deg); }
 
-    /* ── Available tools ── */
-    .available-section { margin-bottom: 40px; }
-    .available-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 12px 16px; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); user-select: none; transition: border-color 0.15s; }
-    .available-toggle:hover { border-color: var(--navy); }
-    .available-toggle__label { font-size: 12px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); flex: 1; }
-    .available-toggle__count { font-size: 11px; font-weight: 700; background: var(--off-white); border: 1px solid var(--border); color: var(--text-muted); padding: 2px 8px; border-radius: 10px; }
-    .available-toggle__chevron { font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
-    .available-toggle.open .available-toggle__chevron { transform: rotate(180deg); }
-    .available-tiles { display: none; padding-top: 12px; }
-    .available-tiles.open { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-    .tile--available { background: var(--white); border: 1px dashed var(--border); border-radius: var(--radius); padding: 16px; opacity: 0.7; cursor: pointer; transition: opacity 0.15s, border-color 0.15s; display: flex; flex-direction: column; gap: 6px; }
-    .tile--available:hover { opacity: 1; border-color: var(--navy); }
-    .tile--available .tile__icon  { font-size: 22px; }
-    .tile--available .tile__label { font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700; color: var(--text-muted); }
-    .tile--available .tile__dept  { font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); background: var(--off-white); border: 1px solid var(--border); padding: 2px 6px; border-radius: 8px; display: inline-block; }
-    .tile--available .tile__req   { font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--navy); margin-top: auto; }
+.welcome-body { display: none; padding: 0; }
+.welcome-body.open { display: block; }
 
-    /* ── Department header row in users table ── */
-    .data-table th.th-dept-head { background: var(--text); color: var(--white); font-size: 10px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.12em; text-align: center; border-left: 2px solid var(--white); }
-    .data-table th.th-dept-head:first-of-type { border-left: none; }
+.welcome-slides { position: relative; }
+.welcome-slide {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  display: none;
+}
+.welcome-slide.active { display: block; }
+.welcome-slide__title {
+  font-size: 16px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.welcome-slide__content { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+.welcome-slide__content p { margin-bottom: 8px; }
+.welcome-slide__content p:last-child { margin-bottom: 0; }
 
-    .no-tools { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
-    .no-tools strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
+.welcome-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+}
+.welcome-nav__btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+.welcome-nav__btn:hover { border-color: var(--navy); color: var(--navy); }
+.welcome-nav__btn:disabled { opacity: 0.35; cursor: default; }
+.welcome-nav__dots { display: flex; gap: 5px; flex: 1; justify-content: center; }
+.welcome-nav__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s;
+}
+.welcome-nav__dot.active { background: var(--primary); }
+.welcome-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
 
-    /* ── Modal ── */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; align-items: center; justify-content: center; padding: 24px; }
-    .modal-overlay.open { display: flex; }
-    .modal { background: var(--white); border-radius: 10px; width: 100%; max-width: 520px; box-shadow: 0 8px 40px rgba(0,0,0,0.3); overflow: hidden; }
-    .modal--wide { max-width: 700px; }
-    .modal__head { background: var(--navy); color: var(--white); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
-    .modal__head h3 { font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.08em; flex: 1; }
-    .modal__close { background: none; border: none; color: rgba(255,255,255,0.7); font-size: 20px; cursor: pointer; line-height: 1; padding: 0; }
-    .modal__close:hover { color: var(--white); }
-    .modal__body { padding: 24px; }
-    .modal__body p { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; }
-    .modal__warning { background: var(--amber-light); border: 1px solid #f5d78c; border-radius: var(--radius); padding: 10px 14px; font-size: 12px; color: var(--amber); font-weight: 600; font-variation-settings: 'wght' 600; margin-bottom: 16px; }
-    .modal__footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
-    .modal__field { margin-bottom: 16px; }
-    .modal__field label { display: block; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 6px; }
-    .modal__field input[type="text"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--font); font-size: 14px; color: var(--text); outline: none; }
-    .modal__field input:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(34,59,124,0.1); }
+/* -- Tool tile grid -------------------------------------------------------- */
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 36px;
+}
+.tool-tile {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 18px 18px;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s;
+  box-shadow: var(--shadow);
+  position: relative;
+}
+.tool-tile:hover {
+  border-color: var(--navy);
+  box-shadow: 0 4px 20px rgba(10,22,40,0.12);
+  transform: translateY(-1px);
+}
+.tool-tile--placeholder {
+  opacity: 0.55;
+  cursor: default;
+}
+.tool-tile--placeholder:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+  transform: none;
+}
+.tool-tile__icon { font-size: 28px; line-height: 1; }
+.tool-tile__name {
+  font-size: 13px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  color: var(--text);
+  line-height: 1.2;
+}
+.tool-tile__desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  flex: 1;
+}
+.tool-tile__badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--primary);
+  color: var(--white);
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  padding: 2px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+.tool-tile__soon {
+  font-size: 9px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 6px;
+  align-self: flex-start;
+}
 
-    /* ── Quill overrides ── */
-    .ql-container { font-family: var(--font); font-size: 15px; border-radius: 0 0 var(--radius) var(--radius); }
-    .ql-toolbar { border-radius: var(--radius) var(--radius) 0 0; font-family: var(--font); border-color: var(--border); }
-    .ql-container.ql-snow { border-color: var(--border); min-height: 160px; }
-    .ql-editor { min-height: 160px; }
+/* -- Available tools ------------------------------------------------------- */
+.available-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 36px;
+}
+.available-tile {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: var(--shadow);
+}
+.available-tile__icon { font-size: 22px; flex-shrink: 0; }
+.available-tile__info { flex: 1; min-width: 0; }
+.available-tile__name {
+  font-size: 13px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.available-tile__dept {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+}
+.available-tile__req {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--text-muted);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.available-tile__req:hover { border-color: var(--navy); color: var(--navy); }
+.available-tile__req:disabled { opacity: 0.5; cursor: default; }
 
-    /* ── Admin panel ── */
-    .admin-panel { background: var(--white); border: 2px solid var(--navy); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); margin-bottom: 24px; }
-    .admin-panel__head { background: var(--navy); color: var(--white); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
-    .admin-panel__head h2 { font-size: 13px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.1em; flex: 1; }
-    .admin-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); background: var(--white); }
-    .admin-tab { padding: 12px 20px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; color: var(--text-muted); border: none; background: none; font-family: var(--font); border-bottom: 3px solid transparent; margin-bottom: -1px; transition: all 0.15s; }
-    .admin-tab:hover { color: var(--text); }
-    .admin-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
-    .admin-tab .tab-count { display: inline-block; background: var(--primary); color: var(--white); font-size: 9px; font-weight: 900; padding: 1px 5px; border-radius: 8px; margin-left: 5px; vertical-align: middle; }
-    .admin-tab-content { display: none; }
-    .admin-tab-content.active { display: block; }
+/* -- Buttons --------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  border: none;
+  font-family: var(--font);
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.btn--primary { background: var(--primary); color: var(--white); }
+.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
+.btn--navy    { background: var(--navy);    color: var(--white); }
+.btn--navy:hover:not(:disabled) { background: var(--navy-mid); }
+.btn--ghost   { background: none; border: 1px solid var(--border); color: var(--text-muted); }
+.btn--ghost:hover:not(:disabled) { background: var(--off-white); color: var(--text); }
+.btn--danger  { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
+.btn--danger:hover:not(:disabled) { background: #fae0de; }
+.btn--sm { padding: 6px 12px; font-size: 10px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* ── Invite form ── */
-    .invite-form { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-    .invite-form .field { margin: 0; flex: 1; min-width: 160px; }
-    .invite-form .field label { display: block; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 5px; }
-    .invite-form .field input,
-    .invite-form .field select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--font); font-size: 14px; font-variation-settings: 'wght' 400; color: var(--text); outline: none; transition: border-color 0.15s; background: var(--white); }
-    .invite-form .field input:focus,
-    .invite-form .field select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(34,59,124,0.10); }
-    .form-status { width: 100%; font-size: 12px; padding: 8px 12px; border-radius: var(--radius); display: none; font-weight: 600; font-variation-settings: 'wght' 600; }
-    .form-status.show    { display: block; }
-    .form-status.success { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
-    .form-status.error   { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
+/* -- Admin panel ----------------------------------------------------------- */
+.admin-panel {
+  margin-top: 40px;
+  border-top: 2px solid var(--border);
+  padding-top: 32px;
+}
+.admin-panel__title {
+  font-size: 13px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-panel__title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
 
-    /* ── Welcome messages admin ── */
-    .welcome-msg-list { padding: 0; }
-    .welcome-msg-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
-    .welcome-msg-item:last-child { border-bottom: none; }
-    .welcome-msg-item__title { flex: 1; font-size: 14px; font-weight: 600; font-variation-settings: 'wght' 600; }
-    .welcome-msg-item__meta  { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .welcome-msg-item__actions { display: flex; gap: 6px; flex-shrink: 0; }
-    .welcome-messages-toolbar { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+/* Admin tabs */
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.admin-tab {
+  flex: 1;
+  min-width: 80px;
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: none;
+  background: none;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font);
+}
+.admin-tab.active { background: var(--primary); color: var(--white); }
 
-    /* ── Buttons ── */
-    .btn { padding: 9px 18px; border-radius: var(--radius); font-family: var(--font); font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; border: none; transition: background 0.15s; white-space: nowrap; }
-    .btn--navy    { background: var(--navy);       color: var(--white); }
-    .btn--navy:hover:not(:disabled)    { background: var(--navy-mid); }
-    .btn--primary { background: var(--primary);    color: var(--white); }
-    .btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
-    .btn--green   { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
-    .btn--green:hover:not(:disabled)   { background: #d4edda; }
-    .btn--danger  { background: var(--red-light);  color: var(--red); border: 1px solid #f5c6c2; }
-    .btn--danger:hover:not(:disabled)  { background: #fae0de; }
-    .btn--ghost   { background: none; border: 1px solid var(--border); color: var(--text-muted); }
-    .btn--ghost:hover:not(:disabled)   { background: var(--off-white); }
-    .btn--sm { padding: 5px 12px; font-size: 10px; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.admin-pane { display: none; }
+.admin-pane.active { display: block; }
 
-    /* ── Tables ── */
-    .table-wrap { overflow-x: auto; }
-    .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .data-table th { font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
-    .data-table th.th-user  { background: var(--off-white); color: var(--text-muted); }
-    .data-table th.th-staff { background: var(--navy-faint); color: var(--navy); }
-    .data-table th.th-club  { background: var(--amber-faint); color: var(--amber); }
-    .data-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    .data-table tr:last-child td { border-bottom: none; }
-    .data-table tr:hover td { background: var(--off-white); }
-    .user-email { font-weight: 600; font-variation-settings: 'wght' 600; }
-    .user-sub   { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+/* -- Requests tab ---------------------------------------------------------- */
+.request-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+.request-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.request-card__info { flex: 1; }
+.request-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+}
+.request-card__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.request-card__tools {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.request-card__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-    /* ── Toggles ── */
-    .toggle-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 12px; cursor: pointer; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.06em; border: none; font-family: var(--font); transition: opacity 0.15s; }
-    .toggle-pill.on   { background: var(--green-light); color: var(--green); }
-    .toggle-pill.off  { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
-    .toggle-pill.warn { background: var(--amber-light); color: var(--amber); border: 1px solid #f5d78c; }
-    .toggle-pill:hover:not(:disabled) { opacity: 0.75; }
-    .toggle-pill:disabled { opacity: 0.35; cursor: not-allowed; }
-    .toggle-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-    .toggle-pill.on   .dot { background: var(--green); }
-    .toggle-pill.off  .dot { background: var(--text-muted); }
-    .toggle-pill.warn .dot { background: var(--amber); }
+/* -- Users table ----------------------------------------------------------- */
+.users-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.users-controls input[type="text"] {
+  flex: 1;
+  min-width: 160px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.users-controls input[type="text"]:focus { border-color: var(--primary); }
 
-    /* ── Badges ── */
-    .badge { display: inline-block; font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 10px; }
-    .badge--superadmin { background: var(--primary);    color: var(--white); }
-    .badge--admin      { background: var(--navy);        color: var(--white); }
-    .badge--staff      { background: #e8ecf7;            color: var(--navy); }
-    .badge--club       { background: var(--amber-light); color: var(--amber); }
-    .badge--pending    { background: var(--amber-light); color: var(--amber); }
-    .badge--approved   { background: var(--green-light); color: var(--green); }
-    .badge--declined   { background: var(--off-white);   color: var(--text-muted); border: 1px solid var(--border); }
+.users-table-wrap { overflow-x: auto; }
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--white);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  min-width: 700px;
+}
+.users-table th {
+  background: var(--navy);
+  color: var(--white);
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+.users-table th.dept-header {
+  background: var(--navy-mid);
+  text-align: center;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  padding: 6px 8px;
+}
+.users-table th.toggle-header {
+  background: var(--navy);
+  text-align: center;
+  font-size: 8px;
+  padding: 10px 6px;
+  min-width: 44px;
+}
+.users-table th.toggle-header.staff-col { background: #1d3470; }
+.users-table th.toggle-header.club-col  { background: #5a3a00; }
 
-    .req-tools   { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
-    .req-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.users-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.users-table tr:last-child td { border-bottom: none; }
+.users-table tr:hover td { background: var(--off-white); }
+.users-table td.toggle-cell { text-align: center; padding: 6px; }
+.users-table td.toggle-cell.staff-col { background: rgba(34,59,124,0.03); }
+.users-table td.toggle-cell.club-col  { background: rgba(230,126,34,0.03); }
 
-    .audit-entry { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
-    .audit-entry:last-child { border-bottom: none; }
-    .audit-entry__action { font-weight: 700; font-variation-settings: 'wght' 700; }
-    .audit-entry__meta   { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.user-name-cell { display: flex; flex-direction: column; }
+.user-name { font-weight: 600; font-variation-settings: 'wght' 600; color: var(--text); }
+.user-email { font-size: 11px; color: var(--text-muted); }
+.user-role-pill {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.role-superadmin { background: #f0e6ff; color: #6b21a8; }
+.role-admin      { background: #eef2ff; color: var(--navy); }
+.role-staff      { background: var(--green-light); color: var(--green); }
+.role-club       { background: var(--amber-light); color: var(--amber); }
+.role-pending    { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
 
-    .empty-state { padding: 28px 24px; color: var(--text-muted); font-size: 14px; text-align: center; }
+/* Toggle switch in table */
+.tgl {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.tgl input { display: none; }
+.tgl__sw {
+  width: 28px; height: 16px;
+  border-radius: 8px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.tgl__sw::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--white);
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.tgl input:checked + .tgl__sw { background: var(--navy); }
+.tgl input:checked + .tgl__sw::after { left: 14px; }
+.tgl--warn input:checked + .tgl__sw { background: var(--amber); }
+.tgl__label {
+  font-size: 7px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.warn-badge {
+  font-size: 10px;
+  cursor: help;
+  margin-left: 2px;
+}
 
-    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--navy); color: var(--white); padding: 12px 18px; border-radius: var(--radius); font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 999; transform: translateY(80px); opacity: 0; transition: all 0.25s ease; max-width: 300px; pointer-events: none; }
-    .toast.show    { transform: translateY(0); opacity: 1; }
-    .toast.success { border-left: 4px solid var(--green); }
-    .toast.error   { border-left: 4px solid var(--red); }
+/* -- Invite form ----------------------------------------------------------- */
+.invite-form {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  max-width: 520px;
+}
+.invite-form .field { margin-bottom: 16px; }
+.invite-form .field label {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.invite-form input,
+.invite-form select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+  color: var(--text);
+  background: var(--white);
+}
+.invite-form input:focus,
+.invite-form select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.08); }
 
-    @media (max-width: 600px) {
-      .topbar { padding: 0 16px; gap: 10px; }
-      .topbar__user { display: none; }
-      .page { padding: 24px 16px 60px; }
-      .invite-form { flex-direction: column; }
-      .available-tiles.open { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-    }
-  </style>
+/* -- Welcome message editor ------------------------------------------------ */
+.wm-list { margin-bottom: 16px; }
+.wm-item {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  box-shadow: var(--shadow);
+}
+.wm-item__body { flex: 1; min-width: 0; }
+.wm-item__title { font-size: 14px; font-weight: 700; font-variation-settings: 'wght' 700; color: var(--text); margin-bottom: 2px; }
+.wm-item__meta  { font-size: 11px; color: var(--text-muted); }
+.wm-item__actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.wm-editor-wrap {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.wm-editor-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+}
+.wm-editor-fields { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.wm-editor-fields label {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.wm-editor-fields input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.wm-editor-fields input:focus { border-color: var(--primary); }
+#wm-quill-container .ql-toolbar { border-color: var(--border); }
+#wm-quill-container .ql-container { border-color: var(--border); font-family: var(--font); font-size: 14px; min-height: 120px; }
+.wm-editor-actions { padding: 12px 16px; display: flex; gap: 8px; border-top: 1px solid var(--border); }
+
+/* -- Msg / toast ----------------------------------------------------------- */
+.msg {
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  display: none;
+}
+.msg.show { display: block; }
+.msg--error   { background: var(--red-light);   color: var(--red); }
+.msg--success { background: var(--green-light);  color: var(--green); }
+.msg--info    { background: var(--amber-light);  color: var(--amber); }
+
+.toast {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  background: var(--navy);
+  color: var(--white);
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  z-index: 999;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.25s ease;
+  max-width: 300px;
+  pointer-events: none;
+}
+.toast.show    { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 4px solid var(--green); }
+.toast.error   { border-left: 4px solid var(--red); }
+
+/* -- Spinner inside button ------------------------------------------------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn-spinner {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* -- Empty states ---------------------------------------------------------- */
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+}
+.empty-state__icon { font-size: 32px; margin-bottom: 10px; }
+.empty-state__text { font-size: 14px; }
+
+/* -- Resend invite button -------------------------------------------------- */
+.resend-btn {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--primary);
+  cursor: pointer;
+  font-family: var(--font);
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  padding: 0;
+  text-decoration: underline;
+}
+</style>
 </head>
 <body>
 
-  <div class="auth-checking" id="authChecking"><div class="spinner"></div></div>
+<!-- Auth loading overlay -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-overlay__spinner"></div>
+</div>
 
-  <div id="pageWrap" style="display:none;">
+<!-- Main page (hidden until auth ready) -->
+<div id="pageWrap" style="display:none">
 
-    <div class="topbar">
-      <img
-        src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-        alt="National League"
-        onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-      <span class="topbar__title">
-        <span class="word-primary">NL</span>
-        <span class="word-secondary">Tools</span>
-      </span>
-      <span class="topbar__user">
-        <span id="topbarEmail"></span>
-        <span class="topbar__role-pill" id="topbarRolePill"></span>
-      </span>
-      <button class="topbar__btn" onclick="doSignOut()">Sign out</button>
+  <!-- Topbar -->
+  <div class="topbar">
+    <img class="topbar__logo"
+      src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+      alt="National League"
+      onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <span class="topbar__title">
+      NL <span class="word-secondary">Tools</span>
+    </span>
+    <span class="topbar__version">v1.0</span>
+    <div class="topbar__user">
+      <img class="topbar__club-crest" id="topbarCrest" src="" alt="" style="display:none"
+        onerror="this.onerror=null;this.style.display='none'">
+      <span class="topbar__name" id="topbarName"></span>
+    </div>
+    <button class="topbar__btn" id="signOutBtn">Sign out</button>
+  </div>
+
+  <!-- Page body -->
+  <div class="page-body">
+
+    <!-- Guard banner (shown if redirected with ?guard= param) -->
+    <div id="guardBanner"></div>
+
+    <!-- Welcome carousel -->
+    <div class="welcome-wrap" id="welcomeWrap">
+      <div class="welcome-header" id="welcomeHeader">
+        <span class="welcome-header__icon">📣</span>
+        <span class="welcome-header__title">Welcome &amp; Announcements</span>
+        <span class="welcome-header__count" id="welcomeCount"></span>
+        <span class="welcome-header__chevron">&#9660;</span>
+      </div>
+      <div class="welcome-body" id="welcomeBody">
+        <div class="welcome-slides" id="welcomeSlides"></div>
+        <div class="welcome-nav" id="welcomeNav" style="display:none">
+          <button class="welcome-nav__btn" id="wNavPrev">&#8592; Prev</button>
+          <div class="welcome-nav__dots" id="wNavDots"></div>
+          <button class="welcome-nav__btn" id="wNavNext">Next &#8594;</button>
+        </div>
+      </div>
     </div>
 
-    <div class="page">
-      <!-- Welcome carousel -->
-      <div class="welcome-card" id="welcomeCard" style="display:none;">
-        <div class="welcome-card__head" id="welcomeCardHead" onclick="toggleWelcome()">
-          <span class="welcome-card__head-title">👋 Welcome</span>
-          <div class="welcome-card__nav" onclick="event.stopPropagation()">
-            <button class="welcome-card__nav-btn" id="welcomePrev" onclick="welcomeNav(-1)">‹</button>
-            <span class="welcome-card__counter" id="welcomeCounter"></span>
-            <button class="welcome-card__nav-btn" id="welcomeNext" onclick="welcomeNav(1)">›</button>
+    <!-- My tools -->
+    <div class="section-head">
+      <span class="section-head__title">My Tools</span>
+    </div>
+    <div class="tool-grid" id="toolGrid">
+      <!-- Populated by JS -->
+    </div>
+
+    <!-- Available tools (tools in tier not yet granted) -->
+    <div id="availableSection" style="display:none">
+      <div class="section-head">
+        <span class="section-head__title">Available Tools</span>
+        <button class="section-head__action" id="availableToggle">Show</button>
+      </div>
+      <div id="availableGrid" class="available-grid" style="display:none"></div>
+    </div>
+
+    <!-- Admin panel (admin/superadmin only) -->
+    <div class="admin-panel" id="adminPanel" style="display:none">
+      <div class="admin-panel__title">Admin Panel</div>
+
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-pane="requests">Requests</button>
+        <button class="admin-tab" data-pane="users">Users</button>
+        <button class="admin-tab" data-pane="invite">Invite</button>
+        <button class="admin-tab" data-pane="messages">Messages</button>
+      </div>
+
+      <!-- Requests pane -->
+      <div class="admin-pane active" id="pane-requests">
+        <div id="requestsList">
+          <div class="empty-state">
+            <div class="empty-state__icon">📭</div>
+            <div class="empty-state__text">Loading requests…</div>
           </div>
-          <span class="welcome-card__chevron" id="welcomeChevron">▼</span>
-        </div>
-        <div class="welcome-card__body" id="welcomeBody">
-          <div class="welcome-card__content" id="welcomeContent"></div>
         </div>
       </div>
 
-      <div class="section-head">Your tools</div>
-      <div id="tilesGrid"></div>
-      <div class="available-section" id="availableSection" style="display:none;">
-        <div class="available-toggle" id="availableToggle" onclick="toggleAvailable()">
-          <span class="available-toggle__label">More tools available</span>
-          <span class="available-toggle__count" id="availableCount"></span>
-          <span class="available-toggle__chevron">▼</span>
+      <!-- Users pane -->
+      <div class="admin-pane" id="pane-users">
+        <div class="users-controls">
+          <input type="text" id="userSearch" placeholder="Search by name or email…">
+          <button class="btn btn--ghost btn--sm" id="reloadUsersBtn">Reload</button>
         </div>
-        <div class="available-tiles" id="availableTiles"></div>
-      </div>
-      <div id="adminSection"></div>
-    </div>
-  </div>
-
-  <!-- Tool request modal -->
-  <div class="modal-overlay" id="toolRequestModal">
-    <div class="modal">
-      <div class="modal__head">
-        <h3 id="modalToolLabel">Request Access</h3>
-        <button class="modal__close" onclick="closeModal('toolRequestModal')">×</button>
-      </div>
-      <div class="modal__body">
-        <div class="modal__warning">⚠ Please only request access if you genuinely need this tool for your role. Unnecessary requests create extra work for administrators.</div>
-        <p id="modalToolDesc"></p>
-        <p style="font-size:13px;color:var(--text-muted);">Your request will be reviewed by an administrator.</p>
-      </div>
-      <div class="modal__footer">
-        <button class="btn btn--ghost" onclick="closeModal('toolRequestModal')">Cancel</button>
-        <button class="btn btn--primary" id="modalRequestBtn" onclick="submitToolRequest()">Request access</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Welcome message compose/edit modal -->
-  <div class="modal-overlay" id="welcomeEditModal">
-    <div class="modal modal--wide">
-      <div class="modal__head">
-        <h3 id="welcomeEditTitle">New Message</h3>
-        <button class="modal__close" onclick="closeModal('welcomeEditModal')">×</button>
-      </div>
-      <div class="modal__body">
-        <div class="modal__field">
-          <label>Title</label>
-          <input type="text" id="welcomeMsgTitle" placeholder="e.g. Welcome to NL Tools">
-        </div>
-        <div class="modal__field">
-          <label>Content</label>
-          <div id="quillEditor"></div>
+        <div class="users-table-wrap">
+          <div id="usersTableContainer">
+            <div class="empty-state">
+              <div class="empty-state__icon">⏳</div>
+              <div class="empty-state__text">Loading users…</div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="modal__footer">
-        <button class="btn btn--ghost" onclick="closeModal('welcomeEditModal')">Cancel</button>
-        <button class="btn btn--navy" id="welcomeSaveBtn" onclick="saveWelcomeMessage()">Save message</button>
+
+      <!-- Invite pane -->
+      <div class="admin-pane" id="pane-invite">
+        <div class="invite-form">
+          <div class="msg" id="inviteMsg"></div>
+          <div class="field">
+            <label>Email address</label>
+            <input type="email" id="inviteEmail" placeholder="name@example.com">
+          </div>
+          <div class="field">
+            <label>Full name</label>
+            <input type="text" id="inviteName" placeholder="First and last name">
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <select id="inviteRole">
+              <option value="staff">Staff</option>
+              <option value="club">Club</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="field" id="inviteClubField" style="display:none">
+            <label>Club name</label>
+            <input type="text" id="inviteClub" placeholder="e.g. Aldershot Town">
+          </div>
+          <div class="field" id="inviteClubRoleField" style="display:none">
+            <label>Role at club</label>
+            <input type="text" id="inviteClubRole" placeholder="e.g. Secretary, Media Officer">
+          </div>
+          <button class="btn btn--primary" id="inviteBtn">Send invite</button>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <div class="toast" id="toast"></div>
+      <!-- Messages pane -->
+      <div class="admin-pane" id="pane-messages">
+        <div class="wm-list" id="wmList"></div>
+        <div class="wm-editor-wrap" id="wmEditorWrap">
+          <div class="wm-editor-head" id="wmEditorHead">New message</div>
+          <div class="wm-editor-fields">
+            <div>
+              <label>Title</label>
+              <input type="text" id="wmTitle" placeholder="Message title">
+            </div>
+            <div>
+              <label>Content</label>
+              <div id="wm-quill-container">
+                <div id="wmQuillEditor"></div>
+              </div>
+            </div>
+          </div>
+          <div class="wm-editor-actions">
+            <button class="btn btn--ghost btn--sm" id="wmCancelBtn">Cancel</button>
+            <button class="btn btn--primary btn--sm" id="wmSaveBtn">Save message</button>
+          </div>
+          <input type="hidden" id="wmEditingKey">
+        </div>
+      </div>
 
-  <script>
-    var firebaseConfig = {
-      apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
-      authDomain:        "nl-tools.firebaseapp.com",
-      databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId:         "nl-tools",
-      storageBucket:     "nl-tools.firebasestorage.app",
-      messagingSenderId: "801354670005",
-      appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
-    };
-    firebase.initializeApp(firebaseConfig);
-    var auth = firebase.auth();
-    var db   = firebase.database();
+    </div><!-- /admin-panel -->
 
-    // ── State ────────────────────────────────────────────────────────────────
-    var STATE = {
-      user:            null,
-      role:            null,
-      toolsCat:        {},
-      userTools:       {},
-      allUsers:        {},
-      requests:        {},
-      toolRequests:    {},
-      auditLog:        {},
-      welcomeMessages: {},  // keyed by RTDB push key
-      welcomeKeys:     [],  // ordered array of keys
-      welcomeIndex:    0,   // current slide index
-      welcomeCollapsed:false,
-      pendingToolKey:  null,
-      editingMsgKey:   null, // null = new, string = editing existing
-      quill:           null,
-      perms: {
-        isAdmin:      false,
-        isSuperAdmin: false,
-        canInvite:    false,
-        canSeeAudit:  false
+  </div><!-- /page-body -->
+</div><!-- /pageWrap -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---- Firebase init ------------------------------------------------------- */
+var firebaseConfig = {
+  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:        'nl-tools.firebaseapp.com',
+  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'nl-tools',
+  storageBucket:     'nl-tools.firebasestorage.app',
+  messagingSenderId: '801354670005',
+  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+};
+firebase.initializeApp(firebaseConfig);
+var auth = firebase.auth();
+var db   = firebase.database();
+
+/* ---- Constants ----------------------------------------------------------- */
+var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
+var LOGIN_URL      = '/tools/';
+
+/* ---- State --------------------------------------------------------------- */
+var STATE = {
+  uid:      null,
+  user:     null,      /* Firebase Auth user */
+  userData: null,      /* RTDB user record */
+  role:     '',
+  tools:    {},        /* tools catalogue from RTDB */
+  toolsList: [],
+  isAdmin:      false,
+  isSuperAdmin: false,
+  wmQuill:  null,
+  wmSlide:  0,
+  wmSlides: [],
+  allUsers: {}
+};
+
+/* ---- Helpers ------------------------------------------------------------- */
+function esc(s) {
+  s = String(s || '');
+  s = s.replace(/&/g, '&amp;');
+  s = s.replace(/\x3c/g, '&lt;');
+  s = s.replace(/>/g, '&gt;');
+  s = s.replace(/"/g, '&quot;');
+  return s;
+}
+
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type || 'success') + ' show';
+  setTimeout(function() { t.classList.remove('show'); }, 3500);
+}
+
+function showMsg(id, text, type) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'msg msg--' + (type || 'error') + ' show';
+}
+
+function hideMsg(id) {
+  var el = document.getElementById(id);
+  if (el) el.className = 'msg';
+}
+
+function setBtnLoading(id, loading, label) {
+  var btn = document.getElementById(id);
+  if (!btn) return;
+  btn.disabled = loading;
+  if (loading) {
+    btn.dataset.label = btn.textContent;
+    var sp = document.createElement('span');
+    sp.className = 'btn-spinner';
+    btn.innerHTML = '';
+    btn.appendChild(sp);
+  } else {
+    btn.textContent = label || btn.dataset.label || btn.textContent;
+  }
+}
+
+function removeOverlay() {
+  var ov = document.getElementById('authOverlay');
+  if (ov) ov.parentNode.removeChild(ov);
+}
+
+/* ---- Guard banner -------------------------------------------------------- */
+function showGuardBanner() {
+  var params = new URLSearchParams(window.location.search);
+  var guard  = params.get('guard');
+  if (!guard) return;
+
+  /* Clean the URL */
+  var clean = window.location.pathname;
+  window.history.replaceState({}, '', clean);
+
+  var container = document.getElementById('guardBanner');
+  var div = document.createElement('div');
+
+  if (guard === 'denied') {
+    div.className = 'banner banner--error';
+    div.textContent = 'You do not have access to that tool. Contact an administrator to request access.';
+  } else if (guard === 'pending') {
+    div.className = 'banner banner--amber';
+    div.textContent = 'Your account is pending approval. You will receive an email once access has been granted.';
+  } else if (guard === 'error') {
+    div.className = 'banner banner--error';
+    div.textContent = 'There was a problem checking your access. Please try signing out and back in.';
+  }
+
+  container.appendChild(div);
+}
+
+/* ---- Auth ---------------------------------------------------------------- */
+auth.onAuthStateChanged(function(user) {
+  if (!user) {
+    window.location.replace(LOGIN_URL);
+    return;
+  }
+  STATE.user = user;
+  STATE.uid  = user.uid;
+
+  db.ref('users/' + user.uid).once('value')
+    .then(function(snap) {
+      if (!snap.exists()) {
+        window.location.replace(LOGIN_URL);
+        return;
       }
-    };
+      STATE.userData = snap.val();
+      STATE.role       = STATE.userData.role || '';
+      STATE.isSuperAdmin = STATE.role === 'superadmin';
+      STATE.isAdmin      = STATE.role === 'admin' || STATE.isSuperAdmin;
 
-    function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-    function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+      if (STATE.userData.pending === true && !STATE.isAdmin) {
+        window.location.replace(LOGIN_URL + '?guard=pending');
+        return;
+      }
 
-    // ── Auth ─────────────────────────────────────────────────────────────────
-    auth.onAuthStateChanged(function(user) {
-      if (!user) { window.location.replace('/tools/'); return; }
-      STATE.user = user;
-      init();
+      loadTools().then(function() {
+        initPortal();
+      });
+    })
+    .catch(function() {
+      window.location.replace(LOGIN_URL);
+    });
+});
+
+/* ---- Load tools catalogue ------------------------------------------------ */
+function loadTools() {
+  return db.ref('tools').once('value').then(function(snap) {
+    if (snap.exists()) {
+      STATE.tools = snap.val();
+      STATE.toolsList = Object.keys(STATE.tools).map(function(k) {
+        var t = STATE.tools[k];
+        t._key = k;
+        return t;
+      });
+    }
+  }).catch(function() {});
+}
+
+/* ---- Init portal --------------------------------------------------------- */
+function initPortal() {
+  removeOverlay();
+  document.getElementById('pageWrap').style.display = 'block';
+
+  showGuardBanner();
+  renderTopbar();
+  loadWelcomeMessages();
+  renderToolGrid();
+  renderAvailableTools();
+
+  if (STATE.isAdmin) {
+    document.getElementById('adminPanel').style.display = 'block';
+    initAdminTabs();
+    loadRequests();
+    loadUsers();
+    initInviteForm();
+    initWelcomeEditor();
+  }
+
+  document.getElementById('signOutBtn').addEventListener('click', function() {
+    auth.signOut().then(function() {
+      window.location.replace(LOGIN_URL);
+    });
+  });
+}
+
+/* ---- Topbar -------------------------------------------------------------- */
+function renderTopbar() {
+  var ud = STATE.userData;
+  document.getElementById('topbarName').textContent = ud.name || STATE.user.email || '';
+
+  if (STATE.role === 'club' && ud.club) {
+    var img = document.getElementById('topbarCrest');
+    img.src = CREST_BASE + encodeURIComponent(ud.club) + '.png';
+    img.alt = ud.club;
+    img.style.display = 'block';
+    img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
+  }
+}
+
+/* ---- Welcome carousel ---------------------------------------------------- */
+function loadWelcomeMessages() {
+  db.ref('welcome-messages').once('value').then(function(snap) {
+    var val = snap.val();
+    /* Firebase returns "" for an empty node created in console */
+    if (!val || typeof val !== 'object') {
+      renderWelcomeEmpty();
+      return;
+    }
+    var msgs = Object.keys(val).map(function(k) {
+      var m = val[k]; m._key = k; return m;
+    }).sort(function(a, b) {
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+    STATE.wmSlides = msgs;
+    STATE.wmSlide  = 0;
+    renderWelcomeSlides();
+  }).catch(function() { renderWelcomeEmpty(); });
+}
+
+function renderWelcomeEmpty() {
+  var body = document.getElementById('welcomeBody');
+  var div  = document.createElement('div');
+  div.className = 'welcome-empty';
+  div.textContent = 'No announcements at the moment.';
+  body.appendChild(div);
+  /* Auto-open if empty so it doesn't look broken */
+  toggleWelcome(true);
+}
+
+function renderWelcomeSlides() {
+  var msgs    = STATE.wmSlides;
+  var slides  = document.getElementById('welcomeSlides');
+  var nav     = document.getElementById('welcomeNav');
+  var dots    = document.getElementById('wNavDots');
+  var count   = document.getElementById('welcomeCount');
+
+  slides.innerHTML = '';
+  dots.innerHTML   = '';
+
+  if (msgs.length === 0) { renderWelcomeEmpty(); return; }
+
+  count.textContent = msgs.length + (msgs.length === 1 ? ' message' : ' messages');
+
+  msgs.forEach(function(m, i) {
+    var slide = document.createElement('div');
+    slide.className = 'welcome-slide' + (i === 0 ? ' active' : '');
+    slide.dataset.idx = i;
+
+    var title = document.createElement('div');
+    title.className = 'welcome-slide__title';
+    title.textContent = m.title || '';
+
+    var content = document.createElement('div');
+    content.className = 'welcome-slide__content';
+    /* content is stored as HTML from Quill — safe to set as innerHTML
+       since only admins can write it */
+    content.innerHTML = m.content || '';
+
+    slide.appendChild(title);
+    slide.appendChild(content);
+    slides.appendChild(slide);
+
+    var dot = document.createElement('button');
+    dot.className = 'welcome-nav__dot' + (i === 0 ? ' active' : '');
+    dot.dataset.idx = i;
+    dot.addEventListener('click', function() { goWelcomeSlide(parseInt(dot.dataset.idx)); });
+    dots.appendChild(dot);
+  });
+
+  if (msgs.length > 1) nav.style.display = 'flex';
+
+  document.getElementById('wNavPrev').addEventListener('click', function() {
+    goWelcomeSlide(STATE.wmSlide - 1);
+  });
+  document.getElementById('wNavNext').addEventListener('click', function() {
+    goWelcomeSlide(STATE.wmSlide + 1);
+  });
+
+  updateWelcomeNav();
+
+  /* Open by default if there are messages */
+  toggleWelcome(true);
+
+  /* Header toggle */
+  document.getElementById('welcomeHeader').addEventListener('click', function() {
+    toggleWelcome();
+  });
+}
+
+function toggleWelcome(forceOpen) {
+  var header = document.getElementById('welcomeHeader');
+  var body   = document.getElementById('welcomeBody');
+  var isOpen = body.classList.contains('open');
+  if (forceOpen === true || (!isOpen && forceOpen !== false)) {
+    header.classList.add('open');
+    body.classList.add('open');
+  } else {
+    header.classList.remove('open');
+    body.classList.remove('open');
+  }
+}
+
+function goWelcomeSlide(idx) {
+  var msgs = STATE.wmSlides;
+  idx = Math.max(0, Math.min(msgs.length - 1, idx));
+  STATE.wmSlide = idx;
+
+  document.querySelectorAll('.welcome-slide').forEach(function(s, i) {
+    s.classList.toggle('active', i === idx);
+  });
+  document.querySelectorAll('.welcome-nav__dot').forEach(function(d, i) {
+    d.classList.toggle('active', i === idx);
+  });
+  updateWelcomeNav();
+}
+
+function updateWelcomeNav() {
+  var prev = document.getElementById('wNavPrev');
+  var next = document.getElementById('wNavNext');
+  if (prev) prev.disabled = STATE.wmSlide === 0;
+  if (next) next.disabled = STATE.wmSlide === STATE.wmSlides.length - 1;
+}
+
+/* ---- Tool tile grid ------------------------------------------------------ */
+function renderToolGrid() {
+  var grid   = document.getElementById('toolGrid');
+  var ud     = STATE.userData;
+  var tools  = STATE.toolsList;
+  var myKeys = [];
+
+  /* Collect granted tools */
+  tools.forEach(function(t) {
+    if (t.placeholder) return;
+    if (STATE.isSuperAdmin) { myKeys.push(t._key); return; }
+    var entry = ud.tools && ud.tools[t._key];
+    if (entry && entry.access === true) myKeys.push(t._key);
+  });
+
+  grid.innerHTML = '';
+
+  if (myKeys.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.style.gridColumn = '1 / -1';
+    var icon = document.createElement('div');
+    icon.className = 'empty-state__icon';
+    icon.textContent = '🔒';
+    var text = document.createElement('div');
+    text.className = 'empty-state__text';
+    text.textContent = 'No tools have been granted yet. Contact an administrator.';
+    empty.appendChild(icon);
+    empty.appendChild(text);
+    grid.appendChild(empty);
+    return;
+  }
+
+  myKeys.forEach(function(key) {
+    var t = STATE.tools[key];
+    if (!t) return;
+    var tile = buildToolTile(key, t);
+    grid.appendChild(tile);
+  });
+}
+
+function buildToolTile(key, t) {
+  var tile = document.createElement('a');
+  tile.className = 'tool-tile' + (t.placeholder ? ' tool-tile--placeholder' : '');
+
+  if (t.placeholder || !t.url) {
+    tile.href = '#';
+    tile.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (t.placeholder) showToast(t.label + ' is coming soon', 'success');
+    });
+  } else {
+    tile.href = t.url;
+  }
+
+  var icon = document.createElement('div');
+  icon.className = 'tool-tile__icon';
+  icon.textContent = t.icon || '🔧';
+
+  var name = document.createElement('div');
+  name.className = 'tool-tile__name';
+  name.textContent = t.label || key;
+
+  var desc = document.createElement('div');
+  desc.className = 'tool-tile__desc';
+  desc.textContent = t.description || '';
+
+  tile.appendChild(icon);
+  tile.appendChild(name);
+  tile.appendChild(desc);
+
+  if (t.placeholder) {
+    var soon = document.createElement('span');
+    soon.className = 'tool-tile__soon';
+    soon.textContent = 'Coming soon';
+    tile.appendChild(soon);
+  }
+
+  return tile;
+}
+
+/* ---- Available tools ----------------------------------------------------- */
+function renderAvailableTools() {
+  var ud     = STATE.userData;
+  var tools  = STATE.toolsList;
+  var tier   = STATE.role;
+  var available = [];
+
+  tools.forEach(function(t) {
+    if (t.placeholder) return;
+    /* Only show tools matching user's tier */
+    if (t.tier !== tier && !t.visibleToAll) return;
+    /* Skip if already granted */
+    if (STATE.isSuperAdmin) return;
+    var entry = ud.tools && ud.tools[t._key];
+    if (entry && entry.access === true) return;
+    available.push(t);
+  });
+
+  if (available.length === 0) return;
+
+  document.getElementById('availableSection').style.display = 'block';
+  var grid = document.getElementById('availableGrid');
+
+  available.forEach(function(t) {
+    var tile = document.createElement('div');
+    tile.className = 'available-tile';
+
+    var icon = document.createElement('div');
+    icon.className = 'available-tile__icon';
+    icon.textContent = t.icon || '🔧';
+
+    var info = document.createElement('div');
+    info.className = 'available-tile__info';
+
+    var name = document.createElement('div');
+    name.className = 'available-tile__name';
+    name.textContent = t.label || t._key;
+
+    var dept = document.createElement('div');
+    dept.className = 'available-tile__dept';
+    dept.textContent = t.department || '';
+
+    info.appendChild(name);
+    info.appendChild(dept);
+
+    var reqBtn = document.createElement('button');
+    reqBtn.className = 'available-tile__req';
+    reqBtn.textContent = 'Request';
+    reqBtn.addEventListener('click', function() {
+      requestToolAccess(t._key, t.label, reqBtn);
     });
 
-    // ── Init ─────────────────────────────────────────────────────────────────
-    function init() {
-      var uid = STATE.user.uid;
-      Promise.all([
-        db.ref('tools').once('value'),
-        db.ref('users/' + uid).once('value'),
-        db.ref('welcome-messages').once('value')
-      ])
-      .then(function(results) {
-        STATE.toolsCat       = results[0].val() || {};
-        var userData         = results[1].val() || {};
-        STATE.role           = userData.role || 'staff';
-        STATE.userTools      = userData.tools || {};
+    tile.appendChild(icon);
+    tile.appendChild(info);
+    tile.appendChild(reqBtn);
+    grid.appendChild(tile);
+  });
 
-        // welcome-messages may be stored as "" if created empty in Firebase console
-        var rawMsgsVal = results[2].val();
-        var rawMsgs    = (rawMsgsVal && typeof rawMsgsVal === 'object') ? rawMsgsVal : {};
+  /* Toggle show/hide */
+  document.getElementById('availableToggle').addEventListener('click', function() {
+    var g   = document.getElementById('availableGrid');
+    var btn = document.getElementById('availableToggle');
+    var vis = g.style.display !== 'none';
+    g.style.display = vis ? 'none' : 'grid';
+    btn.textContent = vis ? 'Show' : 'Hide';
+  });
+}
 
-        STATE.welcomeMessages = rawMsgs;
-        STATE.welcomeKeys = Object.keys(rawMsgs).sort(function(a,b) {
-          return (rawMsgs[a].createdAt||'').localeCompare(rawMsgs[b].createdAt||'');
+function requestToolAccess(key, label, btn) {
+  /* Write to tool-requests/ node */
+  btn.disabled = true;
+  btn.textContent = 'Requested';
+  db.ref('tool-requests').push({
+    uid:       STATE.uid,
+    name:      STATE.userData.name || '',
+    email:     STATE.userData.email || '',
+    tool:      key,
+    toolLabel: label,
+    status:    'pending',
+    createdAt: Date.now()
+  }).then(function() {
+    showToast('Access requested for ' + label, 'success');
+  }).catch(function() {
+    btn.disabled = false;
+    btn.textContent = 'Request';
+    showToast('Could not send request', 'error');
+  });
+}
+
+/* ---- Admin tabs ---------------------------------------------------------- */
+function initAdminTabs() {
+  document.querySelectorAll('.admin-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+      document.querySelectorAll('.admin-pane').forEach(function(p) { p.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('pane-' + tab.dataset.pane).classList.add('active');
+    });
+  });
+}
+
+/* ---- Requests ------------------------------------------------------------ */
+function loadRequests() {
+  db.ref('requests').orderByChild('status').equalTo('pending').once('value')
+    .then(function(snap) {
+      var container = document.getElementById('requestsList');
+      container.innerHTML = '';
+
+      if (!snap.exists()) {
+        var empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.innerHTML = '';
+        var icon = document.createElement('div');
+        icon.className = 'empty-state__icon';
+        icon.textContent = '📭';
+        var text = document.createElement('div');
+        text.className = 'empty-state__text';
+        text.textContent = 'No pending requests.';
+        empty.appendChild(icon);
+        empty.appendChild(text);
+        container.appendChild(empty);
+        return;
+      }
+
+      snap.forEach(function(child) {
+        var r = child.val();
+        r._key = child.key;
+        container.appendChild(buildRequestCard(r));
+      });
+    });
+}
+
+function buildRequestCard(r) {
+  var card = document.createElement('div');
+  card.className = 'request-card';
+
+  var header = document.createElement('div');
+  header.className = 'request-card__header';
+
+  var info = document.createElement('div');
+  info.className = 'request-card__info';
+
+  var name = document.createElement('div');
+  name.className = 'request-card__name';
+  name.textContent = r.name || '(no name)';
+
+  var meta = document.createElement('div');
+  meta.className = 'request-card__meta';
+  meta.textContent = (r.email || '') + (r.club ? '  —  ' + r.club : '') + (r.clubRole ? '  (' + r.clubRole + ')' : '');
+
+  info.appendChild(name);
+  info.appendChild(meta);
+  header.appendChild(info);
+  card.appendChild(header);
+
+  if (r.tools && r.tools.length) {
+    var tools = document.createElement('div');
+    tools.className = 'request-card__tools';
+    var toolNames = Array.isArray(r.tools)
+      ? r.tools.join(', ')
+      : String(r.tools);
+    tools.textContent = 'Requested tools: ' + toolNames;
+    card.appendChild(tools);
+  }
+
+  var actions = document.createElement('div');
+  actions.className = 'request-card__actions';
+
+  var approveBtn = document.createElement('button');
+  approveBtn.className = 'btn btn--navy btn--sm';
+  approveBtn.textContent = 'Approve & invite';
+  approveBtn.addEventListener('click', function() {
+    approveRequest(r, approveBtn);
+  });
+
+  var rejectBtn = document.createElement('button');
+  rejectBtn.className = 'btn btn--ghost btn--sm';
+  rejectBtn.textContent = 'Decline';
+  rejectBtn.addEventListener('click', function() {
+    rejectRequest(r._key, rejectBtn);
+  });
+
+  actions.appendChild(approveBtn);
+  actions.appendChild(rejectBtn);
+  card.appendChild(actions);
+
+  return card;
+}
+
+function approveRequest(r, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Approving…';
+
+  /* Pre-fill the invite form and switch to Invite tab */
+  document.getElementById('inviteEmail').value    = r.email || '';
+  document.getElementById('inviteName').value     = r.name  || '';
+  document.getElementById('inviteRole').value     = 'club';
+  document.getElementById('inviteClub').value     = r.club  || '';
+  document.getElementById('inviteClubRole').value = r.clubRole || '';
+  document.getElementById('inviteClubField').style.display     = 'block';
+  document.getElementById('inviteClubRoleField').style.display = 'block';
+
+  /* Switch to invite tab */
+  document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.admin-pane').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelector('[data-pane="invite"]').classList.add('active');
+  document.getElementById('pane-invite').classList.add('active');
+
+  /* Mark request as approved in RTDB */
+  db.ref('requests/' + r._key + '/status').set('approved')
+    .then(function() { loadRequests(); })
+    .catch(function() {});
+}
+
+function rejectRequest(key, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Declining…';
+  db.ref('requests/' + key + '/status').set('rejected')
+    .then(function() {
+      showToast('Request declined', 'success');
+      loadRequests();
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.textContent = 'Decline';
+      showToast('Failed to update request', 'error');
+    });
+}
+
+/* ---- Users table --------------------------------------------------------- */
+function loadUsers() {
+  db.ref('users').once('value').then(function(snap) {
+    STATE.allUsers = snap.val() || {};
+    renderUsersTable(STATE.allUsers);
+  });
+
+  document.getElementById('reloadUsersBtn').addEventListener('click', function() { loadUsers(); });
+
+  document.getElementById('userSearch').addEventListener('input', function() {
+    var q = this.value.toLowerCase().trim();
+    if (!q) { renderUsersTable(STATE.allUsers); return; }
+    var filtered = {};
+    Object.keys(STATE.allUsers).forEach(function(uid) {
+      var u = STATE.allUsers[uid];
+      if ((u.name  || '').toLowerCase().indexOf(q) !== -1 ||
+          (u.email || '').toLowerCase().indexOf(q) !== -1) {
+        filtered[uid] = u;
+      }
+    });
+    renderUsersTable(filtered);
+  });
+}
+
+function renderUsersTable(users) {
+  var container = document.getElementById('usersTableContainer');
+  container.innerHTML = '';
+
+  var uids = Object.keys(users || {});
+  if (uids.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'empty-state';
+    var icon = document.createElement('div');
+    icon.className = 'empty-state__icon';
+    icon.textContent = '👥';
+    var text = document.createElement('div');
+    text.className = 'empty-state__text';
+    text.textContent = 'No users found.';
+    empty.appendChild(icon);
+    empty.appendChild(text);
+    container.appendChild(empty);
+    return;
+  }
+
+  /* Build ordered tool columns grouped by department */
+  var tools   = STATE.toolsList.filter(function(t) { return !t.placeholder; });
+  var deptMap = {};
+  tools.forEach(function(t) {
+    var d = t.department || 'General';
+    if (!deptMap[d]) deptMap[d] = [];
+    deptMap[d].push(t);
+  });
+  var depts = Object.keys(deptMap).sort();
+
+  var wrap  = document.createElement('div');
+  wrap.className = 'users-table-wrap';
+  var table = document.createElement('table');
+  table.className = 'users-table';
+
+  /* Header rows */
+  var thead = document.createElement('thead');
+
+  /* Row 1: fixed cols + dept spanning headers */
+  var tr1 = document.createElement('tr');
+  ['User', 'Role', 'Club'].forEach(function(h) {
+    var th = document.createElement('th');
+    th.textContent = h;
+    th.rowSpan = 2;
+    tr1.appendChild(th);
+  });
+  depts.forEach(function(dept) {
+    var th = document.createElement('th');
+    th.className = 'dept-header';
+    th.textContent = dept;
+    th.colSpan = deptMap[dept].length * 2;
+    tr1.appendChild(th);
+  });
+  /* Actions col */
+  var actTh = document.createElement('th');
+  actTh.rowSpan = 2;
+  actTh.textContent = 'Actions';
+  tr1.appendChild(actTh);
+  thead.appendChild(tr1);
+
+  /* Row 2: Access + Admin per tool */
+  var tr2 = document.createElement('tr');
+  depts.forEach(function(dept) {
+    deptMap[dept].forEach(function(t) {
+      var isTierClub  = t.tier === 'club';
+      var isTierStaff = t.tier === 'staff';
+      ['A', 'Adm'].forEach(function(label) {
+        var th = document.createElement('th');
+        th.className = 'toggle-header' + (isTierStaff ? ' staff-col' : isTierClub ? ' club-col' : '');
+        th.title     = (label === 'A' ? 'Access' : 'Admin') + ' — ' + t.label;
+        th.textContent = label;
+        tr2.appendChild(th);
+      });
+    });
+  });
+  thead.appendChild(tr2);
+  table.appendChild(thead);
+
+  /* Body */
+  var tbody = document.createElement('tbody');
+  uids.forEach(function(uid) {
+    var u = users[uid];
+    var tr = document.createElement('tr');
+
+    /* User cell */
+    var tdUser = document.createElement('td');
+    var nameWrap = document.createElement('div');
+    nameWrap.className = 'user-name-cell';
+    var nameEl = document.createElement('div');
+    nameEl.className = 'user-name';
+    nameEl.textContent = u.name || '(no name)';
+    var emailEl = document.createElement('div');
+    emailEl.className = 'user-email';
+    emailEl.textContent = u.email || '';
+    if (u.pending) {
+      var resend = document.createElement('button');
+      resend.className = 'resend-btn';
+      resend.textContent = 'Resend invite';
+      resend.addEventListener('click', function() { resendInvite(u.email, resend); });
+      nameWrap.appendChild(nameEl);
+      nameWrap.appendChild(emailEl);
+      nameWrap.appendChild(resend);
+    } else {
+      nameWrap.appendChild(nameEl);
+      nameWrap.appendChild(emailEl);
+    }
+    tdUser.appendChild(nameWrap);
+    tr.appendChild(tdUser);
+
+    /* Role cell */
+    var tdRole = document.createElement('td');
+    var rolePill = document.createElement('span');
+    rolePill.className = 'user-role-pill role-' + (u.pending ? 'pending' : (u.role || 'staff'));
+    rolePill.textContent = u.pending ? 'Pending' : (u.role || 'staff');
+    tdRole.appendChild(rolePill);
+    tr.appendChild(tdRole);
+
+    /* Club cell */
+    var tdClub = document.createElement('td');
+    tdClub.style.fontSize = '12px';
+    tdClub.style.color = 'var(--text-muted)';
+    tdClub.textContent = u.club || '';
+    tr.appendChild(tdClub);
+
+    /* Tool toggle cells */
+    depts.forEach(function(dept) {
+      deptMap[dept].forEach(function(t) {
+        var isTierClub  = t.tier === 'club';
+        var isTierStaff = t.tier === 'staff';
+        var colCls = isTierStaff ? ' staff-col' : isTierClub ? ' club-col' : '';
+
+        var toolEntry   = u.tools && u.tools[t._key];
+        var hasAccess   = toolEntry && toolEntry.access === true;
+        var hasAdmin    = toolEntry && toolEntry.admin  === true;
+        var isUnusualAdmin = hasAdmin && (u.role === 'staff' || u.role === 'club');
+
+        /* Access toggle */
+        var tdAcc = document.createElement('td');
+        tdAcc.className = 'toggle-cell' + colCls;
+        tdAcc.appendChild(buildToggle(uid, t._key, 'access', hasAccess, false));
+        tr.appendChild(tdAcc);
+
+        /* Admin toggle */
+        var tdAdm = document.createElement('td');
+        tdAdm.className = 'toggle-cell' + colCls;
+        var admToggle = buildToggle(uid, t._key, 'admin', hasAdmin, isUnusualAdmin);
+        tdAdm.appendChild(admToggle);
+        if (isUnusualAdmin) {
+          var warn = document.createElement('span');
+          warn.className = 'warn-badge';
+          warn.title = 'Admin granted to non-admin role — review';
+          warn.textContent = '⚠️';
+          tdAdm.appendChild(warn);
+        }
+        tr.appendChild(tdAdm);
+      });
+    });
+
+    /* Actions */
+    var tdAct = document.createElement('td');
+    tdAct.style.whiteSpace = 'nowrap';
+
+    if (!STATE.isSuperAdmin && u.role === 'superadmin') {
+      /* Cannot modify superadmin */
+      tdAct.textContent = '—';
+    } else {
+      var roleSelect = document.createElement('select');
+      roleSelect.style.cssText = 'font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);background:var(--white);color:var(--text);cursor:pointer;';
+      ['staff', 'club', 'admin'].forEach(function(r) {
+        var opt = document.createElement('option');
+        opt.value = r;
+        opt.textContent = r;
+        if ((u.role || 'staff') === r) opt.selected = true;
+        roleSelect.appendChild(opt);
+      });
+      roleSelect.addEventListener('change', function() {
+        db.ref('users/' + uid + '/role').set(roleSelect.value)
+          .then(function() { showToast('Role updated', 'success'); })
+          .catch(function() { showToast('Failed to update role', 'error'); });
+      });
+      tdAct.appendChild(roleSelect);
+    }
+    tr.appendChild(tdAct);
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  container.appendChild(wrap);
+}
+
+function buildToggle(uid, toolKey, field, checked, warn) {
+  var label = document.createElement('label');
+  label.className = 'tgl' + (warn ? ' tgl--warn' : '');
+  label.title = (field === 'access' ? 'Access' : 'Admin') + ' toggle';
+
+  var input = document.createElement('input');
+  input.type    = 'checkbox';
+  input.checked = checked;
+
+  var sw = document.createElement('div');
+  sw.className = 'tgl__sw';
+
+  var lbl = document.createElement('div');
+  lbl.className = 'tgl__label';
+  lbl.textContent = field === 'access' ? 'Acc' : 'Adm';
+
+  input.addEventListener('change', function() {
+    var path = 'users/' + uid + '/tools/' + toolKey + '/' + field;
+    db.ref(path).set(input.checked)
+      .then(function() {
+        showToast((field === 'access' ? 'Access' : 'Admin') + ' updated', 'success');
+        /* Reload users table to reflect warning badge changes */
+        loadUsers();
+      })
+      .catch(function() {
+        input.checked = !input.checked;
+        showToast('Failed to update', 'error');
+      });
+  });
+
+  label.appendChild(input);
+  label.appendChild(sw);
+  label.appendChild(lbl);
+  return label;
+}
+
+/* ---- Invite form --------------------------------------------------------- */
+function initInviteForm() {
+  document.getElementById('inviteRole').addEventListener('change', function() {
+    var isClub = this.value === 'club';
+    document.getElementById('inviteClubField').style.display     = isClub ? 'block' : 'none';
+    document.getElementById('inviteClubRoleField').style.display = isClub ? 'block' : 'none';
+  });
+
+  document.getElementById('inviteBtn').addEventListener('click', function() {
+    var email    = document.getElementById('inviteEmail').value.trim();
+    var name     = document.getElementById('inviteName').value.trim();
+    var role     = document.getElementById('inviteRole').value;
+    var club     = document.getElementById('inviteClub').value.trim();
+    var clubRole = document.getElementById('inviteClubRole').value.trim();
+
+    hideMsg('inviteMsg');
+
+    if (!email || !name) {
+      showMsg('inviteMsg', 'Email and name are required.', 'error');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showMsg('inviteMsg', 'Please enter a valid email address.', 'error');
+      return;
+    }
+
+    setBtnLoading('inviteBtn', true);
+
+    /* Send Firebase email link invite */
+    var actionCodeSettings = {
+      url:             window.location.origin + LOGIN_URL,
+      handleCodeInApp: true
+    };
+
+    auth.sendSignInLinkToEmail(email, actionCodeSettings)
+      .then(function() {
+        /* Create pending user record in RTDB */
+        return db.ref('users').push({
+          name:     name,
+          email:    email,
+          role:     role,
+          club:     club || '',
+          clubRole: clubRole || '',
+          pending:  true,
+          tools:    {}
         });
-        STATE.welcomeIndex = 0;
-
-        STATE.perms.isSuperAdmin = STATE.role === 'superadmin';
-        STATE.perms.isAdmin      = STATE.role === 'admin' || STATE.role === 'superadmin';
-        STATE.perms.canInvite    = STATE.perms.isAdmin;
-        STATE.perms.canSeeAudit  = STATE.perms.isAdmin;
-
-        document.getElementById('topbarEmail').textContent    = STATE.user.email;
-        document.getElementById('topbarRolePill').textContent = STATE.role;
-
-        renderWelcomeCard();
-        renderTiles();
-
-        if (STATE.perms.isAdmin) return loadAdminData();
-        return Promise.resolve();
       })
       .then(function() {
-        document.getElementById('authChecking').style.display = 'none';
-        document.getElementById('pageWrap').style.display     = 'block';
-        var params = new URLSearchParams(window.location.search);
-        var guard  = params.get('guard');
-        if (guard === 'denied') showToast('You don\'t have access to that tool.', 'error');
-        if (guard === 'tier')   showToast('That tool isn\'t available for your account type.', 'error');
-        if (guard === 'error')  showToast('Access check failed. Try again.', 'error');
-        if (guard) window.history.replaceState(null, '', '/tools/portal/');
-        if (STATE.perms.isAdmin) renderAdminPanel();
+        setBtnLoading('inviteBtn', false, 'Send invite');
+        showMsg('inviteMsg', 'Invite sent to ' + email, 'success');
+        /* Clear form */
+        document.getElementById('inviteEmail').value    = '';
+        document.getElementById('inviteName').value     = '';
+        document.getElementById('inviteClub').value     = '';
+        document.getElementById('inviteClubRole').value = '';
+        loadUsers();
       })
       .catch(function(err) {
-        console.error('[NL Portal] Init error:', err);
-        document.getElementById('authChecking').style.display = 'none';
-        document.getElementById('pageWrap').style.display     = 'block';
-        showToast('Failed to load portal data. Try refreshing.', 'error');
+        setBtnLoading('inviteBtn', false, 'Send invite');
+        showMsg('inviteMsg', 'Failed to send invite: ' + err.message, 'error');
       });
+  });
+}
+
+function resendInvite(email, btn) {
+  if (!email) return;
+  btn.textContent = 'Sending…';
+  btn.disabled    = true;
+  var actionCodeSettings = {
+    url:             window.location.origin + LOGIN_URL,
+    handleCodeInApp: true
+  };
+  auth.sendSignInLinkToEmail(email, actionCodeSettings)
+    .then(function() {
+      showToast('Invite resent to ' + email, 'success');
+      btn.textContent = 'Sent';
+    })
+    .catch(function() {
+      showToast('Failed to resend invite', 'error');
+      btn.disabled    = false;
+      btn.textContent = 'Resend invite';
+    });
+}
+
+/* ---- Welcome message editor ---------------------------------------------- */
+function initWelcomeEditor() {
+  STATE.wmQuill = new Quill('#wmQuillEditor', {
+    theme:   'snow',
+    modules: { toolbar: [
+      ['bold', 'italic', 'underline'],
+      [{ list: 'ordered' }, { list: 'bullet' }],
+      ['link'],
+      ['clean']
+    ]}
+  });
+
+  loadWmList();
+
+  document.getElementById('wmCancelBtn').addEventListener('click', function() {
+    clearWmEditor();
+  });
+
+  document.getElementById('wmSaveBtn').addEventListener('click', function() {
+    saveWmMessage();
+  });
+}
+
+function loadWmList() {
+  db.ref('welcome-messages').once('value').then(function(snap) {
+    var list = document.getElementById('wmList');
+    list.innerHTML = '';
+    var val = snap.val();
+    if (!val || typeof val !== 'object') {
+      var p = document.createElement('p');
+      p.style.cssText = 'font-size:13px;color:var(--text-muted);margin-bottom:12px;';
+      p.textContent = 'No messages yet.';
+      list.appendChild(p);
+      return;
     }
+    Object.keys(val).forEach(function(k) {
+      var m = val[k];
+      list.appendChild(buildWmItem(k, m));
+    });
+  });
+}
 
-    function loadAdminData() {
-      return Promise.all([
-        db.ref('users').once('value').then(function(s)        { STATE.allUsers     = s.val() || {}; }),
-        db.ref('requests').once('value').then(function(s)     { STATE.requests     = s.val() || {}; }),
-        db.ref('tool-requests').once('value').then(function(s){ STATE.toolRequests = s.val() || {}; }),
-        db.ref('audit').once('value').then(function(s)        { STATE.auditLog     = s.val() || {}; })
-      ]);
-    }
+function buildWmItem(key, m) {
+  var item = document.createElement('div');
+  item.className = 'wm-item';
 
-    // ════════════════════════════════════════════════════════════════════════
-    // WELCOME CAROUSEL
-    // ════════════════════════════════════════════════════════════════════════
+  var body = document.createElement('div');
+  body.className = 'wm-item__body';
 
-    function renderWelcomeCard() {
-      var card = document.getElementById('welcomeCard');
-      if (!STATE.welcomeKeys.length) { card.style.display = 'none'; return; }
-      card.style.display = 'block';
-      renderWelcomeSlide();
-    }
+  var title = document.createElement('div');
+  title.className = 'wm-item__title';
+  title.textContent = m.title || '(no title)';
 
-    function renderWelcomeSlide() {
-      var keys    = STATE.welcomeKeys;
-      var idx     = STATE.welcomeIndex;
-      var msg     = STATE.welcomeMessages[keys[idx]] || {};
-      var counter = document.getElementById('welcomeCounter');
-      var content = document.getElementById('welcomeContent');
-      var prev    = document.getElementById('welcomePrev');
-      var next    = document.getElementById('welcomeNext');
+  var meta = document.createElement('div');
+  meta.className = 'wm-item__meta';
+  meta.textContent = 'By ' + (m.author || 'unknown') +
+    (m.createdAt ? '  —  ' + new Date(m.createdAt).toLocaleDateString('en-GB') : '');
 
-      counter.textContent  = (idx + 1) + ' of ' + keys.length;
-      content.innerHTML    = msg.content || '';
-      prev.disabled        = idx === 0;
-      next.disabled        = idx === keys.length - 1;
-    }
+  body.appendChild(title);
+  body.appendChild(meta);
 
-    function welcomeNav(dir) {
-      var newIdx = STATE.welcomeIndex + dir;
-      if (newIdx < 0 || newIdx >= STATE.welcomeKeys.length) return;
-      STATE.welcomeIndex = newIdx;
-      renderWelcomeSlide();
-    }
+  var actions = document.createElement('div');
+  actions.className = 'wm-item__actions';
 
-    function toggleWelcome() {
-      STATE.welcomeCollapsed = !STATE.welcomeCollapsed;
-      var body    = document.getElementById('welcomeBody');
-      var head    = document.getElementById('welcomeCardHead');
-      var chevron = document.getElementById('welcomeChevron');
-      body.classList.toggle('collapsed', STATE.welcomeCollapsed);
-      head.classList.toggle('collapsed', STATE.welcomeCollapsed);
-      chevron.textContent = STATE.welcomeCollapsed ? '▶' : '▼';
-    }
+  var editBtn = document.createElement('button');
+  editBtn.className = 'btn btn--ghost btn--sm';
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', function() { loadWmIntoEditor(key, m); });
 
-    // ════════════════════════════════════════════════════════════════════════
-    // TILES
-    // ════════════════════════════════════════════════════════════════════════
+  var delBtn = document.createElement('button');
+  delBtn.className = 'btn btn--danger btn--sm';
+  delBtn.textContent = 'Delete';
+  delBtn.addEventListener('click', function() { deleteWmMessage(key, delBtn); });
 
-    function renderTiles() {
-      var grid     = document.getElementById('tilesGrid');
-      // For staff/admin/superadmin the tier is 'staff'; for club it is 'club'
-      var userTier = STATE.role === 'club' ? 'club' : 'staff';
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
+  item.appendChild(body);
+  item.appendChild(actions);
+  return item;
+}
 
-      var universal = Object.keys(STATE.toolsCat).filter(function(k) {
-        return STATE.toolsCat[k].visibleToAll === true;
-      });
+function loadWmIntoEditor(key, m) {
+  document.getElementById('wmTitle').value     = m.title || '';
+  document.getElementById('wmEditingKey').value = key;
+  document.getElementById('wmEditorHead').textContent = 'Editing message';
+  STATE.wmQuill.root.innerHTML = m.content || '';
+}
 
-      var granted = Object.keys(STATE.userTools).filter(function(k) {
-        return STATE.userTools[k] === true
-          && STATE.toolsCat[k]
-          && universal.indexOf(k) === -1;
-      });
+function clearWmEditor() {
+  document.getElementById('wmTitle').value      = '';
+  document.getElementById('wmEditingKey').value = '';
+  document.getElementById('wmEditorHead').textContent = 'New message';
+  STATE.wmQuill.setContents([]);
+}
 
-      var activeTiles = universal.concat(granted);
+function saveWmMessage() {
+  var title   = document.getElementById('wmTitle').value.trim();
+  var content = STATE.wmQuill.root.innerHTML;
+  var key     = document.getElementById('wmEditingKey').value;
 
-      grid.innerHTML = activeTiles.length
-        ? activeTiles.map(buildActiveTile).join('')
-        : '<div class="no-tools"><strong>No tools yet</strong>You haven\'t been granted access to any tools.</div>';
+  if (!title) { showToast('Please enter a title', 'error'); return; }
 
-      // ── Available: only show tools matching the user's own tier ──
-      // Superadmins are staff-tier. Club tools never appear in available for
-      // staff/admin/superadmin — they are a separate pool entirely.
-      var available = Object.keys(STATE.toolsCat).filter(function(k) {
-        var t = STATE.toolsCat[k];
-        if (t.visibleToAll) return false;
-        if (STATE.userTools[k] === true) return false;
-        if (universal.indexOf(k) !== -1) return false;
-        // Only show tools matching the user's own tier
-        return t.tier === userTier;
-      });
+  setBtnLoading('wmSaveBtn', true);
 
-      renderAvailableTiles(available);
-    }
+  var payload = {
+    title:     title,
+    content:   content,
+    author:    STATE.userData.name || STATE.user.email || '',
+    updatedAt: Date.now()
+  };
 
-    function buildActiveTile(k) {
-      var t = STATE.toolsCat[k];
-      if (!t) return '';
-      var hasChildren   = t.children && t.children.length;
-      var isPlaceholder = t.placeholder === true;
-      var url           = t.url || '#';
-      var tag           = (url === '#' || isPlaceholder) ? 'div' : 'a';
-      var href          = tag === 'a' ? ' href="' + esc(url) + '"' : '';
-      var cursor        = isPlaceholder ? ' style="cursor:default;"' : '';
+  var ref = key
+    ? db.ref('welcome-messages/' + key)
+    : db.ref('welcome-messages').push();
 
-      var childrenHtml = '';
-      if (hasChildren) {
-        childrenHtml = '<div class="tile__children tile__children-collapsed" id="children-' + esc(k) + '">'
-          + t.children.map(function(c) {
-              var cUrl = c.url || '#'; var cTag = cUrl === '#' ? 'span' : 'a';
-              return '<' + cTag + (cTag==='a'?' href="'+esc(cUrl)+'"':'') + ' class="tile__child">' + esc(c.label) + '</' + cTag + '>';
-            }).join('')
-          + '</div>'
-          + '<button class="tile__expand-btn" onclick="toggleChildren(\'' + escJ(k) + '\',event)">Show tools ▾</button>';
-      }
+  if (!key) payload.createdAt = Date.now();
 
-      return '<' + tag + href + ' class="tile"' + cursor + '>'
-        + '<div class="tile__icon">'  + esc(t.icon || '🔧') + '</div>'
-        + '<div class="tile__label">' + esc(t.label) + '</div>'
-        + '<div class="tile__desc">'  + esc(t.description || '') + '</div>'
-        + childrenHtml
-        + (isPlaceholder ? '<div class="tile__placeholder">Coming soon</div>'
-            : (!hasChildren ? '<div class="tile__arrow">Open →</div>' : ''))
-        + '</' + tag + '>';
-    }
+  var promise = key ? ref.update(payload) : ref.set(payload);
 
-    function toggleChildren(key, e) {
-      e.preventDefault(); e.stopPropagation();
-      var el = document.getElementById('children-' + key);
-      if (!el) return;
-      var isOpen = !el.classList.contains('tile__children-collapsed');
-      el.classList.toggle('tile__children-collapsed', isOpen);
-      e.target.textContent = isOpen ? 'Show tools ▾' : 'Hide tools ▴';
-    }
+  promise.then(function() {
+    setBtnLoading('wmSaveBtn', false, 'Save message');
+    clearWmEditor();
+    showToast('Message saved', 'success');
+    loadWmList();
+    loadWelcomeMessages(); /* Refresh carousel */
+  }).catch(function() {
+    setBtnLoading('wmSaveBtn', false, 'Save message');
+    showToast('Failed to save message', 'error');
+  });
+}
 
-    function renderAvailableTiles(keys) {
-      var section = document.getElementById('availableSection');
-      var countEl = document.getElementById('availableCount');
-      if (!keys.length) { section.style.display = 'none'; return; }
-      section.style.display = 'block';
-      countEl.textContent   = keys.length;
-      section.innerHTML = '<div class="available-toggle" id="availableToggle" onclick="toggleAvailable()">'
-        + '<span class="available-toggle__label">More tools available</span>'
-        + '<span class="available-toggle__count" id="availableCount">' + keys.length + '</span>'
-        + '<span class="available-toggle__chevron">▼</span>'
-        + '</div>'
-        + '<div class="available-tiles" id="availableTiles">'
-        + keys.map(function(k) {
-            var t    = STATE.toolsCat[k];
-            var dept = t.department || '';
-            return '<div class="tile--available" onclick="openToolRequest(\'' + escJ(k) + '\')">'
-              + '<div class="tile__icon">' + esc(t.icon || '🔧') + '</div>'
-              + '<div class="tile__label">' + esc(t.label) + '</div>'
-              + (dept ? '<div><span class="tile__dept">' + esc(dept) + '</span></div>' : '')
-              + '<div class="tile__req">Request access →</div>'
-              + '</div>';
-          }).join('')
-        + '</div>';
-    }
+function deleteWmMessage(key, btn) {
+  btn.textContent = 'Confirm?';
+  btn.style.background = 'var(--red)';
+  btn.style.color = '#fff';
+  var confirmed = false;
 
-    function toggleAvailable() {
-      var toggle = document.getElementById('availableToggle');
-      var tiles  = document.getElementById('availableTiles');
-      if (toggle) toggle.classList.toggle('open');
-      if (tiles)  tiles.classList.toggle('open');
-    }
-
-    // ── Tool request modal ────────────────────────────────────────────────────
-    function openToolRequest(toolKey) {
-      var t = STATE.toolsCat[toolKey]; if (!t) return;
-      STATE.pendingToolKey = toolKey;
-      document.getElementById('modalToolLabel').textContent  = t.label;
-      document.getElementById('modalToolDesc').textContent   = t.description || '';
-      document.getElementById('modalRequestBtn').disabled    = false;
-      document.getElementById('modalRequestBtn').textContent = 'Request access';
-      document.getElementById('toolRequestModal').classList.add('open');
-    }
-
-    function submitToolRequest() {
-      var toolKey = STATE.pendingToolKey; if (!toolKey) return;
-      var t   = STATE.toolsCat[toolKey] || {};
-      var btn = document.getElementById('modalRequestBtn');
-      btn.disabled = true; btn.textContent = 'Sending…';
-
-      db.ref('tool-requests/treq_' + Date.now()).set({
-        uid: STATE.user.uid, name: STATE.user.displayName || '',
-        email: STATE.user.email, toolKey: toolKey, toolLabel: t.label || toolKey,
-        status: 'pending', createdAt: new Date().toISOString()
-      })
-      .then(function() { closeModal('toolRequestModal'); showToast('Request submitted. An administrator will review it.', 'success'); })
-      .catch(function() { btn.disabled = false; btn.textContent = 'Request access'; showToast('Failed. Try again.', 'error'); });
-    }
-
-    function closeModal(id) {
-      document.getElementById(id).classList.remove('open');
-      if (id === 'toolRequestModal') STATE.pendingToolKey = null;
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    // ADMIN PANEL
-    // ════════════════════════════════════════════════════════════════════════
-
-    function renderAdminPanel() {
-      var signupPending  = Object.keys(STATE.requests).filter(function(k)     { return STATE.requests[k].status === 'pending'; }).length;
-      var toolReqPending = Object.keys(STATE.toolRequests).filter(function(k) { return STATE.toolRequests[k].status === 'pending'; }).length;
-      var totalPending   = signupPending + toolReqPending;
-
-      document.getElementById('adminSection').innerHTML =
-        '<div class="section-head" style="margin-top:0;">Administration</div>'
-        + '<div class="admin-panel">'
-        + '<div class="admin-panel__head"><h2>Admin Panel</h2>'
-        +   '<span class="badge badge--' + esc(STATE.role) + '">' + esc(STATE.role) + '</span>'
-        + '</div>'
-        + '<div class="admin-tabs">'
-        +   '<button class="admin-tab active" onclick="switchTab(\'requests\',this)">Requests'
-        +     (totalPending ? '<span class="tab-count">' + totalPending + '</span>' : '')
-        +   '</button>'
-        +   '<button class="admin-tab" onclick="switchTab(\'users\',this)">Users</button>'
-        +   '<button class="admin-tab" onclick="switchTab(\'invite\',this)">Invite</button>'
-        +   '<button class="admin-tab" onclick="switchTab(\'welcome\',this)">Welcome messages</button>'
-        +   '<button class="admin-tab" onclick="switchTab(\'audit\',this)">Audit log</button>'
-        + '</div>'
-        + '<div class="admin-tab-content active" id="tab-requests">'  + buildRequestsTab()    + '</div>'
-        + '<div class="admin-tab-content"        id="tab-users">'     + '<div class="table-wrap">' + buildUsersTable() + '</div>' + '</div>'
-        + '<div class="admin-tab-content"        id="tab-invite">'    + buildInviteForm()     + '</div>'
-        + '<div class="admin-tab-content"        id="tab-welcome">'   + buildWelcomeAdmin()   + '</div>'
-        + '<div class="admin-tab-content"        id="tab-audit">'     + buildAuditLog()       + '</div>'
-        + '</div>';
-    }
-
-    function switchTab(tabId, btn) {
-      document.querySelectorAll('.admin-tab').forEach(function(t)        { t.classList.remove('active'); });
-      document.querySelectorAll('.admin-tab-content').forEach(function(t){ t.classList.remove('active'); });
-      btn.classList.add('active');
-      document.getElementById('tab-' + tabId).classList.add('active');
-    }
-
-    // ── Requests tab ─────────────────────────────────────────────────────────
-    function buildRequestsTab() {
-      return '<div style="padding:16px 24px;border-bottom:1px solid var(--border);">'
-        + '<p style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;">New account requests</p>'
-        + buildSignupRequestsTable() + '</div>'
-        + '<div style="padding:16px 24px;">'
-        + '<p style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;">Tool access requests</p>'
-        + buildToolRequestsTable() + '</div>';
-    }
-
-    function buildSignupRequestsTable() {
-      var keys = Object.keys(STATE.requests);
-      if (!keys.length) return '<div class="empty-state">No account requests.</div>';
-      keys.sort(function(a,b){ return (STATE.requests[b].createdAt||'').localeCompare(STATE.requests[a].createdAt||''); });
-      var rows = keys.map(function(k) {
-        var r = STATE.requests[k]; var status = r.status || 'pending';
-        var tools = Array.isArray(r.tools) ? r.tools.map(function(t){ return STATE.toolsCat[t] ? STATE.toolsCat[t].label : t; }).join(', ') : '';
-        var date  = r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-GB') : '';
-        var actions = status === 'pending'
-          ? '<div class="req-actions"><button class="btn btn--green" onclick="approveSignupRequest(\'' + escJ(k) + '\')">Approve + invite</button>'
-          + '<button class="btn btn--ghost" onclick="declineRequest(\'' + escJ(k) + '\')">Decline</button></div>' : '';
-        return '<tr><td><div class="user-email">' + esc(r.name||'') + '</div>'
-          + '<div class="user-sub">' + esc(r.email||'') + (r.club?' · '+esc(r.club):'') + '</div>'
-          + (tools?'<div class="req-tools">Requesting: '+esc(tools)+'</div>':'')
-          + '</td><td>'+esc(date)+'</td><td><span class="badge badge--'+esc(status)+'">'+esc(status)+'</span></td><td>'+actions+'</td></tr>';
-      }).join('');
-      return '<table class="data-table"><thead><tr><th class="th-user">Applicant</th><th class="th-user">Date</th><th class="th-user">Status</th><th class="th-user"></th></tr></thead><tbody>'+rows+'</tbody></table>';
-    }
-
-    function buildToolRequestsTable() {
-      var keys = Object.keys(STATE.toolRequests);
-      if (!keys.length) return '<div class="empty-state">No tool access requests.</div>';
-      keys.sort(function(a,b){ return (STATE.toolRequests[b].createdAt||'').localeCompare(STATE.toolRequests[a].createdAt||''); });
-      var rows = keys.map(function(k) {
-        var r = STATE.toolRequests[k]; var status = r.status || 'pending';
-        var date = r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-GB') : '';
-        var actions = status === 'pending'
-          ? '<div class="req-actions"><button class="btn btn--green" onclick="approveToolRequest(\''+escJ(k)+'\')">Grant access</button>'
-          + '<button class="btn btn--ghost" onclick="declineToolRequest(\''+escJ(k)+'\')">Decline</button></div>' : '';
-        return '<tr><td><div class="user-email">'+esc(r.name||r.email||'')+'</div>'
-          + '<div class="user-sub">'+esc(r.email||'')+'</div></td>'
-          + '<td>'+esc(r.toolLabel||r.toolKey||'')+'</td><td>'+esc(date)+'</td>'
-          + '<td><span class="badge badge--'+esc(status)+'">'+esc(status)+'</span></td><td>'+actions+'</td></tr>';
-      }).join('');
-      return '<table class="data-table"><thead><tr><th class="th-user">User</th><th class="th-user">Tool</th><th class="th-user">Date</th><th class="th-user">Status</th><th class="th-user"></th></tr></thead><tbody>'+rows+'</tbody></table>';
-    }
-
-    // ── Users table ───────────────────────────────────────────────────────────
-    function buildUsersTable() {
-      var uids      = Object.keys(STATE.allUsers);
-      var realUsers = uids.filter(function(u){ return !u.startsWith('pending_'); });
-      var pending   = uids.filter(function(u){ return  u.startsWith('pending_'); });
-      var allRows   = realUsers.concat(pending);
-      if (!allRows.length) return '<div class="empty-state">No users yet.</div>';
-
-      var staffTools = Object.keys(STATE.toolsCat).filter(function(k){ return STATE.toolsCat[k].tier==='staff' && !STATE.toolsCat[k].visibleToAll; });
-      var clubTools  = Object.keys(STATE.toolsCat).filter(function(k){ return STATE.toolsCat[k].tier==='club'  && !STATE.toolsCat[k].visibleToAll; });
-
-      // Group tools by department for header rows
-      function groupByDept(tools) {
-        var depts = {};
-        tools.forEach(function(k) {
-          var dept = STATE.toolsCat[k].department || 'General';
-          if (!depts[dept]) depts[dept] = [];
-          depts[dept].push(k);
-        });
-        return depts;
-      }
-      var staffDepts = groupByDept(staffTools);
-      var clubDepts  = groupByDept(clubTools);
-
-      // Build two header rows: dept spanning headers + tool name headers
-      function buildDeptHeaders(depts, thClass) {
-        return Object.keys(depts).map(function(dept) {
-          var count = depts[dept].length;
-          return '<th class="th-dept-head" colspan="' + count + '">' + esc(dept) + '</th>';
-        }).join('');
-      }
-      function buildToolHeaders(depts, thClass) {
-        var allKeys = [];
-        Object.keys(depts).forEach(function(d){ allKeys = allKeys.concat(depts[d]); });
-        return allKeys.map(function(k){ return '<th class="' + thClass + '">' + esc(STATE.toolsCat[k].label) + '</th>'; }).join('');
-      }
-
-      var staffDeptHeaders = buildDeptHeaders(staffDepts, 'th-staff');
-      var clubDeptHeaders  = buildDeptHeaders(clubDepts,  'th-club');
-      var staffToolHeaders = buildToolHeaders(staffDepts, 'th-staff');
-      var clubToolHeaders  = buildToolHeaders(clubDepts,  'th-club');
-
-      // Ordered tool keys following dept grouping
-      var staffOrdered = [];
-      Object.keys(staffDepts).forEach(function(d){ staffOrdered = staffOrdered.concat(staffDepts[d]); });
-      var clubOrdered = [];
-      Object.keys(clubDepts).forEach(function(d){ clubOrdered = clubOrdered.concat(clubDepts[d]); });
-
-      var rows = allRows.map(function(uid) {
-        var u           = STATE.allUsers[uid];
-        var isPending   = uid.startsWith('pending_');
-        var userRole    = u.role || 'staff';
-        var isMe        = uid === STATE.user.uid;
-        var userTier    = userRole === 'club' ? 'club' : 'staff';
-        var isProtected = (userRole === 'admin' || userRole === 'superadmin') && !STATE.perms.isSuperAdmin;
-        var viewerIsAdmin = STATE.perms.isAdmin;
-
-        function buildToggle(toolKey) {
-          var t        = STATE.toolsCat[toolKey];
-          var on       = (u.tools||{})[toolKey] === true;
-          var toolTier = t ? t.tier : 'staff';
-          var isCross  = toolTier !== userTier && toolTier !== 'all';
-          var disabled = isPending || isProtected || (isCross && !STATE.perms.isSuperAdmin);
-          var pillCls  = on ? (isCross ? 'warn' : 'on') : 'off';
-          var title    = isCross && on ? ' title="⚠ Cross-tier — granted by super admin"' : '';
-          return '<td><button class="toggle-pill ' + pillCls + '"'
-            + (disabled ? ' disabled' : ' onclick="toggleTool(\'' + escJ(uid) + '\',\'' + escJ(toolKey) + '\',' + on + ',' + isCross + ')"')
-            + title + '><span class="dot"></span>' + (on?'On':'Off') + '</button></td>';
-        }
-
-        var staffCells = staffOrdered.map(function(k){
-          return (viewerIsAdmin || userTier === 'staff') ? buildToggle(k) : '<td></td>';
-        }).join('');
-        var clubCells = clubOrdered.map(function(k){
-          return (viewerIsAdmin || userTier === 'club') ? buildToggle(k) : '<td></td>';
-        }).join('');
-
-        var badges = isMe ? ' <span class="badge badge--'+esc(userRole)+'">'+esc(userRole)+' (you)</span>'
-                          : ' <span class="badge badge--'+esc(userRole)+'">'+esc(userRole)+'</span>';
-        if (isPending) badges += ' <span class="badge badge--pending">Invite sent</span>';
-
-        return '<tr><td><div class="user-email">'+esc(u.email||'')+badges+'</div>'
-          + '<div class="user-sub">'+esc(u.name||'')+'</div></td>'
-          + staffCells + clubCells + '</tr>';
-      }).join('');
-
-      return '<table class="data-table">'
-        + '<thead>'
-        + '<tr><th class="th-user" rowspan="2">User</th>'
-        + (staffDeptHeaders ? '<th class="th-dept-head" colspan="' + staffOrdered.length + '" style="background:var(--navy-faint);color:var(--navy);">Staff</th>' : '')
-        + (clubDeptHeaders  ? '<th class="th-dept-head" colspan="' + clubOrdered.length  + '" style="background:var(--amber-faint);color:var(--amber);">Club</th>'  : '')
-        + '</tr>'
-        + '<tr>'
-        + staffDeptHeaders + clubDeptHeaders
-        + '</tr>'
-        + '<tr>'
-        + staffToolHeaders + clubToolHeaders
-        + '</tr>'
-        + '</thead>'
-        + '<tbody>' + rows + '</tbody></table>';
-    }
-
-    // ── Invite form ───────────────────────────────────────────────────────────
-    function buildInviteForm() {
-      var roleOpts = '<option value="staff">Staff</option><option value="club">Club</option><option value="admin">Admin</option>'
-        + (STATE.perms.isSuperAdmin ? '<option value="superadmin">Super Admin</option>' : '');
-      return '<div class="invite-form">'
-        + '<div class="field"><label>Full name</label><input type="text" id="newName" placeholder="Jane Smith"></div>'
-        + '<div class="field"><label>Email</label><input type="email" id="newEmail" placeholder="jane@thenationalleague.org.uk"></div>'
-        + '<div class="field" style="min-width:120px;max-width:140px;"><label>Role</label><select id="newRole">' + roleOpts + '</select></div>'
-        + '<button class="btn btn--navy" id="inviteBtn" onclick="sendInvite()">Send invite</button>'
-        + '<div class="form-status" id="inviteStatus"></div>'
-        + '</div>';
-    }
-
-    // ── Welcome messages admin ────────────────────────────────────────────────
-    function buildWelcomeAdmin() {
-      var keys = STATE.welcomeKeys;
-      var list = keys.length
-        ? '<div class="welcome-msg-list">' + keys.map(function(k) {
-            var m = STATE.welcomeMessages[k];
-            var date = m.createdAt ? new Date(m.createdAt).toLocaleDateString('en-GB') : '';
-            return '<div class="welcome-msg-item">'
-              + '<div><div class="welcome-msg-item__title">' + esc(m.title||'Untitled') + '</div>'
-              +      '<div class="welcome-msg-item__meta">' + esc(date) + (m.author?' · '+esc(m.author):'') + '</div></div>'
-              + '<div class="welcome-msg-item__actions">'
-              +   '<button class="btn btn--ghost btn--sm" onclick="editWelcomeMessage(\'' + escJ(k) + '\')">Edit</button>'
-              +   '<button class="btn btn--danger btn--sm" onclick="deleteWelcomeMessage(\'' + escJ(k) + '\')">Delete</button>'
-              + '</div></div>';
-          }).join('') + '</div>'
-        : '<div class="empty-state">No welcome messages yet. Add one below.</div>';
-
-      return '<div class="welcome-messages-toolbar">'
-        + '<button class="btn btn--navy" onclick="newWelcomeMessage()">+ Add message</button>'
-        + '</div>' + list;
-    }
-
-    function newWelcomeMessage() {
-      STATE.editingMsgKey = null;
-      document.getElementById('welcomeEditTitle').textContent = 'New message';
-      document.getElementById('welcomeMsgTitle').value = '';
-      openWelcomeEditor('');
-    }
-
-    function editWelcomeMessage(key) {
-      STATE.editingMsgKey = key;
-      var m = STATE.welcomeMessages[key] || {};
-      document.getElementById('welcomeEditTitle').textContent = 'Edit message';
-      document.getElementById('welcomeMsgTitle').value = m.title || '';
-      openWelcomeEditor(m.content || '');
-    }
-
-    function openWelcomeEditor(html) {
-      document.getElementById('welcomeEditModal').classList.add('open');
-      // Initialise Quill once, re-use after that
-      if (!STATE.quill) {
-        STATE.quill = new Quill('#quillEditor', {
-          theme: 'snow',
-          modules: { toolbar: [
-            [{ header: [1, 2, false] }],
-            ['bold', 'italic', 'underline'],
-            [{ list: 'ordered' }, { list: 'bullet' }],
-            ['link'], ['clean']
-          ]}
-        });
-      }
-      STATE.quill.root.innerHTML = html;
-    }
-
-    function saveWelcomeMessage() {
-      var title   = document.getElementById('welcomeMsgTitle').value.trim();
-      var content = STATE.quill ? STATE.quill.root.innerHTML : '';
-      var btn     = document.getElementById('welcomeSaveBtn');
-
-      if (!title) { showToast('Please enter a title.', 'error'); return; }
-
-      btn.disabled = true; btn.textContent = 'Saving…';
-
-      var data = {
-        title:     title,
-        content:   content,
-        author:    STATE.user.email,
-        createdAt: STATE.editingMsgKey
-          ? (STATE.welcomeMessages[STATE.editingMsgKey].createdAt || new Date().toISOString())
-          : new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      var ref = STATE.editingMsgKey
-        ? db.ref('welcome-messages/' + STATE.editingMsgKey)
-        : db.ref('welcome-messages').push();
-
-      ref.set(data)
-        .then(function() {
-          return db.ref('welcome-messages').once('value');
-        })
-        .then(function(snap) {
-          var rawMsgs = snap.val() || {};
-          STATE.welcomeMessages = rawMsgs;
-          STATE.welcomeKeys = Object.keys(rawMsgs).sort(function(a,b){
-            return (rawMsgs[a].createdAt||'').localeCompare(rawMsgs[b].createdAt||'');
-          });
-          STATE.welcomeIndex = 0;
-          renderWelcomeCard();
-          renderAdminPanel();
-          closeModal('welcomeEditModal');
-          showToast('Message saved.', 'success');
-          btn.disabled = false; btn.textContent = 'Save message';
-          writeAudit('portal', STATE.editingMsgKey ? 'edited_welcome_message' : 'added_welcome_message', title, STATE.user.email);
-        })
-        .catch(function() { btn.disabled = false; btn.textContent = 'Save message'; showToast('Failed to save. Try again.', 'error'); });
-    }
-
-    function deleteWelcomeMessage(key) {
-      if (!confirm('Delete this welcome message?')) return;
+  btn.addEventListener('click', function handler() {
+    if (!confirmed) {
+      confirmed = true;
       db.ref('welcome-messages/' + key).remove()
         .then(function() {
-          delete STATE.welcomeMessages[key];
-          STATE.welcomeKeys = STATE.welcomeKeys.filter(function(k){ return k !== key; });
-          STATE.welcomeIndex = 0;
-          renderWelcomeCard();
-          renderAdminPanel();
-          showToast('Message deleted.', 'success');
-          writeAudit('portal', 'deleted_welcome_message', key, STATE.user.email);
+          showToast('Message deleted', 'success');
+          loadWmList();
+          loadWelcomeMessages();
         })
-        .catch(function(){ showToast('Failed to delete. Try again.', 'error'); });
+        .catch(function() { showToast('Failed to delete', 'error'); });
+      btn.removeEventListener('click', handler);
     }
+  });
 
-    // ── Audit log ─────────────────────────────────────────────────────────────
-    function buildAuditLog() {
-      var all = [];
-      Object.keys(STATE.auditLog).forEach(function(toolKey) {
-        Object.keys(STATE.auditLog[toolKey]).forEach(function(k) {
-          var e = STATE.auditLog[toolKey][k]; e._toolKey = toolKey; all.push(e);
-        });
-      });
-      if (!all.length) return '<div class="empty-state">No audit entries yet.</div>';
-      all.sort(function(a,b){ return (b.at||'').localeCompare(a.at||''); });
-      return '<div>' + all.slice(0,100).map(function(e) {
-        var label = (STATE.toolsCat[e._toolKey] && STATE.toolsCat[e._toolKey].label) || e._toolKey;
-        var date  = e.at ? new Date(e.at).toLocaleString('en-GB') : '';
-        return '<div class="audit-entry"><div class="audit-entry__action">'
-          + esc(e.action||'') + ' — ' + esc(label) + '</div>'
-          + '<div class="audit-entry__meta">' + esc(e.name||e.uid||'')
-          + (e.detail?' · '+esc(e.detail):'') + ' · ' + esc(date) + '</div></div>';
-      }).join('') + '</div>';
+  setTimeout(function() {
+    if (!confirmed) {
+      btn.textContent = 'Delete';
+      btn.style.background = '';
+      btn.style.color = '';
     }
-
-    // ── Approve signup ────────────────────────────────────────────────────────
-    function approveSignupRequest(reqKey) {
-      var r = STATE.requests[reqKey]; if (!r) return;
-      var toolsToGrant = {};
-      (Array.isArray(r.tools) ? r.tools : []).forEach(function(k){ toolsToGrant[k] = true; });
-      auth.sendSignInLinkToEmail(r.email, { url: 'https://thenationalleague.github.io/tools/index.html', handleCodeInApp: true })
-        .then(function() {
-          var pKey = 'pending_' + r.email.replace(/\./g,',').replace(/@/g,'_at_');
-          var w = {}; w['users/'+pKey] = { name:r.name, email:r.email, role:r.role||'club', pending:true, tools:toolsToGrant };
-          w['requests/'+reqKey+'/status'] = 'approved';
-          return db.ref().update(w);
-        })
-        .then(function(){ STATE.requests[reqKey].status='approved'; return db.ref('users').once('value'); })
-        .then(function(s){ STATE.allUsers=s.val()||{}; renderAdminPanel(); showToast('Invite sent to '+r.email,'success'); writeAudit('portal','approved_signup',reqKey,r.name+' ('+r.email+')'); })
-        .catch(function(e){ showToast('Failed: '+(e.code||e.message),'error'); });
-    }
-
-    function declineRequest(reqKey) {
-      db.ref('requests/'+reqKey+'/status').set('declined')
-        .then(function(){ STATE.requests[reqKey].status='declined'; renderAdminPanel(); showToast('Request declined.','success'); writeAudit('portal','declined_signup',reqKey,STATE.requests[reqKey].email||''); })
-        .catch(function(){ showToast('Failed. Try again.','error'); });
-    }
-
-    function approveToolRequest(reqKey) {
-      var r = STATE.toolRequests[reqKey]; if (!r||!r.uid||!r.toolKey) return;
-      var w = {}; w['users/'+r.uid+'/tools/'+r.toolKey]=true; w['tool-requests/'+reqKey+'/status']='approved';
-      db.ref().update(w)
-        .then(function(){
-          STATE.toolRequests[reqKey].status='approved';
-          if (STATE.allUsers[r.uid]){ if(!STATE.allUsers[r.uid].tools) STATE.allUsers[r.uid].tools={}; STATE.allUsers[r.uid].tools[r.toolKey]=true; }
-          renderAdminPanel(); showToast('Access granted to '+(r.name||r.email),'success');
-          writeAudit(r.toolKey,'granted_tool_request',reqKey,r.email+' — '+r.toolLabel);
-        })
-        .catch(function(){ showToast('Failed. Try again.','error'); });
-    }
-
-    function declineToolRequest(reqKey) {
-      db.ref('tool-requests/'+reqKey+'/status').set('declined')
-        .then(function(){ STATE.toolRequests[reqKey].status='declined'; renderAdminPanel(); showToast('Request declined.','success'); })
-        .catch(function(){ showToast('Failed. Try again.','error'); });
-    }
-
-    function toggleTool(uid, toolKey, current, isCross) {
-      if (isCross && !STATE.perms.isSuperAdmin) return;
-      var newVal = !current;
-      db.ref('users/'+uid+'/tools/'+toolKey).set(newVal)
-        .then(function(){
-          if (!STATE.allUsers[uid].tools) STATE.allUsers[uid].tools={};
-          STATE.allUsers[uid].tools[toolKey]=newVal;
-          document.querySelector('#tab-users .table-wrap').innerHTML = buildUsersTable();
-          showToast(newVal?'Access granted':'Access revoked','success');
-          writeAudit(toolKey,newVal?'granted_access':'revoked_access',uid,STATE.allUsers[uid].email||uid);
-        })
-        .catch(function(){ showToast('Failed. Try again.','error'); });
-    }
-
-    function sendInvite() {
-      var name=document.getElementById('newName').value.trim(), email=document.getElementById('newEmail').value.trim(), role=document.getElementById('newRole').value, btn=document.getElementById('inviteBtn');
-      if (!name||!email){ showFormStatus('inviteStatus','Please enter name and email.','error'); return; }
-      if (role==='superadmin'&&!STATE.perms.isSuperAdmin){ showFormStatus('inviteStatus','Only super admins can invite super admins.','error'); return; }
-      btn.disabled=true; btn.textContent='Sending…';
-      auth.sendSignInLinkToEmail(email,{url:'https://thenationalleague.github.io/tools/index.html',handleCodeInApp:true})
-        .then(function(){
-          var pKey='pending_'+email.replace(/\./g,',').replace(/@/g,'_at_');
-          return db.ref('users/'+pKey).set({name:name,email:email,role:role,pending:true,tools:{}});
-        })
-        .then(function(){ localStorage.setItem('nlToolsInviteEmail',email); return db.ref('users').once('value'); })
-        .then(function(s){ STATE.allUsers=s.val()||{}; renderAdminPanel(); showFormStatus('inviteStatus','Invite sent to '+email,'success'); btn.disabled=false; btn.textContent='Send invite'; writeAudit('portal','invited_user',email,name+' as '+role); })
-        .catch(function(e){ btn.disabled=false; btn.textContent='Send invite'; showFormStatus('inviteStatus','Failed. ('+(e.code||'unknown')+')','error'); });
-    }
-
-    function writeAudit(toolKey,action,ref,detail) {
-      db.ref('audit/'+toolKey+'/'+Date.now()).set({ uid:STATE.user.uid, name:STATE.user.email, action:action, ref:String(ref||''), detail:String(detail||''), at:new Date().toISOString() })
-        .catch(function(e){ console.warn('[NL Audit]',e.message); });
-    }
-
-    function doSignOut() { auth.signOut().then(function(){ window.location.replace('/tools/'); }); }
-
-    function showFormStatus(elId,msg,type){ var el=document.getElementById(elId); if(!el)return; el.textContent=msg; el.className='form-status show '+type; }
-    function showToast(msg,type){ var t=document.getElementById('toast'); t.textContent=msg; t.className='toast '+(type||'success')+' show'; setTimeout(function(){ t.classList.remove('show'); },3500); }
-  </script>
+  }, 3000);
+}
+</script>
 </body>
 </html>
