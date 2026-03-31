@@ -1,14 +1,15 @@
 <!--
   NL Tools — Login Page
-  Version: v2.1
+  Version: v2.2
   Date: 31/03/2026
   Location: /tools/index.html
 
   Changelog:
-  v2.1 (31/03/2026) — Fixed clubs dropdown. clubs-meta.json wraps clubs in
-                       a {clubs:[]} object — was treating response as flat
-                       array, now reads data.clubs correctly.
-  v2.0 (31/03/2026) — Fixed logo filename to 'rose white'.
+  v2.2 (31/03/2026) — Club sign-up tools grouped by department. Select-all
+                       per department with indeterminate state. Collapse/expand
+                       per department. syncDeptHeader keeps header in sync.
+  v2.1 (31/03/2026) — Fixed clubs dropdown parsing (data.clubs array).
+  v2.0 (31/03/2026) — Fixed logo filename.
   v1.9 (31/03/2026) — Club dropdown from clubs-meta.json.
   v1.8 (31/03/2026) — Tool checkbox font explicitly set to carbona-variable.
   v1.7 (31/03/2026) — Tool checkbox label and description no longer all-caps.
@@ -119,7 +120,13 @@
     }
 
     /* ── Tool checkboxes ── */
-    .tool-checkboxes { display: flex; flex-direction: column; gap: 8px; }
+    .tool-checkboxes { display: flex; flex-direction: column; gap: 12px; }
+    .tool-dept-group { display: flex; flex-direction: column; gap: 6px; }
+    .tool-dept-header { display: flex; align-items: center; gap: 8px; padding: 6px 0 4px; border-bottom: 1px solid var(--border); margin-bottom: 2px; cursor: pointer; user-select: none; }
+    .tool-dept-header__label { font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text); flex: 1; font-family: var(--font); }
+    .tool-dept-header__count { font-size: 10px; color: var(--text-muted); font-family: var(--font); }
+    .tool-dept-header input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--primary); flex-shrink: 0; cursor: pointer; }
+    .tool-dept-tools { display: flex; flex-direction: column; gap: 6px; padding-left: 8px; }
     .tool-checkbox {
       display: flex; align-items: center; gap: 10px;
       padding: 10px 12px; border: 1px solid var(--border);
@@ -450,17 +457,60 @@
         container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">No tools currently available for club access.</div>';
         return;
       }
-      container.innerHTML = clubTools.map(function(k) {
-        var t = tools[k];
-        return '<label class="tool-checkbox">'
-          + '<input type="checkbox" name="toolRequest" value="' + esc(k) + '">'
-          + '<span class="tool-checkbox__icon">' + esc(t.icon || '🔧') + '</span>'
-          + '<span>'
-          +   '<span class="tool-checkbox__label">' + esc(t.label) + '</span><br>'
-          +   '<span class="tool-checkbox__desc">'  + esc(t.description || '') + '</span>'
-          + '</span>'
-          + '</label>';
+
+      // Group by department
+      var depts = {};
+      clubTools.forEach(function(k) {
+        var dept = tools[k].department || 'General';
+        if (!depts[dept]) depts[dept] = [];
+        depts[dept].push(k);
+      });
+
+      container.innerHTML = Object.keys(depts).map(function(dept) {
+        var keys  = depts[dept];
+        var deptId = 'dept-' + dept.replace(/\s+/g, '-').toLowerCase();
+        var toolItems = keys.map(function(k) {
+          var t = tools[k];
+          return '<label class="tool-checkbox">'
+            + '<input type="checkbox" name="toolRequest" class="tool-cb dept-' + esc(deptId) + '" value="' + esc(k) + '" onchange="syncDeptHeader(\'' + escJ(deptId) + '\')">'
+            + '<span class="tool-checkbox__icon">' + esc(t.icon || '🔧') + '</span>'
+            + '<span>'
+            +   '<span class="tool-checkbox__label">' + esc(t.label) + '</span><br>'
+            +   '<span class="tool-checkbox__desc">'  + esc(t.description || '') + '</span>'
+            + '</span>'
+            + '</label>';
+        }).join('');
+
+        return '<div class="tool-dept-group">'
+          + '<div class="tool-dept-header" onclick="toggleDept(\'' + escJ(deptId) + '\')">'
+          +   '<input type="checkbox" id="deptchk-' + esc(deptId) + '" onclick="event.stopPropagation()" onchange="selectAllDept(\'' + escJ(deptId) + '\',this.checked)">'
+          +   '<span class="tool-dept-header__label">' + esc(dept) + '</span>'
+          +   '<span class="tool-dept-header__count">' + keys.length + ' tool' + (keys.length !== 1 ? 's' : '') + '</span>'
+          + '</div>'
+          + '<div class="tool-dept-tools" id="tools-' + esc(deptId) + '">' + toolItems + '</div>'
+          + '</div>';
       }).join('');
+    }
+
+    // Select / deselect all tools in a department
+    function selectAllDept(deptId, checked) {
+      document.querySelectorAll('.dept-' + deptId).forEach(function(cb) { cb.checked = checked; });
+    }
+
+    // Toggle dept visibility (collapse/expand)
+    function toggleDept(deptId) {
+      var tools = document.getElementById('tools-' + deptId);
+      if (tools) tools.style.display = tools.style.display === 'none' ? '' : 'none';
+    }
+
+    // Sync dept header checkbox when individual tool changes
+    function syncDeptHeader(deptId) {
+      var all  = document.querySelectorAll('.dept-' + deptId);
+      var checked = document.querySelectorAll('.dept-' + deptId + ':checked');
+      var hdr  = document.getElementById('deptchk-' + deptId);
+      if (!hdr) return;
+      hdr.checked       = checked.length === all.length;
+      hdr.indeterminate = checked.length > 0 && checked.length < all.length;
     }
 
     function doRequestAccess() {
