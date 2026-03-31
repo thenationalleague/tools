@@ -1,11 +1,15 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v1.0 (conversation turn 9)
+  Version: v1.1 (conversation turn 10)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v1.1 -- Superadmin/admin now see all tools including placeholders (placeholder
+         filter was blocking the full catalogue view for admins).
+         v1 boolean tool grants (tools/{key}: true) now treated as access:true
+         so existing user records work without a data migration.
   v1.0 -- Initial v2 build. Rebuilt from scratch.
          Sections: topbar (with club crest for club users), welcome carousel
          (collapsible, admin-editable via Quill), tool tile grid (flat, no dept
@@ -1385,12 +1389,17 @@ function renderToolGrid() {
   var tools  = STATE.toolsList;
   var myKeys = [];
 
-  /* Collect granted tools */
+  /* Collect granted tools.
+     Superadmin/admin: show everything including placeholders.
+     Others: show tools where access toggle is true.
+     v1 compatibility: boolean true treated as access granted. */
   tools.forEach(function(t) {
+    if (STATE.isAdmin) { myKeys.push(t._key); return; }
     if (t.placeholder) return;
-    if (STATE.isSuperAdmin) { myKeys.push(t._key); return; }
     var entry = ud.tools && ud.tools[t._key];
-    if (entry && entry.access === true) myKeys.push(t._key);
+    var hasAccess = entry === true ||                      /* v1 boolean */
+                    (entry && entry.access === true);      /* v2 object */
+    if (hasAccess) myKeys.push(t._key);
   });
 
   grid.innerHTML = '';
@@ -1473,7 +1482,8 @@ function renderAvailableTools() {
     /* Skip if already granted */
     if (STATE.isSuperAdmin) return;
     var entry = ud.tools && ud.tools[t._key];
-    if (entry && entry.access === true) return;
+    var hasAccess = entry === true || (entry && entry.access === true);
+    if (hasAccess) return;
     available.push(t);
   });
 
