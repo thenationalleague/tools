@@ -1,15 +1,20 @@
 <!--
   NL Tools — Portal Dashboard
-  Version: v1.3
+  Version: v1.4
   Date: 30/03/2026
   Location: /tools/portal/index.html
 
   Changelog:
-  v1.3 (30/03/2026) — Invite form gains role selector (staff/club). Pending
-                       record now stores role. Requests queue section in admin
-                       panel — loads from RTDB /requests/, approve sends invite
-                       and pre-grants requested tools, decline marks declined.
-                       Users table shows role badge per user.
+  v1.4 (30/03/2026) — Full rebuild. Four-tier role hierarchy (superadmin,
+                       admin, staff, club). Removed admins/ node dependency —
+                       role read from users/{uid}/role. Grouped tile support
+                       (children array). Furled "available tools" section for
+                       tools in user's tier but not granted. In-portal tool
+                       request modal with discouragement copy. Tool requests
+                       tray. Signup requests tray. Audit log panel. Admin
+                       panel with role-conditional sections. Cross-tier warning
+                       flag for superadmin overrides.
+  v1.3 (30/03/2026) — Role-aware invite, requests queue, tier-aware tiles.
   v1.2 (30/03/2026) — visibleToAll tile support.
   v1.1 (30/03/2026) — Invite flow, guard flag handling.
   v1.0 (30/03/2026) — Initial build.
@@ -57,86 +62,95 @@
       font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
     }
 
-    body {
-      font-family: var(--font); font-size: 17px; line-height: 1.5;
-      font-variation-settings: 'wght' 400; color: var(--text);
-      background: var(--off-white); min-height: 100vh;
-    }
+    body { font-family: var(--font); font-size: 17px; line-height: 1.5; font-variation-settings: 'wght' 400; color: var(--text); background: var(--off-white); min-height: 100vh; }
 
-    .auth-checking {
-      position: fixed; inset: 0; background: var(--primary);
-      display: flex; align-items: center; justify-content: center; z-index: 999;
-    }
-    .spinner {
-      display: inline-block; width: 28px; height: 28px;
-      border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--white);
-      border-radius: 50%; animation: spin 0.7s linear infinite;
-    }
+    /* ── Auth overlay ── */
+    .auth-checking { position: fixed; inset: 0; background: var(--primary); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--white); border-radius: 50%; animation: spin 0.7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .topbar {
-      background: var(--primary); color: var(--white);
-      padding: 0 28px; height: 72px;
-      display: flex; align-items: center; gap: 18px;
-      position: sticky; top: 0; z-index: 100;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-      border-bottom: 7px solid var(--navy);
-    }
+    /* ── Topbar ── */
+    .topbar { background: var(--primary); color: var(--white); padding: 0 28px; height: 72px; display: flex; align-items: center; gap: 18px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.3); border-bottom: 7px solid var(--navy); }
     .topbar img { height: 42px; }
-    .topbar__title {
-      font-weight: 900; font-variation-settings: 'wght' 900;
-      font-size: 20px; flex: 1; text-transform: uppercase; letter-spacing: 0.04em;
-    }
+    .topbar__title { font-weight: 900; font-variation-settings: 'wght' 900; font-size: 20px; flex: 1; text-transform: uppercase; letter-spacing: 0.04em; }
     .topbar__title .word-primary   { color: var(--white); }
     .topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
-    .topbar__user {
-      font-size: 12px; color: rgba(255,255,255,0.7);
-      font-weight: 600; font-variation-settings: 'wght' 600;
-      text-transform: uppercase; letter-spacing: 0.06em;
-    }
-    .topbar__btn {
-      background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
-      padding: 8px 18px; border-radius: var(--radius); font-size: 12px;
-      font-weight: 700; font-variation-settings: 'wght' 700;
-      text-transform: uppercase; letter-spacing: 0.08em;
-      cursor: pointer; transition: all 0.15s; font-family: var(--font);
-    }
+    .topbar__user { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 600; font-variation-settings: 'wght' 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .topbar__btn { background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white); padding: 8px 18px; border-radius: var(--radius); font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s; font-family: var(--font); }
     .topbar__btn:hover { background: rgba(255,255,255,0.12); }
 
+    /* ── Page ── */
     .page { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
 
-    .section-head {
-      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
-      text-transform: uppercase; letter-spacing: 0.12em;
-      color: var(--text-muted); margin-bottom: 16px;
-    }
+    /* ── Section heading ── */
+    .section-head { font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 16px; }
 
-    /* ── Tiles ── */
-    .tiles {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 16px; margin-bottom: 48px;
-    }
-    .tile {
-      background: var(--white); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 28px 24px;
-      box-shadow: var(--shadow); text-decoration: none; color: var(--text);
-      display: flex; flex-direction: column; gap: 10px;
-      transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
-    }
+    /* ── Active tiles ── */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .tile { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 24px; box-shadow: var(--shadow); text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 10px; transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s; }
     .tile:hover { box-shadow: 0 6px 24px rgba(10,22,40,0.15); transform: translateY(-2px); border-color: var(--primary); }
     .tile__icon  { font-size: 32px; line-height: 1; }
     .tile__label { font-size: 16px; font-weight: 800; font-variation-settings: 'wght' 800; }
     .tile__desc  { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
     .tile__arrow { margin-top: auto; padding-top: 8px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary); }
+    .tile__placeholder { margin-top: auto; padding-top: 8px; font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
 
-    .no-tools { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; }
+    /* ── Grouped tile children ── */
+    .tile__children { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+    .tile__child { font-size: 12px; color: var(--text-muted); padding: 4px 0; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 6px; text-decoration: none; color: var(--text); transition: color 0.15s; }
+    .tile__child:hover { color: var(--primary); }
+    .tile__child::before { content: '→'; font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
+    .tile__children-collapsed { display: none; }
+    .tile__expand-btn { margin-top: 8px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary); background: none; border: none; cursor: pointer; font-family: var(--font); padding: 0; text-align: left; }
+
+    /* ── Available tools (furled section) ── */
+    .available-section { margin-bottom: 40px; }
+    .available-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 12px 16px; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); user-select: none; margin-bottom: 0; transition: border-color 0.15s; }
+    .available-toggle:hover { border-color: var(--navy); }
+    .available-toggle__label { font-size: 12px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); flex: 1; }
+    .available-toggle__count { font-size: 11px; font-weight: 700; background: var(--off-white); border: 1px solid var(--border); color: var(--text-muted); padding: 2px 8px; border-radius: 10px; }
+    .available-toggle__chevron { font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
+    .available-toggle.open .available-toggle__chevron { transform: rotate(180deg); }
+    .available-tiles { display: none; padding-top: 12px; }
+    .available-tiles.open { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+
+    /* ── Greyed available tile ── */
+    .tile--available { background: var(--white); border: 1px dashed var(--border); border-radius: var(--radius); padding: 16px; opacity: 0.7; cursor: pointer; transition: opacity 0.15s, border-color 0.15s; display: flex; flex-direction: column; gap: 6px; }
+    .tile--available:hover { opacity: 1; border-color: var(--navy); }
+    .tile--available .tile__icon  { font-size: 22px; }
+    .tile--available .tile__label { font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700; color: var(--text-muted); }
+    .tile--available .tile__req   { font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--navy); margin-top: auto; }
+
+    /* ── No tools state ── */
+    .no-tools { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
     .no-tools strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
+
+    /* ── Modal ── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; align-items: center; justify-content: center; padding: 24px; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--white); border-radius: 10px; width: 100%; max-width: 480px; box-shadow: 0 8px 40px rgba(0,0,0,0.3); overflow: hidden; }
+    .modal__head { background: var(--navy); color: var(--white); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .modal__head h3 { font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.08em; flex: 1; }
+    .modal__close { background: none; border: none; color: rgba(255,255,255,0.7); font-size: 20px; cursor: pointer; line-height: 1; padding: 0; }
+    .modal__close:hover { color: var(--white); }
+    .modal__body { padding: 24px; }
+    .modal__body p { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; }
+    .modal__warning { background: var(--amber-light); border: 1px solid #f5d78c; border-radius: var(--radius); padding: 10px 14px; font-size: 12px; color: var(--amber); font-weight: 600; font-variation-settings: 'wght' 600; margin-bottom: 16px; }
+    .modal__footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
 
     /* ── Admin panel ── */
     .admin-panel { background: var(--white); border: 2px solid var(--navy); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); margin-bottom: 24px; }
     .admin-panel__head { background: var(--navy); color: var(--white); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
     .admin-panel__head h2 { font-size: 13px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.1em; flex: 1; }
-    .pill-admin { background: var(--primary); color: var(--white); font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 12px; }
+
+    /* ── Admin tabs ── */
+    .admin-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--white); }
+    .admin-tab { padding: 12px 20px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; color: var(--text-muted); border: none; background: none; font-family: var(--font); border-bottom: 3px solid transparent; margin-bottom: -1px; transition: all 0.15s; position: relative; }
+    .admin-tab:hover { color: var(--text); }
+    .admin-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+    .admin-tab .tab-count { display: inline-block; background: var(--primary); color: var(--white); font-size: 9px; font-weight: 900; padding: 1px 5px; border-radius: 8px; margin-left: 5px; vertical-align: middle; }
+    .admin-tab-content { display: none; }
+    .admin-tab-content.active { display: block; }
 
     /* ── Invite form ── */
     .invite-form { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
@@ -146,24 +160,26 @@
     .invite-form .field select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--font); font-size: 14px; font-variation-settings: 'wght' 400; color: var(--text); outline: none; transition: border-color 0.15s; background: var(--white); }
     .invite-form .field input:focus,
     .invite-form .field select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(34,59,124,0.10); }
-    .invite-status { width: 100%; font-size: 12px; padding: 8px 12px; border-radius: var(--radius); display: none; font-weight: 600; font-variation-settings: 'wght' 600; }
-    .invite-status.show    { display: block; }
-    .invite-status.success { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
-    .invite-status.error   { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
+    .form-status { width: 100%; font-size: 12px; padding: 8px 12px; border-radius: var(--radius); display: none; font-weight: 600; font-variation-settings: 'wght' 600; }
+    .form-status.show    { display: block; }
+    .form-status.success { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
+    .form-status.error   { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
 
     /* ── Buttons ── */
     .btn { padding: 9px 18px; border-radius: var(--radius); font-family: var(--font); font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; border: none; transition: background 0.15s; white-space: nowrap; }
-    .btn--navy   { background: var(--navy);     color: var(--white); }
+    .btn--navy   { background: var(--navy);       color: var(--white); }
     .btn--navy:hover:not(:disabled)   { background: var(--navy-mid); }
+    .btn--primary { background: var(--primary);   color: var(--white); }
+    .btn--primary:hover:not(:disabled){ background: var(--primary-dim); }
     .btn--green  { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
     .btn--green:hover:not(:disabled)  { background: #d4edda; }
-    .btn--danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
+    .btn--danger { background: var(--red-light);  color: var(--red); border: 1px solid #f5c6c2; }
     .btn--danger:hover:not(:disabled) { background: #fae0de; }
     .btn--ghost  { background: none; border: 1px solid var(--border); color: var(--text-muted); }
     .btn--ghost:hover:not(:disabled)  { background: var(--off-white); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* ── Tables (shared) ── */
+    /* ── Tables ── */
     .table-wrap { overflow-x: auto; }
     .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
     .data-table th { background: var(--off-white); color: var(--text-muted); font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
@@ -171,29 +187,39 @@
     .data-table tr:last-child td { border-bottom: none; }
     .data-table tr:hover td { background: var(--off-white); }
     .user-email { font-weight: 600; font-variation-settings: 'wght' 600; }
-    .user-name  { font-size: 12px; color: var(--text-muted); }
+    .user-sub   { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
     /* ── Toggles ── */
     .toggle-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 12px; cursor: pointer; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.06em; border: none; font-family: var(--font); transition: opacity 0.15s; }
     .toggle-pill.on  { background: var(--green-light); color: var(--green); }
     .toggle-pill.off { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
-    .toggle-pill:hover { opacity: 0.75; }
+    .toggle-pill.warn { background: var(--amber-light); color: var(--amber); border: 1px solid #f5d78c; }
+    .toggle-pill:hover:not(:disabled) { opacity: 0.75; }
+    .toggle-pill:disabled { opacity: 0.35; cursor: not-allowed; }
     .toggle-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
     .toggle-pill.on  .dot { background: var(--green); }
     .toggle-pill.off .dot { background: var(--text-muted); }
+    .toggle-pill.warn .dot { background: var(--amber); }
 
     /* ── Badges ── */
     .badge { display: inline-block; font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 10px; }
-    .badge--admin   { background: var(--navy);         color: var(--white); }
-    .badge--staff   { background: #e8ecf7;              color: var(--navy); }
-    .badge--club    { background: var(--amber-light);   color: var(--amber); }
-    .badge--pending { background: var(--amber-light);   color: var(--amber); }
-    .badge--approved{ background: var(--green-light);   color: var(--green); }
-    .badge--declined{ background: var(--off-white);     color: var(--text-muted); border: 1px solid var(--border); }
+    .badge--superadmin { background: var(--primary);     color: var(--white); }
+    .badge--admin      { background: var(--navy);         color: var(--white); }
+    .badge--staff      { background: #e8ecf7;             color: var(--navy); }
+    .badge--club       { background: var(--amber-light);  color: var(--amber); }
+    .badge--pending    { background: var(--amber-light);  color: var(--amber); }
+    .badge--approved   { background: var(--green-light);  color: var(--green); }
+    .badge--declined   { background: var(--off-white);    color: var(--text-muted); border: 1px solid var(--border); }
 
-    /* ── Requests queue ── */
-    .req-tools { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+    /* ── Requests ── */
+    .req-tools   { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
     .req-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* ── Audit log ── */
+    .audit-entry { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .audit-entry:last-child { border-bottom: none; }
+    .audit-entry__action { font-weight: 700; font-variation-settings: 'wght' 700; }
+    .audit-entry__meta   { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
     /* ── Empty state ── */
     .empty-state { padding: 28px 24px; color: var(--text-muted); font-size: 14px; text-align: center; }
@@ -209,6 +235,7 @@
       .topbar__user { display: none; }
       .page { padding: 24px 16px 60px; }
       .invite-form { flex-direction: column; }
+      .available-tiles.open { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
     }
   </style>
 </head>
@@ -217,6 +244,7 @@
   <div class="auth-checking" id="authChecking"><div class="spinner"></div></div>
 
   <div id="pageWrap" style="display:none;">
+
     <div class="topbar">
       <img
         src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
@@ -231,9 +259,39 @@
     </div>
 
     <div class="page">
-      <div class="section-head">Your tools</div>
+      <div class="section-head" id="toolsHeading">Your tools</div>
       <div class="tiles" id="tilesGrid"></div>
+      <div class="available-section" id="availableSection" style="display:none;">
+        <div class="available-toggle" id="availableToggle" onclick="toggleAvailable()">
+          <span class="available-toggle__label">More tools available</span>
+          <span class="available-toggle__count" id="availableCount"></span>
+          <span class="available-toggle__chevron">▼</span>
+        </div>
+        <div class="available-tiles" id="availableTiles"></div>
+      </div>
       <div id="adminSection"></div>
+    </div>
+
+  </div>
+
+  <!-- Tool request modal -->
+  <div class="modal-overlay" id="toolRequestModal">
+    <div class="modal">
+      <div class="modal__head">
+        <h3 id="modalToolLabel">Request Access</h3>
+        <button class="modal__close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal__body">
+        <div class="modal__warning">
+          ⚠ Please only request access if you genuinely need this tool for your role. Unnecessary access requests create extra work for administrators.
+        </div>
+        <p id="modalToolDesc"></p>
+        <p style="font-size:13px;color:var(--text-muted);">Your request will be reviewed by an administrator. You'll be notified when a decision is made.</p>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn--primary" id="modalRequestBtn" onclick="submitToolRequest()">Request access</button>
+      </div>
     </div>
   </div>
 
@@ -253,12 +311,26 @@
     var auth = firebase.auth();
     var db   = firebase.database();
 
+    // ── State ────────────────────────────────────────────────────────────────
     var STATE = {
-      user:     null,
-      isAdmin:  false,
-      toolsCat: {},
-      allUsers: {},
-      requests: {}
+      user:         null,
+      role:         null,   // superadmin | admin | staff | club
+      toolsCat:     {},
+      userTools:    {},
+      allUsers:     {},
+      requests:     {},
+      toolRequests: {},
+      auditLog:     {},
+      // Permissions derived from role — computed once at init
+      perms: {
+        isAdmin:        false,  // admin or superadmin
+        isSuperAdmin:   false,
+        canInvite:      false,
+        canManageUsers: false,
+        canSeeAudit:    false
+      },
+      // Tool request modal state
+      pendingToolKey: null
     };
 
     function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -277,181 +349,488 @@
       var uid = STATE.user.uid;
 
       Promise.all([
-        db.ref('admins/' + uid).once('value').then(function(s) { STATE.isAdmin = s.val() === true; }),
-        db.ref('tools').once('value').then(function(s) { STATE.toolsCat = s.val() || {}; }),
-        db.ref('users/' + uid + '/tools').once('value').then(function(s) { return s.val() || {}; })
+        db.ref('tools').once('value'),
+        db.ref('users/' + uid).once('value')
       ])
       .then(function(results) {
-        renderTiles(results[2]);
-        if (STATE.isAdmin) loadAdminPanel();
+        STATE.toolsCat  = results[0].val() || {};
+        var userData    = results[1].val() || {};
+        STATE.role      = userData.role || 'staff';
+        STATE.userTools = userData.tools || {};
+
+        // Derive permissions from role
+        STATE.perms.isSuperAdmin   = STATE.role === 'superadmin';
+        STATE.perms.isAdmin        = STATE.role === 'admin' || STATE.role === 'superadmin';
+        STATE.perms.canInvite      = STATE.perms.isAdmin;
+        STATE.perms.canManageUsers = STATE.perms.isAdmin;
+        STATE.perms.canSeeAudit    = STATE.perms.isAdmin;
+
+        renderTiles();
+
+        if (STATE.perms.isAdmin) {
+          return loadAdminData();
+        }
+      })
+      .then(function() {
         document.getElementById('authChecking').style.display = 'none';
         document.getElementById('pageWrap').style.display     = 'block';
+        // Handle guard redirect flags
         var params = new URLSearchParams(window.location.search);
         var guard  = params.get('guard');
         if (guard === 'denied') showToast('You don\'t have access to that tool.', 'error');
+        if (guard === 'tier')   showToast('That tool isn\'t available for your account type.', 'error');
         if (guard === 'error')  showToast('Access check failed. Try again.', 'error');
         if (guard) window.history.replaceState(null, '', '/tools/portal/');
+        if (STATE.perms.isAdmin) renderAdminPanel();
       })
-      .catch(function() {
+      .catch(function(err) {
+        console.error('[NL Portal] Init error:', err);
         document.getElementById('authChecking').style.display = 'none';
         document.getElementById('pageWrap').style.display     = 'block';
         showToast('Failed to load portal data. Try refreshing.', 'error');
       });
     }
 
-    // ── Render tiles ─────────────────────────────────────────────────────────
-    function renderTiles(userTools) {
-      var grid      = document.getElementById('tilesGrid');
-      var permitted = Object.keys(userTools).filter(function(k) {
-        return userTools[k] === true && STATE.toolsCat[k];
-      });
-      var universal = Object.keys(STATE.toolsCat).filter(function(k) {
-        return STATE.toolsCat[k].visibleToAll === true && permitted.indexOf(k) === -1;
-      });
-      var allTiles = universal.concat(permitted);
+    function loadAdminData() {
+      return Promise.all([
+        db.ref('users').once('value').then(function(s)        { STATE.allUsers     = s.val() || {}; }),
+        db.ref('requests').once('value').then(function(s)     { STATE.requests     = s.val() || {}; }),
+        db.ref('tool-requests').once('value').then(function(s){ STATE.toolRequests = s.val() || {}; }),
+        db.ref('audit').once('value').then(function(s)        { STATE.auditLog     = s.val() || {}; })
+      ]);
+    }
 
-      if (!allTiles.length) {
-        grid.innerHTML = '<div class="no-tools"><strong>No tools yet</strong>You haven\'t been granted access to any tools. Contact your administrator.</div>';
-        return;
+    // ── Render active tiles ──────────────────────────────────────────────────
+    function renderTiles() {
+      var grid     = document.getElementById('tilesGrid');
+      var userTier = STATE.role === 'club' ? 'club' : 'staff';
+
+      // Universal tiles (visibleToAll)
+      var universal = Object.keys(STATE.toolsCat).filter(function(k) {
+        return STATE.toolsCat[k].visibleToAll === true;
+      });
+
+      // Granted tools in user's tier
+      var granted = Object.keys(STATE.userTools).filter(function(k) {
+        return STATE.userTools[k] === true
+          && STATE.toolsCat[k]
+          && universal.indexOf(k) === -1;
+      });
+
+      var activeTiles = universal.concat(granted);
+
+      if (!activeTiles.length) {
+        grid.innerHTML = '<div class="no-tools"><strong>No tools yet</strong>You haven\'t been granted access to any tools.</div>';
+      } else {
+        grid.innerHTML = activeTiles.map(function(k) {
+          return buildActiveTile(k);
+        }).join('');
       }
-      grid.innerHTML = allTiles.map(function(k) {
+
+      // Available (in-tier, not granted, not universal)
+      var available = Object.keys(STATE.toolsCat).filter(function(k) {
         var t = STATE.toolsCat[k];
-        return '<a class="tile" href="' + esc(t.url) + '">'
-          + '<div class="tile__icon">'  + esc(t.icon || '🔧') + '</div>'
+        if (t.visibleToAll) return false;
+        if (STATE.userTools[k] === true) return false;
+        // Superadmins see all; others only see their tier
+        if (STATE.perms.isSuperAdmin) return true;
+        return t.tier === userTier || t.tier === 'all';
+      });
+
+      renderAvailableTiles(available);
+    }
+
+    function buildActiveTile(k) {
+      var t = STATE.toolsCat[k];
+      if (!t) return '';
+      var hasChildren = t.children && t.children.length;
+      var url         = t.url || '#';
+      var isPlaceholder = t.placeholder === true;
+      var tag         = (url === '#' || isPlaceholder) ? 'div' : 'a';
+      var href        = (tag === 'a') ? ' href="' + esc(url) + '"' : '';
+      var cursor      = isPlaceholder ? ' style="cursor:default;"' : '';
+
+      var childrenHtml = '';
+      if (hasChildren) {
+        var childItems = t.children.map(function(c, i) {
+          var cUrl = c.url || '#';
+          var cTag = cUrl === '#' ? 'span' : 'a';
+          var cHref = cTag === 'a' ? ' href="' + esc(cUrl) + '"' : '';
+          return '<' + cTag + cHref + ' class="tile__child">' + esc(c.label) + '</' + cTag + '>';
+        }).join('');
+        childrenHtml = '<div class="tile__children tile__children-collapsed" id="children-' + esc(k) + '">' + childItems + '</div>'
+          + '<button class="tile__expand-btn" onclick="toggleChildren(\'' + escJ(k) + '\',event)">Show tools ▾</button>';
+      }
+
+      return '<' + tag + href + ' class="tile"' + cursor + '>'
+        + '<div class="tile__icon">' + esc(t.icon || '🔧') + '</div>'
+        + '<div class="tile__label">' + esc(t.label) + '</div>'
+        + '<div class="tile__desc">'  + esc(t.description || '') + '</div>'
+        + childrenHtml
+        + (isPlaceholder
+            ? '<div class="tile__placeholder">Coming soon</div>'
+            : (!hasChildren ? '<div class="tile__arrow">Open →</div>' : ''))
+        + '</' + tag + '>';
+    }
+
+    function toggleChildren(key, e) {
+      e.preventDefault(); e.stopPropagation();
+      var el  = document.getElementById('children-' + key);
+      var btn = e.target;
+      if (!el) return;
+      var isOpen = !el.classList.contains('tile__children-collapsed');
+      el.classList.toggle('tile__children-collapsed', isOpen);
+      btn.textContent = isOpen ? 'Show tools ▾' : 'Hide tools ▴';
+    }
+
+    // ── Available tiles (furled) ──────────────────────────────────────────────
+    function renderAvailableTiles(keys) {
+      var section = document.getElementById('availableSection');
+      var tilesEl = document.getElementById('availableTiles');
+      var countEl = document.getElementById('availableCount');
+
+      if (!keys.length) { section.style.display = 'none'; return; }
+
+      section.style.display = 'block';
+      countEl.textContent   = keys.length;
+
+      tilesEl.innerHTML = keys.map(function(k) {
+        var t = STATE.toolsCat[k];
+        return '<div class="tile--available" onclick="openToolRequest(\'' + escJ(k) + '\')">'
+          + '<div class="tile__icon">' + esc(t.icon || '🔧') + '</div>'
           + '<div class="tile__label">' + esc(t.label) + '</div>'
-          + '<div class="tile__desc">'  + esc(t.description || '') + '</div>'
-          + '<div class="tile__arrow">Open →</div>'
-          + '</a>';
+          + '<div class="tile__req">Request access →</div>'
+          + '</div>';
       }).join('');
     }
 
-    // ── Load admin panel data ─────────────────────────────────────────────────
-    function loadAdminPanel() {
-      Promise.all([
-        db.ref('users').once('value').then(function(s) { STATE.allUsers = s.val() || {}; }),
-        db.ref('requests').once('value').then(function(s) { STATE.requests = s.val() || {}; })
-      ]).then(function() { renderAdminPanel(); });
+    function toggleAvailable() {
+      var toggle = document.getElementById('availableToggle');
+      var tiles  = document.getElementById('availableTiles');
+      toggle.classList.toggle('open');
+      tiles.classList.toggle('open');
     }
 
-    // ── Render admin panel ────────────────────────────────────────────────────
+    // ── Tool request modal ────────────────────────────────────────────────────
+    function openToolRequest(toolKey) {
+      var t = STATE.toolsCat[toolKey];
+      if (!t) return;
+      STATE.pendingToolKey = toolKey;
+      document.getElementById('modalToolLabel').textContent = t.label;
+      document.getElementById('modalToolDesc').textContent  = t.description || '';
+      document.getElementById('modalRequestBtn').disabled   = false;
+      document.getElementById('modalRequestBtn').textContent = 'Request access';
+      document.getElementById('toolRequestModal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('toolRequestModal').classList.remove('open');
+      STATE.pendingToolKey = null;
+    }
+
+    function submitToolRequest() {
+      var toolKey = STATE.pendingToolKey;
+      if (!toolKey) return;
+
+      var t   = STATE.toolsCat[toolKey] || {};
+      var btn = document.getElementById('modalRequestBtn');
+      btn.disabled = true; btn.textContent = 'Sending…';
+
+      var reqKey  = 'treq_' + Date.now();
+      var reqData = {
+        uid:       STATE.user.uid,
+        name:      STATE.user.displayName || '',
+        email:     STATE.user.email,
+        toolKey:   toolKey,
+        toolLabel: t.label || toolKey,
+        status:    'pending',
+        createdAt: new Date().toISOString()
+      };
+
+      db.ref('tool-requests/' + reqKey).set(reqData)
+        .then(function() {
+          closeModal();
+          showToast('Request submitted. An administrator will review it.', 'success');
+        })
+        .catch(function() {
+          btn.disabled = false; btn.textContent = 'Request access';
+          showToast('Failed to submit request. Try again.', 'error');
+        });
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // ADMIN PANEL
+    // ════════════════════════════════════════════════════════════════════════
+
     function renderAdminPanel() {
-      var pendingCount = Object.keys(STATE.requests).filter(function(k) {
-        return STATE.requests[k].status === 'pending';
-      }).length;
+      var signupPending   = Object.keys(STATE.requests).filter(function(k) { return STATE.requests[k].status === 'pending'; }).length;
+      var toolReqPending  = Object.keys(STATE.toolRequests).filter(function(k) { return STATE.toolRequests[k].status === 'pending'; }).length;
+      var totalPending    = signupPending + toolReqPending;
 
-      document.getElementById('adminSection').innerHTML = ''
-        + '<div class="section-head" style="margin-top:0;">User management</div>'
-
-        // ── Access requests queue ──
-        + '<div class="admin-panel" style="margin-bottom:24px;">'
-        +   '<div class="admin-panel__head">'
-        +     '<h2>Access Requests</h2>'
-        +     (pendingCount ? '<span class="pill-admin">' + pendingCount + ' pending</span>' : '')
-        +   '</div>'
-        +   '<div class="table-wrap">' + buildRequestsTable() + '</div>'
+      var html = '<div class="section-head" style="margin-top:0;">Administration</div>'
+        + '<div class="admin-panel">'
+        + '<div class="admin-panel__head">'
+        +   '<h2>Admin Panel</h2>'
+        +   '<span class="badge badge--' + esc(STATE.role) + '">' + esc(STATE.role) + '</span>'
+        + '</div>'
+        + '<div class="admin-tabs">'
+        +   '<button class="admin-tab active" onclick="switchTab(\'requests\',this)">Requests' + (totalPending ? '<span class="tab-count">' + totalPending + '</span>' : '') + '</button>'
+        +   '<button class="admin-tab" onclick="switchTab(\'users\',this)">Users</button>'
+        +   '<button class="admin-tab" onclick="switchTab(\'invite\',this)">Invite</button>'
+        +   '<button class="admin-tab" onclick="switchTab(\'audit\',this)">Audit log</button>'
         + '</div>'
 
-        // ── Invite form ──
-        + '<div class="admin-panel">'
-        +   '<div class="admin-panel__head">'
-        +     '<h2>Invite User</h2>'
-        +     '<span class="pill-admin">Super Admin</span>'
-        +   '</div>'
-        +   '<div class="invite-form">'
-        +     '<div class="field"><label>Full name</label><input type="text" id="newName" placeholder="Jane Smith"></div>'
-        +     '<div class="field"><label>Email address</label><input type="email" id="newEmail" placeholder="jane@thenationalleague.org.uk"></div>'
-        +     '<div class="field" style="min-width:120px;max-width:140px;"><label>Role</label>'
-        +       '<select id="newRole">'
-        +         '<option value="staff">Staff</option>'
-        +         '<option value="club">Club</option>'
-        +       '</select>'
-        +     '</div>'
-        +     '<button class="btn btn--navy" id="inviteBtn" onclick="sendInvite()">Send invite</button>'
-        +     '<div class="invite-status" id="inviteStatus"></div>'
-        +   '</div>'
+        // ── Requests tab ──
+        + '<div class="admin-tab-content active" id="tab-requests">'
+        +   buildRequestsTabs(signupPending, toolReqPending)
+        + '</div>'
+
+        // ── Users tab ──
+        + '<div class="admin-tab-content" id="tab-users">'
         +   '<div class="table-wrap">' + buildUsersTable() + '</div>'
+        + '</div>'
+
+        // ── Invite tab ──
+        + '<div class="admin-tab-content" id="tab-invite">'
+        +   buildInviteForm()
+        + '</div>'
+
+        // ── Audit tab ──
+        + '<div class="admin-tab-content" id="tab-audit">'
+        +   buildAuditLog()
+        + '</div>'
+
+        + '</div>';
+
+      document.getElementById('adminSection').innerHTML = html;
+    }
+
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+      document.querySelectorAll('.admin-tab-content').forEach(function(t) { t.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('tab-' + tabId).classList.add('active');
+    }
+
+    // ── Requests tab (signup + tool requests) ─────────────────────────────────
+    function buildRequestsTabs(signupPending, toolReqPending) {
+      return '<div style="padding:16px 24px;border-bottom:1px solid var(--border);">'
+        + '<p style="font-size:13px;font-weight:800;font-variation-settings:\'wght\' 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;">New account requests</p>'
+        + buildSignupRequestsTable()
+        + '</div>'
+        + '<div style="padding:16px 24px;">'
+        + '<p style="font-size:13px;font-weight:800;font-variation-settings:\'wght\' 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;">Tool access requests</p>'
+        + buildToolRequestsTable()
         + '</div>';
     }
 
-    // ── Requests table ────────────────────────────────────────────────────────
-    function buildRequestsTable() {
+    function buildSignupRequestsTable() {
       var keys = Object.keys(STATE.requests);
-      if (!keys.length) {
-        return '<div class="empty-state">No access requests yet.</div>';
-      }
+      if (!keys.length) return '<div class="empty-state">No account requests.</div>';
 
-      // Sort newest first
-      keys.sort(function(a, b) {
-        var ta = STATE.requests[a].createdAt || '';
-        var tb = STATE.requests[b].createdAt || '';
-        return tb.localeCompare(ta);
-      });
+      keys.sort(function(a,b) { return (STATE.requests[b].createdAt||'').localeCompare(STATE.requests[a].createdAt||''); });
 
       var rows = keys.map(function(k) {
         var r      = STATE.requests[k];
         var status = r.status || 'pending';
-        var tools  = Array.isArray(r.tools) ? r.tools.join(', ') : (r.tools || '');
+        var tools  = Array.isArray(r.tools) ? r.tools.map(function(t){ return STATE.toolsCat[t] ? STATE.toolsCat[t].label : t; }).join(', ') : '';
         var date   = r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-GB') : '';
-
-        var actions = '';
-        if (status === 'pending') {
-          actions = '<div class="req-actions">'
-            + '<button class="btn btn--green" onclick="approveRequest(\'' + escJ(k) + '\')">Approve + invite</button>'
-            + '<button class="btn btn--ghost" onclick="declineRequest(\'' + escJ(k) + '\')">Decline</button>'
-            + '</div>';
-        }
+        var actions = status === 'pending'
+          ? '<div class="req-actions">'
+          +   '<button class="btn btn--green"  onclick="approveSignupRequest(\'' + escJ(k) + '\')">Approve + invite</button>'
+          +   '<button class="btn btn--ghost"  onclick="declineRequest(\'' + escJ(k) + '\')">Decline</button>'
+          + '</div>' : '';
 
         return '<tr>'
-          + '<td>'
-          +   '<div class="user-email">' + esc(r.name || '') + '</div>'
-          +   '<div class="user-name">'  + esc(r.email || '') + (r.club ? ' · ' + esc(r.club) : '') + '</div>'
-          +   (tools ? '<div class="req-tools">Requesting: ' + esc(tools) + '</div>' : '')
+          + '<td><div class="user-email">' + esc(r.name||'') + '</div>'
+          +     '<div class="user-sub">'   + esc(r.email||'') + (r.club ? ' · ' + esc(r.club) : '') + '</div>'
+          +     (tools ? '<div class="req-tools">Requesting: ' + esc(tools) + '</div>' : '')
           + '</td>'
-          + '<td>' + (date ? esc(date) : '') + '</td>'
+          + '<td>' + esc(date) + '</td>'
           + '<td><span class="badge badge--' + esc(status) + '">' + esc(status) + '</span></td>'
           + '<td>' + actions + '</td>'
           + '</tr>';
       }).join('');
 
-      return '<table class="data-table">'
-        + '<thead><tr><th>Requester</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>'
-        + '<tbody>' + rows + '</tbody>'
-        + '</table>';
+      return '<table class="data-table"><thead><tr><th>Applicant</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
-    // ── Approve request ───────────────────────────────────────────────────────
-    // 1. Send invite link via Firebase
-    // 2. Write pending user record with role + pre-granted tools
-    // 3. Mark request as approved in RTDB
-    function approveRequest(reqKey) {
+    function buildToolRequestsTable() {
+      var keys = Object.keys(STATE.toolRequests);
+      if (!keys.length) return '<div class="empty-state">No tool access requests.</div>';
+
+      keys.sort(function(a,b) { return (STATE.toolRequests[b].createdAt||'').localeCompare(STATE.toolRequests[a].createdAt||''); });
+
+      var rows = keys.map(function(k) {
+        var r      = STATE.toolRequests[k];
+        var status = r.status || 'pending';
+        var date   = r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-GB') : '';
+        var actions = status === 'pending'
+          ? '<div class="req-actions">'
+          +   '<button class="btn btn--green" onclick="approveToolRequest(\'' + escJ(k) + '\')">Grant access</button>'
+          +   '<button class="btn btn--ghost" onclick="declineToolRequest(\'' + escJ(k) + '\')">Decline</button>'
+          + '</div>' : '';
+
+        return '<tr>'
+          + '<td><div class="user-email">' + esc(r.name||r.email||'') + '</div>'
+          +     '<div class="user-sub">'   + esc(r.email||'') + '</div></td>'
+          + '<td>' + esc(r.toolLabel||r.toolKey||'') + '</td>'
+          + '<td>' + esc(date) + '</td>'
+          + '<td><span class="badge badge--' + esc(status) + '">' + esc(status) + '</span></td>'
+          + '<td>' + actions + '</td>'
+          + '</tr>';
+      }).join('');
+
+      return '<table class="data-table"><thead><tr><th>User</th><th>Tool</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    // ── Users table ──────────────────────────────────────────────────────────
+    function buildUsersTable() {
+      var uids      = Object.keys(STATE.allUsers);
+      var realUsers = uids.filter(function(u) { return !u.startsWith('pending_'); });
+      var pending   = uids.filter(function(u) { return  u.startsWith('pending_'); });
+      var allRows   = realUsers.concat(pending);
+
+      if (!allRows.length) return '<div class="empty-state">No users yet.</div>';
+
+      // Only show non-visibleToAll tools as toggle columns
+      var staffTools = Object.keys(STATE.toolsCat).filter(function(k) {
+        return STATE.toolsCat[k].tier === 'staff' && !STATE.toolsCat[k].visibleToAll;
+      });
+      var clubTools = Object.keys(STATE.toolsCat).filter(function(k) {
+        return STATE.toolsCat[k].tier === 'club' && !STATE.toolsCat[k].visibleToAll;
+      });
+
+      var staffHeaders = staffTools.map(function(k) { return '<th>' + esc(STATE.toolsCat[k].label) + '</th>'; }).join('');
+      var clubHeaders  = clubTools.map(function(k)  { return '<th>' + esc(STATE.toolsCat[k].label) + '</th>'; }).join('');
+
+      var rows = allRows.map(function(uid) {
+        var u         = STATE.allUsers[uid];
+        var isPending = uid.startsWith('pending_');
+        var userRole  = u.role || 'staff';
+        var isMe      = uid === STATE.user.uid;
+        var userTier  = userRole === 'club' ? 'club' : 'staff';
+        var toolList  = userRole === 'club' ? clubTools : staffTools;
+
+        // Admins cannot edit other admins or superadmins (unless superadmin)
+        var isProtected = (userRole === 'admin' || userRole === 'superadmin') && !STATE.perms.isSuperAdmin;
+
+        var toggles = toolList.map(function(toolKey) {
+          var t       = STATE.toolsCat[toolKey];
+          var on      = (u.tools || {})[toolKey] === true;
+          var toolTier = t ? t.tier : 'staff';
+
+          // Cross-tier? Only superadmin can toggle, and it shows a warning
+          var isCrossTier = toolTier !== userTier && toolTier !== 'all';
+          var isDisabled  = isPending || isProtected || (isCrossTier && !STATE.perms.isSuperAdmin);
+
+          var pillClass = on
+            ? (isCrossTier ? 'warn' : 'on')
+            : 'off';
+
+          var title = isCrossTier && on
+            ? ' title="⚠ Cross-tier access — granted by super admin"'
+            : '';
+
+          return '<td>'
+            + '<button class="toggle-pill ' + pillClass + '"'
+            + (isDisabled ? ' disabled' : ' onclick="toggleTool(\'' + escJ(uid) + '\',\'' + escJ(toolKey) + '\',' + on + ',' + isCrossTier + ')"')
+            + title
+            + '><span class="dot"></span>' + (on ? 'On' : 'Off') + '</button>'
+            + '</td>';
+        }).join('');
+
+        // Fill with empty cells for the other tier's columns
+        var otherCols = (userRole === 'club' ? staffTools : clubTools).map(function() { return '<td></td>'; }).join('');
+
+        var badges = '';
+        if (isMe)      badges += ' <span class="badge badge--' + esc(userRole) + '">' + esc(userRole) + ' (you)</span>';
+        else           badges += ' <span class="badge badge--' + esc(userRole) + '">' + esc(userRole) + '</span>';
+        if (isPending) badges += ' <span class="badge badge--pending">Invite sent</span>';
+
+        var staffCols = userRole === 'club' ? staffTools.map(function(){ return '<td></td>'; }).join('') : toggles;
+        var clubCols  = userRole === 'club' ? toggles : clubTools.map(function(){ return '<td></td>'; }).join('');
+
+        return '<tr>'
+          + '<td><div class="user-email">' + esc(u.email||'') + badges + '</div>'
+          +     '<div class="user-sub">'   + esc(u.name||'')  + '</div></td>'
+          + staffCols
+          + clubCols
+          + '</tr>';
+      }).join('');
+
+      return '<table class="data-table"><thead><tr>'
+        + '<th>User</th>'
+        + staffHeaders
+        + clubHeaders
+        + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    // ── Invite form ──────────────────────────────────────────────────────────
+    function buildInviteForm() {
+      // Admins can invite staff, club, admin. Superadmins can invite all.
+      var roleOptions = '<option value="staff">Staff</option>'
+        + '<option value="club">Club</option>'
+        + '<option value="admin">Admin</option>'
+        + (STATE.perms.isSuperAdmin ? '<option value="superadmin">Super Admin</option>' : '');
+
+      return '<div class="invite-form">'
+        + '<div class="field"><label>Full name</label><input type="text" id="newName" placeholder="Jane Smith"></div>'
+        + '<div class="field"><label>Email address</label><input type="email" id="newEmail" placeholder="jane@thenationalleague.org.uk"></div>'
+        + '<div class="field" style="min-width:120px;max-width:140px;"><label>Role</label><select id="newRole">' + roleOptions + '</select></div>'
+        + '<button class="btn btn--navy" id="inviteBtn" onclick="sendInvite()">Send invite</button>'
+        + '<div class="form-status" id="inviteStatus"></div>'
+        + '</div>';
+    }
+
+    // ── Audit log ─────────────────────────────────────────────────────────────
+    function buildAuditLog() {
+      var allEntries = [];
+      Object.keys(STATE.auditLog).forEach(function(toolKey) {
+        var toolEntries = STATE.auditLog[toolKey];
+        Object.keys(toolEntries).forEach(function(entryKey) {
+          var e = toolEntries[entryKey];
+          e._toolKey = toolKey;
+          e._key     = entryKey;
+          allEntries.push(e);
+        });
+      });
+
+      if (!allEntries.length) return '<div class="empty-state">No audit entries yet.</div>';
+
+      // Sort newest first
+      allEntries.sort(function(a,b) { return (b.at||'').localeCompare(a.at||''); });
+      allEntries = allEntries.slice(0, 100); // cap at 100 most recent
+
+      return '<div>' + allEntries.map(function(e) {
+        var t     = STATE.toolsCat[e._toolKey];
+        var label = t ? t.label : e._toolKey;
+        var date  = e.at ? new Date(e.at).toLocaleString('en-GB') : '';
+        return '<div class="audit-entry">'
+          + '<div class="audit-entry__action">' + esc(e.action || '') + ' — ' + esc(label) + '</div>'
+          + '<div class="audit-entry__meta">'
+          +   esc(e.name || e.uid || '') + (e.detail ? ' · ' + esc(e.detail) : '') + ' · ' + esc(date)
+          + '</div>'
+          + '</div>';
+      }).join('') + '</div>';
+    }
+
+    // ── Approve signup request ────────────────────────────────────────────────
+    function approveSignupRequest(reqKey) {
       var r = STATE.requests[reqKey];
       if (!r) return;
 
-      var email = r.email;
-      var name  = r.name;
-      var role  = r.role || 'club';
-
-      // Build tools object from requested tools — pre-grant all requested
       var toolsToGrant = {};
-      var requestedTools = Array.isArray(r.tools) ? r.tools : [];
-      requestedTools.forEach(function(k) { toolsToGrant[k] = true; });
+      var reqTools = Array.isArray(r.tools) ? r.tools : [];
+      reqTools.forEach(function(k) { toolsToGrant[k] = true; });
 
-      var actionSettings = {
-        url:             'https://thenationalleague.github.io/tools/index.html',
-        handleCodeInApp: true
-      };
+      var actionSettings = { url: 'https://thenationalleague.github.io/tools/index.html', handleCodeInApp: true };
 
-      auth.sendSignInLinkToEmail(email, actionSettings)
+      auth.sendSignInLinkToEmail(r.email, actionSettings)
         .then(function() {
-          var pendingKey = 'pending_' + email.replace(/\./g, ',').replace(/@/g, '_at_');
-          var writes     = {};
-          writes['users/' + pendingKey] = {
-            name:    name,
-            email:   email,
-            role:    role,
-            pending: true,
-            tools:   toolsToGrant
-          };
+          var pendingKey = 'pending_' + r.email.replace(/\./g, ',').replace(/@/g, '_at_');
+          var writes = {};
+          writes['users/' + pendingKey]        = { name: r.name, email: r.email, role: r.role || 'club', pending: true, tools: toolsToGrant };
           writes['requests/' + reqKey + '/status'] = 'approved';
           return db.ref().update(writes);
         })
@@ -462,77 +841,69 @@
         .then(function(snap) {
           STATE.allUsers = snap.val() || {};
           renderAdminPanel();
-          showToast('Invite sent to ' + email, 'success');
+          showToast('Invite sent to ' + r.email, 'success');
+          writeAudit('portal', 'approved_signup', reqKey, r.name + ' (' + r.email + ')');
         })
-        .catch(function(err) {
-          showToast('Failed to approve: ' + (err.code || err.message), 'error');
-        });
+        .catch(function(err) { showToast('Failed: ' + (err.code || err.message), 'error'); });
     }
 
-    // ── Decline request ───────────────────────────────────────────────────────
     function declineRequest(reqKey) {
       db.ref('requests/' + reqKey + '/status').set('declined')
         .then(function() {
           STATE.requests[reqKey].status = 'declined';
           renderAdminPanel();
           showToast('Request declined.', 'success');
+          writeAudit('portal', 'declined_signup', reqKey, STATE.requests[reqKey].email || '');
         })
         .catch(function() { showToast('Failed to decline. Try again.', 'error'); });
     }
 
-    // ── Users table ───────────────────────────────────────────────────────────
-    function buildUsersTable() {
-      var uids  = Object.keys(STATE.allUsers);
-      // Exclude pending records from the main users table — they're pre-invite placeholders
-      var realUsers = uids.filter(function(uid) { return !uid.startsWith('pending_'); });
-      var pendingUsers = uids.filter(function(uid) { return uid.startsWith('pending_'); });
-      var allRows = realUsers.concat(pendingUsers);
+    // ── Approve/decline tool requests ─────────────────────────────────────────
+    function approveToolRequest(reqKey) {
+      var r = STATE.toolRequests[reqKey];
+      if (!r || !r.uid || !r.toolKey) return;
 
-      if (!allRows.length) {
-        return '<div class="empty-state">No users yet.</div>';
-      }
+      var writes = {};
+      writes['users/' + r.uid + '/tools/' + r.toolKey] = true;
+      writes['tool-requests/' + reqKey + '/status']     = 'approved';
 
-      // Only show non-visibleToAll tools as toggle columns
-      var tools = Object.keys(STATE.toolsCat).filter(function(k) {
-        return !STATE.toolsCat[k].visibleToAll;
-      });
+      db.ref().update(writes)
+        .then(function() {
+          STATE.toolRequests[reqKey].status = 'approved';
+          if (STATE.allUsers[r.uid]) {
+            if (!STATE.allUsers[r.uid].tools) STATE.allUsers[r.uid].tools = {};
+            STATE.allUsers[r.uid].tools[r.toolKey] = true;
+          }
+          renderAdminPanel();
+          showToast('Access granted to ' + (r.name || r.email), 'success');
+          writeAudit(r.toolKey, 'granted_tool_request', reqKey, r.email + ' — ' + r.toolLabel);
+        })
+        .catch(function() { showToast('Failed. Try again.', 'error'); });
+    }
 
-      var toolHeaders = tools.map(function(k) {
-        return '<th>' + esc(STATE.toolsCat[k].label) + '</th>';
-      }).join('');
+    function declineToolRequest(reqKey) {
+      db.ref('tool-requests/' + reqKey + '/status').set('declined')
+        .then(function() {
+          STATE.toolRequests[reqKey].status = 'declined';
+          renderAdminPanel();
+          showToast('Request declined.', 'success');
+        })
+        .catch(function() { showToast('Failed. Try again.', 'error'); });
+    }
 
-      var rows = allRows.map(function(uid) {
-        var u         = STATE.allUsers[uid];
-        var isMe      = uid === STATE.user.uid;
-        var isPending = uid.startsWith('pending_');
-        var role      = u.role || 'staff';
-        var userTools = u.tools || {};
-
-        var toggles = tools.map(function(toolKey) {
-          var on       = userTools[toolKey] === true;
-          var disabled = isPending ? ' disabled style="opacity:0.4;cursor:not-allowed;"' : '';
-          return '<td>'
-            + '<button class="toggle-pill ' + (on ? 'on' : 'off') + '"'
-            + disabled
-            + (isPending ? '' : ' onclick="toggleTool(\'' + escJ(uid) + '\',\'' + escJ(toolKey) + '\',' + on + ')"')
-            + '><span class="dot"></span>' + (on ? 'On' : 'Off') + '</button>'
-            + '</td>';
-        }).join('');
-
-        var badges = '';
-        if (isMe)      badges += ' <span class="badge badge--admin">Admin</span>';
-        else           badges += ' <span class="badge badge--' + esc(role) + '">' + esc(role) + '</span>';
-        if (isPending) badges += ' <span class="badge badge--pending">Invite sent</span>';
-
-        return '<tr>'
-          + '<td><div class="user-email">' + esc(u.email || '') + badges + '</div>'
-          +     '<div class="user-name">'  + esc(u.name  || '') + '</div></td>'
-          + toggles
-          + '</tr>';
-      }).join('');
-
-      return '<table class="data-table"><thead><tr><th>User</th>'
-        + toolHeaders + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    // ── Toggle tool access ────────────────────────────────────────────────────
+    function toggleTool(uid, toolKey, current, isCrossTier) {
+      if (isCrossTier && !STATE.perms.isSuperAdmin) return;
+      var newVal = !current;
+      db.ref('users/' + uid + '/tools/' + toolKey).set(newVal)
+        .then(function() {
+          if (!STATE.allUsers[uid].tools) STATE.allUsers[uid].tools = {};
+          STATE.allUsers[uid].tools[toolKey] = newVal;
+          document.querySelector('#tab-users .table-wrap').innerHTML = buildUsersTable();
+          showToast(newVal ? 'Access granted' : 'Access revoked', 'success');
+          writeAudit(toolKey, newVal ? 'granted_access' : 'revoked_access', uid, STATE.allUsers[uid].email || uid);
+        })
+        .catch(function() { showToast('Failed to update access. Try again.', 'error'); });
     }
 
     // ── Send invite ───────────────────────────────────────────────────────────
@@ -542,7 +913,12 @@
       var role  = document.getElementById('newRole').value;
       var btn   = document.getElementById('inviteBtn');
 
-      if (!name || !email) { showInviteStatus('Please enter both a name and email address.', 'error'); return; }
+      if (!name || !email) { showFormStatus('inviteStatus', 'Please enter name and email.', 'error'); return; }
+
+      // Admins cannot invite superadmins
+      if (role === 'superadmin' && !STATE.perms.isSuperAdmin) {
+        showFormStatus('inviteStatus', 'Only super admins can invite super admins.', 'error'); return;
+      }
 
       btn.disabled = true; btn.textContent = 'Sending…';
 
@@ -551,9 +927,7 @@
       auth.sendSignInLinkToEmail(email, actionSettings)
         .then(function() {
           var pendingKey = 'pending_' + email.replace(/\./g, ',').replace(/@/g, '_at_');
-          return db.ref('users/' + pendingKey).set({
-            name: name, email: email, role: role, pending: true, tools: {}
-          });
+          return db.ref('users/' + pendingKey).set({ name: name, email: email, role: role, pending: true, tools: {} });
         })
         .then(function() {
           localStorage.setItem('nlToolsInviteEmail', email);
@@ -562,28 +936,30 @@
         .then(function(snap) {
           STATE.allUsers = snap.val() || {};
           renderAdminPanel();
-          showInviteStatus('Invite sent to ' + email, 'success');
+          showFormStatus('inviteStatus', 'Invite sent to ' + email, 'success');
           btn.disabled = false; btn.textContent = 'Send invite';
+          writeAudit('portal', 'invited_user', email, name + ' as ' + role);
         })
         .catch(function(err) {
           btn.disabled = false; btn.textContent = 'Send invite';
-          var msg = 'Failed to send invite. Try again. (Code: ' + (err.code || 'unknown') + ')';
+          var msg = 'Failed. (' + (err.code || 'unknown') + ')';
           if (err.code === 'auth/invalid-email') msg = 'Invalid email address.';
-          showInviteStatus(msg, 'error');
+          showFormStatus('inviteStatus', msg, 'error');
         });
     }
 
-    // ── Toggle tool access ────────────────────────────────────────────────────
-    function toggleTool(uid, toolKey, current) {
-      var newVal = !current;
-      db.ref('users/' + uid + '/tools/' + toolKey).set(newVal)
-        .then(function() {
-          if (!STATE.allUsers[uid].tools) STATE.allUsers[uid].tools = {};
-          STATE.allUsers[uid].tools[toolKey] = newVal;
-          document.querySelector('.table-wrap').innerHTML = buildUsersTable();
-          showToast(newVal ? 'Access granted' : 'Access revoked', 'success');
-        })
-        .catch(function() { showToast('Failed to update access. Try again.', 'error'); });
+    // ── Audit write helper ────────────────────────────────────────────────────
+    function writeAudit(toolKey, action, ref, detail) {
+      var entry = {
+        uid:    STATE.user.uid,
+        name:   STATE.user.email,
+        action: action,
+        ref:    String(ref   || ''),
+        detail: String(detail|| ''),
+        at:     new Date().toISOString()
+      };
+      db.ref('audit/' + toolKey + '/' + Date.now()).set(entry)
+        .catch(function(e) { console.warn('[NL Audit] Write failed:', e.message); });
     }
 
     // ── Sign out ──────────────────────────────────────────────────────────────
@@ -592,15 +968,15 @@
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    function showInviteStatus(msg, type) {
-      var el = document.getElementById('inviteStatus');
+    function showFormStatus(elId, msg, type) {
+      var el = document.getElementById(elId);
       if (!el) return;
-      el.textContent = msg; el.className = 'invite-status show ' + type;
+      el.textContent = msg; el.className = 'form-status show ' + type;
     }
     function showToast(msg, type) {
       var t = document.getElementById('toast');
-      t.textContent = msg; t.className = 'toast ' + (type || 'success') + ' show';
-      setTimeout(function() { t.classList.remove('show'); }, 3000);
+      t.textContent = msg; t.className = 'toast ' + (type||'success') + ' show';
+      setTimeout(function() { t.classList.remove('show'); }, 3500);
     }
   </script>
 </body>
