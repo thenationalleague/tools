@@ -1,11 +1,16 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Login Page
-  Version: v1.1 (conversation turn 5)
+  Version: v1.2 (conversation turn 6)
   Date: 31/03/2026
   File: /tools/index.html
 
   Changelog:
+  v1.2 — Club picker: removed freetext fallback (must select from 72 clubs).
+         Club picker: fixed crest not updating on selection — onblur was racing
+         onmousedown and closing the dropdown before the click registered.
+         Fix: preventDefault on dropdown mousedown to suppress the blur entirely.
+         Also fixes forgot password success message to be non-committal.
   v1.1 — Club name field replaced with club picker component (autocomplete dropdown,
          live crest previews, freetext fallback). Clubs loaded from clubs-meta.json.
   v1.0 — Initial v2 build. Rebuilt from scratch.
@@ -530,7 +535,7 @@ body {
                 oninput="onSuClubInput(this.value)"
                 onblur="setTimeout(closeSuClubDropdown, 150)">
             </div>
-            <div class="club-picker__dropdown" id="suClubDropdown"></div>
+            <div class="club-picker__dropdown" id="suClubDropdown" onmousedown="event.preventDefault()"></div>
           </div>
           <input type="hidden" id="suClub">
         </div>
@@ -733,7 +738,7 @@ function doForgotPassword() {
   auth.sendPasswordResetEmail(email)
     .then(function() {
       setBtnLoading('forgotBtn', false, 'Send reset email');
-      showMsg('forgotMsg', 'Reset email sent. Please check your inbox (and spam folder).', 'success');
+      showMsg('forgotMsg', 'If that address is registered, a reset email has been sent.', 'info');
     })
     .catch(function(err) {
       setBtnLoading('forgotBtn', false, 'Send reset email');
@@ -835,9 +840,6 @@ function onSuClubInput(val) {
     }).join('');
 
     /* Freetext fallback */
-    html += '<div class="club-picker__freetext" onmousedown="selectSuClub(' + JSON.stringify(val) + ',\'\')">'
-      + 'Use &ldquo;' + esc(val) + '&rdquo; as entered'
-      + '</div>';
 
     dd.innerHTML = html;
     dd.classList.add('open');
