@@ -1344,6 +1344,24 @@ body {
 .toast.success { background: #1e7e34; }
 .toast.error   { background: var(--primary); }
 .toast.info    { background: var(--navy); }
+
+/* -- Padlock stop (admin locked for club users) ---------------------------- */
+.acc-slider__stop--padlocked {
+  cursor: default;
+  pointer-events: none;
+}
+.acc-slider__stop--padlocked .acc-slider__node {
+  background: var(--off-white);
+  border-color: var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  line-height: 1;
+}
+.acc-slider__stop--padlocked .acc-slider__label {
+  color: var(--border);
+}
 </style>
 </head>
 <body>
@@ -2857,6 +2875,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var deptTools = deptMap[dept];
     if (!deptTools || !deptTools.length) return;
 
+    /* Hide Staff dept for club users -- not relevant to them */
+    if (u.role === 'club' && dept === 'staff') return;
+
     var deptHeader = document.createElement('div');
     deptHeader.className = 'uacc-dept-header';
 
@@ -2891,11 +2912,12 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     deptTools.forEach(function(t) {
       var currentLevel  = getAccessLevel(uid, t._key);
       var defaultLevel  = getDefaultLevel(t._key, u);
-      var hasAccess     = currentLevel === 'access' || currentLevel === 'admin';
-      var hasAdmin      = currentLevel === 'admin';
-      var isUnusualAdmin = hasAdmin && (u.role === 'staff' || u.role === 'club');
-      var isNonDefault  = currentLevel !== defaultLevel;
       /* isSuperUser declared at item level above */
+      var isClubUser    = u.role === 'club';
+      var isClubLocked  = isClubUser; /* Club users cannot have admin on any tool */
+
+      /* If club user is somehow set to admin, cap display at access */
+      if (isClubUser && currentLevel === 'admin') currentLevel = 'access';
 
       var row = document.createElement('div');
       row.className = 'uacc-tool-row';
@@ -2908,7 +2930,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       toolName.appendChild(iconSpan);
       toolName.appendChild(document.createTextNode(t.label || t._key));
 
-      var sliderEl = buildAccSlider(uid, t._key, currentLevel, defaultLevel, isSuperUser);
+      var sliderEl = buildAccSlider(uid, t._key, currentLevel, defaultLevel, isSuperUser, isClubLocked);
 
       row.appendChild(toolName);
       row.appendChild(sliderEl);
@@ -3130,7 +3152,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 var ACC_LEVELS = ['hidden', 'off', 'access', 'admin'];
 var ACC_LABELS = { hidden: 'Hidden', off: 'Off', access: 'Access', admin: 'Admin' };
 
-function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked) {
+function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLocked) {
   var wrap = document.createElement('div');
   wrap.className = 'acc-slider' + (locked ? ' acc-slider--locked' : '');
   var currentIdx = ACC_LEVELS.indexOf(currentLevel);
@@ -3151,17 +3173,27 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked) {
   updateFill(currentIdx);
 
   ACC_LEVELS.forEach(function(level, idx) {
+    var isPadlocked = clubLocked && level === 'admin';
+
     var stop = document.createElement('div');
     stop.className = 'acc-slider__stop';
-    if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
-    if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
+    if (isPadlocked) {
+      stop.classList.add('acc-slider__stop--padlocked');
+    } else {
+      if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
+      if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
+    }
 
     var node = document.createElement('div');
     node.className = 'acc-slider__node';
+    if (isPadlocked) {
+      node.textContent = '\uD83D\uDD12'; /* padlock emoji */
+      node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
+    }
 
     /* Default badge */
     var dfltBadge = null;
-    if (idx === defaultIdx && !locked) {
+    if (idx === defaultIdx && !locked && !isPadlocked) {
       dfltBadge = document.createElement('div');
       dfltBadge.className = 'acc-slider__default-badge';
       dfltBadge.textContent = 'default';
@@ -3170,12 +3202,13 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked) {
     var label = document.createElement('div');
     label.className = 'acc-slider__label';
     label.textContent = ACC_LABELS[level];
+    if (isPadlocked) label.style.color = 'var(--border)';
 
     stop.appendChild(node);
     stop.appendChild(label);
     if (dfltBadge) stop.appendChild(dfltBadge);
 
-    if (!locked) {
+    if (!locked && !isPadlocked) {
       stop.addEventListener('click', function(e) {
         e.stopPropagation();
         if (uid === STATE.uid && STATE.isSuperAdmin && level !== 'admin') {
@@ -3431,6 +3464,7 @@ function renderInviteToolSliders() {
   var orgKey   = document.getElementById('inviteOrgKey').value || 'nl';
   var role     = document.getElementById('inviteRole').value    || 'staff';
   var groupKey = role === 'club' ? 'club' : orgKey + '-' + role;
+  var isClubOrg = role === 'club';
   var tools    = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
   var deptMap  = {};
   tools.forEach(function(t) {
@@ -3439,18 +3473,22 @@ function renderInviteToolSliders() {
     deptMap[d].push(t);
   });
   sortDepts(Object.keys(deptMap)).forEach(function(dept) {
+    /* Hide Staff dept for club invites */
+    if (isClubOrg && dept === 'staff') return;
     var deptLabel = document.createElement('div');
     deptLabel.className = 'invite-dept-label';
     deptLabel.textContent = getDeptLabel(dept);
     container.appendChild(deptLabel);
     deptMap[dept].forEach(function(t) {
       var defaultLevel = (t.defaults && t.defaults[groupKey]) || 'hidden';
+      /* Cap club users at access */
+      if (isClubOrg && defaultLevel === 'admin') defaultLevel = 'access';
       var row = document.createElement('div');
       row.className = 'invite-tool-row';
       var nameEl = document.createElement('div');
       nameEl.className = 'invite-tool-name';
       nameEl.textContent = (t.icon ? t.icon + '  ' : '') + (t.label || t._key);
-      var slider = buildInviteSlider(t._key, defaultLevel);
+      var slider = buildInviteSlider(t._key, defaultLevel, isClubOrg);
       row.appendChild(nameEl);
       row.appendChild(slider);
       container.appendChild(row);
@@ -3458,10 +3496,13 @@ function renderInviteToolSliders() {
   });
 }
 
-function buildInviteSlider(toolKey, currentLevel) {
+
+function buildInviteSlider(toolKey, currentLevel, clubLocked) {
   var wrap = document.createElement('div');
   wrap.className = 'acc-slider';
   wrap.dataset.toolkey = toolKey;
+  /* Cap club users at access */
+  if (clubLocked && currentLevel === 'admin') currentLevel = 'access';
   var currentIdx = ACC_LEVELS.indexOf(currentLevel);
   if (currentIdx === -1) currentIdx = 0;
   var track = document.createElement('div');
@@ -3476,18 +3517,28 @@ function buildInviteSlider(toolKey, currentLevel) {
   }
   updateFill(currentIdx);
   ACC_LEVELS.forEach(function(level, idx) {
+    var isPadlocked = clubLocked && level === 'admin';
     var stop = document.createElement('div');
     stop.className = 'acc-slider__stop';
-    if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
-    if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
+    if (isPadlocked) {
+      stop.classList.add('acc-slider__stop--padlocked');
+    } else {
+      if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
+      if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
+    }
     var node = document.createElement('div');
     node.className = 'acc-slider__node';
+    if (isPadlocked) {
+      node.textContent = '\uD83D\uDD12';
+      node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
+    }
     var label = document.createElement('div');
     label.className = 'acc-slider__label';
     label.textContent = ACC_LABELS[level];
+    if (isPadlocked) label.style.color = 'var(--border)';
     stop.appendChild(node);
     stop.appendChild(label);
-    stop.addEventListener('click', function(e) {
+    if (!isPadlocked) stop.addEventListener('click', function(e) {
       e.stopPropagation();
       currentIdx = idx;
       wrap.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
