@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v2.4 (conversation turn 23)
+  Version: v2.5 (conversation turn 24)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1121,6 +1121,7 @@ body {
 }
 .acc-slider--locked .acc-slider__stop--active .acc-slider__label { color: var(--text-muted); }
 .acc-slider--locked .acc-slider__stop--filled .acc-slider__label { color: var(--text-muted); }
+.acc-slider--locked .acc-slider__track-fill { background: var(--text-muted); }
 
 /* Dept header set-all buttons */
 .uacc-dept-header {
@@ -1231,6 +1232,89 @@ body {
   flex: 1;
   height: 1px;
   background: var(--border);
+}
+
+/* -- Cancel invite / change role ------------------------------------------- */
+.cancel-invite-btn {
+  background: none;
+  border: 1px solid var(--red-light);
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: all 0.15s;
+}
+.cancel-invite-btn:hover { background: var(--red-light); }
+.cancel-invite-btn.confirm { background: var(--red); color: var(--white); border-color: var(--red); }
+
+.resend-pill {
+  background: var(--off-white);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  padding: 4px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: all 0.15s;
+}
+.resend-pill:hover { border-color: var(--navy); color: var(--navy); }
+
+/* Change role button */
+.change-role-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: all 0.15s;
+}
+.change-role-btn:hover { border-color: var(--navy); color: var(--navy); }
+
+/* Inline role picker (shown inside accordion footer) */
+.inline-role-picker {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--off-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 8px;
+  width: 100%;
+}
+.inline-role-picker.open { display: flex; }
+.inline-role-picker__row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.inline-role-picker__label {
+  font-size: 9px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  min-width: 40px;
 }
 </style>
 </head>
@@ -1996,7 +2080,8 @@ var AUDIT_ACTION_ICONS = {
   'role_changed':        '👤',
   'message_created':     '📝',
   'message_edited':      '✏️',
-  'message_deleted':     '🗑️'
+  'message_deleted':     '🗑️',
+  'invite_cancelled':    '🚫'
 };
 
 var AUDIT_STATE = {
@@ -2735,14 +2820,18 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         btn.title = 'Set all ' + dept + ' to ' + lvl;
         btn.addEventListener('click', function(e) {
           e.stopPropagation();
-          setAllInDept(uid, u, deptMap[dept], lvl, body);
+          setAllInDept(uid, u, deptMap[dept], lvl, deptWrap);
         });
         setAll.appendChild(btn);
       });
       deptHeader.appendChild(setAll);
     }
 
+    /* Wrap dept rows so set-all can scope to just this dept */
+    var deptWrap = document.createElement('div');
+    deptWrap.className = 'uacc-dept-wrap';
     body.appendChild(deptHeader);
+    body.appendChild(deptWrap);
 
     deptTools.forEach(function(t) {
       var currentLevel  = getAccessLevel(uid, t._key);
@@ -2768,7 +2857,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
       row.appendChild(toolName);
       row.appendChild(sliderEl);
-      body.appendChild(row);
+      deptWrap.appendChild(row);
     });
   });
 
@@ -2781,32 +2870,171 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     lock.style.cssText = 'font-size:11px;color:var(--text-muted);font-style:italic;';
     lock.textContent = 'Superadmin — role locked';
     footer.appendChild(lock);
-  } else {
-    var roleSelect = document.createElement('select');
-    roleSelect.className = 'uacc-role-select';
-    ['staff','club','admin'].forEach(function(r) {
-      var opt = document.createElement('option');
-      opt.value = r; opt.textContent = r;
-      if ((u.role || 'staff') === r) opt.selected = true;
-      roleSelect.appendChild(opt);
+
+  } else if (u.pending) {
+    /* Pending user -- resend, cancel, no role change */
+    var resendBtn = document.createElement('button');
+    resendBtn.className = 'resend-pill';
+    resendBtn.textContent = 'Resend invite';
+    resendBtn.addEventListener('click', function() { resendInvite(u.email, resendBtn); });
+    footer.appendChild(resendBtn);
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'cancel-invite-btn';
+    cancelBtn.textContent = 'Cancel invite';
+    var confirmed = false;
+    cancelBtn.addEventListener('click', function() {
+      if (!confirmed) {
+        confirmed = true;
+        cancelBtn.classList.add('confirm');
+        cancelBtn.textContent = 'Confirm cancel?';
+        setTimeout(function() {
+          if (confirmed) {
+            confirmed = false;
+            cancelBtn.classList.remove('confirm');
+            cancelBtn.textContent = 'Cancel invite';
+          }
+        }, 3000);
+      } else {
+        /* Delete the user record */
+        db.ref('users/' + uid).remove()
+          .then(function() {
+            showToast('Invite cancelled', 'success');
+            writeAudit('invite_cancelled', (u.name || u.email || '') + ' invite removed');
+            loadUsers();
+          })
+          .catch(function() { showToast('Failed to cancel invite', 'error'); });
+      }
     });
-    roleSelect.addEventListener('change', function() {
+    footer.appendChild(cancelBtn);
+
+  } else {
+    /* Active user -- change role button + inline role picker */
+    var changeRoleBtn = document.createElement('button');
+    changeRoleBtn.className = 'change-role-btn';
+    changeRoleBtn.textContent = 'Change role';
+
+    var rolePicker = document.createElement('div');
+    rolePicker.className = 'inline-role-picker';
+
+    /* Org row */
+    var orgRow = document.createElement('div');
+    orgRow.className = 'inline-role-picker__row';
+    var orgLbl = document.createElement('span');
+    orgLbl.className = 'inline-role-picker__label';
+    orgLbl.textContent = 'Org';
+    orgRow.appendChild(orgLbl);
+
+    var selectedOrg    = u.org    || 'National League';
+    var selectedOrgKey = u.orgKey || 'nl';
+    var selectedRole   = u.role   || 'staff';
+
+    var orgs = [
+      { label: 'National League', key: 'nl' },
+      { label: 'NL Trust',        key: 'trust' },
+      { label: 'U19 Alliance',    key: 'u19' },
+      { label: 'Club',            key: 'club' }
+    ];
+
+    orgs.forEach(function(org) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'invite-org-btn' + (org.key === selectedOrgKey || (org.key === 'club' && u.role === 'club') ? ' active' : '');
+      btn.textContent = org.label;
+      btn.addEventListener('click', function() {
+        orgRow.querySelectorAll('.invite-org-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        selectedOrgKey = org.key;
+        selectedOrg    = org.label;
+        roleRow.style.display = org.key === 'club' ? 'none' : 'flex';
+        clubPickerRow.style.display = org.key === 'club' ? 'flex' : 'none';
+        if (org.key !== 'club') selectedRole = 'staff';
+      });
+      orgRow.appendChild(btn);
+    });
+    rolePicker.appendChild(orgRow);
+
+    /* Role row */
+    var roleRow = document.createElement('div');
+    roleRow.className = 'inline-role-picker__row';
+    roleRow.style.display = u.role === 'club' ? 'none' : 'flex';
+    var roleLbl = document.createElement('span');
+    roleLbl.className = 'inline-role-picker__label';
+    roleLbl.textContent = 'Role';
+    roleRow.appendChild(roleLbl);
+    ['staff', 'admin'].forEach(function(r) {
+      var rbtn = document.createElement('button');
+      rbtn.type = 'button';
+      rbtn.className = 'invite-role-btn' + (selectedRole === r ? ' active' : '');
+      rbtn.textContent = r.charAt(0).toUpperCase() + r.slice(1);
+      rbtn.addEventListener('click', function() {
+        roleRow.querySelectorAll('.invite-role-btn').forEach(function(b) { b.classList.remove('active'); });
+        rbtn.classList.add('active');
+        selectedRole = r;
+      });
+      roleRow.appendChild(rbtn);
+    });
+    rolePicker.appendChild(roleRow);
+
+    /* Club picker row */
+    var clubPickerRow = document.createElement('div');
+    clubPickerRow.className = 'inline-role-picker__row';
+    clubPickerRow.style.display = u.role === 'club' ? 'flex' : 'none';
+    var clubLbl = document.createElement('span');
+    clubLbl.className = 'inline-role-picker__label';
+    clubLbl.textContent = 'Club';
+    var clubInput = document.createElement('input');
+    clubInput.type = 'text';
+    clubInput.value = u.club || '';
+    clubInput.placeholder = 'Club name';
+    clubInput.style.cssText = 'flex:1;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);';
+    clubPickerRow.appendChild(clubLbl);
+    clubPickerRow.appendChild(clubInput);
+    rolePicker.appendChild(clubPickerRow);
+
+    /* Apply + cancel buttons */
+    var applyRow = document.createElement('div');
+    applyRow.className = 'inline-role-picker__row';
+    var applyBtn = document.createElement('button');
+    applyBtn.type = 'button';
+    applyBtn.className = 'btn btn--navy btn--sm';
+    applyBtn.textContent = 'Apply';
+    applyBtn.addEventListener('click', function() {
+      var newRole   = selectedOrgKey === 'club' ? 'club' : selectedRole;
+      var newOrg    = selectedOrgKey === 'club' ? '' : selectedOrg;
+      var newOrgKey = selectedOrgKey === 'club' ? '' : selectedOrgKey;
+      var newClub   = selectedOrgKey === 'club' ? clubInput.value.trim() : '';
+      var updates = {};
+      updates['users/' + uid + '/role']   = newRole;
+      updates['users/' + uid + '/org']    = newOrg;
+      updates['users/' + uid + '/orgKey'] = newOrgKey;
+      updates['users/' + uid + '/club']   = newClub;
       var targetUser2 = STATE.allUsers[uid] || {};
       writeAuditFor(uid, targetUser2.name || '', targetUser2.email || '',
-        'role_changed', (targetUser2.role || '?') + ' -> ' + roleSelect.value);
-      db.ref('users/' + uid + '/role').set(roleSelect.value)
-        .then(function() { showToast('Role updated', 'success'); })
+        'role_changed', (u.role || '?') + ' -> ' + newRole + (newOrg ? ' (' + newOrg + ')' : '') + (newClub ? ' at ' + newClub : ''));
+      db.ref().update(updates)
+        .then(function() {
+          showToast('Role updated', 'success');
+          rolePicker.classList.remove('open');
+          loadUsers();
+        })
         .catch(function() { showToast('Failed to update role', 'error'); });
     });
-    footer.appendChild(roleSelect);
+    var cancelRoleBtn = document.createElement('button');
+    cancelRoleBtn.type = 'button';
+    cancelRoleBtn.className = 'btn btn--ghost btn--sm';
+    cancelRoleBtn.textContent = 'Cancel';
+    cancelRoleBtn.addEventListener('click', function() { rolePicker.classList.remove('open'); });
+    applyRow.appendChild(applyBtn);
+    applyRow.appendChild(cancelRoleBtn);
+    rolePicker.appendChild(applyRow);
 
-    if (u.pending) {
-      var resend = document.createElement('button');
-      resend.className = 'resend-btn';
-      resend.textContent = 'Resend invite';
-      resend.addEventListener('click', function() { resendInvite(u.email, resend); });
-      footer.appendChild(resend);
-    }
+    changeRoleBtn.addEventListener('click', function() {
+      rolePicker.classList.toggle('open');
+    });
+
+    footer.appendChild(changeRoleBtn);
+    footer.appendChild(rolePicker);
   }
 
   body.appendChild(footer);
