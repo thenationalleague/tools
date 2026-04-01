@@ -1142,31 +1142,81 @@ body {
   color: var(--white);
   flex: 1;
 }
-.uacc-set-all {
-  display: flex;
-  gap: 3px;
+/* -- Set-all mini slider (on dept header bar) ------------------------------ */
+.uacc-dept-header {
+  border-bottom: 2px solid var(--primary);
+}
+.uacc-set-all-slider {
+  display: inline-flex;
+  align-items: flex-start;
+  position: relative;
   flex-shrink: 0;
 }
-.uacc-set-all__btn {
-  font-size: 8px;
+.uacc-set-all-slider__track {
+  position: absolute;
+  top: 7px;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: rgba(255,255,255,0.25);
+  z-index: 0;
+  border-radius: 1px;
+}
+.uacc-set-all-slider__fill {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  background: rgba(255,255,255,0.7);
+  border-radius: 1px;
+  transition: width 0.15s ease;
+  width: 0%;
+}
+.uacc-set-all-slider__stop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+  padding: 0 8px;
+  min-width: 44px;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.uacc-set-all-slider__stop:hover { background: rgba(255,255,255,0.08); }
+.uacc-set-all-slider__node {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4);
+  background: transparent;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.uacc-set-all-slider__stop--active .uacc-set-all-slider__node {
+  background: var(--white);
+  border-color: var(--white);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.2);
+  transform: scale(1.15);
+}
+.uacc-set-all-slider__stop--filled .uacc-set-all-slider__node {
+  background: rgba(255,255,255,0.7);
+  border-color: rgba(255,255,255,0.7);
+}
+.uacc-set-all-slider__label {
+  font-size: 7px;
   font-weight: 800;
   font-variation-settings: 'wght' 800;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 3px 7px;
-  border-radius: 3px;
-  border: 1px solid rgba(255,255,255,0.35);
-  background: transparent;
-  color: rgba(255,255,255,0.75);
-  cursor: pointer;
-  font-family: var(--font);
-  transition: all 0.12s;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.6);
+  transition: color 0.15s;
+  white-space: nowrap;
+  line-height: 1;
 }
-.uacc-set-all__btn:hover {
-  border-color: var(--white);
-  color: var(--white);
-  background: rgba(255,255,255,0.12);
-}
+.uacc-set-all-slider__stop--active .uacc-set-all-slider__label { color: var(--white); }
+.uacc-set-all-slider__stop--filled .uacc-set-all-slider__label { color: rgba(255,255,255,0.8); }
 
 /* -- Invite org/role picker ------------------------------------------------ */
 .invite-org-btn,
@@ -2887,20 +2937,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     deptHeader.appendChild(deptLabel);
 
     if (!isSuperUser) {
-      var setAll = document.createElement('div');
-      setAll.className = 'uacc-set-all';
-      ['hidden','off','access','admin'].forEach(function(lvl) {
-        var btn = document.createElement('button');
-        btn.className = 'uacc-set-all__btn';
-        btn.textContent = lvl === 'hidden' ? 'H' : lvl === 'off' ? 'O' : lvl === 'access' ? 'A' : 'Adm';
-        btn.title = 'Set all ' + getDeptLabel(dept) + ' to ' + lvl;
-        btn.addEventListener('click', function(e) {
-          e.stopPropagation();
-          setAllInDept(uid, u, deptMap[dept], lvl, deptWrap);
-        });
-        setAll.appendChild(btn);
-      });
-      deptHeader.appendChild(setAll);
+      deptHeader.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
     }
 
     /* Wrap dept rows so set-all can scope to just this dept */
@@ -3233,6 +3270,64 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
     }
     wrap.appendChild(stop);
   });
+  return wrap;
+}
+
+function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
+  var wrap = document.createElement('div');
+  wrap.className = 'uacc-set-all-slider';
+
+  var track = document.createElement('div');
+  track.className = 'uacc-set-all-slider__track';
+  var fill = document.createElement('div');
+  fill.className = 'uacc-set-all-slider__fill';
+  track.appendChild(fill);
+  wrap.appendChild(track);
+
+  function updateFill(idx) {
+    fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+  }
+
+  ACC_LEVELS.forEach(function(level, idx) {
+    var isClubUser   = u.role === 'club';
+    var isPadlocked  = isClubUser && level === 'admin';
+
+    var stop = document.createElement('div');
+    stop.className = 'uacc-set-all-slider__stop';
+
+    var node = document.createElement('div');
+    node.className = 'uacc-set-all-slider__node';
+    if (isPadlocked) {
+      node.textContent = '\uD83D\uDD12';
+      node.style.cssText = 'font-size:7px;display:flex;align-items:center;justify-content:center;border-color:rgba(255,255,255,0.2);';
+    }
+
+    var label = document.createElement('div');
+    label.className = 'uacc-set-all-slider__label';
+    label.textContent = ACC_LABELS[level];
+    if (isPadlocked) label.style.color = 'rgba(255,255,255,0.25)';
+
+    stop.appendChild(node);
+    stop.appendChild(label);
+
+    if (!isPadlocked) {
+      stop.addEventListener('click', function(e) {
+        e.stopPropagation();
+        /* Update mini slider UI */
+        wrap.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s, si) {
+          s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
+          if (si < idx)  s.classList.add('uacc-set-all-slider__stop--filled');
+          if (si === idx) s.classList.add('uacc-set-all-slider__stop--active');
+        });
+        updateFill(idx);
+        /* Apply to all tools in dept */
+        setAllInDept(uid, u, deptMap[dept], level, deptWrap);
+      });
+    }
+    wrap.appendChild(stop);
+  });
+
+  updateFill(0);
   return wrap;
 }
 
