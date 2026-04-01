@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v2.3 (conversation turn 39)
+  Version: v2.6 (conversation turn 42)
   Date: 31/03/2026
   File: /tools/index.html
 
@@ -759,7 +759,7 @@ function setBtnLoading(id, loading, label) {
  * Standard sign-in (no invite param) uses normal email/password flow.
  */
 
-var INVITE_GAS_URL = 'https://script.google.com/macros/s/AKfycbw9eH_jjilvLktiK2JbrcrEw_dCWE40e1iaDmgkA9RbXOLeMC5dMzA_oU_KeMiCVoGOsA/exec';
+var INVITE_GAS_URL = 'https://script.google.com/macros/s/AKfycbw9PcyI4Gl53H3hDagt-M_r9bBXUfNsPxuGTBFKxf0AIEpEx8aMuSN65i482Ke0gMb4Cg/exec';
 
 var urlParams    = new URLSearchParams(window.location.search);
 var INVITE_TOKEN = urlParams.get('invite') || '';
@@ -859,7 +859,7 @@ function doSetPassword() {
 
   setBtnLoading('setPwBtn', true);
 
-  /* Step 1: validate token via GAS */
+  /* Step 1: validate token via GAS -- returns full user payload */
   fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
     method:  'POST',
     headers: { 'Content-Type': 'text/plain' },
@@ -870,14 +870,26 @@ function doSetPassword() {
     if (!result.ok) throw { message: result.error || 'Invite validation failed.' };
 
     /* Step 2: create Firebase Auth account with chosen password */
-    return auth.createUserWithEmailAndPassword(email, pass);
-  })
-  .then(function(credential) {
-    /* Step 3: clear pending in RTDB */
-    var uid = credential.user.uid;
-    return db.ref('users/' + uid + '/pending').set(false)
-      .catch(function() {})
-      .then(function() { return credential; });
+    return auth.createUserWithEmailAndPassword(email, pass)
+      .then(function(credential) {
+        var uid = credential.user.uid;
+
+        /* Step 3: create RTDB user record with correct Firebase Auth UID */
+        var userRecord = {
+          name:     result.name     || '',
+          email:    email,
+          role:     result.role     || 'staff',
+          org:      result.org      || '',
+          orgKey:   result.orgKey   || '',
+          club:     result.club     || '',
+          clubRole: result.clubRole || '',
+          pending:  false,
+          tools:    result.tools    || {}
+        };
+
+        return db.ref('users/' + uid).set(userRecord)
+          .then(function() { return credential; });
+      });
   })
   .then(function() {
     window.location.replace(PORTAL_URL);
@@ -885,9 +897,8 @@ function doSetPassword() {
   .catch(function(err) {
     setBtnLoading('setPwBtn', false, 'Set password & sign in');
 
-    /* User already exists in Firebase Auth -- sign in and update password */
     if (err.code === 'auth/email-already-in-use') {
-      showMsg('setpwMsg', 'An account with this email already exists. If you previously set up an account, please sign in normally. If you need to reset your password, use the forgot password link.', 'info');
+      showMsg('setpwMsg', 'An account with this email already exists. Please sign in normally or use the forgot password link.', 'info');
       return;
     }
 
@@ -908,13 +919,6 @@ function doSetPassword() {
     showMsg('setpwMsg', msg, 'error');
   });
 }
-
-/* -- Club picker (sign-up) -------------------------------------------------- */
-
-var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
-var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
-var suClubsData    = [];
 
 function loadSuClubs() {
   if (suClubsData.length) return Promise.resolve();
