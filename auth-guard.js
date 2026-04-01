@@ -1,9 +1,12 @@
 /*
  * auth-guard.js — NL Tools v2
- * Version: v2.1 (conversation turn 64)
+ * Version: v2.2 (conversation turn 65)
  * Date: 01/04/2026
  *
  * Changelog:
+ * v2.2 — Replaced timeout fallback with Promise.resolve() + currentUser check.
+ *         Fixes onAuthStateChanged never firing on GitHub Pages cached pages.
+ *         onAuthStateChanged kept as backup for fresh sign-ins only.
  * v2.1 — Added timeout fallback for onAuthStateChanged not firing
  *         (GitHub Pages cached auth state issue). Checks currentUser directly.
  * v2.0 — Rebuilt for v2 string access model (hidden/off/access/admin).
@@ -225,35 +228,17 @@
   }
 
   /* ── Main auth state handler ───────────────────────────────────────────── */
-  var _authFired = false;
-
-  /* Fallback: if onAuthStateChanged hasn't fired in 4s, check currentUser directly */
-  setTimeout(function() {
-    if (_authFired) return;
-    var user = auth.currentUser;
-    if (user) {
-      handleUser(user);
-    } else {
-      /* Try waiting for auth to be ready */
-      auth.authStateReady ? auth.authStateReady().then(function() {
-        var u = auth.currentUser;
-        if (u) handleUser(u); else window.location.replace(LOGIN_URL);
-      }) : window.location.replace(LOGIN_URL);
-    }
-  }, 4000);
-
-  auth.onAuthStateChanged(function(user) {
-    _authFired = true;
-
-    if (!user) {
-      window.location.replace(LOGIN_URL);
-      return;
-    }
-
-    handleUser(user);
-  });
+  /*
+   * GitHub Pages serves cached pages which can cause onAuthStateChanged to
+   * never fire if auth state is already resolved before the listener registers.
+   * Solution: use a one-time unsubscribe pattern with an immediate currentUser
+   * check as primary, onAuthStateChanged as backup.
+   */
+  var _handled = false;
 
   function handleUser(user) {
+    if (_handled) return;
+    _handled = true;
 
     /* Fetch user record and tool catalogue entry in parallel */
     Promise.all([
@@ -317,5 +302,24 @@
     });
 
   } /* end handleUser */
+
+  /* Primary: check currentUser immediately after a microtask delay.
+   * This catches the case where auth state is already resolved. */
+  Promise.resolve().then(function() {
+    var user = auth.currentUser;
+    if (user) {
+      handleUser(user);
+      return;
+    }
+    /* Secondary: onAuthStateChanged for fresh sign-ins */
+    var unsub = auth.onAuthStateChanged(function(user) {
+      unsub(); /* unsubscribe immediately -- one-time only */
+      if (!user) {
+        window.location.replace(LOGIN_URL);
+        return;
+      }
+      handleUser(user);
+    });
+  });
 
 })();
