@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v1.1 (conversation turn 10)
+  Version: v1.2 (conversation turn 11)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v1.2 -- Invite form club field replaced with club picker (dropdown + crests).
+         Superadmin cannot downgrade their own role or remove own tool access.
+         Mobile horizontal scroll fixed: body overflow-x hidden, topbar width 100%.
   v1.1 -- Superadmin/admin now see all tools including placeholders (placeholder
          filter was blocking the full catalogue view for admins).
          v1 boolean tool grants (tools/{key}: true) now treated as access:true
@@ -80,6 +83,7 @@ body {
   color: var(--text);
   background: var(--off-white);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 /* -- Topbar ---------------------------------------------------------------- */
@@ -96,6 +100,8 @@ body {
   z-index: 100;
   box-shadow: 0 2px 12px rgba(0,0,0,0.3);
   border-bottom: 7px solid var(--navy);
+  width: 100%;
+  box-sizing: border-box;
 }
 .topbar__logo { height: 42px; flex-shrink: 0; }
 .topbar__title {
@@ -885,6 +891,43 @@ body {
   padding: 0;
   text-decoration: underline;
 }
+
+/* -- Invite club picker ---------------------------------------------------- */
+.inv-club-picker { position: relative; }
+.inv-club-picker__wrap {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 7px 12px; background: var(--white);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.inv-club-picker__wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(158,0,0,0.08);
+}
+.inv-club-picker__crest { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+.inv-club-picker__input {
+  flex: 1; border: none !important; padding: 0 !important;
+  font-size: 14px; outline: none; background: transparent;
+  font-family: var(--font); font-variation-settings: 'wght' 400; color: var(--text);
+}
+.inv-club-picker__input::placeholder { color: #aab4c4; }
+.inv-club-picker__dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  max-height: 200px; overflow-y: auto; display: none; margin-top: 3px;
+}
+.inv-club-picker__dropdown.open { display: block; }
+.inv-club-picker__option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; cursor: pointer; font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.inv-club-picker__option:last-child { border-bottom: none; }
+.inv-club-picker__option:hover { background: var(--off-white); }
+.inv-club-picker__option img { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
+.inv-club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
+.inv-club-picker__option-div { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
 </style>
 </head>
 <body>
@@ -1015,7 +1058,18 @@ body {
           </div>
           <div class="field" id="inviteClubField" style="display:none">
             <label>Club name</label>
-            <input type="text" id="inviteClub" placeholder="e.g. Aldershot Town">
+            <div class="inv-club-picker">
+              <div class="inv-club-picker__wrap">
+                <img class="inv-club-picker__crest" id="invClubCrest"
+                  src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
+                  alt=""
+                  onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+                <input class="inv-club-picker__input" id="invClubInput" type="text"
+                  placeholder="Search club name..." autocomplete="off">
+              </div>
+              <div class="inv-club-picker__dropdown" id="invClubDropdown"></div>
+            </div>
+            <input type="hidden" id="inviteClub">
           </div>
           <div class="field" id="inviteClubRoleField" style="display:none">
             <label>Role at club</label>
@@ -1670,6 +1724,7 @@ function approveRequest(r, btn) {
   document.getElementById('inviteClubRole').value = r.clubRole || '';
   document.getElementById('inviteClubField').style.display     = 'block';
   document.getElementById('inviteClubRoleField').style.display = 'block';
+  if (r.club) selectInvClub(r.club);
 
   /* Switch to invite tab */
   document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
@@ -1898,6 +1953,12 @@ function renderUsersTable(users) {
         roleSelect.appendChild(opt);
       });
       roleSelect.addEventListener('change', function() {
+        /* Prevent superadmin from demoting themselves */
+        if (uid === STATE.uid && STATE.isSuperAdmin) {
+          showToast('You cannot change your own role', 'error');
+          roleSelect.value = 'superadmin';
+          return;
+        }
         db.ref('users/' + uid + '/role').set(roleSelect.value)
           .then(function() { showToast('Role updated', 'success'); })
           .catch(function() { showToast('Failed to update role', 'error'); });
@@ -1931,11 +1992,16 @@ function buildToggle(uid, toolKey, field, checked, warn) {
   lbl.textContent = field === 'access' ? 'Acc' : 'Adm';
 
   input.addEventListener('change', function() {
+    /* Prevent superadmin from revoking their own access */
+    if (uid === STATE.uid && STATE.isSuperAdmin && !input.checked) {
+      showToast('You cannot remove your own tool access', 'error');
+      input.checked = true;
+      return;
+    }
     var path = 'users/' + uid + '/tools/' + toolKey + '/' + field;
     db.ref(path).set(input.checked)
       .then(function() {
         showToast((field === 'access' ? 'Access' : 'Admin') + ' updated', 'success');
-        /* Reload users table to reflect warning badge changes */
         loadUsers();
       })
       .catch(function() {
@@ -1950,12 +2016,111 @@ function buildToggle(uid, toolKey, field, checked, warn) {
   return label;
 }
 
+
+/* ---- Invite club picker -------------------------------------------------- */
+var INV_CLUBS_DATA = [];
+
+function loadInvClubs() {
+  if (INV_CLUBS_DATA.length) return Promise.resolve();
+  var url = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+  return fetch(url + '?cb=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(data) { INV_CLUBS_DATA = data.clubs || []; })
+    .catch(function() { INV_CLUBS_DATA = []; });
+}
+
+function renderInvClubList(filter) {
+  var dd = document.getElementById('invClubDropdown');
+  var q  = (filter || '').toLowerCase().trim();
+
+  var matches = q
+    ? INV_CLUBS_DATA.filter(function(c) {
+        return c.name.toLowerCase().indexOf(q) !== -1 ||
+               (c.short && c.short.toLowerCase().indexOf(q) !== -1);
+      }).slice(0, 12)
+    : INV_CLUBS_DATA.slice(0, 12);
+
+  dd.innerHTML = '';
+
+  if (matches.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:8px 12px;font-size:13px;color:var(--text-muted);';
+    empty.textContent = 'No clubs found';
+    dd.appendChild(empty);
+    dd.classList.add('open');
+    return;
+  }
+
+  matches.forEach(function(c) {
+    var item = document.createElement('div');
+    item.className = 'inv-club-picker__option';
+
+    var img = document.createElement('img');
+    img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
+    img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'inv-club-picker__option-name';
+    nameSpan.textContent = c.name;
+
+    var divSpan = document.createElement('span');
+    divSpan.className = 'inv-club-picker__option-div';
+    divSpan.textContent = c.division || '';
+
+    item.appendChild(img);
+    item.appendChild(nameSpan);
+    item.appendChild(divSpan);
+
+    item.addEventListener('click', function() {
+      selectInvClub(c.name);
+    });
+
+    dd.appendChild(item);
+  });
+
+  dd.classList.add('open');
+}
+
+function selectInvClub(name) {
+  document.getElementById('invClubInput').value = name;
+  document.getElementById('inviteClub').value   = name;
+  var img = document.getElementById('invClubCrest');
+  img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+  img.src = CREST_BASE + encodeURIComponent(name) + '.png';
+  document.getElementById('invClubDropdown').classList.remove('open');
+}
+
+function initInvClubPicker() {
+  var input = document.getElementById('invClubInput');
+  var dd    = document.getElementById('invClubDropdown');
+  if (!input) return;
+
+  input.addEventListener('input', function() {
+    document.getElementById('inviteClub').value = '';
+    var val = input.value.trim();
+    if (!val) { dd.classList.remove('open'); return; }
+    loadInvClubs().then(function() { renderInvClubList(val); });
+  });
+
+  input.addEventListener('focus', function() {
+    if (input.value.trim() && INV_CLUBS_DATA.length) renderInvClubList(input.value);
+  });
+
+  document.addEventListener('click', function(e) {
+    var picker = document.querySelector('.inv-club-picker');
+    if (picker && !picker.contains(e.target)) dd.classList.remove('open');
+  });
+}
+
 /* ---- Invite form --------------------------------------------------------- */
 function initInviteForm() {
+  initInvClubPicker();
+
   document.getElementById('inviteRole').addEventListener('change', function() {
     var isClub = this.value === 'club';
     document.getElementById('inviteClubField').style.display     = isClub ? 'block' : 'none';
     document.getElementById('inviteClubRoleField').style.display = isClub ? 'block' : 'none';
+    if (isClub) loadInvClubs();
   });
 
   document.getElementById('inviteBtn').addEventListener('click', function() {
