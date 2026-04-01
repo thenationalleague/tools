@@ -1,11 +1,16 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v1.8 (conversation turn 17)
+  Version: v1.9 (conversation turn 18)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v1.9 -- Four-state access model (hidden/off/access/admin) throughout.
+         Tool tiles: red top border for admin, navy for access.
+         Superadmin bypass: all tools shown as admin, toggles greyed out.
+         New access string format replaces boolean tools object.
+         getAccessLevel() helper centralises all access reads.
   v1.8 -- Accordion header redesigned: single row on desktop (crest, name,
          email, org, role pill, chevron). Stacked on mobile (crest+role on one
          line, name+email on next, no org text). NL rose used as org crest for
@@ -355,8 +360,9 @@ body {
 .tool-tile {
   background: var(--white);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
   border-radius: var(--radius);
-  padding: 22px 18px 18px;
+  padding: 20px 18px 18px;
   cursor: pointer;
   text-decoration: none;
   color: var(--text);
@@ -367,6 +373,9 @@ body {
   box-shadow: var(--shadow);
   position: relative;
 }
+.tool-tile--admin  { border-top-color: var(--primary); }
+.tool-tile--access { border-top-color: var(--navy); }
+.tool-tile--off    { border-top-color: var(--border); opacity: 0.6; }
 .tool-tile:hover {
   border-color: var(--navy);
   box-shadow: 0 4px 20px rgba(10,22,40,0.12);
@@ -780,6 +789,18 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .uacc-tool-row:last-child { border-bottom: none; }
+.uacc-default-badge {
+  font-size: 8px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--primary);
+  color: var(--white);
+  flex-shrink: 0;
+}
 
 .uacc-tool-name {
   flex: 1;
@@ -822,6 +843,8 @@ body {
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 .uacc-toggle input:checked + .uacc-toggle__sw { background: var(--navy); }
+.uacc-toggle--locked { opacity: 0.35; pointer-events: none; }
+.uacc-toggle--locked .uacc-toggle__sw { background: var(--text-muted) !important; cursor: default; }
 .uacc-toggle input:checked + .uacc-toggle__sw::after { left: 16px; }
 .uacc-toggle--warn input:checked + .uacc-toggle__sw { background: var(--amber); }
 .uacc-toggle__label {
@@ -1131,6 +1154,37 @@ function esc(s) {
   return s;
 }
 
+/* ---- Access level helpers ------------------------------------------------ */
+function getAccessLevel(uid, toolKey) {
+  if (STATE.isSuperAdmin && uid === STATE.uid) return 'admin';
+  var ud = (uid === STATE.uid) ? STATE.userData : (STATE.allUsers[uid] || {});
+  if (!ud) return 'hidden';
+  if (ud.role === 'superadmin') return 'admin';
+  var entry = ud.tools && ud.tools[toolKey];
+  if (typeof entry === 'string') return entry;
+  if (entry === true) return 'access';
+  var tool = STATE.tools[toolKey];
+  if (!tool || !tool.defaults) return 'hidden';
+  return tool.defaults[getGroupKey(ud)] || 'hidden';
+}
+
+function getGroupKey(ud) {
+  if (ud.role === 'superadmin') return 'nl-admin';
+  if (ud.role === 'admin' || ud.role === 'staff') {
+    var orgKey = ud.orgKey || 'nl';
+    var role   = ud.role === 'admin' ? 'admin' : 'staff';
+    return orgKey + '-' + role;
+  }
+  return 'club';
+}
+
+function getDefaultLevel(toolKey, ud) {
+  var tool = STATE.tools[toolKey];
+  if (!tool || !tool.defaults) return 'hidden';
+  return tool.defaults[getGroupKey(ud)] || 'hidden';
+}
+
+
 function showToast(msg, type) {
   var t = document.getElementById('toast');
   t.textContent = msg;
@@ -1400,19 +1454,16 @@ function renderToolGrid() {
   var tools  = STATE.toolsList;
   var myKeys = [];
 
-  /* Collect granted tools.
-     Superadmin/admin: show everything including placeholders.
-     Others: show tools where access toggle is true.
-     v1 compatibility: boolean true treated as access granted.
-     'welcome' is always-on infrastructure, never shown as a tile. */
+  /* Collect tools to show as tiles.
+     'welcome' is always-on infrastructure, never a tile.
+     Superadmin/admin see everything. Others see access/admin only.
+     off = shown in available section. hidden = not shown at all. */
   tools.forEach(function(t) {
     if (t._key === 'welcome') return;
-    if (STATE.isAdmin) { myKeys.push(t._key); return; }
-    if (t.placeholder) return;
-    var entry = ud.tools && ud.tools[t._key];
-    var hasAccess = entry === true ||                      /* v1 boolean */
-                    (entry && entry.access === true);      /* v2 object */
-    if (hasAccess) myKeys.push(t._key);
+    var level = getAccessLevel(STATE.uid, t._key);
+    if (level === 'hidden') return;
+    if (level === 'off' && !STATE.isAdmin) return;
+    myKeys.push(t._key);
   });
 
   grid.innerHTML = '';
@@ -1436,16 +1487,21 @@ function renderToolGrid() {
   myKeys.forEach(function(key) {
     var t = STATE.tools[key];
     if (!t) return;
-    var tile = buildToolTile(key, t);
+    var level = getAccessLevel(STATE.uid, key);
+    var tile  = buildToolTile(key, t, level);
     grid.appendChild(tile);
   });
 }
 
-function buildToolTile(key, t) {
+function buildToolTile(key, t, level) {
+  level = level || 'access';
   var tile = document.createElement('a');
-  tile.className = 'tool-tile' + (t.placeholder ? ' tool-tile--placeholder' : '');
+  var levelClass = level === 'admin' ? ' tool-tile--admin'
+                 : level === 'access' ? ' tool-tile--access'
+                 : ' tool-tile--off';
+  tile.className = 'tool-tile' + (t.placeholder ? ' tool-tile--placeholder' : '') + levelClass;
 
-  if (t.placeholder || !t.url) {
+  if (t.placeholder || !t.url || t.url === '#') {
     tile.href = '#';
     tile.addEventListener('click', function(e) {
       e.preventDefault();
@@ -1489,14 +1545,11 @@ function renderAvailableTools() {
   var available = [];
 
   tools.forEach(function(t) {
-    if (t.placeholder) return;
-    /* Only show tools matching user's tier */
-    if (t.tier !== tier && !t.visibleToAll) return;
-    /* Skip if already granted */
+    if (t._key === 'welcome') return;
     if (STATE.isSuperAdmin) return;
-    var entry = ud.tools && ud.tools[t._key];
-    var hasAccess = entry === true || (entry && entry.access === true);
-    if (hasAccess) return;
+    var level = getAccessLevel(STATE.uid, t._key);
+    /* Only show 'off' tools -- these are visible but not yet granted */
+    if (level !== 'off') return;
     available.push(t);
   });
 
@@ -1898,10 +1951,13 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     body.appendChild(deptLabel);
 
     deptTools.forEach(function(t) {
-      var toolEntry     = u.tools && u.tools[t._key];
-      var hasAccess     = toolEntry === true || (toolEntry && toolEntry.access === true);
-      var hasAdmin      = toolEntry && typeof toolEntry === 'object' && toolEntry.admin === true;
+      var currentLevel  = getAccessLevel(uid, t._key);
+      var defaultLevel  = getDefaultLevel(t._key, u);
+      var hasAccess     = currentLevel === 'access' || currentLevel === 'admin';
+      var hasAdmin      = currentLevel === 'admin';
       var isUnusualAdmin = hasAdmin && (u.role === 'staff' || u.role === 'club');
+      var isNonDefault  = currentLevel !== defaultLevel;
+      var isSuperUser   = u.role === 'superadmin';
 
       var row = document.createElement('div');
       row.className = 'uacc-tool-row';
@@ -1916,8 +1972,8 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
       var pair = document.createElement('div');
       pair.className = 'uacc-toggle-pair';
-      pair.appendChild(buildAccToggle(uid, t._key, 'access', hasAccess, false));
-      pair.appendChild(buildAccToggle(uid, t._key, 'admin',  hasAdmin,  isUnusualAdmin));
+      pair.appendChild(buildAccToggle(uid, t._key, 'access', hasAccess, false, isSuperUser));
+      pair.appendChild(buildAccToggle(uid, t._key, 'admin',  hasAdmin,  isUnusualAdmin, isSuperUser));
 
       if (isUnusualAdmin) {
         var warn = document.createElement('span');
@@ -1925,6 +1981,15 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         warn.textContent = '\u26A0\uFE0F';
         warn.style.fontSize = '12px';
         pair.appendChild(warn);
+      }
+
+      /* Default badge -- red pill showing current level differs from default */
+      if (isNonDefault) {
+        var badge = document.createElement('span');
+        badge.className = 'uacc-default-badge';
+        badge.title = 'Default: ' + defaultLevel;
+        badge.textContent = defaultLevel;
+        pair.appendChild(badge);
       }
 
       row.appendChild(toolName);
@@ -2003,14 +2068,19 @@ function buildAccordionItem(uid, u, depts, deptMap) {
   return item;
 }
 
-function buildAccToggle(uid, toolKey, field, checked, warn) {
+function buildAccToggle(uid, toolKey, field, checked, warn, locked) {
   var wrap = document.createElement('label');
-  wrap.className = 'uacc-toggle' + (warn ? ' uacc-toggle--warn' : '');
-  wrap.title = (field === 'access' ? 'Access' : 'Admin');
+  wrap.className = 'uacc-toggle'
+    + (warn   ? ' uacc-toggle--warn'   : '')
+    + (locked ? ' uacc-toggle--locked' : '');
+  wrap.title = locked
+    ? 'Superadmin — locked at admin'
+    : (field === 'access' ? 'Access' : 'Admin');
 
   var input = document.createElement('input');
-  input.type    = 'checkbox';
-  input.checked = checked;
+  input.type     = 'checkbox';
+  input.checked  = checked;
+  input.disabled = locked;
 
   var sw = document.createElement('div');
   sw.className = 'uacc-toggle__sw';
@@ -2019,18 +2089,27 @@ function buildAccToggle(uid, toolKey, field, checked, warn) {
   lbl.className = 'uacc-toggle__label';
   lbl.textContent = field === 'access' ? 'Acc' : 'Adm';
 
-  input.addEventListener('change', function() {
-    if (uid === STATE.uid && STATE.isSuperAdmin && !input.checked) {
-      showToast('You cannot remove your own tool access', 'error');
-      input.checked = true;
-      return;
-    }
-    var path = 'users/' + uid + '/tools/' + toolKey + '/' + field;
-    db.ref(path).set(input.checked)
-      .then(function() { showToast((field === 'access' ? 'Access' : 'Admin') + ' updated', 'success'); })
-      .catch(function() { input.checked = !input.checked; showToast('Failed to update', 'error'); });
-  });
+  if (!locked) {
+    input.addEventListener('change', function() {
+      /* Derive new string level from both toggle states */
+      var row      = wrap.closest('.uacc-tool-row');
+      var accInput = row ? row.querySelector('[data-field="access"]') : null;
+      var admInput = row ? row.querySelector('[data-field="admin"]')  : null;
+      var newLevel = admInput && admInput.checked ? 'admin'
+                   : accInput && accInput.checked ? 'access'
+                   : 'off';
+      if (uid === STATE.uid && STATE.isSuperAdmin && newLevel !== 'admin') {
+        showToast('You cannot reduce your own access', 'error');
+        input.checked = true;
+        return;
+      }
+      db.ref('users/' + uid + '/tools/' + toolKey).set(newLevel)
+        .then(function() { showToast('Access updated to ' + newLevel, 'success'); })
+        .catch(function() { input.checked = !input.checked; showToast('Failed to update', 'error'); });
+    });
+  }
 
+  input.dataset.field = field;
   wrap.appendChild(input);
   wrap.appendChild(sw);
   wrap.appendChild(lbl);
