@@ -1155,8 +1155,8 @@ body {
 .uacc-set-all-slider__track {
   position: absolute;
   top: 7px;
-  left: 20px;
-  right: 20px;
+  left: 27px;
+  right: 27px;
   height: 2px;
   background: rgba(255,255,255,0.25);
   z-index: 0;
@@ -1179,8 +1179,8 @@ body {
   position: relative;
   z-index: 1;
   cursor: pointer;
-  padding: 0 8px;
-  min-width: 44px;
+  padding: 0 10px;
+  min-width: 54px;
   border-radius: 4px;
   transition: background 0.1s;
 }
@@ -1189,8 +1189,8 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.4);
-  background: transparent;
+  border: 2px solid rgba(255,255,255,0.5);
+  background: var(--navy);
   transition: all 0.15s;
   flex-shrink: 0;
 }
@@ -3321,7 +3321,7 @@ function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
         });
         updateFill(idx);
         /* Apply to all tools in dept */
-        setAllInDept(uid, u, deptMap[dept], level, deptWrap);
+        setAllInDept(uid, u, deptMap[dept], level, deptWrap, getDeptLabel(dept));
       });
     }
     wrap.appendChild(stop);
@@ -3331,12 +3331,17 @@ function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
   return wrap;
 }
 
-function setAllInDept(uid, u, deptTools, level, bodyEl) {
+function setAllInDept(uid, u, deptTools, level, bodyEl, deptLabel) {
   if (!deptTools || !deptTools.length) return;
   var updates = {};
+  var isClubUser = u.role === 'club';
+  /* Club users cannot be set to admin */
+  var safeLevel = (isClubUser && level === 'admin') ? 'access' : level;
   deptTools.forEach(function(t) {
-    updates['users/' + uid + '/tools/' + t._key] = level;
+    updates['users/' + uid + '/tools/' + t._key] = safeLevel;
   });
+  /* Use safeLevel for DOM update too */
+  level = safeLevel;
   var idx = ACC_LEVELS.indexOf(level);
   var rows = bodyEl.querySelectorAll('.uacc-tool-row');
   rows.forEach(function(row) {
@@ -3355,7 +3360,7 @@ function setAllInDept(uid, u, deptTools, level, bodyEl) {
   });
   var targetUser = STATE.allUsers[uid] || {};
   writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
-    'access_changed', 'Set all in ' + getDeptLabel(dept || '') + ' to ' + level);
+    'access_changed', 'Set all in ' + (deptLabel || '') + ' to ' + level);
   db.ref().update(updates)
     .then(function() { showToast('All set to ' + level, 'success'); })
     .catch(function() { showToast('Failed to update', 'error'); });
