@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v2.5 (conversation turn 24)
+  Version: v2.8 (conversation turn 27)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1114,20 +1114,20 @@ body {
 .acc-slider--locked .acc-slider__stop { cursor: default; pointer-events: none; }
 .acc-slider--locked .acc-slider__node { opacity: 0.35; }
 .acc-slider--locked .acc-slider__stop--active .acc-slider__node {
-  background: var(--text-muted); border-color: var(--text-muted); box-shadow: none;
+  background: var(--border); border-color: var(--border); box-shadow: none;
 }
 .acc-slider--locked .acc-slider__stop--filled .acc-slider__node {
-  background: var(--text-muted); border-color: var(--text-muted);
+  background: var(--border); border-color: var(--border);
 }
-.acc-slider--locked .acc-slider__stop--active .acc-slider__label { color: var(--text-muted); }
-.acc-slider--locked .acc-slider__stop--filled .acc-slider__label { color: var(--text-muted); }
-.acc-slider--locked .acc-slider__track-fill { background: var(--text-muted); }
+.acc-slider--locked .acc-slider__stop--active .acc-slider__label { color: var(--border); }
+.acc-slider--locked .acc-slider__stop--filled .acc-slider__label { color: var(--border); }
+.acc-slider--locked .acc-slider__track-fill { background: var(--border); }
 
 /* Dept header set-all buttons */
 .uacc-dept-header {
   display: flex;
   align-items: center;
-  padding: 10px 14px 4px;
+  padding: 12px 14px 6px;
   gap: 10px;
 }
 .uacc-dept-label {
@@ -1135,18 +1135,12 @@ body {
   font-weight: 800;
   font-variation-settings: 'wght' 800;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.uacc-dept-label::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
+  letter-spacing: 0.1em;
+  color: var(--white);
+  background: var(--navy);
+  padding: 3px 10px;
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 .uacc-set-all {
   display: flex;
@@ -1570,6 +1564,29 @@ var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
 var LOGIN_URL      = '/tools/';
 
 /* ---- State --------------------------------------------------------------- */
+
+/* ---- Department display map and sort order ------------------------------- */
+var DEPT_MAP = {
+  'staff':      { label: 'Staff',                      order: 1 },
+  'ops':        { label: 'Administration & Operations', order: 2 },
+  'media':      { label: 'Media & Marketing',           order: 3 },
+  'commercial': { label: 'Commercial',                  order: 4 },
+  'trust':      { label: 'NL Trust',                    order: 5 },
+  'alliance':   { label: 'U19 Alliance',                order: 6 }
+};
+
+function getDeptLabel(code) {
+  return (DEPT_MAP[code] && DEPT_MAP[code].label) || code;
+}
+
+function sortDepts(depts) {
+  return depts.sort(function(a, b) {
+    var ao = (DEPT_MAP[a] && DEPT_MAP[a].order) || 99;
+    var bo = (DEPT_MAP[b] && DEPT_MAP[b].order) || 99;
+    return ao - bo;
+  });
+}
+
 var STATE = {
   uid:      null,
   user:     null,      /* Firebase Auth user */
@@ -2018,7 +2035,7 @@ function renderAvailableTools() {
 
     var dept = document.createElement('div');
     dept.className = 'available-tile__dept';
-    dept.textContent = t.department || '';
+    dept.textContent = getDeptLabel(t.department || '');
 
     info.appendChild(name);
     info.appendChild(dept);
@@ -2724,7 +2741,7 @@ function renderUsersAccordion(users) {
     if (!deptMap[d]) deptMap[d] = [];
     deptMap[d].push(t);
   });
-  var depts = Object.keys(deptMap).sort();
+  var depts = sortDepts(Object.keys(deptMap));
 
   uids.forEach(function(uid) {
     var u = users[uid];
@@ -2807,7 +2824,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
     var deptLabel = document.createElement('div');
     deptLabel.className = 'uacc-dept-label';
-    deptLabel.textContent = dept;
+    deptLabel.textContent = getDeptLabel(dept);
     deptHeader.appendChild(deptLabel);
 
     if (!isSuperUser) {
@@ -2817,7 +2834,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         var btn = document.createElement('button');
         btn.className = 'uacc-set-all__btn';
         btn.textContent = lvl === 'hidden' ? 'H' : lvl === 'off' ? 'O' : lvl === 'access' ? 'A' : 'Adm';
-        btn.title = 'Set all ' + dept + ' to ' + lvl;
+        btn.title = 'Set all ' + getDeptLabel(dept) + ' to ' + lvl;
         btn.addEventListener('click', function(e) {
           e.stopPropagation();
           setAllInDept(uid, u, deptMap[dept], lvl, deptWrap);
@@ -3172,7 +3189,7 @@ function setAllInDept(uid, u, deptTools, level, bodyEl) {
   });
   var targetUser = STATE.allUsers[uid] || {};
   writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
-    'access_changed', 'Set all in dept to ' + level);
+    'access_changed', 'Set all in ' + getDeptLabel(dept || '') + ' to ' + level);
   db.ref().update(updates)
     .then(function() { showToast('All set to ' + level, 'success'); })
     .catch(function() { showToast('Failed to update', 'error'); });
@@ -3366,10 +3383,10 @@ function renderInviteToolSliders() {
     if (!deptMap[d]) deptMap[d] = [];
     deptMap[d].push(t);
   });
-  Object.keys(deptMap).sort().forEach(function(dept) {
+  sortDepts(Object.keys(deptMap)).forEach(function(dept) {
     var deptLabel = document.createElement('div');
     deptLabel.className = 'invite-dept-label';
-    deptLabel.textContent = dept;
+    deptLabel.textContent = getDeptLabel(dept);
     container.appendChild(deptLabel);
     deptMap[dept].forEach(function(t) {
       var defaultLevel = (t.defaults && t.defaults[groupKey]) || 'hidden';
