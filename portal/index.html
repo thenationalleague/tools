@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v2.2 (conversation turn 21)
+  Version: v2.3 (conversation turn 22)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1171,6 +1171,70 @@ body {
   transition: all 0.12s;
 }
 .uacc-set-all__btn:hover { border-color: var(--primary); color: var(--primary); background: var(--red-light); }
+
+/* -- Invite org/role picker ------------------------------------------------ */
+.invite-org-btn,
+.invite-role-btn {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.invite-org-btn:hover,
+.invite-role-btn:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+.invite-org-btn.active,
+.invite-role-btn.active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
+}
+
+/* Invite tool slider rows */
+.invite-tool-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.invite-tool-row:last-child { border-bottom: none; }
+.invite-tool-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+}
+.invite-dept-label {
+  font-size: 9px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  padding: 10px 0 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.invite-dept-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
 </style>
 </head>
 <body>
@@ -1297,44 +1361,82 @@ body {
 
       <!-- Invite pane -->
       <div class="admin-pane" id="pane-invite">
-        <div class="invite-form">
-          <div class="msg" id="inviteMsg"></div>
-          <div class="field">
-            <label>Email address</label>
-            <input type="email" id="inviteEmail" placeholder="name@example.com">
-          </div>
-          <div class="field">
-            <label>Full name</label>
-            <input type="text" id="inviteName" placeholder="First and last name">
-          </div>
-          <div class="field">
-            <label>Role</label>
-            <select id="inviteRole">
-              <option value="staff">Staff</option>
-              <option value="club">Club</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div class="field" id="inviteClubField" style="display:none">
-            <label>Club name</label>
-            <div class="inv-club-picker">
-              <div class="inv-club-picker__wrap">
-                <img class="inv-club-picker__crest" id="invClubCrest"
-                  src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
-                  alt=""
-                  onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-                <input class="inv-club-picker__input" id="invClubInput" type="text"
-                  placeholder="Search club name..." autocomplete="off">
-              </div>
-              <div class="inv-club-picker__dropdown" id="invClubDropdown"></div>
+        <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
+
+          <!-- Left: invite details form -->
+          <div class="invite-form" style="flex:0 0 340px;min-width:280px;">
+            <div class="msg" id="inviteMsg"></div>
+            <div class="field">
+              <label>Email address</label>
+              <input type="email" id="inviteEmail" placeholder="name@example.com">
             </div>
-            <input type="hidden" id="inviteClub">
+            <div class="field">
+              <label>Full name</label>
+              <input type="text" id="inviteName" placeholder="First and last name">
+            </div>
+
+            <!-- Org / role picker -->
+            <div class="field">
+              <label>Organisation &amp; role</label>
+              <div id="inviteOrgPicker" style="display:flex;flex-direction:column;gap:6px;">
+
+                <!-- Org buttons -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button type="button" class="invite-org-btn active" data-org="National League" data-orgkey="nl">National League</button>
+                  <button type="button" class="invite-org-btn" data-org="NL Trust" data-orgkey="trust">NL Trust</button>
+                  <button type="button" class="invite-org-btn" data-org="NL U19 Alliance" data-orgkey="u19">U19 Alliance</button>
+                  <button type="button" class="invite-org-btn" data-org="" data-orgkey="club">Club</button>
+                </div>
+
+                <!-- Staff/Admin sub-choice (hidden for Club) -->
+                <div id="inviteRoleRow" style="display:flex;gap:6px;">
+                  <button type="button" class="invite-role-btn active" data-role="staff">Staff</button>
+                  <button type="button" class="invite-role-btn" data-role="admin">Admin</button>
+                </div>
+
+              </div>
+              <!-- Hidden fields used by JS -->
+              <input type="hidden" id="inviteOrg" value="National League">
+              <input type="hidden" id="inviteOrgKey" value="nl">
+              <input type="hidden" id="inviteRole" value="staff">
+            </div>
+
+            <!-- Club picker (shown when Club org selected) -->
+            <div class="field" id="inviteClubField" style="display:none">
+              <label>Club</label>
+              <div class="inv-club-picker">
+                <div class="inv-club-picker__wrap">
+                  <img class="inv-club-picker__crest" id="invClubCrest"
+                    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
+                    alt=""
+                    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+                  <input class="inv-club-picker__input" id="invClubInput" type="text"
+                    placeholder="Search club name..." autocomplete="off">
+                </div>
+                <div class="inv-club-picker__dropdown" id="invClubDropdown"></div>
+              </div>
+              <input type="hidden" id="inviteClub">
+            </div>
+            <div class="field" id="inviteClubRoleField" style="display:none">
+              <label>Role at club</label>
+              <input type="text" id="inviteClubRole" placeholder="e.g. Secretary, Media Officer">
+            </div>
+
+            <button class="btn btn--primary" id="inviteBtn">Send invite</button>
           </div>
-          <div class="field" id="inviteClubRoleField" style="display:none">
-            <label>Role at club</label>
-            <input type="text" id="inviteClubRole" placeholder="e.g. Secretary, Media Officer">
+
+          <!-- Right: tool access preview (seeded from defaults, editable) -->
+          <div style="flex:1;min-width:300px;">
+            <div style="font-size:10px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;">
+              Tool access — edit before sending
+            </div>
+            <div id="inviteToolSliders">
+              <div style="font-size:13px;color:var(--text-muted);padding:16px 0;">
+                Select an org and role to see default access levels.
+              </div>
+            </div>
           </div>
-          <button class="btn btn--primary" id="inviteBtn">Send invite</button>
+
         </div>
       </div>
 
@@ -2558,6 +2660,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
   chevron.textContent = '\u25BC';
   header.appendChild(chevron);
 
+  /* Determine superuser status once at item level -- used in dept loop */
+  var isSuperUser = u.role === 'superadmin' || (uid === STATE.uid && STATE.isSuperAdmin);
+
   /* Body */
   var body = document.createElement('div');
   body.className = 'uacc-body';
@@ -2601,7 +2706,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       var hasAdmin      = currentLevel === 'admin';
       var isUnusualAdmin = hasAdmin && (u.role === 'staff' || u.role === 'club');
       var isNonDefault  = currentLevel !== defaultLevel;
-      var isSuperUser   = u.role === 'superadmin' || (uid === STATE.uid && STATE.isSuperAdmin);
+      /* isSuperUser declared at item level above */
 
       var row = document.createElement('div');
       row.className = 'uacc-tool-row';
@@ -2877,51 +2982,85 @@ function initInvClubPicker() {
     if (picker && !picker.contains(e.target)) dd.classList.remove('open');
   });
 }
-
 function initInviteForm() {
   initInvClubPicker();
-  document.getElementById('inviteRole').addEventListener('change', function() {
-    var isClub = this.value === 'club';
-    document.getElementById('inviteClubField').style.display     = isClub ? 'block' : 'none';
-    document.getElementById('inviteClubRoleField').style.display = isClub ? 'block' : 'none';
-    if (isClub) loadInvClubs();
+
+  document.querySelectorAll('.invite-org-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.invite-org-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var orgKey = btn.dataset.orgkey;
+      var org    = btn.dataset.org;
+      document.getElementById('inviteOrg').value    = org;
+      document.getElementById('inviteOrgKey').value = orgKey;
+      var isClub = orgKey === 'club';
+      document.getElementById('inviteRoleRow').style.display    = isClub ? 'none' : 'flex';
+      document.getElementById('inviteClubField').style.display    = isClub ? 'block' : 'none';
+      document.getElementById('inviteClubRoleField').style.display = isClub ? 'block' : 'none';
+      if (isClub) {
+        document.getElementById('inviteRole').value = 'club';
+        loadInvClubs();
+      } else {
+        var activeRole = document.querySelector('.invite-role-btn.active');
+        document.getElementById('inviteRole').value = activeRole ? activeRole.dataset.role : 'staff';
+      }
+      renderInviteToolSliders();
+    });
   });
+
+  document.querySelectorAll('.invite-role-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.invite-role-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('inviteRole').value = btn.dataset.role;
+      renderInviteToolSliders();
+    });
+  });
+
+  renderInviteToolSliders();
+
   document.getElementById('inviteBtn').addEventListener('click', function() {
     var email    = document.getElementById('inviteEmail').value.trim();
     var name     = document.getElementById('inviteName').value.trim();
     var role     = document.getElementById('inviteRole').value;
+    var org      = document.getElementById('inviteOrg').value;
+    var orgKey   = document.getElementById('inviteOrgKey').value;
     var club     = document.getElementById('inviteClub').value.trim();
     var clubRole = document.getElementById('inviteClubRole').value.trim();
+
     if (!email || !name) { showMsg('inviteMsg', 'Email and name are required.', 'error'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showMsg('inviteMsg', 'Please enter a valid email address.', 'error'); return;
-    }
+    if (role === 'club' && !club) { showMsg('inviteMsg', 'Please select a club.', 'error'); return; }
+
     setBtnLoading('inviteBtn', true);
+
+    var toolAccess = {};
+    document.querySelectorAll('#inviteToolSliders .acc-slider').forEach(function(slider) {
+      var toolKey = slider.dataset.toolkey;
+      if (!toolKey) return;
+      var stops = slider.querySelectorAll('.acc-slider__stop');
+      var idx = 0;
+      stops.forEach(function(s, i) {
+        if (s.classList.contains('acc-slider__stop--active')) idx = i;
+      });
+      toolAccess[toolKey] = ACC_LEVELS[idx] || 'hidden';
+    });
+
     var actionCodeSettings = { url: window.location.origin + LOGIN_URL, handleCodeInApp: true };
     auth.sendSignInLinkToEmail(email, actionCodeSettings)
       .then(function() {
-        /* Seed tool access from defaults */
-        var orgKey = role === 'club' ? 'club'
-                   : (document.getElementById('inviteOrgKey') ?
-                      document.getElementById('inviteOrgKey').value : 'nl');
-        var groupKey = role === 'club' ? 'club' : orgKey + '-' + role;
-        var toolAccess = {};
-        STATE.toolsList.forEach(function(t) {
-          if (t._key === 'welcome') return;
-          var defaultLevel = (t.defaults && t.defaults[groupKey]) || 'hidden';
-          toolAccess[t._key] = defaultLevel;
-        });
         return db.ref('users').push({
           name: name, email: email, role: role,
-          org: role === 'club' ? '' : 'National League',
-          orgKey: role === 'club' ? '' : 'nl',
+          org: org || '', orgKey: orgKey || '',
           club: club || '', clubRole: clubRole || '',
           pending: true, tools: toolAccess
         });
       })
       .then(function() {
         setBtnLoading('inviteBtn', false, 'Send invite');
-        writeAudit('invite_sent', 'Invited ' + name + ' as ' + role);
+        var auditDetail = role === 'club'
+          ? 'Invited ' + name + ' as ' + club + (clubRole ? ' (' + clubRole + ')' : '') + ' [Club]'
+          : 'Invited ' + name + ' as ' + org + ' (' + role.charAt(0).toUpperCase() + role.slice(1) + ')';
+        writeAudit('invite_sent', auditDetail);
         showMsg('inviteMsg', 'Invite sent to ' + email, 'success');
         document.getElementById('inviteEmail').value    = '';
         document.getElementById('inviteName').value     = '';
@@ -2936,6 +3075,84 @@ function initInviteForm() {
         showMsg('inviteMsg', 'Failed: ' + err.message, 'error');
       });
   });
+}
+
+function renderInviteToolSliders() {
+  var container = document.getElementById('inviteToolSliders');
+  if (!container) return;
+  container.innerHTML = '';
+  var orgKey   = document.getElementById('inviteOrgKey').value || 'nl';
+  var role     = document.getElementById('inviteRole').value    || 'staff';
+  var groupKey = role === 'club' ? 'club' : orgKey + '-' + role;
+  var tools    = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
+  var deptMap  = {};
+  tools.forEach(function(t) {
+    var d = t.department || 'General';
+    if (!deptMap[d]) deptMap[d] = [];
+    deptMap[d].push(t);
+  });
+  Object.keys(deptMap).sort().forEach(function(dept) {
+    var deptLabel = document.createElement('div');
+    deptLabel.className = 'invite-dept-label';
+    deptLabel.textContent = dept;
+    container.appendChild(deptLabel);
+    deptMap[dept].forEach(function(t) {
+      var defaultLevel = (t.defaults && t.defaults[groupKey]) || 'hidden';
+      var row = document.createElement('div');
+      row.className = 'invite-tool-row';
+      var nameEl = document.createElement('div');
+      nameEl.className = 'invite-tool-name';
+      nameEl.textContent = (t.icon ? t.icon + '  ' : '') + (t.label || t._key);
+      var slider = buildInviteSlider(t._key, defaultLevel);
+      row.appendChild(nameEl);
+      row.appendChild(slider);
+      container.appendChild(row);
+    });
+  });
+}
+
+function buildInviteSlider(toolKey, currentLevel) {
+  var wrap = document.createElement('div');
+  wrap.className = 'acc-slider';
+  wrap.dataset.toolkey = toolKey;
+  var currentIdx = ACC_LEVELS.indexOf(currentLevel);
+  if (currentIdx === -1) currentIdx = 0;
+  var track = document.createElement('div');
+  track.className = 'acc-slider__track';
+  var fill = document.createElement('div');
+  fill.className = 'acc-slider__track-fill';
+  track.appendChild(fill);
+  wrap.appendChild(track);
+  function updateFill(idx) {
+    var pct = idx <= 0 ? 0 : (idx / (ACC_LEVELS.length - 1)) * 100;
+    fill.style.width = pct + '%';
+  }
+  updateFill(currentIdx);
+  ACC_LEVELS.forEach(function(level, idx) {
+    var stop = document.createElement('div');
+    stop.className = 'acc-slider__stop';
+    if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
+    if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
+    var node = document.createElement('div');
+    node.className = 'acc-slider__node';
+    var label = document.createElement('div');
+    label.className = 'acc-slider__label';
+    label.textContent = ACC_LABELS[level];
+    stop.appendChild(node);
+    stop.appendChild(label);
+    stop.addEventListener('click', function(e) {
+      e.stopPropagation();
+      currentIdx = idx;
+      wrap.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
+        s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
+        if (si < idx)  s.classList.add('acc-slider__stop--filled');
+        if (si === idx) s.classList.add('acc-slider__stop--active');
+      });
+      updateFill(idx);
+    });
+    wrap.appendChild(stop);
+  });
+  return wrap;
 }
 
 function resendInvite(email, btn) {
