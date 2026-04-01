@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v2.7 (conversation turn 43)
+  Version: v2.8 (conversation turn 44)
   Date: 31/03/2026
   File: /tools/index.html
 
@@ -70,7 +70,7 @@ body {
   line-height: 1.5;
   font-variation-settings: 'wght' 400;
   color: var(--text);
-  background: var(--navy);
+  background: var(--primary);
   min-height: 100vh;
 }
 
@@ -858,94 +858,71 @@ function doSetPassword() {
   }
 
   setBtnLoading('setPwBtn', true);
-  showMsg('setpwMsg', 'Verifying your invite…', 'info');
+  showMsg('setpwMsg', 'Verifying invite…', 'info');
 
-  /* Validate token with retry -- GAS cold starts can take 15-20s */
-  fetchWithRetry(INVITE_GAS_URL + '?cb=' + Date.now(), {
-    method:  'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify({ action: 'validateInvite', token: INVITE_TOKEN, email: email })
-  }, 3, 5000)
-  .then(function(r) { return r.json(); })
-  .then(function(result) {
-    if (!result.ok) throw { message: result.error || 'Invite validation failed.' };
+  /* Step 1: read token directly from RTDB -- instant, no GAS cold start */
+  db.ref('invites/' + INVITE_TOKEN).once('value')
+    .then(function(snap) {
+      var invite = snap.val();
 
-    showMsg('setpwMsg', 'Creating your account…', 'info');
+      if (!invite)            throw { message: 'Invite not found. Please use the link from your invite email.' };
+      if (invite.used)        throw { message: 'This invite link has already been used.' };
+      if ((invite.email || '').toLowerCase() !== email.toLowerCase()) {
+        throw { message: 'Email does not match this invite. Please check and try again.' };
+      }
+      var now     = new Date();
+      var expires = new Date(invite.expiresAt);
+      if (now > expires)      throw { message: 'This invite link has expired. Please ask for a new invite.' };
 
-    return auth.createUserWithEmailAndPassword(email, pass)
-      .then(function(credential) {
-        var uid = credential.user.uid;
-        var userRecord = {
-          name:     result.name     || '',
-          email:    email,
-          role:     result.role     || 'staff',
-          org:      result.org      || '',
-          orgKey:   result.orgKey   || '',
-          club:     result.club     || '',
-          clubRole: result.clubRole || '',
-          pending:  false,
-          tools:    result.tools    || {}
-        };
-        return db.ref('users/' + uid).set(userRecord)
-          .then(function() { return credential; });
-      });
-  })
-  .then(function() {
-    window.location.replace(PORTAL_URL);
-  })
-  .catch(function(err) {
-    setBtnLoading('setPwBtn', false, 'Set password & sign in');
-    showMsg('setpwMsg', '', 'info');
+      showMsg('setpwMsg', 'Creating your account…', 'info');
 
-    if (err.code === 'auth/email-already-in-use') {
-      showMsg('setpwMsg', 'An account with this email already exists. Please sign in normally or use the forgot password link.', 'info');
-      return;
-    }
+      /* Step 2: create Firebase Auth account */
+      return auth.createUserWithEmailAndPassword(email, pass)
+        .then(function(credential) {
+          var uid = credential.user.uid;
 
-    var msg;
-    switch (err.code) {
-      case 'auth/weak-password':
-        msg = 'Password is too weak — please choose something stronger.';
-        break;
-      case 'auth/invalid-email':
-        msg = 'Invalid email address.';
-        break;
-      case 'auth/too-many-requests':
-        msg = 'Too many attempts. Please wait a few minutes and try again.';
-        break;
-      default:
-        msg = err.message || 'Could not complete sign-in. Please contact the National League if this persists.';
-    }
-    showMsg('setpwMsg', msg, 'error');
-  });
-}
+          /* Step 3: mark token used + create user record in one update */
+          var updates = {};
+          updates['invites/' + INVITE_TOKEN + '/used'] = true;
+          updates['users/' + uid + '/name']     = invite.name     || '';
+          updates['users/' + uid + '/email']    = email;
+          updates['users/' + uid + '/role']     = invite.role     || 'staff';
+          updates['users/' + uid + '/org']      = invite.org      || '';
+          updates['users/' + uid + '/orgKey']   = invite.orgKey   || '';
+          updates['users/' + uid + '/club']     = invite.club     || '';
+          updates['users/' + uid + '/clubRole'] = invite.clubRole || '';
+          updates['users/' + uid + '/pending']  = false;
+          updates['users/' + uid + '/tools']    = invite.tools    || {};
 
-/* Fetch with retry -- handles GAS cold start timeouts */
-function fetchWithRetry(url, options, retries, timeoutMs) {
-  return new Promise(function(resolve, reject) {
-    function attempt(n) {
-      var controller = new AbortController();
-      var timer = setTimeout(function() {
-        controller.abort();
-      }, timeoutMs);
-
-      fetch(url, Object.assign({}, options, { signal: controller.signal }))
-        .then(function(r) {
-          clearTimeout(timer);
-          resolve(r);
-        })
-        .catch(function(err) {
-          clearTimeout(timer);
-          if (n > 1) {
-            showMsg('setpwMsg', 'Still working… (attempt ' + (retries - n + 2) + ' of ' + retries + ')', 'info');
-            setTimeout(function() { attempt(n - 1); }, 1000);
-          } else {
-            reject(new Error('Could not reach the invite server after ' + retries + ' attempts. Please try again in a moment.'));
-          }
+          return db.ref().update(updates);
         });
-    }
-    attempt(retries);
-  });
+    })
+    .then(function() {
+      window.location.replace(PORTAL_URL);
+    })
+    .catch(function(err) {
+      setBtnLoading('setPwBtn', false, 'Set password & sign in');
+
+      if (err.code === 'auth/email-already-in-use') {
+        showMsg('setpwMsg', 'An account with this email already exists. Please sign in normally or use the forgot password link.', 'info');
+        return;
+      }
+      var msg;
+      switch (err.code) {
+        case 'auth/weak-password':
+          msg = 'Password is too weak — please choose something stronger.';
+          break;
+        case 'auth/invalid-email':
+          msg = 'Invalid email address.';
+          break;
+        case 'auth/too-many-requests':
+          msg = 'Too many attempts. Please wait a few minutes and try again.';
+          break;
+        default:
+          msg = err.message || 'Could not complete sign-in. Please contact the National League if this persists.';
+      }
+      showMsg('setpwMsg', msg, 'error');
+    });
 }
 
 function loadSuClubs() {
