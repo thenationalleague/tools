@@ -3,10 +3,13 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v1.8-noauth (conversation turn 65)
+  Version: v1.5 (conversation turn 67)
   Date: 01/04/2026
 
   Changelog:
+  v1.5 — New GAS URL. Modal image/video use Drive iframe (auth handled by Google).
+         Card thumbs still proxied via GAS.
+  v1.4 — Image thumbnails proxied through GAS to fix cross-origin auth blank.
   v1.3 — Updated GAS URL to Anyone access deployment.
   v1.2 — Updated GAS URL to new deployment.
   v1.1 — GAS URL set.
@@ -40,12 +43,15 @@
     appId:       '1:801354670005:web:05d8ebad3e7e63610d03fc'
   });
 
-  /* AUTH BYPASSED FOR TESTING */
-  document.addEventListener('DOMContentLoaded', function() {
+  var NL_TOOL_KEY = 'commercial-partnership-assets';
+  window.nlAuthReady = function(user, userData) {
+    window._nlUser     = user;
+    window._nlUserData = userData;
     document.getElementById('pageWrap').style.display = 'block';
     initBrowser();
-  });
+  };
 </script>
+<script src="/tools/auth-guard.js"></script>
 
 <style>
 @font-face {
@@ -607,7 +613,7 @@ body {
 
 <script>
 /* ---- Config ------------------------------------------------------------- */
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbxg_w4mw2e1OjROQBp4Uip4l0EAomBl7g2M6leWQbfX_rzSqAT2MUDJlZ25BIBi3OqpVg/exec';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbyzmIYw_-4wQJ4_7WL4UdiFbLDGygpu6uXtbmwtoKEpGvNw0UrFLJjfEN04TmE2ZVcBtg/exec';
 
 /* ---- State -------------------------------------------------------------- */
 var _tree          = [];       /* full tree from GAS */
@@ -625,26 +631,17 @@ function loadTree() {
   document.getElementById('treePanel').innerHTML = '<div class="loading">Loading…</div>';
   document.getElementById('fileGrid').innerHTML  = '<div class="loading">Loading…</div>';
 
-  document.getElementById('treePanel').innerHTML = '<div class="loading">Fetching from GAS…</div>';
   fetch(GAS_URL + '?action=getTree&cb=' + Date.now())
-    .then(function(r) {
-      document.getElementById('treePanel').innerHTML = '<div class="loading">Got response: ' + r.status + ' ' + r.url.substring(0,40) + '</div>';
-      return r.text();
-    })
-    .then(function(text) {
-      document.getElementById('fileGrid').innerHTML = '<div style="font-size:10px;word-break:break-all;padding:8px;">' + text.substring(0,300) + '</div>';
-      var data = JSON.parse(text);
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
       if (!data.ok) throw new Error(data.error || 'Failed to load');
       _tree = data.tree || [];
       renderTree(_tree);
       navigateTo(null, 'Partnership Assets', []);
     })
     .catch(function(err) {
-      var msg = 'GAS fetch failed: ' + err.message;
       document.getElementById('treePanel').innerHTML =
-        '<div class="loading" style="color:#9e0000;font-size:11px;word-break:break-all;">' + msg + '</div>';
-      document.getElementById('fileGrid').innerHTML =
-        '<div style="font-size:11px;color:#9e0000;word-break:break-all;">URL: ' + GAS_URL + '</div>';
+        '<div class="loading" style="color:#9e0000;">Failed to load: ' + err.message + '</div>';
     });
 }
 
@@ -827,7 +824,7 @@ function buildFileCard(file) {
 
   if (file.mimeType && file.mimeType.indexOf('image/') === 0) {
     var img = document.createElement('img');
-    img.src = 'https://drive.google.com/thumbnail?id=' + file.id + '&sz=w400';
+    img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now();
     img.alt = file.name;
     img.onerror = function() {
       this.onerror = null;
@@ -899,19 +896,14 @@ function openPreview(file) {
   var body = document.getElementById('modalBody');
   body.innerHTML = '';
 
-  if (file.mimeType && file.mimeType.indexOf('image/') === 0) {
-    var img = document.createElement('img');
-    img.className = 'modal__image';
-    img.src = 'https://drive.google.com/thumbnail?id=' + file.id + '&sz=w1200';
-    img.alt = file.name;
-    body.appendChild(img);
-  } else if (file.previewUrl) {
-    var iframe = document.createElement('iframe');
-    iframe.className = 'modal__iframe';
-    iframe.src = file.previewUrl;
-    iframe.allowFullscreen = true;
-    body.appendChild(iframe);
-  }
+  /* All previews use Drive's own iframe viewer -- Google handles auth internally */
+  var previewSrc = 'https://drive.google.com/file/d/' + file.id + '/preview';
+  var iframe = document.createElement('iframe');
+  iframe.className = 'modal__iframe';
+  iframe.src = previewSrc;
+  iframe.allow = 'autoplay';
+  iframe.allowFullscreen = true;
+  body.appendChild(iframe);
 
   /* Download link in footer */
   var dlLink = document.getElementById('modalDownload');
