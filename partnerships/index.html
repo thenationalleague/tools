@@ -3,10 +3,13 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v1.6 (conversation turn 68)
+  Version: v1.7 (conversation turn 69)
   Date: 01/04/2026
 
   Changelog:
+  v1.7 — Auth logic merged into Firebase init script block (portal pattern).
+         No separate auth-guard.js dependency. onAuthStateChanged registered
+         immediately after initializeApp in same block.
   v1.6 — Auth guard inlined, </script> escaped to prevent parser break.
   v1.5 — New GAS URL. Modal image/video use Drive iframe (auth handled by Google).
          Card thumbs still proxied via GAS.
@@ -36,24 +39,92 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
 <script>
-  firebase.initializeApp({
-    apiKey:      'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
-    authDomain:  'nl-tools.firebaseapp.com',
-    databaseURL: 'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
-    projectId:   'nl-tools',
-    appId:       '1:801354670005:web:05d8ebad3e7e63610d03fc'
-  });
+/* ---- Firebase init + auth in ONE block (same as portal pattern) --------- */
+var NL_TOOL_KEY = 'commercial-partnership-assets';
+var PORTAL_URL  = '/tools/portal/';
+var LOGIN_URL   = '/tools/';
 
-  var NL_TOOL_KEY = 'commercial-partnership-assets';
-  window.nlAuthReady = function(user, userData) {
-    window._nlUser     = user;
-    window._nlUserData = userData;
-    document.getElementById('pageWrap').style.display = 'block';
-    initBrowser();
-  };
+firebase.initializeApp({
+  apiKey:      'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:  'nl-tools.firebaseapp.com',
+  databaseURL: 'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:   'nl-tools',
+  appId:       '1:801354670005:web:05d8ebad3e7e63610d03fc'
+});
+
+var _auth = firebase.auth();
+var _db   = firebase.database();
+
+function _showPage(user, userData) {
+  window._nlUser     = user;
+  window._nlUserData = userData;
+  document.getElementById('pageWrap').style.display = 'block';
+  initBrowser();
+}
+
+function _checkAccess(user) {
+  Promise.all([
+    _db.ref('users/' + user.uid).once('value'),
+    _db.ref('tools/' + NL_TOOL_KEY).once('value')
+  ]).then(function(snaps) {
+    var userData = snaps[0].val();
+    var toolData = snaps[1].exists() ? snaps[1].val() : null;
+
+    if (!snaps[0].exists()) { window.location.replace(PORTAL_URL + '?guard=error'); return; }
+    if (userData.pending)   { window.location.replace(PORTAL_URL + '?guard=pending'); return; }
+
+    /* Superadmin bypass */
+    if (userData.role === 'superadmin') { _showPage(user, userData); return; }
+
+    var level = (userData.tools && userData.tools[NL_TOOL_KEY]) || 'hidden';
+    if (level === 'access' || level === 'admin') { _showPage(user, userData); }
+    else if (level === 'off') {
+      /* Show request card -- simplified inline version */
+      var o = document.getElementById('nlAuthOverlay');
+      if (o) {
+        o.innerHTML = '<div style="background:#fff;border-radius:12px;padding:40px 32px;max-width:400px;width:100%;text-align:center;">' +
+          '<div style="font-size:18px;font-weight:900;color:#1a2a44;margin-bottom:12px;">' + (toolData && toolData.label || 'This tool') + '<\/div>' +
+          '<div style="font-size:14px;color:#5a6a82;margin-bottom:24px;">You don't currently have access.<\/div>' +
+          '<button onclick="window.location.href=PORTAL_URL" style="padding:12px 24px;background:#9e0000;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">Back to portal<\/button>' +
+          '<\/div>';
+        o.style.padding = '20px';
+      }
+    } else {
+      window.location.replace(PORTAL_URL);
+    }
+  }).catch(function() { window.location.replace(PORTAL_URL + '?guard=error'); });
+}
+
+/* Spinner overlay */
+(function() {
+  var s = document.createElement('style');
+  s.textContent = '@keyframes nlSpin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(s);
+  var o = document.createElement('div');
+  o.id = 'nlAuthOverlay';
+  o.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#9e0000;display:flex;align-items:center;justify-content:center;';
+  var sp = document.createElement('div');
+  sp.style.cssText = 'width:36px;height:36px;border:3px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:nlSpin 0.7s linear infinite;';
+  o.appendChild(sp);
+  document.body ? document.body.appendChild(o) : document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(o); });
+})();
+
+function _removeOverlay() {
+  var o = document.getElementById('nlAuthOverlay');
+  if (o) o.parentNode.removeChild(o);
+}
+
+/* Auth -- same pattern as portal: register onAuthStateChanged immediately
+   after initializeApp in the same script block */
+_auth.onAuthStateChanged(function(user) {
+  if (!user) { window.location.replace(LOGIN_URL); return; }
+  _removeOverlay();
+  _checkAccess(user);
+});
 </script>
 <script>
-/* auth-guard v2.2 inlined */
+/* ---- DEAD CODE BLOCK -- auth guard no longer inlined separately --------- */
+/* auth-guard v2.2 inlined
 /*
  * auth-guard.js — NL Tools v2
  * Version: v2.2 (conversation turn 65)
