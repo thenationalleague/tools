@@ -1,11 +1,15 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v1.9 (conversation turn 18)
+  Version: v2.0 (conversation turn 19)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v2.0 -- Audit log tab: paginated 20-at-a-time chronological feed with
+         cursor-based Load More. Search by name/email/action reads full
+         per-user history from audit-by-user/{uid}. All meaningful actions
+         write to both audit/{ts} and audit-by-user/{uid}/{ts}.
   v1.9 -- Four-state access model (hidden/off/access/admin) throughout.
          Tool tiles: red top border for admin, navy for access.
          Superadmin bypass: all tools shown as admin, toggles greyed out.
@@ -935,6 +939,93 @@ body {
 }
 .invite-form input:focus,
 .invite-form select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.08); }
+
+/* -- Audit log ------------------------------------------------------------- */
+.audit-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.audit-controls input {
+  flex: 1;
+  min-width: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.audit-controls input:focus { border-color: var(--primary); }
+
+.audit-notice {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--amber-light);
+  border: 1px solid #f0cfa0;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+}
+
+.audit-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.audit-entry:last-child { border-bottom: none; }
+
+.audit-entry__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--off-white);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.audit-entry__body { flex: 1; min-width: 0; }
+.audit-entry__action {
+  font-size: 13px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.audit-entry__detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.audit-entry__time {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.audit-empty {
+  text-align: center;
+  padding: 32px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.audit-loading {
+  text-align: center;
+  padding: 24px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
 </style>
 </head>
 <body>
@@ -1035,6 +1126,7 @@ body {
         <button class="admin-tab active" data-pane="requests">Requests</button>
         <button class="admin-tab" data-pane="users">Users</button>
         <button class="admin-tab" data-pane="invite">Invite</button>
+        <button class="admin-tab" data-pane="audit">Audit Log</button>
       </div>
 
       <!-- Requests pane -->
@@ -1101,6 +1193,20 @@ body {
         </div>
       </div>
 
+
+      <!-- Audit log pane -->
+      <div class="admin-pane" id="pane-audit">
+        <div class="audit-controls">
+          <input type="text" id="auditSearch" placeholder="Search by name, email or action...">
+          <button class="btn btn--primary btn--sm" id="auditSearchBtn">Search</button>
+          <button class="btn btn--ghost btn--sm" id="auditClearBtn">Clear</button>
+        </div>
+        <div id="auditSearchNotice" class="audit-notice" style="display:none"></div>
+        <div id="auditList"></div>
+        <div id="auditLoadMore" style="display:none;text-align:center;padding:16px 0;">
+          <button class="btn btn--ghost btn--sm" id="auditLoadMoreBtn">Load 20 more</button>
+        </div>
+      </div>
     </div><!-- /admin-panel -->
 
   </div><!-- /page-body -->
@@ -1278,6 +1384,7 @@ auth.onAuthStateChanged(function(user) {
 
       loadTools().then(function() {
         initPortal();
+        writeAudit('signed_in', 'Portal loaded');
       });
     })
     .catch(function() {
@@ -1322,6 +1429,7 @@ function initPortal() {
   }
 
   document.getElementById('signOutBtn').addEventListener('click', function() {
+    writeAudit('signed_out', 'Signed out');
     auth.signOut().then(function() {
       window.location.replace(LOGIN_URL);
     });
@@ -1625,6 +1733,367 @@ function requestToolAccess(key, label, btn) {
 }
 
 /* ---- Admin tabs ---------------------------------------------------------- */
+/* ---- Audit log ----------------------------------------------------------- */
+
+var AUDIT_ACTION_ICONS = {
+  'signed_in':           '🔑',
+  'signed_out':          '🚪',
+  'invite_sent':         '✉️',
+  'request_approved':    '✅',
+  'request_declined':    '❌',
+  'access_changed':      '🔧',
+  'role_changed':        '👤',
+  'message_created':     '📝',
+  'message_edited':      '✏️',
+  'message_deleted':     '🗑️'
+};
+
+var AUDIT_STATE = {
+  mode:        'feed',    /* 'feed' or 'search' */
+  cursor:      null,      /* oldest timestamp seen, used for pagination */
+  searchUid:   null,
+  searchCursor: null,
+  exhausted:   false      /* no more entries to load */
+};
+
+/*
+ * writeAudit(action, detail)
+ * Writes to both audit/{ts} and audit-by-user/{actorUid}/{ts}.
+ * Never throws -- audit failures are silent.
+ */
+function writeAudit(action, detail) {
+  if (!STATE.uid) return;
+  var ts      = Date.now();
+  var entry   = {
+    action:    action,
+    detail:    detail  || '',
+    uid:       STATE.uid,
+    name:      (STATE.userData && STATE.userData.name)  || '',
+    email:     (STATE.userData && STATE.userData.email) || '',
+    at:        new Date(ts).toISOString()
+  };
+  var updates = {};
+  updates['audit/' + ts]                          = entry;
+  updates['audit-by-user/' + STATE.uid + '/' + ts] = entry;
+  db.ref().update(updates).catch(function() {});
+}
+
+/*
+ * writeAuditFor(targetUid, targetName, targetEmail, action, detail)
+ * Used when an admin acts ON another user -- logs under both the
+ * actor (STATE.uid) and the target user's index.
+ */
+function writeAuditFor(targetUid, targetName, targetEmail, action, detail) {
+  if (!STATE.uid) return;
+  var ts    = Date.now();
+  var entry = {
+    action:      action,
+    detail:      detail || '',
+    uid:         STATE.uid,
+    name:        (STATE.userData && STATE.userData.name)  || '',
+    email:       (STATE.userData && STATE.userData.email) || '',
+    targetUid:   targetUid   || '',
+    targetName:  targetName  || '',
+    targetEmail: targetEmail || '',
+    at:          new Date(ts).toISOString()
+  };
+  var updates = {};
+  updates['audit/' + ts]                               = entry;
+  updates['audit-by-user/' + STATE.uid + '/' + ts]     = entry;
+  if (targetUid && targetUid !== STATE.uid) {
+    updates['audit-by-user/' + targetUid + '/' + ts]   = entry;
+  }
+  db.ref().update(updates).catch(function() {});
+}
+
+/* ---- Audit display ------------------------------------------------------- */
+
+function initAuditPane() {
+  document.getElementById('auditSearchBtn').addEventListener('click', function() {
+    runAuditSearch();
+  });
+  document.getElementById('auditSearch').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') runAuditSearch();
+  });
+  document.getElementById('auditClearBtn').addEventListener('click', function() {
+    document.getElementById('auditSearch').value = '';
+    document.getElementById('auditSearchNotice').style.display = 'none';
+    AUDIT_STATE.mode        = 'feed';
+    AUDIT_STATE.cursor      = null;
+    AUDIT_STATE.searchUid   = null;
+    AUDIT_STATE.searchCursor = null;
+    AUDIT_STATE.exhausted   = false;
+    document.getElementById('auditList').innerHTML = '';
+    loadAuditFeed(true);
+  });
+  document.getElementById('auditLoadMoreBtn').addEventListener('click', function() {
+    if (AUDIT_STATE.mode === 'search') {
+      loadAuditForUser(AUDIT_STATE.searchUid, false);
+    } else {
+      loadAuditFeed(false);
+    }
+  });
+}
+
+function loadAuditFeed(fresh) {
+  if (fresh) {
+    AUDIT_STATE.cursor    = null;
+    AUDIT_STATE.exhausted = false;
+    document.getElementById('auditList').innerHTML =
+      '<div class="audit-loading">Loading...<\/div>';
+  }
+
+  var query = db.ref('audit').orderByKey().limitToLast(21);
+  if (AUDIT_STATE.cursor) {
+    query = db.ref('audit').orderByKey().endBefore(String(AUDIT_STATE.cursor)).limitToLast(21);
+  }
+
+  query.once('value').then(function(snap) {
+    var entries = [];
+    snap.forEach(function(child) {
+      var e = child.val();
+      e._ts = child.key;
+      entries.push(e);
+    });
+
+    /* 21 fetched -- if we got 21 there are more; show 20, keep 21st as cursor signal */
+    var hasMore = entries.length === 21;
+    if (hasMore) entries = entries.slice(0, 20);
+
+    /* Reverse so newest first */
+    entries.reverse();
+
+    if (fresh) document.getElementById('auditList').innerHTML = '';
+
+    if (fresh && entries.length === 0) {
+      document.getElementById('auditList').innerHTML =
+        '<div class="audit-empty">No audit entries yet.<\/div>';
+      document.getElementById('auditLoadMore').style.display = 'none';
+      return;
+    }
+
+    appendAuditEntries(entries);
+
+    /* Cursor = oldest entry shown */
+    if (entries.length > 0) {
+      AUDIT_STATE.cursor = entries[entries.length - 1]._ts;
+    }
+
+    AUDIT_STATE.exhausted = !hasMore;
+    document.getElementById('auditLoadMore').style.display =
+      hasMore ? 'block' : 'none';
+  }).catch(function() {
+    document.getElementById('auditList').innerHTML =
+      '<div class="audit-empty">Could not load audit log.<\/div>';
+  });
+}
+
+function runAuditSearch() {
+  var q = document.getElementById('auditSearch').value.trim().toLowerCase();
+  if (!q) return;
+
+  /* Find matching user(s) in loaded users */
+  var matchedUids = Object.keys(STATE.allUsers).filter(function(uid) {
+    var u = STATE.allUsers[uid];
+    return (u.name  || '').toLowerCase().indexOf(q) !== -1 ||
+           (u.email || '').toLowerCase().indexOf(q) !== -1;
+  });
+
+  /* Also match the current superadmin themselves */
+  if (STATE.userData) {
+    var selfMatch =
+      (STATE.userData.name  || '').toLowerCase().indexOf(q) !== -1 ||
+      (STATE.userData.email || '').toLowerCase().indexOf(q) !== -1;
+    if (selfMatch && matchedUids.indexOf(STATE.uid) === -1) {
+      matchedUids.push(STATE.uid);
+    }
+  }
+
+  if (matchedUids.length === 0) {
+    /* No user match -- search action/detail in feed */
+    AUDIT_STATE.mode      = 'action-search';
+    AUDIT_STATE.cursor    = null;
+    AUDIT_STATE.exhausted = false;
+    document.getElementById('auditList').innerHTML =
+      '<div class="audit-loading">Searching...<\/div>';
+    loadAuditActionSearch(q, true);
+    return;
+  }
+
+  /* For now use first match -- could extend to multi-user results */
+  var uid      = matchedUids[0];
+  var userData = STATE.allUsers[uid] || STATE.userData;
+  var notice   = document.getElementById('auditSearchNotice');
+  notice.textContent = 'Showing full history for ' +
+    (userData.name || userData.email || uid) +
+    '. This reads their complete audit trail.';
+  notice.style.display = 'block';
+
+  AUDIT_STATE.mode         = 'search';
+  AUDIT_STATE.searchUid    = uid;
+  AUDIT_STATE.searchCursor = null;
+  AUDIT_STATE.exhausted    = false;
+  document.getElementById('auditList').innerHTML =
+    '<div class="audit-loading">Loading history...<\/div>';
+  loadAuditForUser(uid, true);
+}
+
+function loadAuditForUser(uid, fresh) {
+  if (fresh) {
+    AUDIT_STATE.searchCursor = null;
+    AUDIT_STATE.exhausted    = false;
+  }
+
+  var query = db.ref('audit-by-user/' + uid).orderByKey().limitToLast(21);
+  if (AUDIT_STATE.searchCursor) {
+    query = db.ref('audit-by-user/' + uid)
+      .orderByKey()
+      .endBefore(String(AUDIT_STATE.searchCursor))
+      .limitToLast(21);
+  }
+
+  query.once('value').then(function(snap) {
+    var entries = [];
+    snap.forEach(function(child) {
+      var e = child.val();
+      e._ts = child.key;
+      entries.push(e);
+    });
+
+    var hasMore = entries.length === 21;
+    if (hasMore) entries = entries.slice(0, 20);
+    entries.reverse();
+
+    if (fresh) document.getElementById('auditList').innerHTML = '';
+
+    if (fresh && entries.length === 0) {
+      document.getElementById('auditList').innerHTML =
+        '<div class="audit-empty">No audit history for this user.<\/div>';
+      document.getElementById('auditLoadMore').style.display = 'none';
+      return;
+    }
+
+    appendAuditEntries(entries);
+
+    if (entries.length > 0) {
+      AUDIT_STATE.searchCursor = entries[entries.length - 1]._ts;
+    }
+
+    AUDIT_STATE.exhausted = !hasMore;
+    document.getElementById('auditLoadMore').style.display =
+      hasMore ? 'block' : 'none';
+  }).catch(function() {
+    document.getElementById('auditList').innerHTML =
+      '<div class="audit-empty">Could not load user history.<\/div>';
+  });
+}
+
+function loadAuditActionSearch(q, fresh) {
+  /* Read last 500 entries and filter by action/detail client-side */
+  db.ref('audit').orderByKey().limitToLast(500).once('value').then(function(snap) {
+    var entries = [];
+    snap.forEach(function(child) {
+      var e = child.val();
+      e._ts = child.key;
+      var searchable = [e.action, e.detail, e.name, e.email,
+                        e.targetName, e.targetEmail].join(' ').toLowerCase();
+      if (searchable.indexOf(q) !== -1) entries.push(e);
+    });
+    entries.reverse();
+
+    document.getElementById('auditList').innerHTML = '';
+    if (entries.length === 0) {
+      document.getElementById('auditList').innerHTML =
+        '<div class="audit-empty">No entries matching "' + esc(q) + '".<\/div>';
+      document.getElementById('auditLoadMore').style.display = 'none';
+      return;
+    }
+
+    appendAuditEntries(entries);
+    document.getElementById('auditLoadMore').style.display = 'none';
+    var notice = document.getElementById('auditSearchNotice');
+    notice.textContent = entries.length + ' entries matching "' + q +
+      '" in last 500 actions.';
+    notice.style.display = 'block';
+  });
+}
+
+function appendAuditEntries(entries) {
+  var list = document.getElementById('auditList');
+  /* Remove loading placeholder if present */
+  var loading = list.querySelector('.audit-loading');
+  if (loading) list.removeChild(loading);
+
+  entries.forEach(function(e) {
+    var row = document.createElement('div');
+    row.className = 'audit-entry';
+
+    var icon = document.createElement('div');
+    icon.className = 'audit-entry__icon';
+    icon.textContent = AUDIT_ACTION_ICONS[e.action] || '📋';
+
+    var body = document.createElement('div');
+    body.className = 'audit-entry__body';
+
+    var action = document.createElement('div');
+    action.className = 'audit-entry__action';
+    action.textContent = formatAuditAction(e);
+
+    var detail = document.createElement('div');
+    detail.className = 'audit-entry__detail';
+    var detailParts = [];
+    if (e.name || e.email) detailParts.push(e.name || e.email);
+    if (e.targetName || e.targetEmail) {
+      detailParts.push('→ ' + (e.targetName || e.targetEmail));
+    }
+    if (e.detail) detailParts.push(e.detail);
+    detail.textContent = detailParts.join('  —  ');
+
+    body.appendChild(action);
+    body.appendChild(detail);
+
+    var time = document.createElement('div');
+    time.className = 'audit-entry__time';
+    time.textContent = formatAuditTime(e.at || e._ts);
+    time.title = e.at || '';
+
+    row.appendChild(icon);
+    row.appendChild(body);
+    row.appendChild(time);
+    list.appendChild(row);
+  });
+}
+
+function formatAuditAction(e) {
+  var labels = {
+    'signed_in':        'Signed in',
+    'signed_out':       'Signed out',
+    'invite_sent':      'Invite sent',
+    'request_approved': 'Request approved',
+    'request_declined': 'Request declined',
+    'access_changed':   'Access changed',
+    'role_changed':     'Role changed',
+    'message_created':  'Message created',
+    'message_edited':   'Message edited',
+    'message_deleted':  'Message deleted'
+  };
+  return labels[e.action] || e.action || 'Unknown action';
+}
+
+function formatAuditTime(val) {
+  if (!val) return '';
+  var d = isNaN(val) ? new Date(val) : new Date(parseInt(val));
+  if (isNaN(d.getTime())) return val;
+  var now  = new Date();
+  var diff = now - d;
+  if (diff < 60000)    return 'Just now';
+  if (diff < 3600000)  return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  if (diff < 604800000) return Math.floor(diff / 86400000) + 'd ago';
+  return d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) +
+    ' ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+
 function initAdminTabs() {
   document.querySelectorAll('.admin-tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
@@ -1632,6 +2101,11 @@ function initAdminTabs() {
       document.querySelectorAll('.admin-pane').forEach(function(p) { p.classList.remove('active'); });
       tab.classList.add('active');
       document.getElementById('pane-' + tab.dataset.pane).classList.add('active');
+      /* Lazy load audit feed on first open */
+      if (tab.dataset.pane === 'audit' && !tab.dataset.loaded) {
+        tab.dataset.loaded = '1';
+        loadAuditFeed(true);
+      }
     });
   });
 }
@@ -1745,6 +2219,8 @@ function approveRequest(r, btn) {
   document.getElementById('pane-invite').classList.add('active');
 
   /* Mark request as approved in RTDB */
+  writeAudit('request_approved', 'Approved request from ' + (r.name || r.email || '') +
+    (r.club ? ' (' + r.club + ')' : ''));
   db.ref('requests/' + r._key + '/status').set('approved')
     .then(function() { loadRequests(); })
     .catch(function() {});
@@ -1753,6 +2229,7 @@ function approveRequest(r, btn) {
 function rejectRequest(key, btn) {
   btn.disabled = true;
   btn.textContent = 'Declining…';
+  writeAudit('request_declined', 'Declined request ' + key);
   db.ref('requests/' + key + '/status').set('rejected')
     .then(function() {
       showToast('Request declined', 'success');
@@ -2092,7 +2569,8 @@ function buildAccToggle(uid, toolKey, field, checked, warn, locked) {
   if (!locked) {
     input.addEventListener('change', function() {
       /* Derive new string level from both toggle states */
-      var row      = wrap.closest('.uacc-tool-row');
+      var prevLevel = getAccessLevel(uid, toolKey);
+      var row       = wrap.closest('.uacc-tool-row');
       var accInput = row ? row.querySelector('[data-field="access"]') : null;
       var admInput = row ? row.querySelector('[data-field="admin"]')  : null;
       var newLevel = admInput && admInput.checked ? 'admin'
@@ -2103,6 +2581,10 @@ function buildAccToggle(uid, toolKey, field, checked, warn, locked) {
         input.checked = true;
         return;
       }
+      var targetUser = STATE.allUsers[uid] || {};
+      writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
+        'access_changed',
+        toolKey + ': ' + (prevLevel || '?') + ' -> ' + newLevel);
       db.ref('users/' + uid + '/tools/' + toolKey).set(newLevel)
         .then(function() { showToast('Access updated to ' + newLevel, 'success'); })
         .catch(function() { input.checked = !input.checked; showToast('Failed to update', 'error'); });
@@ -2263,6 +2745,7 @@ function initInviteForm() {
       })
       .then(function() {
         setBtnLoading('inviteBtn', false, 'Send invite');
+        writeAudit('invite_sent', 'Invited ' + name + ' <' + email + '> as ' + role);
         showMsg('inviteMsg', 'Invite sent to ' + email, 'success');
         /* Clear form */
         document.getElementById('inviteEmail').value    = '';
@@ -2434,6 +2917,7 @@ function saveWmMessage() {
     setBtnLoading('wmSaveBtn', false, 'Save message');
     clearWmEditor();
     document.getElementById('wmInlineEditor').style.display = 'none';
+    writeAudit(key ? 'message_edited' : 'message_created', title);
     showToast('Message saved', 'success');
     loadWmList();
     loadWelcomeMessages(); /* Refresh carousel */
