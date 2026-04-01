@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v3.1 (conversation turn 32)
+  Version: v3.2 (conversation turn 33)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1559,6 +1559,7 @@ var auth = firebase.auth();
 var db   = firebase.database();
 
 /* ---- Constants ----------------------------------------------------------- */
+var INVITE_GAS_URL = 'https://script.google.com/macros/s/AKfycbwwYkS6t5Tofjtj6ELXlKLCDh7S09w9_EwyCpG6z10FKaWPTcxW2ohy0LMwxqkb5Js9hg/exec';
 var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
 var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
 var LOGIN_URL      = '/tools/';
@@ -3347,25 +3348,39 @@ function initInviteForm() {
       toolAccess[toolKey] = ACC_LEVELS[idx] || 'hidden';
     });
 
-    var actionCodeSettings = {
-      url: window.location.origin + LOGIN_URL + '?email=' + encodeURIComponent(email),
-      handleCodeInApp: true
-    };
-    auth.sendSignInLinkToEmail(email, actionCodeSettings)
-      .then(function() {
-        return db.ref('users').push({
-          name: name, email: email, role: role,
-          org: org || '', orgKey: orgKey || '',
-          club: club || '', clubRole: clubRole || '',
-          pending: true, tools: toolAccess
-        });
-      })
-      .then(function() {
-        setBtnLoading('inviteBtn', false, 'Send invite');
+    /* Create user record in RTDB first, then send invite via GAS */
+    db.ref('users').push({
+      name: name, email: email, role: role,
+      org: org || '', orgKey: orgKey || '',
+      club: club || '', clubRole: clubRole || '',
+      pending: true, tools: toolAccess
+    })
+    .then(function() {
+      /* Call GAS script -- generates Firebase link and sends branded email */
+      return fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify({
+          action:   'sendInvite',
+          email:    email,
+          name:     name,
+          role:     role,
+          org:      org      || '',
+          club:     club     || '',
+          clubRole: clubRole || ''
+        })
+      }).then(function(r) { return r.json(); });
+    })
+    .then(function(result) {
+      setBtnLoading('inviteBtn', false, 'Send invite');
+      if (result && result.ok === false) {
+        showMsg('inviteMsg', 'User created but email failed: ' + (result.error || 'unknown error'), 'info');
+      } else {
         var auditDetail = role === 'club'
           ? 'Invited ' + name + ' as ' + club + (clubRole ? ' (' + clubRole + ')' : '') + ' [Club]'
           : 'Invited ' + name + ' as ' + org + ' (' + role.charAt(0).toUpperCase() + role.slice(1) + ')';
         writeAudit('invite_sent', auditDetail);
+        showToast('Invite sent to ' + email, 'success');
         showMsg('inviteMsg', 'Invite sent to ' + email, 'success');
         document.getElementById('inviteEmail').value    = '';
         document.getElementById('inviteName').value     = '';
@@ -3374,11 +3389,12 @@ function initInviteForm() {
         if (document.getElementById('invClubInput'))
           document.getElementById('invClubInput').value = '';
         loadUsers();
-      })
-      .catch(function(err) {
-        setBtnLoading('inviteBtn', false, 'Send invite');
-        showMsg('inviteMsg', 'Failed: ' + err.message, 'error');
-      });
+      }
+    })
+    .catch(function(err) {
+      setBtnLoading('inviteBtn', false, 'Send invite');
+      showMsg('inviteMsg', 'Failed: ' + err.message, 'error');
+    });
   });
 }
 
@@ -3464,20 +3480,27 @@ function resendInvite(email, btn) {
   if (!email) return;
   btn.textContent = 'Sending...';
   btn.disabled = true;
-  var actionCodeSettings = {
-    url: window.location.origin + LOGIN_URL + '?email=' + encodeURIComponent(email),
-    handleCodeInApp: true
-  };
-  auth.sendSignInLinkToEmail(email, actionCodeSettings)
-    .then(function() {
+  fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body:    JSON.stringify({ action: 'sendInvite', email: email, name: '', role: '', org: '', club: '', clubRole: '' })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(result) {
+    if (result && result.ok === false) {
+      showToast('Failed to resend: ' + (result.error || 'unknown'), 'error');
+      btn.disabled    = false;
+      btn.textContent = 'Resend invite';
+    } else {
       showToast('Invite resent to ' + email, 'success');
       btn.textContent = 'Sent';
-    })
-    .catch(function() {
-      showToast('Failed to resend invite', 'error');
-      btn.disabled = false;
-      btn.textContent = 'Resend invite';
-    });
+    }
+  })
+  .catch(function() {
+    showToast('Failed to resend invite', 'error');
+    btn.disabled    = false;
+    btn.textContent = 'Resend invite';
+  });
 }
 
 function initWelcomeEditor() {
