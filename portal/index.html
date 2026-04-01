@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.3 (conversation turn 55)
+  Version: v5.3 (conversation turn 70)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -704,12 +704,11 @@ body {
 
 /* Org crest */
 .uacc-crest {
-  width: 42px; height: 42px;
+  width: 36px; height: 36px;
   object-fit: contain;
   border-radius: 50%;
   background: var(--off-white);
-  border: 1px solid var(--border);
-  padding: 5px;
+  padding: 3px;
   flex-shrink: 0;
 }
 
@@ -1146,7 +1145,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 4px 14px;
+  padding: 4px 0;
   min-height: 36px;
 }
 /* The slider inside the band needs its right edge to match tool sliders */
@@ -2113,6 +2112,22 @@ function buildToolTile(key, t, level) {
     });
   } else {
     tile.href = t.url;
+    tile.addEventListener('click', function(e) {
+      e.preventDefault();
+      /* Append Firebase ID token so tool page can auth without
+         onAuthStateChanged timing issues on GitHub Pages */
+      var auth = firebase.auth();
+      var user = auth.currentUser;
+      if (user) {
+        user.getIdToken(false).then(function(token) {
+          window.location.href = t.url + '?t=' + encodeURIComponent(token);
+        }).catch(function() {
+          window.location.href = t.url;
+        });
+      } else {
+        window.location.href = t.url;
+      }
+    });
   }
 
   var icon = document.createElement('div');
@@ -2943,6 +2958,12 @@ function buildAccordionItem(uid, u, depts, deptMap) {
   context.className = 'uacc-pill-stack__context';
 
   if (isClubUser && u.club) {
+    var clubCrest = document.createElement('img');
+    clubCrest.className = 'uacc-pill-stack__crest';
+    clubCrest.src = CREST_BASE + encodeURIComponent(u.club) + '.png';
+    clubCrest.alt = u.club;
+    clubCrest.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+    context.appendChild(clubCrest);
     var clubText = document.createElement('span');
     clubText.textContent = u.club + (u.clubRole ? '  ·  ' + u.clubRole : '');
     context.appendChild(clubText);
@@ -2972,6 +2993,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var deptTools = deptMap[dept];
     if (!deptTools || !deptTools.length) return;
 
+    /* Hide Staff dept for club users -- not relevant to them */
+    if (u.role === 'club' && dept === 'staff') return;
+
     /* deptWrap MUST be declared before buildSetAllSlider so the closure captures it */
     var deptWrap = document.createElement('div');
     deptWrap.className = 'uacc-dept-wrap';
@@ -2989,8 +3013,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var deptBand = document.createElement('div');
     deptBand.className = 'uacc-dept-band';
     deptBand.dataset.dept = dept;
-    /* Hide set-all for club users viewing staff dept -- all locked at hidden */
-    if (!isSuperUser && !(u.role === 'club' && dept === 'staff')) {
+    if (!isSuperUser) {
       deptBand.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
     }
 
@@ -3003,15 +3026,10 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       var defaultLevel  = getDefaultLevel(t._key, u);
       /* isSuperUser declared at item level above */
       var isClubUser    = u.role === 'club';
-      var isStaffDept   = dept === 'staff';
-      /* Club users: admin locked on all tools. Staff dept tools also fully
-         locked at hidden -- shown for transparency but not settable. */
-      var isClubLocked  = isClubUser;
-      var isFullyLocked = isClubUser && isStaffDept;
+      var isClubLocked  = isClubUser; /* Club users cannot have admin on any tool */
 
-      /* Cap display level for club users */
-      if (isFullyLocked) currentLevel = 'hidden';
-      else if (isClubUser && currentLevel === 'admin') currentLevel = 'access';
+      /* If club user is somehow set to admin, cap display at access */
+      if (isClubUser && currentLevel === 'admin') currentLevel = 'access';
 
       var row = document.createElement('div');
       row.className = 'uacc-tool-row';
@@ -3024,7 +3042,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       toolName.appendChild(iconSpan);
       toolName.appendChild(document.createTextNode(t.label || t._key));
 
-      var sliderEl = buildAccSlider(uid, t._key, currentLevel, defaultLevel, isSuperUser || isFullyLocked, isClubLocked, dept, body);
+      var sliderEl = buildAccSlider(uid, t._key, currentLevel, defaultLevel, isSuperUser, isClubLocked, dept, body);
 
       row.appendChild(toolName);
       row.appendChild(sliderEl);
@@ -3292,8 +3310,8 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
       node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
     }
 
-    /* Default ring -- only show when NOT at default position */
-    var isDefault = (idx === defaultIdx && !locked && !isPadlocked && defaultIdx !== currentIdx);
+    /* Default ring -- CSS class on stop, no badge element needed */
+    var isDefault = (idx === defaultIdx && !locked && !isPadlocked);
     if (isDefault) stop.classList.add('acc-slider__stop--default');
 
 
