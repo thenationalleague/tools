@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v1.4 (conversation turn 61)
+  Version: v1.5 (conversation turn 62)
   Date: 01/04/2026
 
   Changelog:
@@ -628,9 +628,15 @@ function loadTree() {
   document.getElementById('treePanel').innerHTML = '<div class="loading">Loading…</div>';
   document.getElementById('fileGrid').innerHTML  = '<div class="loading">Loading…</div>';
 
+  document.getElementById('treePanel').innerHTML = '<div class="loading">Fetching from GAS…</div>';
   fetch(GAS_URL + '?action=getTree&cb=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function(r) {
+      document.getElementById('treePanel').innerHTML = '<div class="loading">Got response: ' + r.status + ' ' + r.url.substring(0,40) + '</div>';
+      return r.text();
+    })
+    .then(function(text) {
+      document.getElementById('fileGrid').innerHTML = '<div style="font-size:10px;word-break:break-all;padding:8px;">' + text.substring(0,300) + '</div>';
+      var data = JSON.parse(text);
       if (!data.ok) throw new Error(data.error || 'Failed to load');
       _tree = data.tree || [];
       renderTree(_tree);
