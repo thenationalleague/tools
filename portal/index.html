@@ -1095,19 +1095,13 @@ body {
 .acc-slider__stop--active .acc-slider__label { color: var(--primary); }
 .acc-slider__stop--filled .acc-slider__label { color: var(--primary); }
 
-/* Default indicator -- bold navy badge below the label at the default stop */
-.acc-slider__default-badge {
-  font-size: 7px;
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--white);
-  background: var(--navy);
-  border-radius: 3px;
-  padding: 1px 4px;
-  margin-top: 2px;
-  white-space: nowrap;
+/* Default indicator -- navy outer ring on the default stop node */
+.acc-slider__stop--default .acc-slider__node {
+  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--navy);
+}
+.acc-slider__stop--active.acc-slider__stop--default .acc-slider__node,
+.acc-slider__stop--filled.acc-slider__stop--default .acc-slider__node {
+  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--navy);
 }
 
 /* Locked (superadmin) */
@@ -1352,8 +1346,8 @@ body {
 .inline-role-picker {
   display: none;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 10px;
+  padding: 14px;
   background: var(--off-white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1361,20 +1355,23 @@ body {
   width: 100%;
 }
 .inline-role-picker.open { display: flex; }
-.inline-role-picker__row {
+.inline-role-picker__section {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
 }
-.inline-role-picker__label {
+.inline-role-picker__section-label {
   font-size: 9px;
   font-weight: 800;
   font-variation-settings: 'wght' 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
-  min-width: 40px;
+}
+.inline-role-picker__btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 /* -- Toast notifications --------------------------------------------------- */
@@ -1598,7 +1595,7 @@ body {
 
             <!-- Org / role picker -->
             <div class="field">
-              <label>Organisation &amp; role</label>
+              <label>Organisation</label>
               <div id="inviteOrgPicker" style="display:flex;flex-direction:column;gap:6px;">
 
                 <!-- Org buttons -->
@@ -3093,13 +3090,16 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var rolePicker = document.createElement('div');
     rolePicker.className = 'inline-role-picker';
 
-    /* Org row */
+    /* Org section -- label above, buttons below (matches invite form) */
     var orgRow = document.createElement('div');
-    orgRow.className = 'inline-role-picker__row';
-    var orgLbl = document.createElement('span');
-    orgLbl.className = 'inline-role-picker__label';
-    orgLbl.textContent = 'Org';
+    orgRow.className = 'inline-role-picker__section';
+    var orgLbl = document.createElement('div');
+    orgLbl.className = 'inline-role-picker__section-label';
+    orgLbl.textContent = 'Organisation';
     orgRow.appendChild(orgLbl);
+    var orgBtns = document.createElement('div');
+    orgBtns.className = 'inline-role-picker__btns';
+    orgRow.appendChild(orgBtns);
 
     var selectedOrg    = u.org    || 'National League';
     var selectedOrgKey = u.orgKey || 'nl';
@@ -3126,18 +3126,21 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         clubPickerRow.style.display = org.key === 'club' ? 'flex' : 'none';
         if (org.key !== 'club') selectedRole = 'staff';
       });
-      orgRow.appendChild(btn);
+      orgBtns.appendChild(btn);
     });
     rolePicker.appendChild(orgRow);
 
-    /* Role row */
+    /* Role section */
     var roleRow = document.createElement('div');
-    roleRow.className = 'inline-role-picker__row';
+    roleRow.className = 'inline-role-picker__section';
     roleRow.style.display = u.role === 'club' ? 'none' : 'flex';
-    var roleLbl = document.createElement('span');
-    roleLbl.className = 'inline-role-picker__label';
+    var roleLbl = document.createElement('div');
+    roleLbl.className = 'inline-role-picker__section-label';
     roleLbl.textContent = 'Role';
     roleRow.appendChild(roleLbl);
+    var roleBtns = document.createElement('div');
+    roleBtns.className = 'inline-role-picker__btns';
+    roleRow.appendChild(roleBtns);
     ['staff', 'admin'].forEach(function(r) {
       var rbtn = document.createElement('button');
       rbtn.type = 'button';
@@ -3148,22 +3151,22 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         rbtn.classList.add('active');
         selectedRole = r;
       });
-      roleRow.appendChild(rbtn);
+      roleBtns.appendChild(rbtn);
     });
     rolePicker.appendChild(roleRow);
 
-    /* Club picker row */
+    /* Club section */
     var clubPickerRow = document.createElement('div');
-    clubPickerRow.className = 'inline-role-picker__row';
+    clubPickerRow.className = 'inline-role-picker__section';
     clubPickerRow.style.display = u.role === 'club' ? 'flex' : 'none';
-    var clubLbl = document.createElement('span');
-    clubLbl.className = 'inline-role-picker__label';
+    var clubLbl = document.createElement('div');
+    clubLbl.className = 'inline-role-picker__section-label';
     clubLbl.textContent = 'Club';
     var clubInput = document.createElement('input');
     clubInput.type = 'text';
     clubInput.value = u.club || '';
     clubInput.placeholder = 'Club name';
-    clubInput.style.cssText = 'flex:1;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);';
+    clubInput.style.cssText = 'font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);width:100%;';
     clubPickerRow.appendChild(clubLbl);
     clubPickerRow.appendChild(clubInput);
     rolePicker.appendChild(clubPickerRow);
@@ -3173,7 +3176,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     applyRow.className = 'inline-role-picker__row';
     var applyBtn = document.createElement('button');
     applyBtn.type = 'button';
-    applyBtn.className = 'btn btn--navy btn--sm';
+    applyBtn.className = 'btn btn--primary btn--sm';
     applyBtn.textContent = 'Apply';
     applyBtn.addEventListener('click', function() {
       var newRole   = selectedOrgKey === 'club' ? 'club' : selectedRole;
@@ -3282,6 +3285,7 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
       if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
       if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
     }
+    if (isDefault) stop.classList.add('acc-slider__stop--default');
 
     var node = document.createElement('div');
     node.className = 'acc-slider__node';
@@ -3290,13 +3294,10 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
       node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
     }
 
-    /* Default badge */
-    var dfltBadge = null;
-    if (idx === defaultIdx && !locked && !isPadlocked) {
-      dfltBadge = document.createElement('div');
-      dfltBadge.className = 'acc-slider__default-badge';
-      dfltBadge.textContent = 'default';
-    }
+    /* Default ring -- CSS class on stop, no badge element needed */
+    var isDefault = (idx === defaultIdx && !locked && !isPadlocked);
+    if (isDefault) stop.classList.add('acc-slider__stop--default');
+
 
     var label = document.createElement('div');
     label.className = 'acc-slider__label';
@@ -3305,7 +3306,6 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
 
     stop.appendChild(node);
     stop.appendChild(label);
-    if (dfltBadge) stop.appendChild(dfltBadge);
 
     if (!locked && !isPadlocked) {
       stop.addEventListener('click', function(e) {
