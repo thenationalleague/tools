@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v2.0 (conversation turn 19)
+  Version: v2.1 (conversation turn 20)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1026,6 +1026,24 @@ body {
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* -- Role pills ------------------------------------------------------------ */
+.user-role-pill {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.role-superadmin { background: #f0e6ff; color: #6b21a8; }
+.role-admin      { background: #eef2ff; color: var(--navy); }
+.role-staff      { background: var(--green-light); color: var(--green); }
+.role-club       { background: var(--amber-light); color: var(--amber); }
+.role-pending    { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -2434,7 +2452,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       var hasAdmin      = currentLevel === 'admin';
       var isUnusualAdmin = hasAdmin && (u.role === 'staff' || u.role === 'club');
       var isNonDefault  = currentLevel !== defaultLevel;
-      var isSuperUser   = u.role === 'superadmin';
+      var isSuperUser   = u.role === 'superadmin' || (uid === STATE.uid && STATE.isSuperAdmin);
 
       var row = document.createElement('div');
       row.className = 'uacc-tool-row';
@@ -2460,12 +2478,12 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         pair.appendChild(warn);
       }
 
-      /* Default badge -- red pill showing current level differs from default */
-      if (isNonDefault) {
+      /* Default badge -- shows when current level differs from org default */
+      if (isNonDefault && !isSuperUser) {
         var badge = document.createElement('span');
         badge.className = 'uacc-default-badge';
-        badge.title = 'Default: ' + defaultLevel;
-        badge.textContent = defaultLevel;
+        badge.title = 'This differs from the org default (' + defaultLevel + ')';
+        badge.textContent = 'dflt: ' + defaultLevel;
         pair.appendChild(badge);
       }
 
@@ -2479,10 +2497,10 @@ function buildAccordionItem(uid, u, depts, deptMap) {
   var footer = document.createElement('div');
   footer.className = 'uacc-footer';
 
-  if (!STATE.isSuperAdmin && u.role === 'superadmin') {
+  if (u.role === 'superadmin') {
     var lock = document.createElement('span');
-    lock.style.cssText = 'font-size:12px;color:var(--text-muted);';
-    lock.textContent = 'Super admin — cannot modify';
+    lock.style.cssText = 'font-size:11px;color:var(--text-muted);font-style:italic;';
+    lock.textContent = 'Superadmin — role locked';
     footer.appendChild(lock);
   } else {
     var roleSelect = document.createElement('select');
@@ -2494,11 +2512,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       roleSelect.appendChild(opt);
     });
     roleSelect.addEventListener('change', function() {
-      if (uid === STATE.uid && STATE.isSuperAdmin) {
-        showToast('You cannot change your own role', 'error');
-        roleSelect.value = 'superadmin';
-        return;
-      }
+      var targetUser2 = STATE.allUsers[uid] || {};
+      writeAuditFor(uid, targetUser2.name || '', targetUser2.email || '',
+        'role_changed', (targetUser2.role || '?') + ' -> ' + roleSelect.value);
       db.ref('users/' + uid + '/role').set(roleSelect.value)
         .then(function() { showToast('Role updated', 'success'); })
         .catch(function() { showToast('Failed to update role', 'error'); });
