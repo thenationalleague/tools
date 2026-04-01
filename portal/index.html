@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v2.9 (conversation turn 29)
+  Version: v3.1 (conversation turn 32)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1729,9 +1729,12 @@ auth.onAuthStateChanged(function(user) {
       STATE.isSuperAdmin = STATE.role === 'superadmin';
       STATE.isAdmin      = STATE.role === 'admin' || STATE.isSuperAdmin;
 
-      if (STATE.userData.pending === true && !STATE.isAdmin) {
-        window.location.replace(LOGIN_URL + '?guard=pending');
-        return;
+      /* pending:true means they just completed invite flow.
+         Clear it and proceed -- don't redirect back to login. */
+      if (STATE.userData.pending === true) {
+        db.ref('users/' + user.uid + '/pending').set(false)
+          .catch(function() {});
+        STATE.userData.pending = false;
       }
 
       loadTools().then(function() {
@@ -1762,6 +1765,13 @@ function loadTools() {
 function initPortal() {
   removeOverlay();
   document.getElementById('pageWrap').style.display = 'block';
+
+  /* Clear pending flag if set -- invited users arrive with pending:true.
+     Done here because the portal runs as authenticated user with broader
+     write permissions than the login page. */
+  if (STATE.userData && STATE.userData.pending === true) {
+    db.ref('users/' + STATE.uid + '/pending').set(false).catch(function() {});
+  }
 
   showGuardBanner();
   renderTopbar();
@@ -3337,9 +3347,10 @@ function initInviteForm() {
       toolAccess[toolKey] = ACC_LEVELS[idx] || 'hidden';
     });
 
-    var actionCodeSettings = { url: window.location.origin + LOGIN_URL, handleCodeInApp: true };
-    /* Store email so login page can pre-fill set-password field */
-    window.localStorage.setItem('nlInviteEmail', email);
+    var actionCodeSettings = {
+      url: window.location.origin + LOGIN_URL + '?email=' + encodeURIComponent(email),
+      handleCodeInApp: true
+    };
     auth.sendSignInLinkToEmail(email, actionCodeSettings)
       .then(function() {
         return db.ref('users').push({
@@ -3453,7 +3464,10 @@ function resendInvite(email, btn) {
   if (!email) return;
   btn.textContent = 'Sending...';
   btn.disabled = true;
-  var actionCodeSettings = { url: window.location.origin + LOGIN_URL, handleCodeInApp: true };
+  var actionCodeSettings = {
+    url: window.location.origin + LOGIN_URL + '?email=' + encodeURIComponent(email),
+    handleCodeInApp: true
+  };
   auth.sendSignInLinkToEmail(email, actionCodeSettings)
     .then(function() {
       showToast('Invite resent to ' + email, 'success');
