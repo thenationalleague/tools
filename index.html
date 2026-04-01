@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v2.6 (conversation turn 42)
+  Version: v2.7 (conversation turn 43)
   Date: 31/03/2026
   File: /tools/index.html
 
@@ -70,7 +70,7 @@ body {
   line-height: 1.5;
   font-variation-settings: 'wght' 400;
   color: var(--text);
-  background: var(--primary);
+  background: var(--navy);
   min-height: 100vh;
 }
 
@@ -858,23 +858,23 @@ function doSetPassword() {
   }
 
   setBtnLoading('setPwBtn', true);
+  showMsg('setpwMsg', 'Verifying your invite…', 'info');
 
-  /* Step 1: validate token via GAS -- returns full user payload */
-  fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
+  /* Validate token with retry -- GAS cold starts can take 15-20s */
+  fetchWithRetry(INVITE_GAS_URL + '?cb=' + Date.now(), {
     method:  'POST',
     headers: { 'Content-Type': 'text/plain' },
     body:    JSON.stringify({ action: 'validateInvite', token: INVITE_TOKEN, email: email })
-  })
+  }, 3, 5000)
   .then(function(r) { return r.json(); })
   .then(function(result) {
     if (!result.ok) throw { message: result.error || 'Invite validation failed.' };
 
-    /* Step 2: create Firebase Auth account with chosen password */
+    showMsg('setpwMsg', 'Creating your account…', 'info');
+
     return auth.createUserWithEmailAndPassword(email, pass)
       .then(function(credential) {
         var uid = credential.user.uid;
-
-        /* Step 3: create RTDB user record with correct Firebase Auth UID */
         var userRecord = {
           name:     result.name     || '',
           email:    email,
@@ -886,7 +886,6 @@ function doSetPassword() {
           pending:  false,
           tools:    result.tools    || {}
         };
-
         return db.ref('users/' + uid).set(userRecord)
           .then(function() { return credential; });
       });
@@ -896,6 +895,7 @@ function doSetPassword() {
   })
   .catch(function(err) {
     setBtnLoading('setPwBtn', false, 'Set password & sign in');
+    showMsg('setpwMsg', '', 'info');
 
     if (err.code === 'auth/email-already-in-use') {
       showMsg('setpwMsg', 'An account with this email already exists. Please sign in normally or use the forgot password link.', 'info');
@@ -917,6 +917,34 @@ function doSetPassword() {
         msg = err.message || 'Could not complete sign-in. Please contact the National League if this persists.';
     }
     showMsg('setpwMsg', msg, 'error');
+  });
+}
+
+/* Fetch with retry -- handles GAS cold start timeouts */
+function fetchWithRetry(url, options, retries, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    function attempt(n) {
+      var controller = new AbortController();
+      var timer = setTimeout(function() {
+        controller.abort();
+      }, timeoutMs);
+
+      fetch(url, Object.assign({}, options, { signal: controller.signal }))
+        .then(function(r) {
+          clearTimeout(timer);
+          resolve(r);
+        })
+        .catch(function(err) {
+          clearTimeout(timer);
+          if (n > 1) {
+            showMsg('setpwMsg', 'Still working… (attempt ' + (retries - n + 2) + ' of ' + retries + ')', 'info');
+            setTimeout(function() { attempt(n - 1); }, 1000);
+          } else {
+            reject(new Error('Could not reach the invite server after ' + retries + ' attempts. Please try again in a moment.'));
+          }
+        });
+    }
+    attempt(retries);
   });
 }
 
