@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v1.6 (conversation turn 29)
+  Version: v1.7 (conversation turn 30)
   Date: 31/03/2026
   File: /tools/index.html
 
@@ -70,7 +70,7 @@ body {
   line-height: 1.5;
   font-variation-settings: 'wght' 400;
   color: var(--text);
-  background: var(--navy);
+  background: var(--primary);
   min-height: 100vh;
 }
 
@@ -680,54 +680,64 @@ function setBtnLoading(id, loading, label) {
  *    b. Show the set-password panel with email pre-filled and locked.
  * 2. If no invite link and user is already signed in, go to portal.
  */
-var IS_EMAIL_LINK = auth.isSignInWithEmailLink(window.location.href);
+/*
+ * -- Invite link & auth flow -------------------------------------------------
+ *
+ * Firebase email link auth flow (standard pattern):
+ *
+ * 1. Capture the FULL href immediately on script load -- before anything
+ *    can modify it. Store it. This is the link Firebase needs.
+ *
+ * 2. Check isSignInWithEmailLink synchronously from the captured href.
+ *
+ * 3. If it IS an email link:
+ *    - Show set-password panel immediately (do NOT wait for async signOut).
+ *    - Pre-fill email from localStorage if available.
+ *    - Do NOT call signOut here -- it can interfere with the link token.
+ *
+ * 4. onAuthStateChanged:
+ *    - If processing an email link, ignore auth state changes until the
+ *      set-password form is submitted.
+ *    - Otherwise redirect to portal if signed in.
+ *
+ * 5. doSetPassword:
+ *    - If a different user is currently signed in, sign out first THEN
+ *      call signInWithEmailLink with the SAVED href (not window.location.href
+ *      which may have been modified).
+ *    - Chain: signInWithEmailLink -> updatePassword -> set pending=false -> redirect.
+ *    - Only redirect after pending=false write completes.
+ */
 
-/* Extract email from URL ?email= param (Firebase appends it in some flows)
-   or fall back to localStorage */
-function getInviteEmail() {
-  /* 1. Try localStorage (stored when invite was sent in same browser) */
-  var stored = window.localStorage.getItem('nlInviteEmail');
-  if (stored) return stored;
+/* Save href immediately before anything can change it */
+var INVITE_HREF     = window.location.href;
+var IS_EMAIL_LINK   = auth.isSignInWithEmailLink(INVITE_HREF);
+var PROCESSING_LINK = false;
 
-  /* 2. Try URL ?email= param (manually appended flows) */
-  var params = new URLSearchParams(window.location.search);
-  if (params.get('email')) return params.get('email');
+/* Show set-password panel immediately if this is an invite link */
+if (IS_EMAIL_LINK) {
+  /* Use DOMContentLoaded so panel functions are ready but don't wait for
+     async Firebase operations */
+  document.addEventListener('DOMContentLoaded', function() {
+    PROCESSING_LINK = true;
+    showPanel('panelSetPassword');
 
-  /* 3. Try continueUrl param which may contain email */
-  var continueUrl = params.get('continueUrl');
-  if (continueUrl) {
-    try {
-      var cp = new URLSearchParams(new URL(continueUrl).search);
-      if (cp.get('email')) return cp.get('email');
-    } catch(e) {}
-  }
-
-  return '';
+    /* Pre-fill email from localStorage if available */
+    var stored = window.localStorage.getItem('nlInviteEmail') || '';
+    var emailInput = document.getElementById('setPwEmail');
+    if (stored) {
+      emailInput.value       = stored;
+      emailInput.readOnly    = true;
+      emailInput.style.cssText += ';background:var(--off-white);color:var(--text-muted);cursor:default;';
+    } else {
+      emailInput.placeholder = 'Enter the email address your invite was sent to';
+    }
+  });
 }
 
-window.addEventListener('load', function() {
-  if (IS_EMAIL_LINK) {
-    /* Sign out any existing session before processing invite link */
-    auth.signOut().then(function() {
-      showPanel('panelSetPassword');
-      var email = getInviteEmail();
-      var emailInput = document.getElementById('setPwEmail');
-      if (email) {
-        emailInput.value    = email;
-        emailInput.readOnly = true;
-        emailInput.style.background = 'var(--off-white)';
-        emailInput.style.color      = 'var(--text-muted)';
-      } else {
-        /* Different browser/device -- can't infer email from link alone */
-        emailInput.placeholder = 'Enter the email address your invite was sent to';
-      }
-    });
-  }
-});
-
+/* Auth state changes */
 auth.onAuthStateChanged(function(user) {
-  /* If an invite link is being processed, don't redirect -- let the
-     set-password flow complete first */
+  /* While processing an invite link, ignore auth state -- the set-password
+     form submission handles the redirect manually */
   if (IS_EMAIL_LINK) return;
   if (user) {
     window.location.replace(PORTAL_URL);
@@ -738,18 +748,12 @@ auth.onAuthStateChanged(function(user) {
 function doSignIn() {
   var email = document.getElementById('signinEmail').value.trim();
   var pass  = document.getElementById('signinPassword').value;
-
   if (!email || !pass) {
     showMsg('signinMsg', 'Please enter your email and password.', 'error');
     return;
   }
-
   setBtnLoading('signinBtn', true);
-
   auth.signInWithEmailAndPassword(email, pass)
-    .then(function() {
-      /* onAuthStateChanged will redirect */
-    })
     .catch(function(err) {
       setBtnLoading('signinBtn', false, 'Sign in');
       var msg = 'Sign-in failed. Please check your details.';
@@ -767,22 +771,18 @@ function doSignIn() {
 /* -- Forgot password ------------------------------------------------------- */
 function doForgotPassword() {
   var email = document.getElementById('forgotEmail').value.trim();
-
   if (!email) {
     showMsg('forgotMsg', 'Please enter your email address.', 'error');
     return;
   }
-
   setBtnLoading('forgotBtn', true);
-
   auth.sendPasswordResetEmail(email)
     .then(function() {
       setBtnLoading('forgotBtn', false, 'Send reset email');
       showMsg('forgotMsg', 'If that address is registered, a reset email has been sent.', 'info');
     })
-    .catch(function(err) {
+    .catch(function() {
       setBtnLoading('forgotBtn', false, 'Send reset email');
-      /* Intentionally vague - don't reveal if email exists */
       showMsg('forgotMsg', 'If that address is registered, a reset email has been sent.', 'info');
     });
 }
@@ -794,7 +794,7 @@ function doSetPassword() {
   var confirm = document.getElementById('setPwConfirm').value;
 
   if (!email) {
-    showMsg('setpwMsg', 'Please confirm your email address.', 'error');
+    showMsg('setpwMsg', 'Please enter the email address your invite was sent to.', 'error');
     return;
   }
   if (pass.length < 8) {
@@ -808,36 +808,48 @@ function doSetPassword() {
 
   setBtnLoading('setPwBtn', true);
 
-  auth.signInWithEmailLink(email, window.location.href)
+  /* If a different user is signed in, sign them out first.
+     Then use INVITE_HREF (saved at load time) -- never window.location.href
+     which may have been modified or consumed. */
+  var currentUser = auth.currentUser;
+  var signOutFirst = (currentUser && currentUser.email !== email)
+    ? auth.signOut()
+    : Promise.resolve();
+
+  signOutFirst
+    .then(function() {
+      return auth.signInWithEmailLink(email, INVITE_HREF);
+    })
     .then(function(result) {
       window.localStorage.removeItem('nlInviteEmail');
       var uid  = result.user.uid;
       var user = result.user;
-      /* Chain: set password AND clear pending, then redirect only when both done */
       return user.updatePassword(pass)
         .then(function() {
-          /* Awaiting this write before redirect is critical --
-             portal reads pending on auth state change */
+          /* Wait for pending=false write before redirecting --
+             portal reads this on auth state change */
           return db.ref('users/' + uid + '/pending').set(false);
         });
     })
     .then(function() {
+      /* Explicit redirect -- onAuthStateChanged is suppressed during link flow */
       window.location.replace(PORTAL_URL);
     })
     .catch(function(err) {
       setBtnLoading('setPwBtn', false, 'Set password & sign in');
       var msg = 'Could not complete sign-in. ';
       if (err.code === 'auth/invalid-action-code' || err.code === 'auth/expired-action-code') {
-        msg += 'This invite link has expired or already been used. Please contact the National League for a new invite.';
+        msg = 'This invite link has expired or has already been used. Please ask for a new invite.';
       } else if (err.code === 'auth/invalid-email') {
-        msg += 'That email does not match this invite link.';
+        msg = 'That email address does not match this invite link. Please check and try again.';
+      } else if (err.code === 'auth/weak-password') {
+        msg = 'Password is too weak. Please choose a stronger password.';
       } else {
-        msg += 'Please try again or contact the National League.';
+        msg += err.message || 'Please try again or contact the National League.';
       }
       showMsg('setpwMsg', msg, 'error');
     });
 }
-
 
 /* -- Club picker (sign-up) -------------------------------------------------- */
 
