@@ -1,11 +1,17 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v1.2 (conversation turn 11)
+  Version: v1.3 (conversation turn 12)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v1.3 -- Mobile users table replaced with accordion (tap user to expand,
+         shows Access/Admin toggles per tool grouped by department).
+         Desktop wide table unchanged.
+         Club filter added to users search (filters to show one club's users).
+         Body overflow-x hidden now enforced via html element too, preventing
+         min-width table from breaking out of viewport.
   v1.2 -- Invite form club field replaced with club picker (dropdown + crests).
          Superadmin cannot downgrade their own role or remove own tool access.
          Mobile horizontal scroll fixed: body overflow-x hidden, topbar width 100%.
@@ -52,6 +58,7 @@
 
 /* -- Reset & variables ----------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { overflow-x: hidden; }
 
 :root {
   --primary:     #9e0000;
@@ -928,6 +935,195 @@ body {
 .inv-club-picker__option img { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
 .inv-club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
 .inv-club-picker__option-div { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+
+/* -- Mobile accordion users list ------------------------------------------ */
+@media (max-width: 768px) {
+  .users-table-wrap { display: none; }
+  .users-accordion { display: block; }
+}
+@media (min-width: 769px) {
+  .users-table-wrap { display: block; }
+  .users-accordion { display: none; }
+}
+
+.users-accordion { margin-top: 4px; }
+
+.uacc-item {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.uacc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.uacc-header:hover { background: var(--off-white); }
+.uacc-header.open { border-bottom: 1px solid var(--border); }
+
+.uacc-name {
+  flex: 1;
+  min-width: 0;
+}
+.uacc-name__primary {
+  font-size: 14px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uacc-name__secondary {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uacc-chevron {
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.uacc-header.open .uacc-chevron { transform: rotate(180deg); }
+
+.uacc-body { display: none; padding: 0 0 8px; }
+.uacc-body.open { display: block; }
+
+.uacc-dept-label {
+  font-size: 9px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  padding: 10px 14px 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.uacc-dept-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.uacc-tool-row {
+  display: flex;
+  align-items: center;
+  padding: 7px 14px;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.uacc-tool-row:last-child { border-bottom: none; }
+
+.uacc-tool-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+}
+.uacc-tool-name__icon { margin-right: 6px; }
+
+.uacc-toggle-pair {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.uacc-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.uacc-toggle input { display: none; }
+.uacc-toggle__sw {
+  width: 32px; height: 18px;
+  border-radius: 9px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+.uacc-toggle__sw::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--white);
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.uacc-toggle input:checked + .uacc-toggle__sw { background: var(--navy); }
+.uacc-toggle input:checked + .uacc-toggle__sw::after { left: 16px; }
+.uacc-toggle--warn input:checked + .uacc-toggle__sw { background: var(--amber); }
+.uacc-toggle__label {
+  font-size: 8px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.uacc-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 4px;
+  flex-wrap: wrap;
+}
+.uacc-role-select {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font);
+  background: var(--white);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Club filter pill */
+.club-filter-wrap {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.club-filter-pill {
+  font-size: 10px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+.club-filter-pill.active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
+}
 </style>
 </head>
 <body>
@@ -1026,6 +1222,7 @@ body {
           <input type="text" id="userSearch" placeholder="Search by name or email…">
           <button class="btn btn--ghost btn--sm" id="reloadUsersBtn">Reload</button>
         </div>
+        <div class="club-filter-wrap" id="clubFilterWrap" style="display:none"></div>
         <div class="users-table-wrap">
           <div id="usersTableContainer">
             <div class="empty-state">
@@ -1034,6 +1231,7 @@ body {
             </div>
           </div>
         </div>
+        <div class="users-accordion" id="usersAccordion"></div>
       </div>
 
       <!-- Invite pane -->
@@ -1754,27 +1952,304 @@ function rejectRequest(key, btn) {
 }
 
 /* ---- Users table --------------------------------------------------------- */
+var _activeClubFilter = null;
+
 function loadUsers() {
   db.ref('users').once('value').then(function(snap) {
     STATE.allUsers = snap.val() || {};
-    renderUsersTable(STATE.allUsers);
+    renderClubFilterPills();
+    renderUsers(STATE.allUsers);
   });
 
   document.getElementById('reloadUsersBtn').addEventListener('click', function() { loadUsers(); });
 
   document.getElementById('userSearch').addEventListener('input', function() {
-    var q = this.value.toLowerCase().trim();
-    if (!q) { renderUsersTable(STATE.allUsers); return; }
-    var filtered = {};
-    Object.keys(STATE.allUsers).forEach(function(uid) {
-      var u = STATE.allUsers[uid];
-      if ((u.name  || '').toLowerCase().indexOf(q) !== -1 ||
-          (u.email || '').toLowerCase().indexOf(q) !== -1) {
-        filtered[uid] = u;
-      }
-    });
-    renderUsersTable(filtered);
+    applyUserFilters();
   });
+}
+
+function applyUserFilters() {
+  var q    = document.getElementById('userSearch').value.toLowerCase().trim();
+  var club = _activeClubFilter;
+  var filtered = {};
+  Object.keys(STATE.allUsers).forEach(function(uid) {
+    var u = STATE.allUsers[uid];
+    var matchesText = !q ||
+      (u.name  || '').toLowerCase().indexOf(q) !== -1 ||
+      (u.email || '').toLowerCase().indexOf(q) !== -1;
+    var matchesClub = !club || (u.club || '') === club;
+    if (matchesText && matchesClub) filtered[uid] = u;
+  });
+  renderUsers(filtered);
+}
+
+function renderClubFilterPills() {
+  var wrap = document.getElementById('clubFilterWrap');
+  var clubs = {};
+  Object.keys(STATE.allUsers).forEach(function(uid) {
+    var u = STATE.allUsers[uid];
+    if (u.role === 'club' && u.club) clubs[u.club] = true;
+  });
+  var clubList = Object.keys(clubs).sort();
+  if (clubList.length === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = '';
+
+  var allPill = document.createElement('button');
+  allPill.className = 'club-filter-pill active';
+  allPill.textContent = 'All clubs';
+  allPill.addEventListener('click', function() {
+    _activeClubFilter = null;
+    wrap.querySelectorAll('.club-filter-pill').forEach(function(p) { p.classList.remove('active'); });
+    allPill.classList.add('active');
+    applyUserFilters();
+  });
+  wrap.appendChild(allPill);
+
+  clubList.forEach(function(club) {
+    var pill = document.createElement('button');
+    pill.className = 'club-filter-pill';
+    pill.textContent = club;
+    pill.addEventListener('click', function() {
+      _activeClubFilter = club;
+      wrap.querySelectorAll('.club-filter-pill').forEach(function(p) { p.classList.remove('active'); });
+      pill.classList.add('active');
+      applyUserFilters();
+    });
+    wrap.appendChild(pill);
+  });
+}
+
+/* renderUsers dispatches to table (desktop) and accordion (mobile) */
+function renderUsers(users) {
+  renderUsersTable(users);
+  renderUsersAccordion(users);
+}
+
+/* ---- Accordion ----------------------------------------------------------- */
+var _openAccUid = null;
+
+function renderUsersAccordion(users) {
+  var container = document.getElementById('usersAccordion');
+  container.innerHTML = '';
+  _openAccUid = null;
+
+  var uids = Object.keys(users || {});
+  if (uids.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'empty-state';
+    var icon = document.createElement('div');
+    icon.className = 'empty-state__icon';
+    icon.textContent = '\uD83D\uDC65';
+    var text = document.createElement('div');
+    text.className = 'empty-state__text';
+    text.textContent = 'No users found.';
+    empty.appendChild(icon);
+    empty.appendChild(text);
+    container.appendChild(empty);
+    return;
+  }
+
+  /* Build dept/tool structure once */
+  var tools   = STATE.toolsList.filter(function(t) { return !t.placeholder; });
+  var deptMap = {};
+  tools.forEach(function(t) {
+    var d = t.department || 'General';
+    if (!deptMap[d]) deptMap[d] = [];
+    deptMap[d].push(t);
+  });
+  var depts = Object.keys(deptMap).sort();
+
+  uids.forEach(function(uid) {
+    var u = users[uid];
+    container.appendChild(buildAccordionItem(uid, u, depts, deptMap));
+  });
+}
+
+function buildAccordionItem(uid, u, depts, deptMap) {
+  var item = document.createElement('div');
+  item.className = 'uacc-item';
+  item.dataset.uid = uid;
+
+  /* Header */
+  var header = document.createElement('div');
+  header.className = 'uacc-header';
+
+  var rolePill = document.createElement('span');
+  rolePill.className = 'user-role-pill role-' + (u.pending ? 'pending' : (u.role || 'staff'));
+  rolePill.textContent = u.pending ? 'Pending' : (u.role || 'staff');
+
+  var nameWrap = document.createElement('div');
+  nameWrap.className = 'uacc-name';
+  var primary = document.createElement('div');
+  primary.className = 'uacc-name__primary';
+  primary.textContent = u.name || '(no name)';
+  var secondary = document.createElement('div');
+  secondary.className = 'uacc-name__secondary';
+  secondary.textContent = u.email || '';
+  nameWrap.appendChild(primary);
+  nameWrap.appendChild(secondary);
+
+  var chevron = document.createElement('span');
+  chevron.className = 'uacc-chevron';
+  chevron.textContent = '\u25BC';
+
+  header.appendChild(rolePill);
+  header.appendChild(nameWrap);
+  header.appendChild(chevron);
+
+  /* Body */
+  var body = document.createElement('div');
+  body.className = 'uacc-body';
+
+  /* Tool toggles grouped by dept */
+  depts.forEach(function(dept) {
+    var deptTools = deptMap[dept];
+    if (!deptTools || !deptTools.length) return;
+
+    var deptLabel = document.createElement('div');
+    deptLabel.className = 'uacc-dept-label';
+    deptLabel.textContent = dept;
+    body.appendChild(deptLabel);
+
+    deptTools.forEach(function(t) {
+      var toolEntry     = u.tools && u.tools[t._key];
+      var hasAccess     = toolEntry === true || (toolEntry && toolEntry.access === true);
+      var hasAdmin      = toolEntry && typeof toolEntry === 'object' && toolEntry.admin === true;
+      var isUnusualAdmin = hasAdmin && (u.role === 'staff' || u.role === 'club');
+
+      var row = document.createElement('div');
+      row.className = 'uacc-tool-row';
+
+      var toolName = document.createElement('div');
+      toolName.className = 'uacc-tool-name';
+      var iconSpan = document.createElement('span');
+      iconSpan.className = 'uacc-tool-name__icon';
+      iconSpan.textContent = t.icon || '';
+      toolName.appendChild(iconSpan);
+      toolName.appendChild(document.createTextNode(t.label || t._key));
+
+      var pair = document.createElement('div');
+      pair.className = 'uacc-toggle-pair';
+      pair.appendChild(buildAccToggle(uid, t._key, 'access', hasAccess, false));
+      pair.appendChild(buildAccToggle(uid, t._key, 'admin',  hasAdmin,  isUnusualAdmin));
+
+      if (isUnusualAdmin) {
+        var warn = document.createElement('span');
+        warn.title = 'Admin granted to non-admin role';
+        warn.textContent = '\u26A0\uFE0F';
+        warn.style.fontSize = '12px';
+        pair.appendChild(warn);
+      }
+
+      row.appendChild(toolName);
+      row.appendChild(pair);
+      body.appendChild(row);
+    });
+  });
+
+  /* Footer — role selector + resend */
+  var footer = document.createElement('div');
+  footer.className = 'uacc-footer';
+
+  if (!STATE.isSuperAdmin && u.role === 'superadmin') {
+    var lock = document.createElement('span');
+    lock.style.cssText = 'font-size:12px;color:var(--text-muted);';
+    lock.textContent = 'Super admin — cannot modify';
+    footer.appendChild(lock);
+  } else {
+    var roleSelect = document.createElement('select');
+    roleSelect.className = 'uacc-role-select';
+    ['staff','club','admin'].forEach(function(r) {
+      var opt = document.createElement('option');
+      opt.value = r; opt.textContent = r;
+      if ((u.role || 'staff') === r) opt.selected = true;
+      roleSelect.appendChild(opt);
+    });
+    roleSelect.addEventListener('change', function() {
+      if (uid === STATE.uid && STATE.isSuperAdmin) {
+        showToast('You cannot change your own role', 'error');
+        roleSelect.value = 'superadmin';
+        return;
+      }
+      db.ref('users/' + uid + '/role').set(roleSelect.value)
+        .then(function() { showToast('Role updated', 'success'); })
+        .catch(function() { showToast('Failed to update role', 'error'); });
+    });
+    footer.appendChild(roleSelect);
+
+    if (u.pending) {
+      var resend = document.createElement('button');
+      resend.className = 'resend-btn';
+      resend.textContent = 'Resend invite';
+      resend.addEventListener('click', function() { resendInvite(u.email, resend); });
+      footer.appendChild(resend);
+    }
+  }
+
+  body.appendChild(footer);
+  item.appendChild(header);
+  item.appendChild(body);
+
+  /* Toggle on header click */
+  header.addEventListener('click', function() {
+    var isOpen = body.classList.contains('open');
+
+    /* Close any other open item */
+    if (_openAccUid && _openAccUid !== uid) {
+      var prev = document.querySelector('.uacc-item[data-uid="' + _openAccUid + '"]');
+      if (prev) {
+        prev.querySelector('.uacc-header').classList.remove('open');
+        prev.querySelector('.uacc-body').classList.remove('open');
+      }
+    }
+
+    if (isOpen) {
+      header.classList.remove('open');
+      body.classList.remove('open');
+      _openAccUid = null;
+    } else {
+      header.classList.add('open');
+      body.classList.add('open');
+      _openAccUid = uid;
+    }
+  });
+
+  return item;
+}
+
+function buildAccToggle(uid, toolKey, field, checked, warn) {
+  var wrap = document.createElement('label');
+  wrap.className = 'uacc-toggle' + (warn ? ' uacc-toggle--warn' : '');
+  wrap.title = (field === 'access' ? 'Access' : 'Admin');
+
+  var input = document.createElement('input');
+  input.type    = 'checkbox';
+  input.checked = checked;
+
+  var sw = document.createElement('div');
+  sw.className = 'uacc-toggle__sw';
+
+  var lbl = document.createElement('div');
+  lbl.className = 'uacc-toggle__label';
+  lbl.textContent = field === 'access' ? 'Acc' : 'Adm';
+
+  input.addEventListener('change', function() {
+    if (uid === STATE.uid && STATE.isSuperAdmin && !input.checked) {
+      showToast('You cannot remove your own tool access', 'error');
+      input.checked = true;
+      return;
+    }
+    var path = 'users/' + uid + '/tools/' + toolKey + '/' + field;
+    db.ref(path).set(input.checked)
+      .then(function() { showToast((field === 'access' ? 'Access' : 'Admin') + ' updated', 'success'); })
+      .catch(function() { input.checked = !input.checked; showToast('Failed to update', 'error'); });
+  });
+
+  wrap.appendChild(input);
+  wrap.appendChild(sw);
+  wrap.appendChild(lbl);
+  return wrap;
 }
 
 function renderUsersTable(users) {
