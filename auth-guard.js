@@ -1,9 +1,11 @@
 /*
  * auth-guard.js — NL Tools v2
- * Version: v2.0 (conversation turn 56)
+ * Version: v2.1 (conversation turn 64)
  * Date: 01/04/2026
  *
  * Changelog:
+ * v2.1 — Added timeout fallback for onAuthStateChanged not firing
+ *         (GitHub Pages cached auth state issue). Checks currentUser directly.
  * v2.0 — Rebuilt for v2 string access model (hidden/off/access/admin).
  *         Three distinct access states:
  *           hidden → silent redirect to portal (user not meant to know it exists)
@@ -223,12 +225,35 @@
   }
 
   /* ── Main auth state handler ───────────────────────────────────────────── */
+  var _authFired = false;
+
+  /* Fallback: if onAuthStateChanged hasn't fired in 4s, check currentUser directly */
+  setTimeout(function() {
+    if (_authFired) return;
+    var user = auth.currentUser;
+    if (user) {
+      handleUser(user);
+    } else {
+      /* Try waiting for auth to be ready */
+      auth.authStateReady ? auth.authStateReady().then(function() {
+        var u = auth.currentUser;
+        if (u) handleUser(u); else window.location.replace(LOGIN_URL);
+      }) : window.location.replace(LOGIN_URL);
+    }
+  }, 4000);
+
   auth.onAuthStateChanged(function(user) {
+    _authFired = true;
 
     if (!user) {
       window.location.replace(LOGIN_URL);
       return;
     }
+
+    handleUser(user);
+  });
+
+  function handleUser(user) {
 
     /* Fetch user record and tool catalogue entry in parallel */
     Promise.all([
@@ -291,6 +316,6 @@
       window.location.replace(PORTAL_URL + '?guard=error');
     });
 
-  });
+  } /* end handleUser */
 
 })();
