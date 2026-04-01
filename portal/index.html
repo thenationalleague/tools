@@ -1151,8 +1151,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 4px 8px;
+  padding: 4px 0;
   min-height: 36px;
+}
+/* The slider inside the band needs its right edge to match tool sliders */
+.uacc-dept-band .uacc-set-all-slider {
+  margin-right: 0;
 }
 .uacc-set-all-slider {
   display: inline-flex;
@@ -1198,19 +1202,19 @@ body {
   height: 14px;
   border-radius: 50%;
   border: 2px solid rgba(255,255,255,0.5);
-  background: var(--navy);
+  background: var(--primary);
   transition: all 0.15s;
   flex-shrink: 0;
 }
 .uacc-set-all-slider__stop--active .uacc-set-all-slider__node {
   background: var(--white);
   border-color: var(--white);
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.2);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.25);
   transform: scale(1.15);
 }
 .uacc-set-all-slider__stop--filled .uacc-set-all-slider__node {
-  background: rgba(255,255,255,0.7);
-  border-color: rgba(255,255,255,0.7);
+  background: var(--white);
+  border-color: var(--white);
 }
 .uacc-set-all-slider__label {
   font-size: 7px;
@@ -2939,6 +2943,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     /* deptWrap MUST be declared before buildSetAllSlider so the closure captures it */
     var deptWrap = document.createElement('div');
     deptWrap.className = 'uacc-dept-wrap';
+    deptWrap.dataset.dept = dept;
 
     /* Navy header bar -- dept label only */
     var deptHeader = document.createElement('div');
@@ -2951,6 +2956,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     /* Red band below navy -- houses the set-all slider */
     var deptBand = document.createElement('div');
     deptBand.className = 'uacc-dept-band';
+    deptBand.dataset.dept = dept;
     if (!isSuperUser) {
       deptBand.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
     }
@@ -2980,7 +2986,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       toolName.appendChild(iconSpan);
       toolName.appendChild(document.createTextNode(t.label || t._key));
 
-      var sliderEl = buildAccSlider(uid, t._key, currentLevel, defaultLevel, isSuperUser, isClubLocked);
+      var sliderEl = buildAccSlider(uid, t._key, currentLevel, defaultLevel, isSuperUser, isClubLocked, dept, body);
 
       row.appendChild(toolName);
       row.appendChild(sliderEl);
@@ -3202,7 +3208,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 var ACC_LEVELS = ['hidden', 'off', 'access', 'admin'];
 var ACC_LABELS = { hidden: 'Hidden', off: 'Off', access: 'Access', admin: 'Admin' };
 
-function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLocked) {
+function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLocked, dept, bodyEl) {
   var wrap = document.createElement('div');
   wrap.className = 'acc-slider' + (locked ? ' acc-slider--locked' : '');
   var currentIdx = ACC_LEVELS.indexOf(currentLevel);
@@ -3277,6 +3283,8 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
         var targetUser = STATE.allUsers[uid] || {};
         writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
           'access_changed', toolKey + ': ' + prevLevel + ' -> ' + level);
+        /* Reset dept set-all slider to neutral -- this tool now differs */
+        if (dept && bodyEl) resetSetAllSlider(bodyEl, dept);
         db.ref('users/' + uid + '/tools/' + toolKey).set(level)
           .catch(function() { showToast('Failed to update', 'error'); });
       });
@@ -3284,6 +3292,26 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
     wrap.appendChild(stop);
   });
   return wrap;
+}
+
+/* Reset a dept's set-all slider to neutral (mixed state) when individual tools change */
+function resetSetAllSlider(bodyEl, dept) {
+  /* Find the band for this dept */
+  var band = bodyEl ? bodyEl.querySelector('.uacc-dept-band[data-dept="' + dept + '"]') : null;
+  if (!band) {
+    /* bodyEl is deptWrap -- go up to body */
+    var wrap = document.querySelector('.uacc-body .uacc-dept-wrap[data-dept="' + dept + '"]');
+    if (wrap) band = wrap.parentElement.querySelector('.uacc-dept-band[data-dept="' + dept + '"]');
+  }
+  if (!band) return;
+  var slider = band.querySelector('.uacc-set-all-slider');
+  if (!slider) return;
+  /* Remove all active/filled states -- leaves all nodes as empty circles (neutral) */
+  slider.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s) {
+    s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
+  });
+  var fill = slider.querySelector('.uacc-set-all-slider__fill');
+  if (fill) fill.style.width = '0%';
 }
 
 function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
