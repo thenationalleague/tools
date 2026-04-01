@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v2.3 (conversation turn 22)
+  Version: v2.4 (conversation turn 23)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1014,22 +1014,20 @@ body {
 
 /* -- Four-position access slider ------------------------------------------ */
 .acc-slider {
-  display: flex;
-  align-items: center;
+  display: inline-flex;
+  align-items: flex-start;
   position: relative;
-  gap: 0;
   flex-shrink: 0;
 }
 
-/* The connecting track line */
+/* The connecting track -- sits behind the node row */
 .acc-slider__track {
   position: absolute;
-  top: 50%;
-  left: 12px;
-  right: 12px;
+  top: 7px; /* vertically centred on 14px node */
+  left: 27px; /* starts at centre of first node */
+  right: 27px; /* ends at centre of last node */
   height: 2px;
   background: var(--border);
-  transform: translateY(-50%);
   z-index: 0;
   border-radius: 1px;
 }
@@ -1047,18 +1045,16 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   position: relative;
   z-index: 1;
   cursor: pointer;
-  padding: 4px 10px 2px;
+  padding: 0 10px 0;
   border-radius: 4px;
   transition: background 0.1s;
   min-width: 54px;
 }
-.acc-slider__stop:hover:not(.acc-slider__stop--locked) {
-  background: var(--off-white);
-}
+.acc-slider__stop:hover:not(.acc-slider__stop--locked) { background: rgba(0,0,0,0.03); }
 
 .acc-slider__node {
   width: 14px;
@@ -1068,6 +1064,7 @@ body {
   background: var(--white);
   transition: all 0.15s;
   position: relative;
+  flex-shrink: 0;
 }
 
 /* Active node */
@@ -1075,10 +1072,10 @@ body {
   background: var(--primary);
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(158,0,0,0.15);
-  transform: scale(1.2);
+  transform: scale(1.15);
 }
 
-/* Nodes to the left of active (filled track) */
+/* Nodes to the left of active */
 .acc-slider__stop--filled .acc-slider__node {
   background: var(--primary);
   border-color: var(--primary);
@@ -1093,34 +1090,34 @@ body {
   color: var(--text-muted);
   transition: color 0.15s;
   white-space: nowrap;
+  line-height: 1;
 }
 .acc-slider__stop--active .acc-slider__label { color: var(--primary); }
 .acc-slider__stop--filled .acc-slider__label { color: var(--primary); }
 
-/* Default marker dot below the node */
-.acc-slider__default {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
+/* Default indicator -- bold navy badge below the label at the default stop */
+.acc-slider__default-badge {
+  font-size: 7px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--white);
   background: var(--navy);
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0.5;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 /* Locked (superadmin) */
 .acc-slider--locked .acc-slider__stop { cursor: default; pointer-events: none; }
-.acc-slider--locked .acc-slider__node { opacity: 0.4; }
+.acc-slider--locked .acc-slider__node { opacity: 0.35; }
 .acc-slider--locked .acc-slider__stop--active .acc-slider__node {
-  background: var(--text-muted);
-  border-color: var(--text-muted);
-  box-shadow: none;
+  background: var(--text-muted); border-color: var(--text-muted); box-shadow: none;
 }
 .acc-slider--locked .acc-slider__stop--filled .acc-slider__node {
-  background: var(--text-muted);
-  border-color: var(--text-muted);
+  background: var(--text-muted); border-color: var(--text-muted);
 }
 .acc-slider--locked .acc-slider__stop--active .acc-slider__label { color: var(--text-muted); }
 .acc-slider--locked .acc-slider__stop--filled .acc-slider__label { color: var(--text-muted); }
@@ -1354,7 +1351,11 @@ body {
           <input type="text" id="userSearch" placeholder="Search by name or email…">
           <button class="btn btn--ghost btn--sm" id="reloadUsersBtn">Reload</button>
         </div>
-        <div class="club-filter-wrap" id="clubFilterWrap" style="display:none"></div>
+        <div style="margin-bottom:10px;display:none;" id="clubFilterWrap">
+          <select id="clubFilterSelect" style="font-family:var(--font);font-size:13px;padding:7px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--text);cursor:pointer;outline:none;transition:border-color 0.15s;width:100%;max-width:320px;">
+            <option value="">All users</option>
+          </select>
+        </div>
 
         <div class="users-accordion" id="usersAccordion"></div>
       </div>
@@ -1389,9 +1390,12 @@ body {
                 </div>
 
                 <!-- Staff/Admin sub-choice (hidden for Club) -->
-                <div id="inviteRoleRow" style="display:flex;gap:6px;">
-                  <button type="button" class="invite-role-btn active" data-role="staff">Staff</button>
-                  <button type="button" class="invite-role-btn" data-role="admin">Admin</button>
+                <div id="inviteRoleRow" style="display:flex;flex-direction:column;gap:4px;">
+                  <div style="font-size:9px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);">Role</div>
+                  <div style="display:flex;gap:6px;">
+                    <button type="button" class="invite-role-btn active" data-role="staff">Staff</button>
+                    <button type="button" class="invite-role-btn" data-role="admin">Admin</button>
+                  </div>
                 </div>
 
               </div>
@@ -2515,47 +2519,88 @@ function applyUserFilters() {
     var matchesText = !q ||
       (u.name  || '').toLowerCase().indexOf(q) !== -1 ||
       (u.email || '').toLowerCase().indexOf(q) !== -1;
-    var matchesClub = !club || (u.club || '') === club;
-    if (matchesText && matchesClub) filtered[uid] = u;
+    var matchesFilter = true;
+    if (club) {
+      if (club.startsWith('__org__')) {
+        var orgVal = club.replace('__org__', '');
+        matchesFilter = (u.org || '') === orgVal;
+      } else if (club.startsWith('__club__')) {
+        var clubVal = club.replace('__club__', '');
+        matchesFilter = (u.club || '') === clubVal;
+      } else {
+        matchesFilter = (u.club || '') === club;
+      }
+    }
+    if (matchesText && matchesFilter) filtered[uid] = u;
   });
   renderUsers(filtered);
 }
 
 function renderClubFilterPills() {
-  var wrap = document.getElementById('clubFilterWrap');
-  var clubs = {};
+  var wrap   = document.getElementById('clubFilterWrap');
+  var select = document.getElementById('clubFilterSelect');
+  if (!wrap || !select) return;
+
+  /* Collect NL orgs and clubs separately */
+  var nlOrgs = {};
+  var clubs  = {};
   Object.keys(STATE.allUsers).forEach(function(uid) {
     var u = STATE.allUsers[uid];
-    if (u.role === 'club' && u.club) clubs[u.club] = true;
+    if (u.role === 'club' && u.club) {
+      clubs[u.club] = true;
+    } else if (u.org) {
+      nlOrgs[u.org] = true;
+    }
   });
-  var clubList = Object.keys(clubs).sort();
-  if (clubList.length === 0) { wrap.style.display = 'none'; return; }
-  wrap.style.display = 'flex';
-  wrap.innerHTML = '';
 
-  var allPill = document.createElement('button');
-  allPill.className = 'club-filter-pill active';
-  allPill.textContent = 'All clubs';
-  allPill.addEventListener('click', function() {
-    _activeClubFilter = null;
-    wrap.querySelectorAll('.club-filter-pill').forEach(function(p) { p.classList.remove('active'); });
-    allPill.classList.add('active');
-    applyUserFilters();
-  });
-  wrap.appendChild(allPill);
+  var nlOrgList  = Object.keys(nlOrgs).sort();
+  var clubList   = Object.keys(clubs).sort();
 
-  clubList.forEach(function(club) {
-    var pill = document.createElement('button');
-    pill.className = 'club-filter-pill';
-    pill.textContent = club;
-    pill.addEventListener('click', function() {
-      _activeClubFilter = club;
-      wrap.querySelectorAll('.club-filter-pill').forEach(function(p) { p.classList.remove('active'); });
-      pill.classList.add('active');
-      applyUserFilters();
+  if (nlOrgList.length === 0 && clubList.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = 'block';
+
+  /* Rebuild options */
+  select.innerHTML = '<option value="">All users<\/option>';
+
+  if (nlOrgList.length) {
+    var nlGroup = document.createElement('optgroup');
+    nlGroup.label = 'Organisations';
+    nlOrgList.forEach(function(org) {
+      var opt = document.createElement('option');
+      opt.value = '__org__' + org;
+      opt.textContent = org;
+      nlGroup.appendChild(opt);
     });
-    wrap.appendChild(pill);
-  });
+    select.appendChild(nlGroup);
+  }
+
+  if (clubList.length) {
+    var clubGroup = document.createElement('optgroup');
+    clubGroup.label = 'Clubs';
+    clubList.forEach(function(club) {
+      var opt = document.createElement('option');
+      opt.value = '__club__' + club;
+      opt.textContent = club;
+      clubGroup.appendChild(opt);
+    });
+    select.appendChild(clubGroup);
+  }
+
+  select.onchange = function() {
+    var val = select.value;
+    if (!val) {
+      _activeClubFilter = null;
+    } else if (val.startsWith('__org__')) {
+      _activeClubFilter = val; /* stored with prefix, matched in applyUserFilters */
+    } else if (val.startsWith('__club__')) {
+      _activeClubFilter = val;
+    }
+    applyUserFilters();
+  };
 }
 
 function renderUsers(users) {
@@ -2831,11 +2876,12 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked) {
     var node = document.createElement('div');
     node.className = 'acc-slider__node';
 
+    /* Default badge */
+    var dfltBadge = null;
     if (idx === defaultIdx && !locked) {
-      var marker = document.createElement('div');
-      marker.className = 'acc-slider__default';
-      marker.title = 'Org default: ' + level;
-      node.appendChild(marker);
+      dfltBadge = document.createElement('div');
+      dfltBadge.className = 'acc-slider__default-badge';
+      dfltBadge.textContent = 'default';
     }
 
     var label = document.createElement('div');
@@ -2844,6 +2890,7 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked) {
 
     stop.appendChild(node);
     stop.appendChild(label);
+    if (dfltBadge) stop.appendChild(dfltBadge);
 
     if (!locked) {
       stop.addEventListener('click', function(e) {
