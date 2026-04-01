@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v1.4 (conversation turn 8)
+  Version: v1.5 (conversation turn 28)
   Date: 31/03/2026
   File: /tools/index.html
 
@@ -70,7 +70,7 @@ body {
   line-height: 1.5;
   font-variation-settings: 'wght' 400;
   color: var(--text);
-  background: var(--navy);
+  background: var(--primary);
   min-height: 100vh;
 }
 
@@ -672,20 +672,48 @@ function setBtnLoading(id, loading, label) {
 }
 
 /* -- Check for email link sign-in on page load ----------------------------- */
-auth.onAuthStateChanged(function(user) {
-  if (user) {
-    /* Already signed in - send straight to portal */
-    window.location.replace(PORTAL_URL);
+/*
+ * Order of operations:
+ * 1. If the URL is an email invite link:
+ *    a. If a user is already signed in, sign them out first so the invite
+ *       can be processed for the correct account.
+ *    b. Show the set-password panel with email pre-filled and locked.
+ * 2. If no invite link and user is already signed in, go to portal.
+ */
+var IS_EMAIL_LINK = auth.isSignInWithEmailLink(window.location.href);
+
+/* Extract email from URL ?email= param (Firebase appends it in some flows)
+   or fall back to localStorage */
+function getInviteEmail() {
+  var params = new URLSearchParams(window.location.search);
+  return params.get('email') ||
+         window.localStorage.getItem('nlInviteEmail') ||
+         '';
+}
+
+window.addEventListener('load', function() {
+  if (IS_EMAIL_LINK) {
+    /* Sign out any existing session before processing invite link */
+    auth.signOut().then(function() {
+      showPanel('panelSetPassword');
+      var email = getInviteEmail();
+      var emailInput = document.getElementById('setPwEmail');
+      if (email) {
+        emailInput.value    = email;
+        emailInput.readOnly = true;
+        emailInput.style.background = 'var(--off-white)';
+        emailInput.style.color      = 'var(--text-muted)';
+      }
+    });
   }
 });
 
-window.addEventListener('load', function() {
-  /* Handle email link (invite) sign-in */
-  if (auth.isSignInWithEmailLink(window.location.href)) {
-    showPanel('panelSetPassword');
-    /* Pre-fill email if stored from invite click */
-    var storedEmail = window.localStorage.getItem('nlInviteEmail') || '';
-    if (storedEmail) document.getElementById('setPwEmail').value = storedEmail;
+auth.onAuthStateChanged(function(user) {
+  /* If an invite link is being processed, don't redirect -- let the
+     set-password flow complete first */
+  if (IS_EMAIL_LINK) return;
+  if (user) {
+    window.location.replace(PORTAL_URL);
   }
 });
 
@@ -766,10 +794,15 @@ function doSetPassword() {
   auth.signInWithEmailLink(email, window.location.href)
     .then(function(result) {
       window.localStorage.removeItem('nlInviteEmail');
+      /* Set pending=false on the user record so portal doesn't bounce back.
+         Find by UID first (most reliable), then clear pending flag. */
+      var uid = result.user.uid;
+      db.ref('users/' + uid + '/pending').set(false).catch(function() {});
       return result.user.updatePassword(pass);
     })
     .then(function() {
-      /* onAuthStateChanged will redirect */
+      /* Now safe to redirect -- pending is cleared */
+      window.location.replace(PORTAL_URL);
     })
     .catch(function(err) {
       setBtnLoading('setPwBtn', false, 'Set password & sign in');
