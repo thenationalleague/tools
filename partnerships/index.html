@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+  NL Tools — Partnership Assets
+  Version: v1.1 (conversation turn 58)
+  Date: 01/04/2026
+
+  Changelog:
+  v1.1 — GAS URL set.
+  v1.0 — Initial build. Drive file browser for commercial-partnership-assets tool.
+         Reads Shared Drive via GAS, renders collapsible folder tree + file cards.
+         Preview modal for images, PDFs, Google Workspace files.
+         Download button for all file types.
+         Auth guard: access level reads from RTDB via auth-guard.js.
+
+  Deploy to: /tools/partnerships/index.html
+  Tool key:  commercial-partnership-assets
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Partnership Assets — National League</title>
+
+<link rel="preconnect" href="https://use.typekit.net" crossorigin>
+<link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+
+<!-- Firebase compat SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<script>
+  firebase.initializeApp({
+    apiKey:      'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+    authDomain:  'nl-tools.firebaseapp.com',
+    databaseURL: 'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+    projectId:   'nl-tools',
+    appId:       '1:801354670005:web:05d8ebad3e7e63610d03fc'
+  });
+
+  var NL_TOOL_KEY = 'commercial-partnership-assets';
+  window.nlAuthReady = function(user, userData) {
+    window._nlUser     = user;
+    window._nlUserData = userData;
+    document.getElementById('pageWrap').style.display = 'block';
+    initBrowser();
+  };
+</script>
+<script src="/tools/auth-guard.js"></script>
+
+<style>
+@font-face {
+  font-family: "carbona-variable";
+  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display: swap; font-style: normal; font-weight: 200 900;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary:    #9e0000;
+  --navy:       #223b7c;
+  --white:      #ffffff;
+  --off-white:  #f4f6f9;
+  --text:       #1a2a44;
+  --text-muted: #5a6a82;
+  --border:     #dde3ed;
+  --radius:     8px;
+  --shadow:     0 2px 16px rgba(10,22,40,0.10);
+  --font:       'carbona-variable', 'carbona', sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  font-variation-settings: 'wght' 400;
+  background: var(--off-white);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+.nl-header {
+  background: var(--primary);
+  border-bottom: 5px solid var(--navy);
+  padding: 0 24px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.nl-header img { height: 38px; width: auto; }
+.nl-header__title {
+  font-size: 16px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--white);
+}
+.nl-header__title span {
+  color: rgba(255,255,255,0.55);
+  font-weight: 400;
+  font-variation-settings: 'wght' 400;
+}
+.nl-header__back {
+  margin-left: auto;
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  transition: color 0.15s;
+}
+.nl-header__back:hover { color: var(--white); }
+
+/* ── Page ── */
+#pageWrap { display: none; }
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 20px 60px;
+}
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.toolbar__title {
+  font-size: 20px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  color: var(--navy);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  flex: 1;
+}
+.toolbar__search {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--white);
+  outline: none;
+  transition: border-color 0.15s;
+  width: 240px;
+}
+.toolbar__search:focus { border-color: var(--navy); }
+.btn {
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn--ghost {
+  background: var(--white);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.btn--ghost:hover { border-color: var(--navy); color: var(--navy); }
+
+/* ── Layout ── */
+.browser {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .browser { grid-template-columns: 1fr; }
+}
+
+/* ── Folder tree ── */
+.tree-panel {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: sticky;
+  top: 84px;
+}
+.tree-panel__head {
+  background: var(--navy);
+  padding: 10px 16px;
+  font-size: 10px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--white);
+  border-bottom: 3px solid var(--primary);
+}
+.tree-panel__body {
+  padding: 8px 0;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
+/* Tree nodes */
+.tree-folder {
+  user-select: none;
+}
+.tree-folder__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  color: var(--text);
+  transition: background 0.1s;
+  border-radius: 0;
+}
+.tree-folder__label:hover { background: var(--off-white); }
+.tree-folder__label.active { background: #eef2ff; color: var(--navy); }
+.tree-folder__icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.tree-folder--open > .tree-folder__label .tree-folder__chevron {
+  transform: rotate(90deg);
+}
+.tree-folder__chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+.tree-folder__children {
+  display: none;
+  padding-left: 16px;
+}
+.tree-folder--open > .tree-folder__children { display: block; }
+
+/* Root level "All files" item */
+.tree-root {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--navy);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.tree-root:hover { background: var(--off-white); }
+.tree-root.active { background: #eef2ff; }
+
+/* ── File grid ── */
+.files-panel {
+  min-height: 300px;
+}
+.files-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.breadcrumb {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.breadcrumb__item {
+  cursor: pointer;
+  color: var(--navy);
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  transition: opacity 0.15s;
+}
+.breadcrumb__item:hover { opacity: 0.7; }
+.breadcrumb__sep { color: var(--border); }
+.breadcrumb__current { color: var(--text-muted); cursor: default; font-weight: 400; }
+
+/* File count */
+.files-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Grid */
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+/* Subfolder card in grid */
+.file-card--folder {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.file-card--folder:hover {
+  border-color: var(--navy);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.file-card--folder__icon { font-size: 32px; }
+.file-card--folder__name {
+  font-size: 12px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* File card */
+.file-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+}
+.file-card:hover {
+  border-color: var(--navy);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.file-card__thumb {
+  height: 120px;
+  background: var(--off-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+.file-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.file-card__thumb-icon {
+  font-size: 40px;
+  opacity: 0.4;
+}
+.file-card__thumb-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(34,59,124,0.0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.file-card__thumb:hover .file-card__thumb-overlay {
+  background: rgba(34,59,124,0.15);
+}
+.file-card__thumb-overlay-icon {
+  font-size: 28px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: var(--white);
+}
+.file-card__thumb:hover .file-card__thumb-overlay-icon { opacity: 1; }
+
+.file-card__body {
+  padding: 10px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.file-card__name {
+  font-size: 12px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--text);
+  word-break: break-word;
+  line-height: 1.3;
+}
+.file-card__meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.file-card__actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.file-card__btn {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--text-muted);
+  transition: all 0.12s;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+}
+.file-card__btn:hover { border-color: var(--navy); color: var(--navy); }
+.file-card__btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--white);
+}
+.file-card__btn--primary:hover { background: #7a0000; border-color: #7a0000; color: var(--white); }
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+.empty-state__icon { font-size: 48px; margin-bottom: 16px; }
+.empty-state__text { font-size: 14px; }
+
+/* Loading state */
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* ── Preview modal ── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,22,40,0.75);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal__head {
+  background: var(--navy);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 3px solid var(--primary);
+  flex-shrink: 0;
+}
+.modal__title {
+  font-size: 13px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  color: var(--white);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal__close {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.modal__close:hover { color: var(--white); }
+.modal__body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.modal__iframe {
+  width: 100%;
+  flex: 1;
+  border: none;
+  min-height: 500px;
+}
+.modal__image {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  margin: auto;
+  display: block;
+  padding: 20px;
+}
+.modal__footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<header class="nl-header">
+  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
+       alt="The National League"
+       onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png'">
+  <div class="nl-header__title">Commercial <span>/ Partnership Assets</span></div>
+  <a class="nl-header__back" href="/tools/portal/">← Portal</a>
+</header>
+
+<div id="pageWrap">
+  <div class="page">
+
+    <div class="toolbar">
+      <div class="toolbar__title">Partnership Assets</div>
+      <input type="text" class="toolbar__search" id="searchInput" placeholder="Search files…" oninput="onSearch(this.value)">
+      <button class="btn btn--ghost" onclick="refreshTree()">↻ Refresh</button>
+    </div>
+
+    <div class="browser">
+
+      <!-- Folder tree -->
+      <div class="tree-panel">
+        <div class="tree-panel__head">Folders</div>
+        <div class="tree-panel__body" id="treePanel">
+          <div class="loading">Loading…</div>
+        </div>
+      </div>
+
+      <!-- File grid -->
+      <div class="files-panel">
+        <div class="files-panel__head">
+          <div class="breadcrumb" id="breadcrumb"></div>
+          <div class="files-count" id="filesCount"></div>
+        </div>
+        <div class="file-grid" id="fileGrid">
+          <div class="loading">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Preview modal -->
+<div class="modal-backdrop" id="previewModal" style="display:none;" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal__head">
+      <div class="modal__title" id="modalTitle"></div>
+      <button class="modal__close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal__body" id="modalBody"></div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal()">Close</button>
+      <a class="btn file-card__btn--primary" id="modalDownload" href="#" target="_blank"
+         style="padding:8px 16px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;text-decoration:none;border-radius:8px;display:inline-flex;align-items:center;">
+        ⬇ Download
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- Config ------------------------------------------------------------- */
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbw9eD-V2t9Ei5AnZsudmpChN68qMxOb1r_2YvwOQwmO9nfSfuotz_EzMMqXb1CYCrBebA/exec';
+
+/* ---- State -------------------------------------------------------------- */
+var _tree          = [];       /* full tree from GAS */
+var _currentNode   = null;     /* currently displayed folder node (null = root) */
+var _breadcrumb    = [];       /* [{name, node}] */
+var _searchMode    = false;
+var _searchResults = [];
+
+/* ---- Init --------------------------------------------------------------- */
+function initBrowser() {
+  loadTree();
+}
+
+function loadTree() {
+  document.getElementById('treePanel').innerHTML = '<div class="loading">Loading…</div>';
+  document.getElementById('fileGrid').innerHTML  = '<div class="loading">Loading…</div>';
+
+  fetch(GAS_URL + '?action=getTree&cb=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.ok) throw new Error(data.error || 'Failed to load');
+      _tree = data.tree || [];
+      renderTree(_tree);
+      navigateTo(null, 'Partnership Assets', []);
+    })
+    .catch(function(err) {
+      document.getElementById('treePanel').innerHTML =
+        '<div class="loading" style="color:#9e0000;">Failed to load: ' + err.message + '</div>';
+    });
+}
+
+function refreshTree() { loadTree(); }
+
+/* ---- Tree rendering ----------------------------------------------------- */
+function renderTree(nodes) {
+  var panel = document.getElementById('treePanel');
+  panel.innerHTML = '';
+
+  /* Root entry */
+  var root = document.createElement('div');
+  root.className = 'tree-root active';
+  root.id = 'tree-root-item';
+  root.innerHTML = '📁 All files';
+  root.addEventListener('click', function() {
+    navigateTo(null, 'Partnership Assets', []);
+  });
+  panel.appendChild(root);
+
+  /* Folders only in tree */
+  nodes.forEach(function(node) {
+    if (node.type === 'folder') {
+      panel.appendChild(buildTreeNode(node, []));
+    }
+  });
+}
+
+function buildTreeNode(node, ancestorPath) {
+  var path = ancestorPath.concat([{ name: node.name, node: node }]);
+
+  var wrap = document.createElement('div');
+  wrap.className = 'tree-folder';
+  wrap.id = 'tree-' + node.id;
+
+  var hasSubfolders = node.children && node.children.some(function(c) { return c.type === 'folder'; });
+
+  var label = document.createElement('div');
+  label.className = 'tree-folder__label';
+  label.innerHTML =
+    '<span class="tree-folder__icon">📁</span>' +
+    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(node.name) + '</span>' +
+    (hasSubfolders ? '<span class="tree-folder__chevron">▶</span>' : '');
+
+  label.addEventListener('click', function(e) {
+    e.stopPropagation();
+    /* Toggle open */
+    if (hasSubfolders) {
+      wrap.classList.toggle('tree-folder--open');
+    }
+    /* Navigate to this folder */
+    navigateTo(node, node.name, path);
+  });
+
+  wrap.appendChild(label);
+
+  if (hasSubfolders) {
+    var children = document.createElement('div');
+    children.className = 'tree-folder__children';
+    node.children.forEach(function(child) {
+      if (child.type === 'folder') {
+        children.appendChild(buildTreeNode(child, path));
+      }
+    });
+    wrap.appendChild(children);
+  }
+
+  return wrap;
+}
+
+/* ---- Navigation --------------------------------------------------------- */
+function navigateTo(node, name, path) {
+  _currentNode = node;
+  _breadcrumb  = path;
+  _searchMode  = false;
+  document.getElementById('searchInput').value = '';
+
+  /* Update tree active state */
+  document.querySelectorAll('.tree-folder__label').forEach(function(el) {
+    el.classList.remove('active');
+  });
+  document.querySelectorAll('.tree-root').forEach(function(el) {
+    el.classList.remove('active');
+  });
+
+  if (!node) {
+    var rootEl = document.getElementById('tree-root-item');
+    if (rootEl) rootEl.classList.add('active');
+  } else {
+    var treeEl = document.querySelector('#tree-' + node.id + ' > .tree-folder__label');
+    if (treeEl) treeEl.classList.add('active');
+  }
+
+  renderBreadcrumb(path, name);
+  renderFiles(node ? node.children : _tree);
+}
+
+/* ---- Breadcrumb --------------------------------------------------------- */
+function renderBreadcrumb(path, currentName) {
+  var bc = document.getElementById('breadcrumb');
+  bc.innerHTML = '';
+
+  /* Root */
+  var rootEl = document.createElement('span');
+  rootEl.className = 'breadcrumb__item';
+  rootEl.textContent = 'All files';
+  rootEl.addEventListener('click', function() { navigateTo(null, 'Partnership Assets', []); });
+  bc.appendChild(rootEl);
+
+  path.forEach(function(item, idx) {
+    var sep = document.createElement('span');
+    sep.className = 'breadcrumb__sep';
+    sep.textContent = '/';
+    bc.appendChild(sep);
+
+    var el = document.createElement('span');
+    if (idx === path.length - 1) {
+      el.className = 'breadcrumb__current';
+      el.textContent = item.name;
+    } else {
+      el.className = 'breadcrumb__item';
+      el.textContent = item.name;
+      (function(capturedItem, capturedPath) {
+        el.addEventListener('click', function() {
+          navigateTo(capturedItem.node, capturedItem.name, capturedPath.slice(0, capturedPath.indexOf(capturedItem) + 1));
+        });
+      })(item, path);
+    }
+    bc.appendChild(el);
+  });
+}
+
+/* ---- File grid ---------------------------------------------------------- */
+function renderFiles(nodes) {
+  var grid = document.getElementById('fileGrid');
+  grid.innerHTML = '';
+
+  var items = nodes || [];
+
+  /* Subfolders first */
+  var folders = items.filter(function(n) { return n.type === 'folder'; });
+  var files   = items.filter(function(n) { return n.type === 'file'; });
+
+  var total = folders.length + files.length;
+  document.getElementById('filesCount').textContent =
+    total === 0 ? '' : total + ' item' + (total === 1 ? '' : 's');
+
+  if (total === 0) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-state__icon">📂</div><div class="empty-state__text">This folder is empty.</div></div>';
+    return;
+  }
+
+  /* Render folder cards */
+  folders.forEach(function(folder) {
+    var card = document.createElement('div');
+    card.className = 'file-card--folder';
+    card.innerHTML =
+      '<div class="file-card--folder__icon">📁</div>' +
+      '<div class="file-card--folder__name">' + esc(folder.name) + '</div>';
+    card.addEventListener('click', function() {
+      var path = _breadcrumb.concat([{ name: folder.name, node: folder }]);
+      navigateTo(folder, folder.name, path);
+    });
+    grid.appendChild(card);
+  });
+
+  /* Render file cards */
+  files.forEach(function(file) {
+    grid.appendChild(buildFileCard(file));
+  });
+}
+
+function buildFileCard(file) {
+  var card = document.createElement('div');
+  card.className = 'file-card';
+
+  /* Thumb */
+  var thumb = document.createElement('div');
+  thumb.className = 'file-card__thumb';
+
+  if (file.mimeType && file.mimeType.indexOf('image/') === 0) {
+    var img = document.createElement('img');
+    img.src = 'https://drive.google.com/thumbnail?id=' + file.id + '&sz=w400';
+    img.alt = file.name;
+    img.onerror = function() {
+      this.onerror = null;
+      this.parentElement.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
+    };
+    thumb.appendChild(img);
+  } else {
+    var icon = document.createElement('div');
+    icon.className = 'file-card__thumb-icon';
+    icon.textContent = getMimeIcon(file.mimeType);
+    thumb.appendChild(icon);
+  }
+
+  /* Preview overlay */
+  var overlay = document.createElement('div');
+  overlay.className = 'file-card__thumb-overlay';
+  if (file.previewUrl) {
+    var overlayIcon = document.createElement('div');
+    overlayIcon.className = 'file-card__thumb-overlay-icon';
+    overlayIcon.textContent = '👁';
+    overlay.appendChild(overlayIcon);
+    thumb.style.cursor = 'pointer';
+    thumb.addEventListener('click', function() { openPreview(file); });
+  }
+  thumb.appendChild(overlay);
+  card.appendChild(thumb);
+
+  /* Body */
+  var body = document.createElement('div');
+  body.className = 'file-card__body';
+  var name = document.createElement('div');
+  name.className = 'file-card__name';
+  name.textContent = file.name;
+  body.appendChild(name);
+
+  if (file.modifiedTime) {
+    var meta = document.createElement('div');
+    meta.className = 'file-card__meta';
+    meta.textContent = formatDate(file.modifiedTime) + (file.size > 0 ? ' · ' + formatSize(file.size) : '');
+    body.appendChild(meta);
+  }
+  card.appendChild(body);
+
+  /* Actions */
+  var actions = document.createElement('div');
+  actions.className = 'file-card__actions';
+
+  if (file.previewUrl) {
+    var previewBtn = document.createElement('button');
+    previewBtn.className = 'file-card__btn';
+    previewBtn.textContent = 'Preview';
+    previewBtn.addEventListener('click', function() { openPreview(file); });
+    actions.appendChild(previewBtn);
+  }
+
+  var dlBtn = document.createElement('button');
+  dlBtn.className = 'file-card__btn file-card__btn--primary';
+  dlBtn.textContent = '⬇ Download';
+  dlBtn.addEventListener('click', function() { downloadFile(file, dlBtn); });
+  actions.appendChild(dlBtn);
+
+  card.appendChild(actions);
+  return card;
+}
+
+/* ---- Preview modal ------------------------------------------------------ */
+function openPreview(file) {
+  document.getElementById('modalTitle').textContent = file.name;
+  var body = document.getElementById('modalBody');
+  body.innerHTML = '';
+
+  if (file.mimeType && file.mimeType.indexOf('image/') === 0) {
+    var img = document.createElement('img');
+    img.className = 'modal__image';
+    img.src = 'https://drive.google.com/thumbnail?id=' + file.id + '&sz=w1200';
+    img.alt = file.name;
+    body.appendChild(img);
+  } else if (file.previewUrl) {
+    var iframe = document.createElement('iframe');
+    iframe.className = 'modal__iframe';
+    iframe.src = file.previewUrl;
+    iframe.allowFullscreen = true;
+    body.appendChild(iframe);
+  }
+
+  /* Download link in footer */
+  var dlLink = document.getElementById('modalDownload');
+  dlLink.href = 'https://drive.google.com/uc?export=download&id=' + file.id;
+  dlLink.download = file.name;
+
+  document.getElementById('previewModal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('previewModal')) return;
+  document.getElementById('previewModal').style.display = 'none';
+  document.body.style.overflow = '';
+  document.getElementById('modalBody').innerHTML = ''; /* stop iframe playing */
+}
+
+/* ---- Download ----------------------------------------------------------- */
+function downloadFile(file, btn) {
+  var original = btn.textContent;
+  btn.textContent = '…';
+  btn.disabled = true;
+
+  /* Direct download via Drive export URL */
+  var url = 'https://drive.google.com/uc?export=download&id=' + file.id;
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(function() {
+    btn.textContent = original;
+    btn.disabled = false;
+  }, 1500);
+}
+
+/* ---- Search ------------------------------------------------------------- */
+function onSearch(q) {
+  q = q.trim().toLowerCase();
+  if (!q) {
+    _searchMode = false;
+    renderFiles(_currentNode ? _currentNode.children : _tree);
+    renderBreadcrumb(_breadcrumb, _currentNode ? _currentNode.name : 'Partnership Assets');
+    document.getElementById('filesCount').textContent = '';
+    return;
+  }
+
+  _searchMode = true;
+  var results = searchTree(_tree, q);
+  document.getElementById('breadcrumb').innerHTML =
+    '<span class="breadcrumb__current">Search results for "' + esc(q) + '"</span>';
+  renderFiles(results);
+}
+
+function searchTree(nodes, q) {
+  var results = [];
+  nodes.forEach(function(node) {
+    if (node.type === 'file' && node.name.toLowerCase().indexOf(q) !== -1) {
+      results.push(node);
+    }
+    if (node.type === 'folder' && node.children) {
+      results = results.concat(searchTree(node.children, q));
+    }
+  });
+  return results;
+}
+
+/* ---- Helpers ------------------------------------------------------------ */
+function getMimeIcon(mime) {
+  if (!mime) return '📄';
+  if (mime === 'application/vnd.google-apps.folder')              return '📁';
+  if (mime === 'application/vnd.google-apps.document')            return '📝';
+  if (mime === 'application/vnd.google-apps.spreadsheet')         return '📊';
+  if (mime === 'application/vnd.google-apps.presentation')        return '📽️';
+  if (mime === 'application/pdf')                                  return '📕';
+  if (mime.indexOf('image/') === 0)                               return '🖼️';
+  if (mime.indexOf('video/') === 0)                               return '🎬';
+  if (mime.indexOf('audio/') === 0)                               return '🎵';
+  if (mime === 'application/zip' || mime === 'application/x-zip') return '🗜️';
+  return '📄';
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  return d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear();
+}
+
+function formatSize(bytes) {
+  if (!bytes || bytes === 0) return '';
+  bytes = Number(bytes);
+  if (bytes < 1024)                  return bytes + ' B';
+  if (bytes < 1024 * 1024)          return Math.round(bytes / 1024) + ' KB';
+  if (bytes < 1024 * 1024 * 1024)   return (bytes / (1024*1024)).toFixed(1) + ' MB';
+  return (bytes / (1024*1024*1024)).toFixed(1) + ' GB';
+}
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ---- Keyboard ----------------------------------------------------------- */
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>
