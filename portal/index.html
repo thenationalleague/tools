@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.7 (conversation turn 104)
+  Version: v5.8 (conversation turn 105)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1106,7 +1106,7 @@ body {
 .uacc-dept-header {
   display: flex;
   align-items: center;
-  padding: 8px 14px;
+  padding: 4px 0 4px 14px;
   gap: 10px;
   background: var(--navy);
   margin: 8px 0 0;
@@ -1120,6 +1120,16 @@ body {
   letter-spacing: 0.14em;
   color: var(--white);
   flex: 1;
+}
+/* Desktop: set-all inline on header, hide red band */
+@media (min-width: 700px) {
+  .uacc-dept-band { display: none; }
+  .uacc-dept-header .uacc-set-all-slider { display: inline-flex; margin-right: 0; }
+}
+/* Mobile: hide set-all from header, show red band */
+@media (max-width: 699px) {
+  .uacc-dept-header .uacc-set-all-slider { display: none; }
+  .uacc-dept-band { display: flex; }
 }
 /* -- Set-all mini slider (on dept header bar) ------------------------------ */
 .uacc-dept-header {
@@ -1135,7 +1145,7 @@ body {
 }
 /* The slider inside the band needs its right edge to match tool sliders */
 .uacc-dept-band .uacc-set-all-slider {
-  margin-right: 14px; /* matches tool row padding-right */
+  margin-right: 14px;
 }
 .uacc-set-all-slider {
   display: inline-flex;
@@ -1713,7 +1723,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.7';
+var PORTAL_VERSION = 'v5.8';
 
 var STATE = {
   uid:      null,
@@ -2976,7 +2986,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     deptWrap.className = 'uacc-dept-wrap';
     deptWrap.dataset.dept = dept;
 
-    /* Navy header bar -- dept label only */
+    /* Navy header bar -- label + set-all inline (desktop) */
     var deptHeader = document.createElement('div');
     deptHeader.className = 'uacc-dept-header';
     var deptLabel = document.createElement('div');
@@ -2984,11 +2994,14 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     deptLabel.textContent = getDeptLabel(dept);
     deptHeader.appendChild(deptLabel);
 
-    /* Red band below navy -- houses the set-all slider */
+    /* Red band -- mobile fallback only */
     var deptBand = document.createElement('div');
     deptBand.className = 'uacc-dept-band';
     deptBand.dataset.dept = dept;
+
     if (!isSuperUser) {
+      /* Add set-all to header (shown desktop) and band (shown mobile) */
+      deptHeader.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
       deptBand.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
     }
 
@@ -3644,16 +3657,17 @@ function renderInviteToolSliders() {
   sortDepts(Object.keys(deptMap)).forEach(function(dept) {
     if (isClubOrg && dept === 'staff') return;
 
-    /* Navy dept header */
+    /* Navy dept header -- set-all inline (desktop) */
     var deptHeader = document.createElement('div');
     deptHeader.className = 'uacc-dept-header';
     var deptLabelEl = document.createElement('div');
     deptLabelEl.className = 'uacc-dept-label';
     deptLabelEl.textContent = getDeptLabel(dept);
     deptHeader.appendChild(deptLabelEl);
+    deptHeader.appendChild(buildInviteSetAllSlider(dept, deptMap, container, isClubOrg));
     container.appendChild(deptHeader);
 
-    /* Red band with set-all */
+    /* Red band -- mobile only */
     var deptBand = document.createElement('div');
     deptBand.className = 'uacc-dept-band';
     deptBand.appendChild(buildInviteSetAllSlider(dept, deptMap, container, isClubOrg));
