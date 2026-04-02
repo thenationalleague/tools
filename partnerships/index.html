@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.2 (conversation turn 76)
+  Version: v2.3 (conversation turn 77) (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -592,6 +592,71 @@ body {
 }
 .nl-progress--error .nl-progress__label { color: var(--primary); }
 .nl-progress--error .nl-progress__bar { background: var(--primary); }
+
+/* ── View toggle ── */
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.view-toggle__btn {
+  padding: 7px 12px;
+  background: var(--white);
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-muted);
+  transition: all 0.12s;
+  line-height: 1;
+}
+.view-toggle__btn:hover { background: var(--off-white); color: var(--text); }
+.view-toggle__btn--active { background: var(--navy); color: var(--white); }
+
+/* ── Grid view (default) ── */
+.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+
+/* ── List view ── */
+.file-grid--list { display: flex; flex-direction: column; gap: 0; }
+.file-grid--list .file-card {
+  flex-direction: row;
+  align-items: center;
+  border-radius: 0;
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+}
+.file-grid--list .file-card:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.file-grid--list .file-card:last-child  { border-radius: 0 0 var(--radius) var(--radius); border-bottom: 1px solid var(--border); }
+.file-grid--list .file-card__thumb {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  margin: 8px;
+}
+.file-grid--list .file-card__body { padding: 8px 8px 8px 0; }
+.file-grid--list .file-card__name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.file-grid--list .file-card__actions { padding: 0 8px 0 0; flex-shrink: 0; }
+.file-grid--list .file-card__actions .file-card__btn:first-child { display: none; } /* hide preview btn in list */
+
+/* Folder cards in list view */
+.file-grid--list .file-card--folder {
+  flex-direction: row;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 0;
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: left;
+}
+.file-grid--list .file-card--folder:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.file-grid--list .file-card--folder__icon { font-size: 20px; }
+.file-grid--list .file-card--folder__name { font-size: 13px; }
 </style>
 </head>
 <body>
@@ -611,6 +676,14 @@ body {
     <div class="toolbar">
       <div class="toolbar__title">Partnership Assets</div>
       <input type="text" class="toolbar__search" id="searchInput" placeholder="Search files…" oninput="onSearch(this.value)">
+      <div class="view-toggle">
+        <button class="view-toggle__btn view-toggle__btn--active" id="btnGrid" onclick="setView('grid')" title="Grid view">⊞</button>
+        <button class="view-toggle__btn" id="btnList" onclick="setView('list')" title="List view">☰</button>
+      </div>
+      <div class="view-toggle">
+        <button class="view-toggle__btn view-toggle__btn--active" id="btnGrid" onclick="setView('grid')" title="Grid view">⊞</button>
+        <button class="view-toggle__btn" id="btnList" onclick="setView('list')" title="List view">☰</button>
+      </div>
       <button class="btn btn--ghost" onclick="refreshTree()">↻ Refresh</button>
     </div>
 
@@ -673,6 +746,21 @@ var _currentNode   = null;     /* currently displayed folder node (null = root) 
 var _breadcrumb    = [];       /* [{name, node}] */
 var _searchMode    = false;
 var _searchResults = [];
+
+/* ---- View toggle -------------------------------------------------------- */
+function setView(mode) {
+  _viewMode = mode;
+  var grid = document.getElementById('fileGrid');
+  if (mode === 'list') {
+    grid.classList.add('file-grid--list');
+  } else {
+    grid.classList.remove('file-grid--list');
+  }
+  document.getElementById('btnGrid').classList.toggle('view-toggle__btn--active', mode === 'grid');
+  document.getElementById('btnList').classList.toggle('view-toggle__btn--active', mode === 'list');
+  /* Re-render current view with new mode */
+  renderFiles(_currentNode ? _currentNode.children : _tree);
+}
 
 /* ---- Init --------------------------------------------------------------- */
 function initBrowser() {
@@ -917,10 +1005,14 @@ function buildFileCard(file) {
   var thumb = document.createElement('div');
   thumb.className = 'file-card__thumb';
 
-  if (file.mimeType && file.mimeType.indexOf('image/') === 0) {
+  var isImage = file.mimeType && file.mimeType.indexOf('image/') === 0;
+
+  if (isImage) {
+    /* Render actual thumbnail inline */
     var img = document.createElement('img');
     img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now();
     img.alt = file.name;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     img.onerror = function() {
       this.onerror = null;
       this.parentElement.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
@@ -933,10 +1025,10 @@ function buildFileCard(file) {
     thumb.appendChild(icon);
   }
 
-  /* Preview overlay */
+  /* Click thumb to preview */
   var overlay = document.createElement('div');
   overlay.className = 'file-card__thumb-overlay';
-  if (file.previewUrl) {
+  if (file.previewUrl || isImage) {
     var overlayIcon = document.createElement('div');
     overlayIcon.className = 'file-card__thumb-overlay-icon';
     overlayIcon.textContent = '👁';
@@ -967,7 +1059,8 @@ function buildFileCard(file) {
   var actions = document.createElement('div');
   actions.className = 'file-card__actions';
 
-  if (file.previewUrl) {
+  /* Show preview button only for non-image files (images use thumb click) */
+  if (file.previewUrl && !isImage) {
     var previewBtn = document.createElement('button');
     previewBtn.className = 'file-card__btn';
     previewBtn.textContent = 'Preview';
