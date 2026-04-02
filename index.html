@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v2.9 (conversation turn 9)
+  Version: v2.10 (conversation turn 9)
   Date: 31/03/2026
   File: /tools/index.html
 
   Changelog:
+  v2.10 - Fixed loadSignupTools filter: was checking t.tier === "club" which
+          does not exist in v2 tool records. Now checks defaults.club !== "hidden"
+          so club-visible tools correctly appear on sign-up step 2.
   v2.9 - setPersistence(LOCAL) added before signInWithEmailAndPassword.
          Restored missing club picker constants (CLUBS_META_URL, CREST_BASE,
          FALLBACK_CREST, suClubsData) which were dropped between versions,
@@ -1067,12 +1070,15 @@ function loadSignupTools() {
       }
 
       var tools = snap.val();
-      /* Collect club-tier or visibleToAll tools, exclude placeholders */
+      /* Collect tools visible to club users (defaults.club !== hidden)
+         or visibleToAll. Exclude placeholders. */
       var groups = {};
       Object.keys(tools).forEach(function(key) {
         var t = tools[key];
         if (t.placeholder) return;
-        if (t.tier !== 'club' && !t.visibleToAll) return;
+        var clubDefault = t.defaults && t.defaults['club'];
+        var isClubVisible = clubDefault && clubDefault !== 'hidden';
+        if (!isClubVisible && !t.visibleToAll) return;
         var dept = t.department || 'General';
         if (!groups[dept]) groups[dept] = [];
         groups[dept].push({ key: key, label: t.label, description: t.description || '', icon: t.icon || '' });
