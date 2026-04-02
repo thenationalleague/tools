@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.12 (conversation turn 86) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
+  Version: v2.14 (conversation turn 88) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -787,7 +787,7 @@ window.nlAuthReady = function(userData) {
 };
 
 /* ---- Config ------------------------------------------------------------- */
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbybFKOhd28LM79lD0ihOFnqMiJ7YvieZ2VOfDOtQ-jBMnNTpDM_z31EtaFb80361O3l/exec';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbwQbGohA02M2TXcKjnS9aBsEH-e9s8ugDEpC8f6r_hS6snsMOoAoioFJX9uSbhRL01a/exec';
 
 /* ---- State -------------------------------------------------------------- */
 var _tree          = [];       /* full tree from GAS */
@@ -1070,21 +1070,22 @@ function buildFileCard(file) {
   var isImage = file.mimeType && file.mimeType.indexOf('image/') === 0;
 
   if (isImage) {
-    /* Render actual thumbnail inline */
     var img = document.createElement('img');
-    img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now();
     img.alt = file.name;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-    img.crossOrigin = 'anonymous';
-    img.onerror = function() {
-      this.onerror = null;
-      /* Try direct Drive thumbnail as fallback */
-      if (this.src.indexOf('getThumbnail') !== -1) {
-        this.src = 'https://lh3.googleusercontent.com/d/' + file.id + '=w400';
-      } else {
-        this.parentElement.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
-      }
-    };
+    /* Fetch thumbnail as base64 JSON to avoid CORS block on blob response */
+    fetch(GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok && d.data) {
+          img.src = 'data:' + (d.mime || 'image/jpeg') + ';base64,' + d.data;
+        } else {
+          thumb.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
+        }
+      })
+      .catch(function() {
+        thumb.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
+      });
     thumb.appendChild(img);
   } else {
     var icon = document.createElement('div');
@@ -1160,21 +1161,32 @@ function openPreview(file) {
     body.style.cssText = 'flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;';
     var img = document.createElement('img');
     img.style.cssText = 'max-width:100%;max-height:70vh;object-fit:contain;display:block;';
-    img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&sz=w1200&cb=' + Date.now();
     img.alt = file.name;
-    img.onerror = function() {
-      this.onerror = null;
-      /* Fallback to direct Drive URL if GAS proxy fails */
-      this.src = 'https://drive.google.com/thumbnail?id=' + file.id + '&sz=w1200';
-    };
 
     /* Loading state */
     var loadMsg = document.createElement('div');
     loadMsg.style.cssText = 'position:absolute;color:rgba(255,255,255,0.5);font-size:13px;';
     loadMsg.textContent = 'Loading…';
     body.appendChild(loadMsg);
-    img.onload = function() { if (loadMsg.parentNode) loadMsg.parentNode.removeChild(loadMsg); };
     body.appendChild(img);
+
+    fetch(GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (loadMsg.parentNode) loadMsg.parentNode.removeChild(loadMsg);
+        if (d.ok && d.data) {
+          img.src = 'data:' + (d.mime || 'image/jpeg') + ';base64,' + d.data;
+        } else {
+          img.src = '';
+          var errMsg = document.createElement('div');
+          errMsg.style.cssText = 'color:rgba(255,255,255,0.5);font-size:13px;';
+          errMsg.textContent = 'Preview unavailable';
+          body.appendChild(errMsg);
+        }
+      })
+      .catch(function() {
+        if (loadMsg.parentNode) loadMsg.parentNode.removeChild(loadMsg);
+      });
 
   } else {
     /* Non-image files: Drive iframe (Docs, PDFs, Sheets etc) */
