@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.25 (conversation turn 99) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
+  Version: v2.26 (conversation turn 100) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -1117,7 +1117,7 @@ function buildFileCard(file) {
   var _isAdmin = (_ud.tools && _ud.tools['commercial-partnership-assets'] === 'admin') || _ud.role === 'superadmin';
   var _isAudio = file.mimeType && file.mimeType.indexOf('audio/') === 0;
   var _isPdf   = file.mimeType === 'application/pdf';
-  var _canPreview = isImage || _isAudio || (file.previewUrl && !_isPdf && _isAdmin);
+  var _canPreview = isImage || !!file.previewUrl;
 
   var overlay = document.createElement('div');
   overlay.className = 'file-card__thumb-overlay';
@@ -1158,14 +1158,8 @@ function buildFileCard(file) {
   var isAdmin  = (userData.tools && userData.tools['commercial-partnership-assets'] === 'admin')
                  || userData.role === 'superadmin';
 
-  if (isAudio && !isImage) {
-    /* Audio: preview via GAS proxy works for everyone */
-    var previewBtn = document.createElement('button');
-    previewBtn.className = 'file-card__btn';
-    previewBtn.textContent = 'Preview';
-    previewBtn.addEventListener('click', function() { openPreview(file); });
-    actions.appendChild(previewBtn);
-  } else if (file.previewUrl && !isImage && !isAudio && !isPdf && isAdmin) {
+  /* All non-image files with a previewUrl -- folder is public so Drive iframe works */
+  if (!isImage && file.previewUrl) {
     var previewBtn = document.createElement('button');
     previewBtn.className = 'file-card__btn';
     previewBtn.textContent = 'Preview';
@@ -1254,7 +1248,8 @@ function openPreview(file) {
         body.appendChild(err);
       });
 
-  } else {
+  } else if (file.previewUrl) {
+    /* Drive iframe -- works for all users now folder is public */
     body.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;';
     var iframe = document.createElement('iframe');
     iframe.className = 'modal__iframe';
