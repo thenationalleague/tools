@@ -1,9 +1,14 @@
 /*
  * auth-guard.js — NL Tools v2
- * Version: v3.1 (conversation turn 74)
+ * Version: v3.4 (conversation turn 75)
  * Date: 02/04/2026
  *
  * Changelog:
+ * v3.4 — CRITICAL FIX: nlSession now defined before NL_TOOL_KEY check
+ *         so window.nlSession is always exposed (portal needs it).
+ *         Added currentUser immediate check + 5s fallback for direct access.
+ * v3.3 — Fixed grantAccess to wait for DOMContentLoaded before showing page.
+ * v3.2 — Fixed crash: document.body.appendChild called before body exists.
  * v3.1 — Progressive loading messages. Reassurance at 3s and 8s.
  * v3.0 — Complete rewrite. sessionStorage-first architecture.
  *         Session written by portal on load. Tool pages read instantly.
@@ -50,13 +55,7 @@
   var LOGIN_URL    = '/tools/';
   var ROSE_URL     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png';
 
-  /* ── Validate ──────────────────────────────────────────────────────────── */
-  if (typeof NL_TOOL_KEY === 'undefined' || !NL_TOOL_KEY) {
-    console.error('[auth-guard] NL_TOOL_KEY is not defined.');
-    return;
-  }
-
-  /* ── Session helpers ───────────────────────────────────────────────────── */
+  /* ── Session helpers -- defined first so portal can always access them ─── */
   var nlSession = {
     write: function(uid, userData) {
       try {
@@ -81,7 +80,6 @@
         if (!raw) return null;
         var s = JSON.parse(raw);
         if (!s || !s.uid) return null;
-        /* Expire after TTL */
         if (Date.now() - (s.cachedAt || 0) > SESSION_TTL) {
           sessionStorage.removeItem(SESSION_KEY);
           return null;
@@ -94,8 +92,13 @@
     }
   };
 
-  /* Expose so portal can write session */
+  /* Always expose -- portal needs this even when NL_TOOL_KEY is not set */
   window.nlSession = nlSession;
+
+  /* ── Validate -- bail if no tool key (e.g. when loaded on portal) ───────── */
+  if (typeof NL_TOOL_KEY === 'undefined' || !NL_TOOL_KEY) {
+    return; /* Portal uses window.nlSession only -- no guard needed */
+  }
 
   /* ── Loading overlay ────────────────────────────────────────────────────── */
   var styleEl = document.createElement('style');
@@ -161,7 +164,14 @@
   card.appendChild(subText);
 
   overlay.appendChild(card);
-  document.body.appendChild(overlay);
+  /* Append overlay -- body may not exist yet if script is in <head> */
+  if (document.body) {
+    document.body.appendChild(overlay);
+  } else {
+    document.addEventListener('DOMContentLoaded', function() {
+      document.body.appendChild(overlay);
+    });
+  }
 
   /* Progress messages */
   var _msgTimeout = null;
@@ -223,11 +233,19 @@
   }
 
   function grantAccess(session) {
-    removeOverlay();
-    var wrap = document.getElementById('pageWrap');
-    if (wrap) wrap.style.display = 'block';
-    if (typeof window.nlAuthReady === 'function') {
-      window.nlAuthReady(session);
+    /* Wait for DOM to be ready before showing page and calling nlAuthReady */
+    function doGrant() {
+      removeOverlay();
+      var wrap = document.getElementById('pageWrap');
+      if (wrap) wrap.style.display = 'block';
+      if (typeof window.nlAuthReady === 'function') {
+        window.nlAuthReady(session);
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', doGrant);
+    } else {
+      doGrant();
     }
   }
 
@@ -346,33 +364,43 @@
     var db   = firebase.database();
 
     setStatus('Signing you in…');
-    auth.onAuthStateChanged(function(user) {
-      if (!user) {
-        window.location.replace(LOGIN_URL);
-        return;
-      }
 
+    /* Fallback: check currentUser immediately in case onAuthStateChanged
+       doesn't fire (GitHub Pages cached auth state issue) */
+    var _authHandled = false;
+    function handleAuthUser(user) {
+      if (_authHandled) return;
+      _authHandled = true;
+      if (!user) { window.location.replace(LOGIN_URL); return; }
       setStatus('Loading your profile…');
-      /* Load user record + tool data in parallel */
       Promise.all([
         db.ref('users/' + user.uid).once('value'),
         db.ref('tools/' + NL_TOOL_KEY).once('value')
       ]).then(function(snaps) {
-        if (!snaps[0].exists()) {
-          window.location.replace(PORTAL_URL + '?guard=error');
-          return;
-        }
+        if (!snaps[0].exists()) { window.location.replace(PORTAL_URL + '?guard=error'); return; }
         var userData = snaps[0].val();
         var toolData = snaps[1].exists() ? snaps[1].val() : null;
-
-        /* Write session for subsequent page loads */
         nlSession.write(user.uid, userData);
-
         checkAccess(nlSession.read(), toolData);
-      }).catch(function() {
-        window.location.replace(PORTAL_URL + '?guard=error');
-      });
-    });
+      }).catch(function() { window.location.replace(PORTAL_URL + '?guard=error'); });
+    }
+
+    /* Check currentUser immediately (works if auth state already resolved) */
+    var currentUser = auth.currentUser;
+    if (currentUser) {
+      handleAuthUser(currentUser);
+    } else {
+      /* Register listener as backup */
+      auth.onAuthStateChanged(function(user) { handleAuthUser(user); });
+    }
+
+    /* Belt-and-braces: if neither fires in 5s, check currentUser once more */
+    setTimeout(function() {
+      if (_authHandled) return;
+      var u = auth.currentUser;
+      if (u) { handleAuthUser(u); }
+      else { window.location.replace(LOGIN_URL); }
+    }, 5000);
   }
 
   run();
