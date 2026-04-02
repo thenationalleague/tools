@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.16 (conversation turn 90) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
+  Version: v2.19 (conversation turn 93) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -787,7 +787,7 @@ window.nlAuthReady = function(userData) {
 };
 
 /* ---- Config ------------------------------------------------------------- */
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbwQbGohA02M2TXcKjnS9aBsEH-e9s8ugDEpC8f6r_hS6snsMOoAoioFJX9uSbhRL01a/exec';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbwL7YZfyG9PFzyvIhG0TMXgA44akSAnn9TN-wAmC7iL9wP9gckduzc_9x9f7iKyLoEO/exec';
 
 /* ---- State -------------------------------------------------------------- */
 var _tree          = [];       /* full tree from GAS */
@@ -1146,8 +1146,19 @@ function buildFileCard(file) {
   var actions = document.createElement('div');
   actions.className = 'file-card__actions';
 
-  /* Show preview button only for non-image files (images use thumb click) */
-  if (file.previewUrl && !isImage) {
+  var isAudio = file.mimeType && file.mimeType.indexOf('audio/') === 0;
+  var isPdf   = file.mimeType === 'application/pdf';
+  var userData = window._nlUserData || {};
+  var isAdmin  = (userData.tools && userData.tools['commercial-partnership-assets'] === 'admin')
+                 || userData.role === 'superadmin';
+
+  if ((isAudio || isPdf) && !isImage) {
+    var previewBtn = document.createElement('button');
+    previewBtn.className = 'file-card__btn';
+    previewBtn.textContent = 'Preview';
+    previewBtn.addEventListener('click', function() { openPreview(file); });
+    actions.appendChild(previewBtn);
+  } else if (file.previewUrl && !isImage && !isAudio && !isPdf && isAdmin) {
     var previewBtn = document.createElement('button');
     previewBtn.className = 'file-card__btn';
     previewBtn.textContent = 'Preview';
@@ -1170,44 +1181,73 @@ function openPreview(file) {
   document.getElementById('modalTitle').textContent = file.name;
   var body = document.getElementById('modalBody');
   body.innerHTML = '';
-  body.style.background = '';
+  body.style.cssText = '';
 
   var isImage = file.mimeType && file.mimeType.indexOf('image/') === 0;
+  var isAudio = file.mimeType && file.mimeType.indexOf('audio/') === 0;
+  var isPdf   = file.mimeType === 'application/pdf';
 
-  if (isImage) {
-    /* Images: serve via GAS proxy -- no Drive UI, no external link button */
-    body.style.cssText = 'flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;';
-    var img = document.createElement('img');
-    img.style.cssText = 'max-width:100%;max-height:70vh;object-fit:contain;display:block;';
-    img.alt = file.name;
+  if (isImage || isAudio || isPdf) {
+    body.style.cssText = 'flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;position:relative;';
 
-    /* Loading state */
     var loadMsg = document.createElement('div');
-    loadMsg.style.cssText = 'position:absolute;color:rgba(255,255,255,0.5);font-size:13px;';
+    loadMsg.style.cssText = 'color:rgba(255,255,255,0.6);font-size:13px;';
     loadMsg.textContent = 'Loading…';
     body.appendChild(loadMsg);
-    body.appendChild(img);
 
     fetch(GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now())
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (loadMsg.parentNode) loadMsg.parentNode.removeChild(loadMsg);
-        if (d.ok && d.data) {
-          img.src = 'data:' + (d.mime || 'image/jpeg') + ';base64,' + d.data;
-        } else {
-          img.src = '';
-          var errMsg = document.createElement('div');
-          errMsg.style.cssText = 'color:rgba(255,255,255,0.5);font-size:13px;';
-          errMsg.textContent = 'Preview unavailable';
-          body.appendChild(errMsg);
+        if (!d.ok || !d.data) {
+          var err = document.createElement('div');
+          err.style.cssText = 'color:rgba(255,255,255,0.5);font-size:13px;text-align:center;padding:20px;';
+          err.textContent = d.error || 'Preview unavailable';
+          body.appendChild(err);
+          return;
+        }
+        var dataUrl = 'data:' + (d.mime || 'application/octet-stream') + ';base64,' + d.data;
+
+        if (isImage) {
+          var img = document.createElement('img');
+          img.style.cssText = 'max-width:100%;max-height:70vh;object-fit:contain;display:block;';
+          img.src = dataUrl;
+          body.appendChild(img);
+
+        } else if (isAudio) {
+          body.style.background = '#1a2a44';
+          var audioWrap = document.createElement('div');
+          audioWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px;';
+          var audioIcon = document.createElement('div');
+          audioIcon.style.cssText = 'font-size:48px;';
+          audioIcon.textContent = String.fromCodePoint(0x1F3B5);
+          var audio = document.createElement('audio');
+          audio.controls = true;
+          audio.style.cssText = 'width:100%;max-width:400px;';
+          audio.src = dataUrl;
+          audioWrap.appendChild(audioIcon);
+          audioWrap.appendChild(audio);
+          body.appendChild(audioWrap);
+
+        } else if (isPdf) {
+          body.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;';
+          var obj = document.createElement('object');
+          obj.type = 'application/pdf';
+          obj.data = dataUrl;
+          obj.style.cssText = 'width:100%;flex:1;min-height:500px;border:none;';
+          obj.innerHTML = '<div style="padding:20px;color:#5a6a82;text-align:center;">PDF preview not supported. Please download instead.</div>';
+          body.appendChild(obj);
         }
       })
       .catch(function() {
         if (loadMsg.parentNode) loadMsg.parentNode.removeChild(loadMsg);
+        var err = document.createElement('div');
+        err.style.cssText = 'color:rgba(255,255,255,0.5);font-size:13px;';
+        err.textContent = 'Could not load preview';
+        body.appendChild(err);
       });
 
   } else {
-    /* Non-image files: Drive iframe (Docs, PDFs, Sheets etc) */
     body.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;';
     var iframe = document.createElement('iframe');
     iframe.className = 'modal__iframe';
