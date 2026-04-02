@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.1 (conversation turn 74)
+  Version: v2.2 (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -547,30 +547,51 @@ body {
   flex-shrink: 0;
 }
 
-@keyframes treeSpinner { to { transform: rotate(360deg); } }
-.loading-state {
+/* ── Progress loader ── */
+.nl-progress {
+  padding: 48px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 48px 20px;
+  gap: 16px;
+  width: 100%;
 }
-.loading-state__spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border);
-  border-top-color: var(--navy);
-  border-radius: 50%;
-  animation: treeSpinner 0.8s linear infinite;
-}
-.loading-state__spinner--hidden { display: none; }
-.loading-state__msg {
+.nl-progress__label {
   font-size: 13px;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
   color: var(--text-muted);
   text-align: center;
-  line-height: 1.5;
+  min-height: 20px;
+  transition: opacity 0.3s;
 }
-.loading-state__msg--error { color: var(--primary); }
+.nl-progress__bar-wrap {
+  width: 100%;
+  max-width: 280px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.nl-progress__bar {
+  height: 100%;
+  background: var(--navy);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.nl-progress__bar--complete {
+  background: #1e7e34;
+  transition: width 0.3s ease;
+}
+.nl-progress__sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  min-height: 16px;
+}
+.nl-progress--error .nl-progress__label { color: var(--primary); }
+.nl-progress--error .nl-progress__bar { background: var(--primary); }
 </style>
 </head>
 <body>
@@ -659,44 +680,63 @@ function initBrowser() {
 }
 
 function loadTree() {
-  var messages = [
-    [0,    'Connecting…'],
-    [3000, 'Loading files…'],
-    [7000, 'Almost there…'],
-    [12000,'Taking a moment — please wait…'],
-    [20000,'Still working… server is waking up']
-  ];
-  var timers = [];
+  document.getElementById('fileGrid').innerHTML = '';
 
-  function setTreeMsg(msg, isError) {
-    document.getElementById('treePanel').innerHTML =
-      '<div class="loading-state">' +
-      '<div class="loading-state__spinner' + (isError ? ' loading-state__spinner--hidden' : '') + '"></div>' +
-      '<div class="loading-state__msg' + (isError ? ' loading-state__msg--error' : '') + '">' + msg + '</div>' +
-      '</div>';
+  /* Build progress UI in tree panel */
+  var panel = document.getElementById('treePanel');
+  panel.innerHTML =
+    '<div class="nl-progress" id="loadProgress">' +
+    '<div class="nl-progress__label" id="progressLabel">Connecting…</div>' +
+    '<div class="nl-progress__bar-wrap"><div class="nl-progress__bar" id="progressBar"></div></div>' +
+    '<div class="nl-progress__sub" id="progressSub"></div>' +
+    '</div>';
+
+  var bar      = document.getElementById('progressBar');
+  var label    = document.getElementById('progressLabel');
+  var sub      = document.getElementById('progressSub');
+  var progress = document.getElementById('loadProgress');
+  var timers   = [];
+
+  function setProgress(pct, msg, subMsg) {
+    bar.style.width = pct + '%';
+    label.textContent = msg;
+    sub.textContent   = subMsg || '';
   }
 
   function clearTimers() { timers.forEach(function(t) { clearTimeout(t); }); }
 
-  setTreeMsg(messages[0][1]);
-  document.getElementById('fileGrid').innerHTML = '';
-
-  messages.slice(1).forEach(function(m) {
-    timers.push(setTimeout(function() { setTreeMsg(m[1]); }, m[0]));
-  });
+  /* Staged progress that reflects real work happening */
+  setProgress(5, 'Connecting…', '');
+  timers.push(setTimeout(function() { setProgress(20, 'Connecting…', 'Waking up server'); }, 1500));
+  timers.push(setTimeout(function() { setProgress(40, 'Loading folder structure…', ''); }, 4000));
+  timers.push(setTimeout(function() { setProgress(60, 'Loading folder structure…', 'Almost there'); }, 8000));
+  timers.push(setTimeout(function() { setProgress(75, 'Nearly ready…', 'Large folder structure'); }, 14000));
 
   fetch(GAS_URL + '?action=getTree&cb=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function(r) {
       clearTimers();
+      setProgress(85, 'Loading previews…', '');
+      return r.json();
+    })
+    .then(function(data) {
       if (!data.ok) throw new Error(data.error || 'Failed to load');
       _tree = data.tree || [];
-      renderTree(_tree);
-      navigateTo(null, 'Partnership Assets', []);
+
+      /* Hit 100% briefly before revealing content */
+      setProgress(100, 'Ready', '');
+      bar.classList.add('nl-progress__bar--complete');
+
+      setTimeout(function() {
+        renderTree(_tree);
+        navigateTo(null, 'Partnership Assets', []);
+      }, 400);
     })
     .catch(function(err) {
       clearTimers();
-      setTreeMsg('Could not load files. <a href="#" onclick="loadTree();return false;" style="color:var(--primary);font-weight:700;">Try again</a>', true);
+      progress.classList.add('nl-progress--error');
+      bar.style.width = '100%';
+      label.textContent = 'Could not load files';
+      sub.innerHTML = '<a href="#" onclick="loadTree();return false;" style="color:var(--primary);font-weight:700;">Try again</a>';
     });
 }
 
