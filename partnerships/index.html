@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.14 (conversation turn 88) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
+  Version: v2.15 (conversation turn 89) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -1070,20 +1070,31 @@ function buildFileCard(file) {
   var isImage = file.mimeType && file.mimeType.indexOf('image/') === 0;
 
   if (isImage) {
+    /* Spinner shown while thumbnail loads */
+    var thumbSpinner = document.createElement('div');
+    thumbSpinner.style.cssText = 'width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--navy);border-radius:50%;animation:treeSpinner 0.8s linear infinite;';
+    thumb.appendChild(thumbSpinner);
+
     var img = document.createElement('img');
-    img.alt = file.name;
-    img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-    /* Fetch thumbnail as base64 JSON to avoid CORS block on blob response */
+    img.alt = '';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:none;position:absolute;inset:0;';
+    thumb.style.position = 'relative';
     fetch(GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now())
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok && d.data) {
           img.src = 'data:' + (d.mime || 'image/jpeg') + ';base64,' + d.data;
+          img.onload = function() {
+            if (thumbSpinner.parentNode) thumbSpinner.parentNode.removeChild(thumbSpinner);
+            img.style.display = 'block';
+          };
         } else {
+          if (thumbSpinner.parentNode) thumbSpinner.parentNode.removeChild(thumbSpinner);
           thumb.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
         }
       })
       .catch(function() {
+        if (thumbSpinner.parentNode) thumbSpinner.parentNode.removeChild(thumbSpinner);
         thumb.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
       });
     thumb.appendChild(img);
