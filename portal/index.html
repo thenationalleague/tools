@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.18 (conversation turn 115)
+  Version: v5.19 (conversation turn 116)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1759,7 +1759,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.18';
+var PORTAL_VERSION = 'v5.19';
 
 var STATE = {
   uid:      null,
@@ -3133,7 +3133,17 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var rolePicker = document.createElement('div');
     rolePicker.className = 'inline-role-picker';
 
-    /* Org section -- label above, buttons below (matches invite form) */
+    var selectedOrg    = u.org    || 'National League';
+    var selectedOrgKey = u.orgKey || (u.role === 'club' ? 'club' : 'nl');
+    var selectedRole   = (u.role === 'club') ? 'staff' : (u.role || 'staff');
+
+    /* Helper: compute new group key from current selections */
+    function newGroupKey() {
+      if (selectedOrgKey === 'club') return 'club';
+      return selectedOrgKey + '-' + selectedRole;
+    }
+
+    /* ── Organisation ── */
     var orgRow = document.createElement('div');
     orgRow.className = 'inline-role-picker__section';
     var orgLbl = document.createElement('div');
@@ -3143,10 +3153,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var orgBtns = document.createElement('div');
     orgBtns.className = 'inline-role-picker__btns';
     orgRow.appendChild(orgBtns);
-
-    var selectedOrg    = u.org    || 'National League';
-    var selectedOrgKey = u.orgKey || 'nl';
-    var selectedRole   = u.role   || 'staff';
+    rolePicker.appendChild(orgRow);
 
     var orgs = [
       { label: 'National League', key: 'nl' },
@@ -3155,28 +3162,10 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       { label: 'Club',            key: 'club' }
     ];
 
-    orgs.forEach(function(org) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'invite-org-btn' + (org.key === selectedOrgKey || (org.key === 'club' && u.role === 'club') ? ' active' : '');
-      btn.textContent = org.label;
-      btn.addEventListener('click', function() {
-        orgRow.querySelectorAll('.invite-org-btn').forEach(function(b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        selectedOrgKey = org.key;
-        selectedOrg    = org.label;
-        roleRow.style.display = org.key === 'club' ? 'none' : 'flex';
-        clubPickerRow.style.display = org.key === 'club' ? 'flex' : 'none';
-        if (org.key !== 'club') selectedRole = 'staff';
-      });
-      orgBtns.appendChild(btn);
-    });
-    rolePicker.appendChild(orgRow);
-
-    /* Role section */
+    /* ── Role ── */
     var roleRow = document.createElement('div');
     roleRow.className = 'inline-role-picker__section';
-    roleRow.style.display = u.role === 'club' ? 'none' : 'flex';
+    roleRow.style.display = selectedOrgKey === 'club' ? 'none' : 'flex';
     var roleLbl = document.createElement('div');
     roleLbl.className = 'inline-role-picker__section-label';
     roleLbl.textContent = 'Role';
@@ -3184,29 +3173,15 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var roleBtns = document.createElement('div');
     roleBtns.className = 'inline-role-picker__btns';
     roleRow.appendChild(roleBtns);
-    ['staff', 'admin'].forEach(function(r) {
-      var rbtn = document.createElement('button');
-      rbtn.type = 'button';
-      rbtn.className = 'invite-role-btn' + (selectedRole === r ? ' active' : '');
-      rbtn.textContent = r.charAt(0).toUpperCase() + r.slice(1);
-      rbtn.addEventListener('click', function() {
-        roleRow.querySelectorAll('.invite-role-btn').forEach(function(b) { b.classList.remove('active'); });
-        rbtn.classList.add('active');
-        selectedRole = r;
-      });
-      roleBtns.appendChild(rbtn);
-    });
     rolePicker.appendChild(roleRow);
 
-    /* Club section -- reuse inv-club-picker pattern */
+    /* ── Club picker ── */
     var clubPickerRow = document.createElement('div');
     clubPickerRow.className = 'inline-role-picker__section';
-    clubPickerRow.style.display = u.role === 'club' ? 'flex' : 'none';
-    var clubLbl = document.createElement('div');
-    clubLbl.className = 'inline-role-picker__section-label';
-    clubLbl.textContent = 'Club';
-
-    /* Build club picker widget */
+    clubPickerRow.style.display = selectedOrgKey === 'club' ? 'flex' : 'none';
+    var clubLbl2 = document.createElement('div');
+    clubLbl2.className = 'inline-role-picker__section-label';
+    clubLbl2.textContent = 'Club';
     var crPicker = document.createElement('div');
     crPicker.className = 'inv-club-picker';
     crPicker.style.cssText = 'flex:1;';
@@ -3223,11 +3198,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     clubInput.placeholder = 'Search clubs…';
     var crDropdown = document.createElement('div');
     crDropdown.className = 'inv-club-picker__dropdown';
-
-    /* Track confirmed club selection -- only set when user picks from dropdown */
     var confirmedClub = u.club || '';
-
-    /* Wire up search -- use one-time setup after DOM attachment */
     function crSearch() {
       confirmedClub = '';
       var val = clubInput.value.trim();
@@ -3241,18 +3212,16 @@ function buildAccordionItem(uid, u, depts, deptMap) {
           var item = document.createElement('div');
           item.className = 'inv-club-picker__option';
           item.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);';
-          var img = document.createElement('img');
-          img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
-          img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-          img.style.cssText = 'width:24px;height:24px;object-fit:contain;flex-shrink:0;';
-          var nameEl = document.createElement('span');
-          nameEl.className = 'inv-club-picker__option-name';
-          nameEl.style.cssText = 'font-size:13px;font-weight:600;';
-          nameEl.textContent = c.name;
-          item.appendChild(img);
-          item.appendChild(nameEl);
+          var img2 = document.createElement('img');
+          img2.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
+          img2.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+          img2.style.cssText = 'width:24px;height:24px;object-fit:contain;flex-shrink:0;';
+          var nameEl2 = document.createElement('span');
+          nameEl2.style.cssText = 'font-size:13px;font-weight:600;';
+          nameEl2.textContent = c.name;
+          item.appendChild(img2);
+          item.appendChild(nameEl2);
           item.addEventListener('mousedown', function(e) {
-            /* mousedown fires before blur -- use mousedown not click */
             e.preventDefault();
             confirmedClub = c.name;
             clubInput.value = c.name;
@@ -3265,66 +3234,128 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       });
     }
     clubInput.addEventListener('input', crSearch);
-    clubInput.addEventListener('focus', function() {
-      if (clubInput.value.trim()) crSearch();
-    });
-    clubInput.addEventListener('blur', function() {
-      /* Small delay so mousedown on option fires first */
-      setTimeout(function() { crDropdown.classList.remove('open'); }, 150);
-    });
-
+    clubInput.addEventListener('focus', function() { if (clubInput.value.trim()) crSearch(); });
+    clubInput.addEventListener('blur', function() { setTimeout(function() { crDropdown.classList.remove('open'); }, 150); });
     crWrap.appendChild(crCrest);
     crWrap.appendChild(clubInput);
     crPicker.appendChild(crWrap);
     crPicker.appendChild(crDropdown);
-    clubPickerRow.appendChild(clubLbl);
+    clubPickerRow.appendChild(clubLbl2);
     clubPickerRow.appendChild(crPicker);
     rolePicker.appendChild(clubPickerRow);
 
-    /* Apply + cancel buttons */
+    /* ── Club role (job title) ── */
+    var clubRoleRow = document.createElement('div');
+    clubRoleRow.className = 'inline-role-picker__section';
+    clubRoleRow.style.display = selectedOrgKey === 'club' ? 'flex' : 'none';
+    var clubRoleLbl = document.createElement('div');
+    clubRoleLbl.className = 'inline-role-picker__section-label';
+    clubRoleLbl.textContent = 'Job title';
+    var clubRoleInput = document.createElement('input');
+    clubRoleInput.type = 'text';
+    clubRoleInput.value = u.clubRole || '';
+    clubRoleInput.placeholder = 'e.g. Media Manager';
+    clubRoleInput.style.cssText = 'flex:1;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);';
+    clubRoleRow.appendChild(clubRoleLbl);
+    clubRoleRow.appendChild(clubRoleInput);
+    rolePicker.appendChild(clubRoleRow);
+
+    /* ── Wire up org buttons (after all rows declared) ── */
+    orgs.forEach(function(org) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'invite-org-btn' + (org.key === selectedOrgKey ? ' active' : '');
+      btn.textContent = org.label;
+      btn.addEventListener('click', function() {
+        orgBtns.querySelectorAll('.invite-org-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        selectedOrgKey = org.key;
+        selectedOrg    = org.label;
+        roleRow.style.display     = org.key === 'club' ? 'none' : 'flex';
+        clubPickerRow.style.display = org.key === 'club' ? 'flex' : 'none';
+        clubRoleRow.style.display   = org.key === 'club' ? 'flex' : 'none';
+        if (org.key !== 'club') selectedRole = 'staff';
+        /* Reset role btn highlight */
+        roleBtns.querySelectorAll('.invite-role-btn').forEach(function(b) {
+          b.classList.toggle('active', b.textContent.toLowerCase() === selectedRole);
+        });
+      });
+      orgBtns.appendChild(btn);
+    });
+
+    /* ── Wire up role buttons ── */
+    ['staff', 'admin'].forEach(function(r) {
+      var rbtn = document.createElement('button');
+      rbtn.type = 'button';
+      rbtn.className = 'invite-role-btn' + (selectedRole === r ? ' active' : '');
+      rbtn.textContent = r.charAt(0).toUpperCase() + r.slice(1);
+      rbtn.addEventListener('click', function() {
+        roleBtns.querySelectorAll('.invite-role-btn').forEach(function(b) { b.classList.remove('active'); });
+        rbtn.classList.add('active');
+        selectedRole = r;
+      });
+      roleBtns.appendChild(rbtn);
+    });
+
+    /* ── Confirm button -- saves role + resets tool defaults ── */
     var applyRow = document.createElement('div');
     applyRow.className = 'inline-role-picker__row';
     var applyBtn = document.createElement('button');
     applyBtn.type = 'button';
     applyBtn.className = 'btn btn--primary btn--sm';
-    applyBtn.textContent = 'Apply';
+    applyBtn.textContent = 'Confirm';
     applyBtn.addEventListener('click', function() {
       var isClub    = selectedOrgKey === 'club';
       var newRole   = isClub ? 'club' : selectedRole;
       var newOrg    = isClub ? '' : selectedOrg;
       var newOrgKey = isClub ? 'club' : selectedOrgKey;
       var newClub   = isClub ? confirmedClub : '';
+      var newClubRole = isClub ? clubRoleInput.value.trim() : '';
 
-      /* Validate club selection */
       if (isClub && !newClub) {
         clubInput.style.borderColor = 'var(--primary)';
         clubInput.placeholder = 'Please select a club from the list';
-        setTimeout(function() {
-          clubInput.style.borderColor = '';
-          clubInput.placeholder = 'Search clubs…';
-        }, 2000);
+        setTimeout(function() { clubInput.style.borderColor = ''; clubInput.placeholder = 'Search clubs…'; }, 2000);
         return;
       }
 
+      /* Build new pseudo-user object for getGroupKey */
+      var newUd = { role: newRole, orgKey: newOrgKey };
+      var newGroupKey = getGroupKey(newUd);
+
+      /* Reset all tool access levels to defaults for new role */
       var updates = {};
       updates['users/' + uid + '/role']     = newRole;
       updates['users/' + uid + '/org']      = newOrg;
       updates['users/' + uid + '/orgKey']   = newOrgKey;
       updates['users/' + uid + '/club']     = newClub;
-      updates['users/' + uid + '/clubRole'] = isClub ? (u.clubRole || '') : '';
+      updates['users/' + uid + '/clubRole'] = newClubRole;
+
+      /* Reset tool access to defaults for new role */
+      STATE.toolsList.forEach(function(t) {
+        if (t._key === 'welcome') return;
+        var defaultLevel = (t.defaults && t.defaults[newGroupKey]) || 'hidden';
+        /* Cap club at access */
+        if (isClub && defaultLevel === 'admin') defaultLevel = 'access';
+        updates['users/' + uid + '/tools/' + t._key] = defaultLevel;
+      });
 
       var targetUser2 = STATE.allUsers[uid] || {};
       writeAuditFor(uid, targetUser2.name || '', targetUser2.email || '',
-        'role_changed', (u.role || '?') + ' -> ' + newRole + (newOrg ? ' (' + newOrg + ')' : '') + (newClub ? ' at ' + newClub : ''));
+        'role_changed', (u.role || '?') + ' -> ' + newRole +
+        (newOrg ? ' (' + newOrg + ')' : '') +
+        (newClub ? ' at ' + newClub : '') +
+        ' — tool access reset to defaults');
 
       db.ref().update(updates)
         .then(function() {
-          showToast('Role updated', 'success');
+          showToast('Role updated — tool access reset to defaults', 'success');
           rolePicker.classList.remove('open');
           loadUsers();
         })
-        .catch(function(err) { showToast('Failed to update role: ' + err.message, 'error'); });
+        .catch(function(err) { showToast('Failed: ' + err.message, 'error'); });
     });
+
     var cancelRoleBtn = document.createElement('button');
     cancelRoleBtn.type = 'button';
     cancelRoleBtn.className = 'btn btn--ghost btn--sm';
