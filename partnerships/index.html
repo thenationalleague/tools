@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v2.10 (conversation turn 84) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
+  Version: v2.11 (conversation turn 85) (conversation turn 79) (conversation turn 78) (conversation turn 77) (conversation turn 76)
   Date: 01/04/2026
 
   Changelog:
@@ -262,11 +262,13 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 8px 12px 8px 8px;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
+  font-size: 12px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--navy);
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
@@ -1073,9 +1075,15 @@ function buildFileCard(file) {
     img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now();
     img.alt = file.name;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    img.crossOrigin = 'anonymous';
     img.onerror = function() {
       this.onerror = null;
-      this.parentElement.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
+      /* Try direct Drive thumbnail as fallback */
+      if (this.src.indexOf('getThumbnail') !== -1) {
+        this.src = 'https://lh3.googleusercontent.com/d/' + file.id + '=w400';
+      } else {
+        this.parentElement.innerHTML = '<div class="file-card__thumb-icon">' + getMimeIcon(file.mimeType) + '</div>';
+      }
     };
     thumb.appendChild(img);
   } else {
@@ -1152,8 +1160,13 @@ function openPreview(file) {
     body.style.cssText = 'flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;';
     var img = document.createElement('img');
     img.style.cssText = 'max-width:100%;max-height:70vh;object-fit:contain;display:block;';
-    img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&cb=' + Date.now();
+    img.src = GAS_URL + '?action=getThumbnail&fileId=' + file.id + '&sz=w1200&cb=' + Date.now();
     img.alt = file.name;
+    img.onerror = function() {
+      this.onerror = null;
+      /* Fallback to direct Drive URL if GAS proxy fails */
+      this.src = 'https://drive.google.com/thumbnail?id=' + file.id + '&sz=w1200';
+    };
 
     /* Loading state */
     var loadMsg = document.createElement('div');
