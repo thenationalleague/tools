@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.4 (conversation turn 8)
+  Version: v1.5 (conversation turn 8)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -624,15 +624,29 @@
   /* ── Firebase ── */
   /* ── Init ── */
   function init() {
+    function dbg(label, val) {
+      var el = document.getElementById('debugBar');
+      if (el) el.innerHTML += '<br>'+label+': '+val;
+    }
     db.ref('users').on('value', function(snap){
       S.users = {};
       var v = snap.val()||{};
       Object.keys(v).forEach(function(uid){ v[uid]._uid=uid; S.users[uid]=v[uid]; });
+      dbg('users', Object.keys(S.users).length+' records');
       refresh();
-    });
-    db.ref('holiday-lieu/entries').on('value', function(snap){ S.entries = snap.val()||{}; refresh(); });
-    db.ref('holiday-lieu/lieu-earned').on('value', function(snap){ S.lieu = snap.val()||{}; refresh(); });
-    db.ref('holiday-lieu/bank-holidays').on('value', function(snap){ S.bh = snap.val()||{}; refresh(); });
+    }, function(err){ dbg('users ERROR', err.code+' — '+err.message); });
+
+    db.ref('holiday-lieu/entries').on('value', function(snap){
+      S.entries = snap.val()||{}; refresh();
+    }, function(err){ dbg('entries ERROR', err.code); });
+
+    db.ref('holiday-lieu/lieu-earned').on('value', function(snap){
+      S.lieu = snap.val()||{}; refresh();
+    }, function(err){ dbg('lieu ERROR', err.code); });
+
+    db.ref('holiday-lieu/bank-holidays').on('value', function(snap){
+      S.bh = snap.val()||{}; refresh();
+    }, function(err){ dbg('bh ERROR', err.code); });
   }
 
   function refresh() {
