@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.10 (conversation turn 107)
+  Version: v5.11 (conversation turn 108)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1155,10 +1155,12 @@ body {
   left: 27px;
   right: 27px;
   height: 2px;
-  background: rgba(255,255,255,0.25);
+  background: transparent;
   z-index: 0;
   border-radius: 1px;
 }
+/* Show track on red band */
+.uacc-dept-band .uacc-set-all-slider__track { background: rgba(255,255,255,0.25); }
 .uacc-set-all-slider__fill {
   position: absolute;
   top: 0; left: 0;
@@ -1217,7 +1219,7 @@ body {
 
 /* Set-all slider on navy header -- white style */
 .uacc-dept-header .uacc-set-all-slider__track {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.18);
 }
 .uacc-dept-header .uacc-set-all-slider__fill {
   background: rgba(255,255,255,0.6);
@@ -1748,7 +1750,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.10';
+var PORTAL_VERSION = 'v5.11';
 
 var STATE = {
   uid:      null,
@@ -3184,20 +3186,78 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     });
     rolePicker.appendChild(roleRow);
 
-    /* Club section */
+    /* Club section -- reuse inv-club-picker pattern */
     var clubPickerRow = document.createElement('div');
     clubPickerRow.className = 'inline-role-picker__section';
     clubPickerRow.style.display = u.role === 'club' ? 'flex' : 'none';
     var clubLbl = document.createElement('div');
     clubLbl.className = 'inline-role-picker__section-label';
     clubLbl.textContent = 'Club';
+
+    /* Build club picker widget */
+    var crPicker = document.createElement('div');
+    crPicker.className = 'inv-club-picker';
+    crPicker.style.cssText = 'flex:1;';
+    var crWrap = document.createElement('div');
+    crWrap.className = 'inv-club-picker__wrap';
+    var crCrest = document.createElement('img');
+    crCrest.className = 'inv-club-picker__crest';
+    crCrest.src = u.club ? CREST_BASE + encodeURIComponent(u.club) + '.png' : FALLBACK_CREST;
+    crCrest.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
     var clubInput = document.createElement('input');
     clubInput.type = 'text';
+    clubInput.className = 'inv-club-picker__input';
     clubInput.value = u.club || '';
-    clubInput.placeholder = 'Club name';
-    clubInput.style.cssText = 'font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);width:100%;';
+    clubInput.placeholder = 'Search clubs…';
+    var crDropdown = document.createElement('div');
+    crDropdown.className = 'inv-club-picker__dropdown';
+
+    /* Wire up search */
+    clubInput.addEventListener('input', function() {
+      var val = clubInput.value.trim();
+      if (!val) { crDropdown.classList.remove('open'); return; }
+      loadInvClubs().then(function() {
+        var filtered = INV_CLUBS_DATA.filter(function(c) {
+          return c.name.toLowerCase().indexOf(val.toLowerCase()) !== -1;
+        }).slice(0, 8);
+        crDropdown.innerHTML = '';
+        filtered.forEach(function(c) {
+          var item = document.createElement('div');
+          item.className = 'inv-club-picker__option';
+          item.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);';
+          var img = document.createElement('img');
+          img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
+          img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+          img.style.cssText = 'width:24px;height:24px;object-fit:contain;';
+          var nameEl = document.createElement('span');
+          nameEl.className = 'inv-club-picker__option-name';
+          nameEl.textContent = c.name;
+          item.appendChild(img);
+          item.appendChild(nameEl);
+          item.addEventListener('click', function() {
+            clubInput.value = c.name;
+            crCrest.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
+            crDropdown.classList.remove('open');
+          });
+          crDropdown.appendChild(item);
+        });
+        if (filtered.length) crDropdown.classList.add('open');
+        else crDropdown.classList.remove('open');
+      });
+    });
+    clubInput.addEventListener('focus', function() {
+      if (clubInput.value.trim() && INV_CLUBS_DATA.length) clubInput.dispatchEvent(new Event('input'));
+    });
+    document.addEventListener('click', function(e) {
+      if (!crPicker.contains(e.target)) crDropdown.classList.remove('open');
+    });
+
+    crWrap.appendChild(crCrest);
+    crWrap.appendChild(clubInput);
+    crPicker.appendChild(crWrap);
+    crPicker.appendChild(crDropdown);
     clubPickerRow.appendChild(clubLbl);
-    clubPickerRow.appendChild(clubInput);
+    clubPickerRow.appendChild(crPicker);
     rolePicker.appendChild(clubPickerRow);
 
     /* Apply + cancel buttons */
