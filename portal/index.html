@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.5 (conversation turn 82)
+  Version: v5.7 (conversation turn 104)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -791,27 +791,16 @@ body {
 .uacc-tool-row {
   display: flex;
   align-items: center;
-  padding: 7px 14px;
+  padding: 5px 14px;
   gap: 10px;
   border-bottom: 1px solid var(--border);
 }
 .uacc-tool-row:last-child { border-bottom: none; }
-.uacc-default-badge {
-  font-size: 8px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 5px;
-  border-radius: 3px;
-  background: var(--primary);
-  color: var(--white);
-  flex-shrink: 0;
-}
+
 
 .uacc-tool-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text);
   font-weight: 600;
   font-variation-settings: 'wght' 600;
@@ -1098,14 +1087,7 @@ body {
 .acc-slider__stop--active .acc-slider__label { color: var(--primary); }
 .acc-slider__stop--filled .acc-slider__label { color: var(--primary); }
 
-/* Default indicator -- navy outer ring on the default stop node */
-.acc-slider__stop--default .acc-slider__node {
-  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--navy);
-}
-.acc-slider__stop--active.acc-slider__stop--default .acc-slider__node,
-.acc-slider__stop--filled.acc-slider__stop--default .acc-slider__node {
-  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--navy);
-}
+/* Default ring removed */
 
 /* Locked (superadmin) */
 .acc-slider--locked .acc-slider__stop { cursor: default; pointer-events: none; }
@@ -1153,7 +1135,7 @@ body {
 }
 /* The slider inside the band needs its right edge to match tool sliders */
 .uacc-dept-band .uacc-set-all-slider {
-  margin-right: 0;
+  margin-right: 14px; /* matches tool row padding-right */
 }
 .uacc-set-all-slider {
   display: inline-flex;
@@ -1731,7 +1713,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.5';
+var PORTAL_VERSION = 'v5.7';
 
 var STATE = {
   uid:      null,
@@ -3294,18 +3276,12 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
       if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
       if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
     }
-    if (isDefault) stop.classList.add('acc-slider__stop--default');
-
     var node = document.createElement('div');
     node.className = 'acc-slider__node';
     if (isPadlocked) {
-      node.textContent = '\uD83D\uDD12'; /* padlock emoji */
+      node.textContent = String.fromCodePoint(0x1F512);
       node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
     }
-
-    /* Default ring -- CSS class on stop, no badge element needed */
-    var isDefault = (idx === defaultIdx && !locked && !isPadlocked);
-    if (isDefault) stop.classList.add('acc-slider__stop--default');
 
 
     var label = document.createElement('div');
@@ -3666,21 +3642,33 @@ function renderInviteToolSliders() {
     deptMap[d].push(t);
   });
   sortDepts(Object.keys(deptMap)).forEach(function(dept) {
-    /* Hide Staff dept for club invites */
     if (isClubOrg && dept === 'staff') return;
-    var deptLabel = document.createElement('div');
-    deptLabel.className = 'invite-dept-label';
-    deptLabel.textContent = getDeptLabel(dept);
-    container.appendChild(deptLabel);
+
+    /* Navy dept header */
+    var deptHeader = document.createElement('div');
+    deptHeader.className = 'uacc-dept-header';
+    var deptLabelEl = document.createElement('div');
+    deptLabelEl.className = 'uacc-dept-label';
+    deptLabelEl.textContent = getDeptLabel(dept);
+    deptHeader.appendChild(deptLabelEl);
+    container.appendChild(deptHeader);
+
+    /* Red band with set-all */
+    var deptBand = document.createElement('div');
+    deptBand.className = 'uacc-dept-band';
+    deptBand.appendChild(buildInviteSetAllSlider(dept, deptMap, container, isClubOrg));
+    container.appendChild(deptBand);
+
+    /* Tool rows */
     deptMap[dept].forEach(function(t) {
       var defaultLevel = (t.defaults && t.defaults[groupKey]) || 'hidden';
-      /* Cap club users at access */
       if (isClubOrg && defaultLevel === 'admin') defaultLevel = 'access';
       var row = document.createElement('div');
       row.className = 'invite-tool-row';
+      row.dataset.dept = dept;
       var nameEl = document.createElement('div');
       nameEl.className = 'invite-tool-name';
-      nameEl.textContent = (t.icon ? t.icon + '  ' : '') + (t.label || t._key);
+      nameEl.textContent = (t.icon ? t.icon + ' ' : '') + (t.label || t._key);
       var slider = buildInviteSlider(t._key, defaultLevel, isClubOrg);
       row.appendChild(nameEl);
       row.appendChild(slider);
@@ -3689,6 +3677,72 @@ function renderInviteToolSliders() {
   });
 }
 
+
+function buildInviteSetAllSlider(dept, deptMap, container, isClubOrg) {
+  var wrap = document.createElement('div');
+  wrap.className = 'uacc-set-all-slider';
+
+  var track = document.createElement('div');
+  track.className = 'uacc-set-all-slider__track';
+  var fill = document.createElement('div');
+  fill.className = 'uacc-set-all-slider__fill';
+  track.appendChild(fill);
+  wrap.appendChild(track);
+
+  function updateFill(idx) {
+    fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+  }
+
+  ACC_LEVELS.forEach(function(level, idx) {
+    var isPadlocked = isClubOrg && level === 'admin';
+    var stop = document.createElement('div');
+    stop.className = 'uacc-set-all-slider__stop';
+    var node = document.createElement('div');
+    node.className = 'uacc-set-all-slider__node';
+    if (isPadlocked) {
+      node.textContent = String.fromCodePoint(0x1F512);
+      node.style.cssText = 'font-size:7px;display:flex;align-items:center;justify-content:center;border-color:rgba(255,255,255,0.2);';
+    }
+    var label = document.createElement('div');
+    label.className = 'uacc-set-all-slider__label';
+    label.textContent = ACC_LABELS[level];
+    if (isPadlocked) label.style.color = 'rgba(255,255,255,0.25)';
+    stop.appendChild(node);
+    stop.appendChild(label);
+
+    if (!isPadlocked) {
+      stop.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var safeLevel = (isClubOrg && level === 'admin') ? 'access' : level;
+        var safeIdx = ACC_LEVELS.indexOf(safeLevel);
+
+        wrap.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s, si) {
+          s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
+          if (si < safeIdx) s.classList.add('uacc-set-all-slider__stop--filled');
+          if (si === safeIdx) s.classList.add('uacc-set-all-slider__stop--active');
+        });
+        updateFill(safeIdx);
+
+        /* Update all invite tool sliders in this dept */
+        container.querySelectorAll('.invite-tool-row[data-dept="' + dept + '"]').forEach(function(row) {
+          var sliderEl = row.querySelector('.acc-slider');
+          if (!sliderEl) return;
+          sliderEl.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
+            s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
+            if (si < safeIdx) s.classList.add('acc-slider__stop--filled');
+            if (si === safeIdx) s.classList.add('acc-slider__stop--active');
+          });
+          var f = sliderEl.querySelector('.acc-slider__track-fill');
+          if (f) f.style.width = safeIdx <= 0 ? '0%' : (safeIdx / (ACC_LEVELS.length - 1) * 100) + '%';
+        });
+      });
+    }
+    wrap.appendChild(stop);
+  });
+
+  updateFill(0);
+  return wrap;
+}
 
 function buildInviteSlider(toolKey, currentLevel, clubLocked) {
   var wrap = document.createElement('div');
