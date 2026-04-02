@@ -1,11 +1,17 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v2.8 (conversation turn 44)
+  Version: v2.9 (conversation turn 9)
   Date: 31/03/2026
   File: /tools/index.html
 
   Changelog:
+  v2.9 - setPersistence(LOCAL) added before signInWithEmailAndPassword.
+         Restored missing club picker constants (CLUBS_META_URL, CREST_BASE,
+         FALLBACK_CREST, suClubsData) which were dropped between versions,
+         causing silent fetch failure and blank club dropdown. before signInWithEmailAndPassword.
+         Ensures Firebase auth token persists across browser sessions and
+         page navigations, preventing unexpected logouts on tool pages.
   v1.2 - Club picker: removed freetext fallback (must select from 72 clubs).
          Club picker: fixed crest not updating on selection - onblur was racing
          onmousedown and closing the dropdown before the click registered.
@@ -761,6 +767,12 @@ function setBtnLoading(id, loading, label) {
 
 var INVITE_GAS_URL = 'https://script.google.com/macros/s/AKfycbw9PcyI4Gl53H3hDagt-M_r9bBXUfNsPxuGTBFKxf0AIEpEx8aMuSN65i482Ke0gMb4Cg/exec';
 
+/* -- Club picker constants ------------------------------------------------- */
+var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
+var suClubsData    = [];
+
 var urlParams    = new URLSearchParams(window.location.search);
 var INVITE_TOKEN = urlParams.get('invite') || '';
 var INVITE_EMAIL = urlParams.get('email')  ? decodeURIComponent(urlParams.get('email')) : '';
@@ -798,7 +810,10 @@ function doSignIn() {
     return;
   }
   setBtnLoading('signinBtn', true);
-  auth.signInWithEmailAndPassword(email, pass)
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+    .then(function() {
+      return auth.signInWithEmailAndPassword(email, pass);
+    })
     .catch(function(err) {
       setBtnLoading('signinBtn', false, 'Sign in');
       var msg = 'Sign-in failed. Please check your details.';
