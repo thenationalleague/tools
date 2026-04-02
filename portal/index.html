@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.11 (conversation turn 108)
+  Version: v5.12 (conversation turn 109)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1136,7 +1136,7 @@ body {
 /* Desktop (>=900px): set-all sits on navy bar, red band hidden */
 @media (min-width: 900px) {
   .uacc-dept-band { display: none; }
-  .uacc-dept-header .uacc-set-all-slider { display: inline-flex; }
+  .uacc-dept-header .uacc-set-all-slider { display: inline-flex; margin-right: 14px; }
 }
 /* Mobile (<900px): set-all on red band only, not on navy bar */
 @media (max-width: 899px) {
@@ -1188,11 +1188,13 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.5);
-  background: var(--primary);
+  border: 2px solid rgba(255,255,255,0.4);
+  background: transparent;
   transition: all 0.15s;
   flex-shrink: 0;
 }
+/* On red band: filled nodes are white */
+.uacc-dept-band .uacc-set-all-slider__node { background: var(--primary); border-color: rgba(255,255,255,0.5); }
 .uacc-set-all-slider__stop--active .uacc-set-all-slider__node {
   background: var(--white);
   border-color: var(--white);
@@ -1750,7 +1752,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.11';
+var PORTAL_VERSION = 'v5.12';
 
 var STATE = {
   uid:      null,
@@ -3212,8 +3214,12 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var crDropdown = document.createElement('div');
     crDropdown.className = 'inv-club-picker__dropdown';
 
+    /* Track confirmed club selection -- only set when user picks from dropdown */
+    var confirmedClub = u.club || '';
+
     /* Wire up search */
     clubInput.addEventListener('input', function() {
+      confirmedClub = ''; /* Clear confirmed when user types */
       var val = clubInput.value.trim();
       if (!val) { crDropdown.classList.remove('open'); return; }
       loadInvClubs().then(function() {
@@ -3235,6 +3241,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
           item.appendChild(img);
           item.appendChild(nameEl);
           item.addEventListener('click', function() {
+            confirmedClub = c.name; /* Only set here */
             clubInput.value = c.name;
             crCrest.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
             crDropdown.classList.remove('open');
@@ -3268,25 +3275,41 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     applyBtn.className = 'btn btn--primary btn--sm';
     applyBtn.textContent = 'Apply';
     applyBtn.addEventListener('click', function() {
-      var newRole   = selectedOrgKey === 'club' ? 'club' : selectedRole;
-      var newOrg    = selectedOrgKey === 'club' ? '' : selectedOrg;
-      var newOrgKey = selectedOrgKey === 'club' ? '' : selectedOrgKey;
-      var newClub   = selectedOrgKey === 'club' ? clubInput.value.trim() : '';
+      var isClub    = selectedOrgKey === 'club';
+      var newRole   = isClub ? 'club' : selectedRole;
+      var newOrg    = isClub ? '' : selectedOrg;
+      var newOrgKey = isClub ? 'club' : selectedOrgKey;
+      var newClub   = isClub ? confirmedClub : '';
+
+      /* Validate club selection */
+      if (isClub && !newClub) {
+        clubInput.style.borderColor = 'var(--primary)';
+        clubInput.placeholder = 'Please select a club from the list';
+        setTimeout(function() {
+          clubInput.style.borderColor = '';
+          clubInput.placeholder = 'Search clubs…';
+        }, 2000);
+        return;
+      }
+
       var updates = {};
-      updates['users/' + uid + '/role']   = newRole;
-      updates['users/' + uid + '/org']    = newOrg;
-      updates['users/' + uid + '/orgKey'] = newOrgKey;
-      updates['users/' + uid + '/club']   = newClub;
+      updates['users/' + uid + '/role']     = newRole;
+      updates['users/' + uid + '/org']      = newOrg;
+      updates['users/' + uid + '/orgKey']   = newOrgKey;
+      updates['users/' + uid + '/club']     = newClub;
+      updates['users/' + uid + '/clubRole'] = isClub ? (u.clubRole || '') : '';
+
       var targetUser2 = STATE.allUsers[uid] || {};
       writeAuditFor(uid, targetUser2.name || '', targetUser2.email || '',
         'role_changed', (u.role || '?') + ' -> ' + newRole + (newOrg ? ' (' + newOrg + ')' : '') + (newClub ? ' at ' + newClub : ''));
+
       db.ref().update(updates)
         .then(function() {
           showToast('Role updated', 'success');
           rolePicker.classList.remove('open');
           loadUsers();
         })
-        .catch(function() { showToast('Failed to update role', 'error'); });
+        .catch(function(err) { showToast('Failed to update role: ' + err.message, 'error'); });
     });
     var cancelRoleBtn = document.createElement('button');
     cancelRoleBtn.type = 'button';
