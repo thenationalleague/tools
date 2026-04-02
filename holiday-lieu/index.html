@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.3 (conversation turn 8)
+  Version: v1.4 (conversation turn 8)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.4 — Temporary debug bar added to nlAuthReady to diagnose blank dashboard.
   v1.3 — Fixed uid resolution in nlAuthReady: now reads firebase.auth().currentUser.uid
          reliably rather than userData._uid which auth-guard v3 does not populate.
   v1.2 — Fixed Firebase init order: initializeApp now runs before auth-guard.js loads.
@@ -544,7 +545,6 @@
   var NL_TOOL_KEY = 'staff-holiday-lieu';
   window.nlAuthReady = function(userData) {
     S.userData = userData;
-    /* Auth guard v3 passes userData object; uid lives on currentUser */
     var cu = firebase.auth().currentUser;
     S.uid  = (cu && cu.uid) || userData._uid || userData.uid || null;
     S.isSA    = userData.role === 'superadmin';
@@ -552,8 +552,25 @@
     document.getElementById('topbarUser').textContent = userData.name || '';
     if (S.isSA) document.getElementById('adminTab').style.display = '';
     document.getElementById('pageWrap').style.display = 'block';
-    if (!S.uid) { console.error('[HL] uid not resolved from auth or userData'); return; }
+
+    /* DEBUG BAR — remove after fix confirmed */
+    var dbg = document.createElement('div');
+    dbg.id = 'debugBar';
+    dbg.style.cssText = 'background:#1a2f63;color:#fff;font-size:12px;padding:8px 16px;font-family:monospace;line-height:1.6;word-break:break-all;';
+    dbg.innerHTML = 'UID: ' + (S.uid||'NULL') + '<br>Role: ' + (userData.role||'?') + '<br>isSA: ' + S.isSA + '<br>userData keys: ' + Object.keys(userData).join(', ');
+    document.getElementById('pageWrap').insertAdjacentElement('afterbegin', dbg);
+
+    if (!S.uid) {
+      dbg.innerHTML += '<br><strong style="color:#ff6b6b">ERROR: uid is null — cannot load data</strong>';
+      return;
+    }
     init();
+
+    /* Update debug bar once users load */
+    setTimeout(function() {
+      var el = document.getElementById('debugBar');
+      if (el) el.innerHTML += '<br>Users loaded: ' + Object.keys(S.users).length + '<br>My entries: ' + Object.keys((S.entries[S.uid]||{})).length;
+    }, 3000);
   };
 </script>
 <script src="/tools/auth-guard.js"></script>
