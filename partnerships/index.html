@@ -3,7 +3,7 @@
 <head>
 <!--
   NL Tools — Partnership Assets
-  Version: v1.9a (conversation turn 72)
+  Version: v2.1 (conversation turn 74)
   Date: 01/04/2026
 
   Changelog:
@@ -41,11 +41,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
 <script>
-/* ---- Firebase init + auth ------------------------------------------------ */
-var NL_TOOL_KEY = 'commercial-partnership-assets';
-var PORTAL_URL  = '/tools/portal/';
-var LOGIN_URL   = '/tools/';
-
 firebase.initializeApp({
   apiKey:      'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
   authDomain:  'nl-tools.firebaseapp.com',
@@ -53,100 +48,9 @@ firebase.initializeApp({
   projectId:   'nl-tools',
   appId:       '1:801354670005:web:05d8ebad3e7e63610d03fc'
 });
-
-var _auth = firebase.auth();
-var _db   = firebase.database();
-var _authDone = false;
-
-/* Spinner */
-(function() {
-  var s = document.createElement('style');
-  s.textContent = '@keyframes nlSpin{to{transform:rotate(360deg)}}';
-  document.head.appendChild(s);
-  var o = document.createElement('div');
-  o.id = 'nlAuthOverlay';
-  o.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#9e0000;display:flex;align-items:center;justify-content:center;';
-  var sp = document.createElement('div');
-  sp.style.cssText = 'width:36px;height:36px;border:3px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:nlSpin 0.7s linear infinite;';
-  o.appendChild(sp);
-  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(o); });
-})();
-
-function _removeOverlay() {
-  var o = document.getElementById('nlAuthOverlay');
-  if (o) o.parentNode.removeChild(o);
-}
-
-function _showPage(userData) {
-  _removeOverlay();
-  window._nlUserData = userData;
-  document.getElementById('pageWrap').style.display = 'block';
-  initBrowser();
-}
-
-function _denied(toolData) {
-  var o = document.getElementById('nlAuthOverlay');
-  if (!o) return;
-  o.style.padding = '20px';
-  o.innerHTML =
-    '<div style="background:#fff;border-radius:12px;padding:40px 32px;max-width:400px;width:100%;text-align:center;">' +
-    '<div style="font-size:18px;font-weight:900;color:#1a2a44;margin-bottom:12px;">' +
-      ((toolData && toolData.label) || 'This tool') +
-    '<\/div>' +
-    '<div style="font-size:14px;color:#5a6a82;margin-bottom:24px;">You don\'t currently have access.<\/div>' +
-    '<a href="' + PORTAL_URL + '" style="display:inline-block;padding:12px 24px;background:#9e0000;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;text-decoration:none;">Back to portal<\/a>' +
-    '<\/div>';
-}
-
-function _checkAccess(uid) {
-  if (_authDone) return;
-  _authDone = true;
-  Promise.all([
-    _db.ref('users/' + uid).once('value'),
-    _db.ref('tools/' + NL_TOOL_KEY).once('value')
-  ]).then(function(snaps) {
-    if (!snaps[0].exists()) { window.location.replace(PORTAL_URL + '?guard=error'); return; }
-    var userData = snaps[0].val();
-    var toolData = snaps[1].exists() ? snaps[1].val() : null;
-    if (userData.pending) { window.location.replace(PORTAL_URL + '?guard=pending'); return; }
-    if (userData.role === 'superadmin') { _showPage(userData); return; }
-    var level = (userData.tools && userData.tools[NL_TOOL_KEY]) || 'hidden';
-    if (level === 'access' || level === 'admin') { _showPage(userData); }
-    else if (level === 'off') { _removeOverlay(); _denied(toolData); }
-    else { window.location.replace(PORTAL_URL); }
-  }).catch(function() { window.location.replace(PORTAL_URL + '?guard=error'); });
-}
-
-/* PRIMARY: ?t= ID token passed from portal -- instant, no auth state wait */
-(function() {
-  var params = new URLSearchParams(window.location.search);
-  var token  = params.get('t');
-  if (!token) return; /* no token -- fall through to onAuthStateChanged */
-
-  /* Clean token from URL so it's not bookmarked or shared */
-  history.replaceState(null, '', window.location.pathname);
-
-  /* Decode UID from JWT payload (no crypto needed -- RTDB rules enforce security) */
-  try {
-    var payload = JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
-    var uid = payload.user_id || payload.sub || payload.uid;
-    if (uid) {
-      _authDone = false; /* allow checkAccess */
-      _checkAccess(uid);
-      return;
-    }
-  } catch(e) {}
-  /* Token decode failed -- fall through to onAuthStateChanged */
-})();
-
-/* FALLBACK: onAuthStateChanged for direct URL access */
-_auth.onAuthStateChanged(function(user) {
-  if (_authDone) return; /* already handled via token */
-  if (!user) { window.location.replace(LOGIN_URL); return; }
-  _checkAccess(user.uid);
-});
 </script>
-
+<script>var NL_TOOL_KEY = 'commercial-partnership-assets';</script>
+<script src="/tools/auth-guard.js"></script>
 
 <style>
 @font-face {
@@ -642,21 +546,35 @@ body {
   gap: 8px;
   flex-shrink: 0;
 }
+
+@keyframes treeSpinner { to { transform: rotate(360deg); } }
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 48px 20px;
+}
+.loading-state__spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--navy);
+  border-radius: 50%;
+  animation: treeSpinner 0.8s linear infinite;
+}
+.loading-state__spinner--hidden { display: none; }
+.loading-state__msg {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
+}
+.loading-state__msg--error { color: var(--primary); }
 </style>
 </head>
 <body>
 
-<div id="dbg" style="position:fixed;top:0;left:0;right:0;background:#223b7c;color:#fff;font-size:11px;padding:6px 12px;z-index:99998;font-family:monospace;word-break:break-all;">v1.8 loading...</div>
-
-<script>
-/* Immediate debug -- runs before Firebase */
-(function() {
-  var d = document.getElementById('dbg');
-  var params = new URLSearchParams(window.location.search);
-  var token = params.get('t');
-  d.textContent = 'v1.8 | token=' + (token ? token.substring(0,20)+'...' : 'NONE') + ' | ' + new Date().toISOString().slice(11,19);
-})();
-</script>
 
 <header class="nl-header">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png"
@@ -719,6 +637,12 @@ body {
 </div>
 
 <script>
+/* ---- Auth callback ------------------------------------------------------ */
+window.nlAuthReady = function(userData) {
+  window._nlUserData = userData;
+  initBrowser();
+};
+
 /* ---- Config ------------------------------------------------------------- */
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbyzmIYw_-4wQJ4_7WL4UdiFbLDGygpu6uXtbmwtoKEpGvNw0UrFLJjfEN04TmE2ZVcBtg/exec';
 
@@ -735,20 +659,44 @@ function initBrowser() {
 }
 
 function loadTree() {
-  document.getElementById('treePanel').innerHTML = '<div class="loading">Loading…</div>';
-  document.getElementById('fileGrid').innerHTML  = '<div class="loading">Loading…</div>';
+  var messages = [
+    [0,    'Connecting…'],
+    [3000, 'Loading files…'],
+    [7000, 'Almost there…'],
+    [12000,'Taking a moment — please wait…'],
+    [20000,'Still working… server is waking up']
+  ];
+  var timers = [];
+
+  function setTreeMsg(msg, isError) {
+    document.getElementById('treePanel').innerHTML =
+      '<div class="loading-state">' +
+      '<div class="loading-state__spinner' + (isError ? ' loading-state__spinner--hidden' : '') + '"></div>' +
+      '<div class="loading-state__msg' + (isError ? ' loading-state__msg--error' : '') + '">' + msg + '</div>' +
+      '</div>';
+  }
+
+  function clearTimers() { timers.forEach(function(t) { clearTimeout(t); }); }
+
+  setTreeMsg(messages[0][1]);
+  document.getElementById('fileGrid').innerHTML = '';
+
+  messages.slice(1).forEach(function(m) {
+    timers.push(setTimeout(function() { setTreeMsg(m[1]); }, m[0]));
+  });
 
   fetch(GAS_URL + '?action=getTree&cb=' + Date.now())
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      clearTimers();
       if (!data.ok) throw new Error(data.error || 'Failed to load');
       _tree = data.tree || [];
       renderTree(_tree);
       navigateTo(null, 'Partnership Assets', []);
     })
     .catch(function(err) {
-      document.getElementById('treePanel').innerHTML =
-        '<div class="loading" style="color:#9e0000;">Failed to load: ' + err.message + '</div>';
+      clearTimers();
+      setTreeMsg('Could not load files. <a href="#" onclick="loadTree();return false;" style="color:var(--primary);font-weight:700;">Try again</a>', true);
     });
 }
 
