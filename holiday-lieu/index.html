@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.2 (conversation turn 8)
+  Version: v1.3 (conversation turn 8)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.3 — Fixed uid resolution in nlAuthReady: now reads firebase.auth().currentUser.uid
+         reliably rather than userData._uid which auth-guard v3 does not populate.
   v1.2 — Fixed Firebase init order: initializeApp now runs before auth-guard.js loads.
          Removed duplicate initializeApp from main script block.
   v1.1 — Fixed NL_TOOL_KEY: ops-holiday-lieu -> staff-holiday-lieu to match RTDB catalogue.
@@ -542,12 +544,15 @@
   var NL_TOOL_KEY = 'staff-holiday-lieu';
   window.nlAuthReady = function(userData) {
     S.userData = userData;
-    S.uid      = userData._uid || (firebase.auth().currentUser && firebase.auth().currentUser.uid);
-    S.isSA     = userData.role === 'superadmin';
-    S.isAdmin  = userData.role === 'admin' || S.isSA;
+    /* Auth guard v3 passes userData object; uid lives on currentUser */
+    var cu = firebase.auth().currentUser;
+    S.uid  = (cu && cu.uid) || userData._uid || userData.uid || null;
+    S.isSA    = userData.role === 'superadmin';
+    S.isAdmin = userData.role === 'admin' || S.isSA;
     document.getElementById('topbarUser').textContent = userData.name || '';
     if (S.isSA) document.getElementById('adminTab').style.display = '';
     document.getElementById('pageWrap').style.display = 'block';
+    if (!S.uid) { console.error('[HL] uid not resolved from auth or userData'); return; }
     init();
   };
 </script>
