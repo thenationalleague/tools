@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.22 (conversation turn 122)
+  Version: v5.23 (conversation turn 124)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1759,7 +1759,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.22';
+var PORTAL_VERSION = 'v5.23';
 
 var STATE = {
   uid:      null,
@@ -2634,144 +2634,313 @@ function initAdminTabs() {
       document.querySelectorAll('.admin-pane').forEach(function(p) { p.classList.remove('active'); });
       tab.classList.add('active');
       document.getElementById('pane-' + tab.dataset.pane).classList.add('active');
-      /* Lazy load audit feed on first open */
       if (tab.dataset.pane === 'audit' && !tab.dataset.loaded) {
         tab.dataset.loaded = '1';
         loadAuditFeed(true);
       }
     });
   });
+
+  /* Auto-open tab from ?tab= URL param (e.g. from admin notification email) */
+  var tabParam = new URLSearchParams(window.location.search).get('tab');
+  if (tabParam) {
+    var target = document.querySelector('.admin-tab[data-pane="' + tabParam + '"]');
+    if (target) {
+      window.history.replaceState({}, '', window.location.pathname);
+      target.click();
+    }
+  }
 }
 
 /* ---- Requests ------------------------------------------------------------ */
+/* ---- Requests ------------------------------------------------------------ */
+/*
+ * loadRequests() reads requests/ node and shows pending entries.
+ * Approve: removes pending flag from users/{uid}, fires sendApproval GAS.
+ * Reject:  sets rejected:true on users/{uid}, fires sendRejection GAS.
+ * Both update the request record status for audit trail.
+ * Handles both new requests (with uid) and legacy requests (without uid).
+ */
 function loadRequests() {
-  db.ref('requests').orderByChild('status').equalTo('pending').once('value')
-    .then(function(snap) {
-      var container = document.getElementById('requestsList');
-      container.innerHTML = '';
+  var container = document.getElementById('requestsList');
+  container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>';
 
-      if (!snap.exists()) {
-        var empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.innerHTML = '';
-        var icon = document.createElement('div');
-        icon.className = 'empty-state__icon';
-        icon.textContent = '📭';
-        var text = document.createElement('div');
-        text.className = 'empty-state__text';
-        text.textContent = 'No pending requests.';
-        empty.appendChild(icon);
-        empty.appendChild(text);
-        container.appendChild(empty);
-        return;
-      }
+  db.ref('requests').once('value').then(function(snap) {
+    container.innerHTML = '';
+    if (!snap.exists()) {
+      var e = document.createElement('div');
+      e.style.cssText = 'font-size:13px;color:var(--text-muted);padding:8px 0;';
+      e.textContent = 'No requests yet.';
+      container.appendChild(e);
+      return;
+    }
 
-      snap.forEach(function(child) {
-        var r = child.val();
-        r._key = child.key;
-        container.appendChild(buildRequestCard(r));
-      });
+    var pending = [], handled = [];
+    snap.forEach(function(child) {
+      var r = child.val(); r._key = child.key;
+      if (r.status === 'pending') pending.push(r);
+      else handled.push(r);
     });
+    handled.sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+    handled = handled.slice(0, 20);
+
+    if (pending.length) {
+      var ph = document.createElement('div');
+      ph.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;';
+      ph.textContent = 'Pending (' + pending.length + ')';
+      container.appendChild(ph);
+      pending.forEach(function(r) { container.appendChild(buildRequestCard(r)); });
+    } else {
+      var np = document.createElement('div');
+      np.style.cssText = 'font-size:13px;color:var(--text-muted);padding:8px 0 20px;';
+      np.textContent = 'No pending requests.';
+      container.appendChild(np);
+    }
+
+    if (handled.length) {
+      var hh = document.createElement('div');
+      hh.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin:20px 0 12px;border-top:1px solid var(--border);padding-top:16px;';
+      hh.textContent = 'Recently handled';
+      container.appendChild(hh);
+      handled.forEach(function(r) {
+        var card = document.createElement('div');
+        card.style.cssText = 'background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;opacity:0.75;';
+        var dot = document.createElement('span');
+        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;flex-shrink:0;background:' +
+          (r.status === 'approved' ? 'var(--green)' : 'var(--red)') + ';';
+        var inf = document.createElement('div'); inf.style.cssText = 'flex:1;min-width:0;';
+        var nm = document.createElement('div'); nm.style.cssText = 'font-size:13px;font-weight:700;';
+        nm.textContent = (r.name || '(no name)') + (r.club ? '  —  ' + r.club : '');
+        var em = document.createElement('div'); em.style.cssText = 'font-size:11px;color:var(--text-muted);';
+        em.textContent = r.email || '';
+        inf.appendChild(nm); inf.appendChild(em);
+        var pill = document.createElement('span');
+        pill.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-radius:10px;white-space:nowrap;' +
+          (r.status === 'approved' ? 'background:var(--green-light);color:var(--green);' : 'background:var(--red-light);color:var(--red);');
+        pill.textContent = r.status;
+        card.appendChild(dot); card.appendChild(inf); card.appendChild(pill);
+        container.appendChild(card);
+      });
+    }
+  }).catch(function() {
+    container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Could not load requests.</div>';
+  });
 }
 
 function buildRequestCard(r) {
   var card = document.createElement('div');
   card.className = 'request-card';
 
+  /* Header: name, email, club, role, timestamp */
   var header = document.createElement('div');
   header.className = 'request-card__header';
-
   var info = document.createElement('div');
   info.className = 'request-card__info';
-
-  var name = document.createElement('div');
-  name.className = 'request-card__name';
-  name.textContent = r.name || '(no name)';
-
+  var nameEl = document.createElement('div');
+  nameEl.className = 'request-card__name';
+  nameEl.textContent = r.name || '(no name)';
   var meta = document.createElement('div');
   meta.className = 'request-card__meta';
-  meta.textContent = (r.email || '') + (r.club ? '  —  ' + r.club : '') + (r.clubRole ? '  (' + r.clubRole + ')' : '');
-
-  info.appendChild(name);
+  var metaParts = [r.email || ''];
+  if (r.club)     metaParts.push(r.club);
+  if (r.clubRole) metaParts.push(r.clubRole);
+  if (r.createdAt) {
+    var d = new Date(r.createdAt);
+    metaParts.push(d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+  }
+  meta.textContent = metaParts.join('  —  ');
+  info.appendChild(nameEl);
   info.appendChild(meta);
+
+  /* Warning if no uid — legacy request, can only reject */
+  var hasUid = !!r.uid;
+  if (!hasUid) {
+    var warn = document.createElement('div');
+    warn.style.cssText = 'font-size:11px;color:var(--amber);font-weight:700;margin-top:4px;';
+    warn.textContent = '⚠ Legacy request — no linked account. Reject to archive.';
+    info.appendChild(warn);
+  }
+
   header.appendChild(info);
   card.appendChild(header);
 
-  if (r.tools && r.tools.length) {
-    var tools = document.createElement('div');
-    tools.className = 'request-card__tools';
-    var toolNames = Array.isArray(r.tools)
-      ? r.tools.join(', ')
-      : String(r.tools);
-    tools.textContent = 'Requested tools: ' + toolNames;
-    card.appendChild(tools);
+  /* Tool access sliders -- only if uid exists */
+  if (hasUid) {
+    var ss = document.createElement('div');
+    ss.style.cssText = 'border-top:1px solid var(--border);padding:14px 20px 4px;';
+    var sh = document.createElement('div');
+    sh.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:10px;';
+    sh.textContent = 'Access to grant — adjust before approving';
+    ss.appendChild(sh);
+
+    /* Build sliders from the tools they requested + defaults */
+    var tools  = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
+    var dm     = {};
+    var reqTools = (r.tools && typeof r.tools === 'object' && !Array.isArray(r.tools))
+      ? r.tools
+      : {};
+
+    tools.forEach(function(t) { var d = t.department || 'General'; if (!dm[d]) dm[d] = []; dm[d].push(t); });
+    sortDepts(Object.keys(dm)).forEach(function(dept) {
+      if (dept === 'staff') return; /* never show staff tools on request cards */
+      var dl = document.createElement('div');
+      dl.style.cssText = 'font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);padding:8px 0 4px;border-top:1px solid var(--border);';
+      dl.textContent = getDeptLabel(dept);
+      ss.appendChild(dl);
+      dm[dept].forEach(function(t) {
+        var defaultLevel = (t.defaults && t.defaults['club']) || 'hidden';
+        /* If they requested this tool and default is hidden/off, bump to access */
+        var reqLevel = reqTools[t._key];
+        if (reqLevel === 'access' && (defaultLevel === 'hidden' || defaultLevel === 'off')) defaultLevel = 'access';
+        if (defaultLevel === 'admin') defaultLevel = 'access'; /* cap club at access */
+        var row = document.createElement('div');
+        row.className = 'invite-tool-row';
+        var nm = document.createElement('div');
+        nm.className = 'invite-tool-name';
+        nm.textContent = (t.icon ? t.icon + ' ' : '') + (t.label || t._key);
+        if (reqLevel === 'access') {
+          var b = document.createElement('span');
+          b.style.cssText = 'margin-left:6px;font-size:9px;background:var(--navy);color:#fff;padding:1px 6px;border-radius:8px;font-weight:800;text-transform:uppercase;';
+          b.textContent = 'Requested';
+          nm.appendChild(b);
+        }
+        row.appendChild(nm);
+        row.appendChild(buildInviteSlider(t._key, defaultLevel, true /* club, cap admin */));
+        ss.appendChild(row);
+      });
+    });
+    card.appendChild(ss);
   }
 
+  /* Actions */
   var actions = document.createElement('div');
   actions.className = 'request-card__actions';
+  actions.style.cssText = 'padding:14px 20px;border-top:1px solid var(--border);';
 
-  var approveBtn = document.createElement('button');
-  approveBtn.className = 'btn btn--navy btn--sm';
-  approveBtn.textContent = 'Approve & invite';
-  approveBtn.addEventListener('click', function() {
-    approveRequest(r, approveBtn);
-  });
+  if (hasUid) {
+    var approveBtn = document.createElement('button');
+    approveBtn.className = 'btn btn--navy btn--sm';
+    approveBtn.textContent = 'Approve';
+    approveBtn.addEventListener('click', function() { approveRequest(r, approveBtn, ss); });
 
-  var rejectBtn = document.createElement('button');
-  rejectBtn.className = 'btn btn--ghost btn--sm';
-  rejectBtn.textContent = 'Decline';
-  rejectBtn.addEventListener('click', function() {
-    rejectRequest(r._key, rejectBtn);
-  });
+    var rejectBtn = document.createElement('button');
+    rejectBtn.className = 'btn btn--ghost btn--sm';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.addEventListener('click', function() { rejectRequest(r, rejectBtn); });
 
-  actions.appendChild(approveBtn);
-  actions.appendChild(rejectBtn);
+    actions.appendChild(approveBtn);
+    actions.appendChild(rejectBtn);
+  } else {
+    /* Legacy: reject only */
+    var archiveBtn = document.createElement('button');
+    archiveBtn.className = 'btn btn--ghost btn--sm';
+    archiveBtn.textContent = 'Archive';
+    archiveBtn.addEventListener('click', function() {
+      db.ref('requests/' + r._key + '/status').set('archived')
+        .then(function() { showToast('Request archived', 'success'); loadRequests(); });
+    });
+    actions.appendChild(archiveBtn);
+  }
+
   card.appendChild(actions);
-
   return card;
 }
 
-function approveRequest(r, btn) {
+/* Approve: remove pending flag, write tool access, fire sendApproval email */
+function approveRequest(r, btn, ss) {
   btn.disabled = true;
   btn.textContent = 'Approving…';
 
-  /* Pre-fill the invite form and switch to Invite tab */
-  document.getElementById('inviteEmail').value    = r.email || '';
-  document.getElementById('inviteName').value     = r.name  || '';
-  document.getElementById('inviteRole').value     = 'club';
-  document.getElementById('inviteClub').value     = r.club  || '';
-  document.getElementById('inviteClubRole').value = r.clubRole || '';
-  document.getElementById('inviteClubField').style.display     = 'block';
-  document.getElementById('inviteClubRoleField').style.display = 'block';
-  if (r.club) selectInvClub(r.club);
+  if (!r.uid) {
+    showToast('No linked account — cannot approve', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Approve';
+    return;
+  }
 
-  /* Switch to invite tab */
-  document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelectorAll('.admin-pane').forEach(function(p) { p.classList.remove('active'); });
-  document.querySelector('[data-pane="invite"]').classList.add('active');
-  document.getElementById('pane-invite').classList.add('active');
+  /* Read tool levels from sliders */
+  var toolAccess = {};
+  if (ss) {
+    ss.querySelectorAll('.acc-slider').forEach(function(slider) {
+      var key = slider.dataset.toolkey;
+      if (!key) return;
+      var idx = 0;
+      slider.querySelectorAll('.acc-slider__stop').forEach(function(s, i) {
+        if (s.classList.contains('acc-slider__stop--active')) idx = i;
+      });
+      toolAccess[key] = ACC_LEVELS[idx] || 'hidden';
+    });
+  }
 
-  /* Mark request as approved in RTDB */
-  writeAudit('request_approved', 'Approved request from ' + (r.name || r.email || '') +
-    (r.club ? ' (' + r.club + ')' : ''));
-  db.ref('requests/' + r._key + '/status').set('approved')
-    .then(function() { loadRequests(); })
-    .catch(function() {});
+  var updates = {};
+  updates['users/' + r.uid + '/pending']  = false;
+  updates['users/' + r.uid + '/rejected'] = false;
+  /* Write adjusted tool access */
+  Object.keys(toolAccess).forEach(function(k) {
+    updates['users/' + r.uid + '/tools/' + k] = toolAccess[k];
+  });
+  updates['requests/' + r._key + '/status'] = 'approved';
+
+  writeAuditFor(r.uid, r.name || '', r.email || '',
+    'request_approved', (r.name || r.email || '') + (r.club ? ' (' + r.club + ')' : ''));
+
+  db.ref().update(updates)
+    .then(function() {
+      /* Fire approval email -- fire and forget */
+      fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify({ action: 'sendApproval', name: r.name || '', email: r.email || '', club: r.club || '' })
+      }).catch(function() {});
+      showToast('Approved — ' + (r.name || r.email || ''), 'success');
+      loadRequests();
+      loadUsers();
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'Approve';
+      showToast('Failed: ' + err.message, 'error');
+    });
 }
 
-function rejectRequest(key, btn) {
+/* Reject: set rejected:true, fire sendRejection email */
+function rejectRequest(r, btn) {
   btn.disabled = true;
-  btn.textContent = 'Declining…';
-  writeAudit('request_declined', 'Declined request ' + key);
-  db.ref('requests/' + key + '/status').set('rejected')
+  btn.textContent = 'Rejecting…';
+
+  if (!r.uid) {
+    /* Legacy request with no uid -- just mark rejected in requests node */
+    db.ref('requests/' + r._key + '/status').set('rejected')
+      .then(function() { showToast('Request rejected', 'success'); loadRequests(); })
+      .catch(function() { btn.disabled = false; btn.textContent = 'Reject'; });
+    return;
+  }
+
+  var updates = {};
+  updates['users/' + r.uid + '/pending']  = false;
+  updates['users/' + r.uid + '/rejected'] = true;
+  updates['requests/' + r._key + '/status'] = 'rejected';
+
+  writeAuditFor(r.uid, r.name || '', r.email || '',
+    'request_declined', (r.name || r.email || '') + (r.club ? ' (' + r.club + ')' : ''));
+
+  db.ref().update(updates)
     .then(function() {
-      showToast('Request declined', 'success');
+      /* Fire rejection email -- fire and forget */
+      fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify({ action: 'sendRejection', name: r.name || '', email: r.email || '' })
+      }).catch(function() {});
+      showToast('Request rejected', 'success');
       loadRequests();
+      loadUsers();
     })
-    .catch(function() {
+    .catch(function(err) {
       btn.disabled = false;
-      btn.textContent = 'Decline';
-      showToast('Failed to update request', 'error');
+      btn.textContent = 'Reject';
+      showToast('Failed: ' + err.message, 'error');
     });
 }
 
