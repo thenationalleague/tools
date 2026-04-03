@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.11 (conversation turn 10)
+  Version: v1.12 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.12 — saveEntry now refreshes token before writing and explicitly
+         re-fetches entries after save to force calendar re-render.
+         Prevents stale PERMISSION_DENIED on writes after initial load.
   v1.11 — Force ID token refresh (getIdToken(true)) before firing init().
           RTDB was denying all reads because the auth token had not been
           presented yet even though currentUser was available. Debug bar removed.
@@ -1111,11 +1114,27 @@
     if (!date) { showToast('Select a date','error'); return; }
     var end2 = (end && end >= date) ? end : date; /* ensure endDate always >= startDate */
     var entry={type:S.selType, date:date, endDate:end2, note:note};
-    var ref = S.editId
-      ? db.ref('holiday-lieu/entries/'+S.uid+'/'+S.editId)
-      : db.ref('holiday-lieu/entries/'+S.uid).push();
-    ref.set(entry).then(function(){ showToast(S.editId?'Entry updated':'Entry added'); closeOv('ovEntry'); })
-      .catch(function(err){ showToast('Error: '+err.message,'error'); });
+    var cu = firebase.auth().currentUser;
+    var writeEntry = function() {
+      var ref = S.editId
+        ? db.ref('holiday-lieu/entries/'+S.uid+'/'+S.editId)
+        : db.ref('holiday-lieu/entries/'+S.uid).push();
+      ref.set(entry)
+        .then(function(){
+          showToast(S.editId?'Entry updated':'Entry added');
+          closeOv('ovEntry');
+          /* Force re-render in case the on() listener is stale */
+          db.ref('holiday-lieu/entries/'+S.uid).once('value').then(function(snap){
+            if (!S.entries) S.entries = {};
+            S.entries[S.uid] = snap.val()||{};
+            refresh();
+          });
+        })
+        .catch(function(err){ showToast('Error: '+err.message,'error'); });
+    };
+    /* Refresh token before writing to ensure RTDB auth is current */
+    if (cu) { cu.getIdToken(true).then(writeEntry).catch(writeEntry); }
+    else { writeEntry(); }
   }
 
   function deleteEntry() {
