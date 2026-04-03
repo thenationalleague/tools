@@ -1,14 +1,11 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.22 (conversation turn 9)
+  Version: v5.21 (conversation turn 118)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
-  v5.22 -- auth-guard removed from head/before Firebase CDN (PERMISSION_DENIED fix).
-          Request cards show per-tool sliders; approve reads slider values.
-          loadRequests shows pending + recently handled (last 20).
   v2.0 -- Audit log tab: paginated 20-at-a-time chronological feed with
          cursor-based Load More. Search by name/email/action reads full
          per-user history from audit-by-user/{uid}. All meaningful actions
@@ -66,9 +63,12 @@
 <title>NL Tools</title>
 
 <!-- Firebase compat CDN -->
+<!-- auth-guard exposes nlSession -->
+<script src="/tools/auth-guard.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="/tools/auth-guard.js"></script>
 
 <!-- Quill (welcome message editor) -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
@@ -1759,7 +1759,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.22';
+var PORTAL_VERSION = 'v5.21';
 
 var STATE = {
   uid:      null,
@@ -2645,108 +2645,120 @@ function initAdminTabs() {
 
 /* ---- Requests ------------------------------------------------------------ */
 function loadRequests() {
-  var c = document.getElementById('requestsList');
-  c.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading...</div>';
-  db.ref('requests').once('value').then(function(snap) {
-    c.innerHTML = '';
-    if (!snap.exists()) {
-      var e=document.createElement('div'); e.className='empty-state';
-      var ei=document.createElement('div'); ei.className='empty-state__icon'; ei.textContent='No requests yet.';
-      c.appendChild(ei); return;
-    }
-    var pending=[], handled=[];
-    snap.forEach(function(child){
-      var r=child.val(); r._key=child.key;
-      if(r.status==='pending') pending.push(r); else handled.push(r);
-    });
-    handled.sort(function(a,b){return(b.createdAt||0)-(a.createdAt||0);});
-    handled=handled.slice(0,20);
-    if (pending.length) {
-      var ph=document.createElement('div');
-      ph.style.cssText='font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;';
-      ph.textContent='Pending ('+pending.length+')'; c.appendChild(ph);
-      pending.forEach(function(r){c.appendChild(buildRequestCard(r));});
-    } else {
-      var np=document.createElement('div');
-      np.style.cssText='font-size:13px;color:var(--text-muted);padding:8px 0 20px;';
-      np.textContent='No pending requests.'; c.appendChild(np);
-    }
-    if (handled.length) {
-      var hh=document.createElement('div');
-      hh.style.cssText='font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin:20px 0 12px;border-top:1px solid var(--border);padding-top:16px;';
-      hh.textContent='Recently handled'; c.appendChild(hh);
-      handled.forEach(function(r) {
-        var card=document.createElement('div');
-        card.style.cssText='background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;opacity:0.75;';
-        var dot=document.createElement('span');
-        dot.style.cssText='width:8px;height:8px;border-radius:50%;flex-shrink:0;background:'+(r.status==='approved'?'var(--green)':'var(--red)')+';';
-        var inf=document.createElement('div'); inf.style.cssText='flex:1;min-width:0;';
-        var nm=document.createElement('div'); nm.style.cssText='font-size:13px;font-weight:700;';
-        nm.textContent=(r.name||'(no name)')+(r.club?'  —  '+r.club:'');
-        var em=document.createElement('div'); em.style.cssText='font-size:11px;color:var(--text-muted);';
-        em.textContent=r.email||'';
-        inf.appendChild(nm); inf.appendChild(em);
-        var pill=document.createElement('span');
-        pill.style.cssText='font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-radius:10px;white-space:nowrap;'+(r.status==='approved'?'background:var(--green-light);color:var(--green);':'background:var(--red-light);color:var(--red);');
-        pill.textContent=r.status;
-        card.appendChild(dot); card.appendChild(inf); card.appendChild(pill); c.appendChild(card);
+  db.ref('requests').orderByChild('status').equalTo('pending').once('value')
+    .then(function(snap) {
+      var container = document.getElementById('requestsList');
+      container.innerHTML = '';
+
+      if (!snap.exists()) {
+        var empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.innerHTML = '';
+        var icon = document.createElement('div');
+        icon.className = 'empty-state__icon';
+        icon.textContent = '📭';
+        var text = document.createElement('div');
+        text.className = 'empty-state__text';
+        text.textContent = 'No pending requests.';
+        empty.appendChild(icon);
+        empty.appendChild(text);
+        container.appendChild(empty);
+        return;
+      }
+
+      snap.forEach(function(child) {
+        var r = child.val();
+        r._key = child.key;
+        container.appendChild(buildRequestCard(r));
       });
-    }
-  });
+    });
 }
 
 function buildRequestCard(r) {
   var card = document.createElement('div');
   card.className = 'request-card';
-  var header = document.createElement('div'); header.className = 'request-card__header';
-  var info = document.createElement('div'); info.className = 'request-card__info';
-  var rname = document.createElement('div'); rname.className = 'request-card__name';
-  rname.textContent = r.name || '(no name)';
-  var meta = document.createElement('div'); meta.className = 'request-card__meta';
-  meta.textContent = (r.email||'') + (r.club ? '  —  '+r.club : '') + (r.clubRole ? '  ('+r.clubRole+')' : '');
-  info.appendChild(rname); info.appendChild(meta); header.appendChild(info); card.appendChild(header);
 
-  var ss = document.createElement('div');
-  ss.style.cssText = 'border-top:1px solid var(--border);padding:14px 20px 4px;';
-  var sh = document.createElement('div');
-  sh.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:10px;';
-  sh.textContent = 'Access to grant — adjust before approving';
-  ss.appendChild(sh);
-  var reqKeys = Array.isArray(r.tools) ? r.tools : [];
-  var tls = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
-  var dm = {};
-  tls.forEach(function(t) { var d = t.department||'General'; if (!dm[d]) dm[d]=[]; dm[d].push(t); });
-  sortDepts(Object.keys(dm)).forEach(function(dept) {
-    var dl = document.createElement('div');
-    dl.style.cssText = 'font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);padding:8px 0 4px;border-top:1px solid var(--border);';
-    dl.textContent = getDeptLabel(dept); ss.appendChild(dl);
-    dm[dept].forEach(function(t) {
-      var lvl = (t.defaults && t.defaults['club']) || 'hidden';
-      if (reqKeys.indexOf(t._key) !== -1 && (lvl==='hidden'||lvl==='off')) lvl = 'access';
-      if (lvl === 'admin') lvl = 'access';
-      var row = document.createElement('div'); row.className = 'invite-tool-row'; row.dataset.dept = dept;
-      var nm = document.createElement('div'); nm.className = 'invite-tool-name';
-      nm.textContent = (t.icon ? t.icon+' ' : '') + (t.label||t._key);
-      if (reqKeys.indexOf(t._key) !== -1) {
-        var b = document.createElement('span');
-        b.style.cssText = 'margin-left:6px;font-size:9px;background:var(--navy);color:#fff;padding:1px 6px;border-radius:8px;font-weight:800;text-transform:uppercase;';
-        b.textContent = 'Requested'; nm.appendChild(b);
-      }
-      row.appendChild(nm); row.appendChild(buildInviteSlider(t._key, lvl, true));
-      ss.appendChild(row);
-    });
+  var header = document.createElement('div');
+  header.className = 'request-card__header';
+
+  var info = document.createElement('div');
+  info.className = 'request-card__info';
+
+  var name = document.createElement('div');
+  name.className = 'request-card__name';
+  name.textContent = r.name || '(no name)';
+
+  var meta = document.createElement('div');
+  meta.className = 'request-card__meta';
+  meta.textContent = (r.email || '') + (r.club ? '  —  ' + r.club : '') + (r.clubRole ? '  (' + r.clubRole + ')' : '');
+
+  info.appendChild(name);
+  info.appendChild(meta);
+  header.appendChild(info);
+  card.appendChild(header);
+
+  if (r.tools && r.tools.length) {
+    var tools = document.createElement('div');
+    tools.className = 'request-card__tools';
+    var toolNames = Array.isArray(r.tools)
+      ? r.tools.join(', ')
+      : String(r.tools);
+    tools.textContent = 'Requested tools: ' + toolNames;
+    card.appendChild(tools);
+  }
+
+  var actions = document.createElement('div');
+  actions.className = 'request-card__actions';
+
+  var approveBtn = document.createElement('button');
+  approveBtn.className = 'btn btn--navy btn--sm';
+  approveBtn.textContent = 'Approve & invite';
+  approveBtn.addEventListener('click', function() {
+    approveRequest(r, approveBtn);
   });
-  card.appendChild(ss);
-  var actions = document.createElement('div'); actions.className = 'request-card__actions';
-  actions.style.cssText = 'padding:14px 20px;border-top:1px solid var(--border);';
-  var ab = document.createElement('button'); ab.className = 'btn btn--navy btn--sm'; ab.textContent = 'Approve';
-  ab.addEventListener('click', function() { approveRequest(r, ab, ss); });
-  var rb = document.createElement('button'); rb.className = 'btn btn--ghost btn--sm'; rb.textContent = 'Decline';
-  rb.addEventListener('click', function() { rejectRequest(r._key, rb); });
-  actions.appendChild(ab); actions.appendChild(rb); card.appendChild(actions);
+
+  var rejectBtn = document.createElement('button');
+  rejectBtn.className = 'btn btn--ghost btn--sm';
+  rejectBtn.textContent = 'Decline';
+  rejectBtn.addEventListener('click', function() {
+    rejectRequest(r._key, rejectBtn);
+  });
+
+  actions.appendChild(approveBtn);
+  actions.appendChild(rejectBtn);
+  card.appendChild(actions);
+
   return card;
 }
 
+function approveRequest(r, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Approving…';
+
+  /* Pre-fill the invite form and switch to Invite tab */
+  document.getElementById('inviteEmail').value    = r.email || '';
+  document.getElementById('inviteName').value     = r.name  || '';
+  document.getElementById('inviteRole').value     = 'club';
+  document.getElementById('inviteClub').value     = r.club  || '';
+  document.getElementById('inviteClubRole').value = r.clubRole || '';
+  document.getElementById('inviteClubField').style.display     = 'block';
+  document.getElementById('inviteClubRoleField').style.display = 'block';
+  if (r.club) selectInvClub(r.club);
+
+  /* Switch to invite tab */
+  document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.admin-pane').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelector('[data-pane="invite"]').classList.add('active');
+  document.getElementById('pane-invite').classList.add('active');
+
+  /* Mark request as approved in RTDB */
+  writeAudit('request_approved', 'Approved request from ' + (r.name || r.email || '') +
+    (r.club ? ' (' + r.club + ')' : ''));
+  db.ref('requests/' + r._key + '/status').set('approved')
+    .then(function() { loadRequests(); })
+    .catch(function() {});
+}
+
 function rejectRequest(key, btn) {
   btn.disabled = true;
   btn.textContent = 'Declining…';
@@ -3127,1601 +3139,73 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
     /* ── Live preview: update tool sliders in body when role changes ────── */
     function previewRoleSliders(newOrgKey, newRole) {
-      var isClub    = newOrgKey === 'club';
-      var newUd     = { role: isClub ? 'club' : newRole, orgKey: newOrgKey };
-      var gk        = getGroupKey(newUd);
+      var isClub   = newOrgKey === 'club';
+      var newUd    = { role: isClub ? 'club' : newRole, orgKey: newOrgKey };
+      var gk       = getGroupKey(newUd);
       var storedTools = (STATE.allUsers[uid] || {}).tools || {};
 
-      /* Get all tool rows in this user's body */
+      /* ACC_LEVELS order: hidden=0, off=1, access=2, admin=3 */
+      var levelRank = { hidden: 0, off: 1, access: 2, admin: 3 };
+
       body.querySelectorAll('.uacc-tool-row').forEach(function(row) {
         var slider = row.querySelector('.acc-slider');
         if (!slider) return;
         var toolKey = slider.dataset.toolkey;
         if (!toolKey) return;
 
-        var tool         = STATE.tools[toolKey];
+        var tool = STATE.tools[toolKey];
+        var dept = tool && tool.department;
+
+        /* Staff tools for non-NL: force hidden, lock entire slider */
+        var isStaffLocked = dept === 'staff' && !isClub &&
+                            newOrgKey !== 'nl' && newOrgKey !== 'nl-admin' && newOrgKey !== 'nl-staff';
+
         var defaultLevel = (tool && tool.defaults && tool.defaults[gk]) || 'hidden';
-        var storedLevel  = storedTools[toolKey] || defaultLevel;
+        var storedLevel  = storedTools[toolKey];
+        if (storedLevel === undefined || storedLevel === null) storedLevel = defaultLevel;
 
-        /* Point 2 logic: preserve stored level unless invalid for new role */
-        var useLevel = storedLevel;
-        if (isClub && storedLevel === 'admin') useLevel = defaultLevel; /* cap at access */
-        if (useLevel === 'admin' && isClub)    useLevel = 'access';
-
-        var useIdx = ACC_LEVELS.indexOf(useLevel);
-        if (useIdx === -1) useIdx = 0;
-
-        /* Update slider visual state */
-        var fill = slider.querySelector('.acc-slider__track-fill');
-        if (fill) fill.style.width = useIdx <= 0 ? '0%' : (useIdx / (ACC_LEVELS.length - 1) * 100) + '%';
-
-        slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
-          var level = ACC_LEVELS[si];
-          stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
-          var node = stop.querySelector('.acc-slider__node');
-
-          if (isClub && level === 'admin') {
-            /* Padlock admin for club */
-            stop.classList.add('acc-slider__stop--padlocked');
-            stop.style.pointerEvents = 'none';
-            if (node) {
-              node.textContent = String.fromCodePoint(0x1F512);
-              node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:2px solid;';
-            }
-            var lbl = stop.querySelector('.acc-slider__label');
-            if (lbl) lbl.style.color = 'var(--border)';
-          } else {
-            stop.style.pointerEvents = '';
-            if (node) { node.textContent = ''; node.style.cssText = ''; }
-            var lbl2 = stop.querySelector('.acc-slider__label');
-            if (lbl2) lbl2.style.color = '';
-            if (si < useIdx)  stop.classList.add('acc-slider__stop--filled');
-            if (si === useIdx) stop.classList.add('acc-slider__stop--active');
-          }
-        });
-
-        /* Store preview value on slider for confirm to read */
-        slider.dataset.previewLevel = useLevel;
-      });
-
-      /* Reset all set-all sliders to neutral */
-      body.querySelectorAll('.uacc-set-all-slider').forEach(function(sa) {
-        sa.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s) {
-          s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
-        });
-        var saFill = sa.querySelector('.uacc-set-all-slider__fill');
-        if (saFill) saFill.style.width = '0%';
-      });
-    }
-
-    /* ── Revert sliders to actual RTDB state (on cancel) ───────────────── */
-    function revertSliders() {
-      var storedTools = (STATE.allUsers[uid] || {}).tools || {};
-      var isClub = u.role === 'club';
-      body.querySelectorAll('.uacc-tool-row').forEach(function(row) {
-        var slider = row.querySelector('.acc-slider');
-        if (!slider) return;
-        var toolKey = slider.dataset.toolkey;
-        if (!toolKey) return;
-        var level    = storedTools[toolKey] || getDefaultLevel(toolKey, u);
-        var idx      = ACC_LEVELS.indexOf(level);
-        if (idx === -1) idx = 0;
-        var fill = slider.querySelector('.acc-slider__track-fill');
-        if (fill) fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
-        slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
-          stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
-          var node = stop.querySelector('.acc-slider__node');
-          if (isClub && ACC_LEVELS[si] === 'admin') {
-            stop.classList.add('acc-slider__stop--padlocked');
-            stop.style.pointerEvents = 'none';
-          } else {
-            stop.style.pointerEvents = '';
-            if (node) { node.textContent = ''; node.style.cssText = ''; }
-            if (si < idx)  stop.classList.add('acc-slider__stop--filled');
-            if (si === idx) stop.classList.add('acc-slider__stop--active');
-          }
-        });
-        delete slider.dataset.previewLevel;
-      });
-    }
-
-    /* ── Organisation ── */
-    var orgRow = document.createElement('div');
-    orgRow.className = 'inline-role-picker__section';
-    var orgLbl = document.createElement('div');
-    orgLbl.className = 'inline-role-picker__section-label';
-    orgLbl.textContent = 'Organisation';
-    orgRow.appendChild(orgLbl);
-    var orgBtns = document.createElement('div');
-    orgBtns.className = 'inline-role-picker__btns';
-    orgRow.appendChild(orgBtns);
-    rolePicker.appendChild(orgRow);
-
-    var orgs = [
-      { label: 'National League', key: 'nl' },
-      { label: 'NL Trust',        key: 'trust' },
-      { label: 'U19 Alliance',    key: 'u19' },
-      { label: 'Club',            key: 'club' }
-    ];
-
-    /* ── Role ── */
-    var roleRow = document.createElement('div');
-    roleRow.className = 'inline-role-picker__section';
-    roleRow.style.display = selectedOrgKey === 'club' ? 'none' : 'flex';
-    var roleLbl = document.createElement('div');
-    roleLbl.className = 'inline-role-picker__section-label';
-    roleLbl.textContent = 'Role';
-    roleRow.appendChild(roleLbl);
-    var roleBtns = document.createElement('div');
-    roleBtns.className = 'inline-role-picker__btns';
-    roleRow.appendChild(roleBtns);
-    rolePicker.appendChild(roleRow);
-
-    /* ── Club picker ── */
-    var clubPickerRow = document.createElement('div');
-    clubPickerRow.className = 'inline-role-picker__section';
-    clubPickerRow.style.display = selectedOrgKey === 'club' ? 'flex' : 'none';
-    var clubLbl2 = document.createElement('div');
-    clubLbl2.className = 'inline-role-picker__section-label';
-    clubLbl2.textContent = 'Club';
-    var crPicker = document.createElement('div');
-    crPicker.className = 'inv-club-picker';
-    crPicker.style.cssText = 'flex:1;';
-    var crWrap = document.createElement('div');
-    crWrap.className = 'inv-club-picker__wrap';
-    var crCrest = document.createElement('img');
-    crCrest.className = 'inv-club-picker__crest';
-    crCrest.src = u.club ? CREST_BASE + encodeURIComponent(u.club) + '.png' : FALLBACK_CREST;
-    crCrest.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-    var clubInput = document.createElement('input');
-    clubInput.type = 'text';
-    clubInput.className = 'inv-club-picker__input';
-    clubInput.value = u.club || '';
-    clubInput.placeholder = 'Search clubs…';
-    var crDropdown = document.createElement('div');
-    crDropdown.className = 'inv-club-picker__dropdown';
-    var confirmedClub = u.club || '';
-    function crSearch() {
-      confirmedClub = '';
-      var val = clubInput.value.trim();
-      if (!val) { crDropdown.classList.remove('open'); return; }
-      loadInvClubs().then(function() {
-        var filtered = INV_CLUBS_DATA.filter(function(c) {
-          return c.name.toLowerCase().indexOf(val.toLowerCase()) !== -1;
-        }).slice(0, 8);
-        crDropdown.innerHTML = '';
-        filtered.forEach(function(c) {
-          var item = document.createElement('div');
-          item.className = 'inv-club-picker__option';
-          item.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);';
-          var img2 = document.createElement('img');
-          img2.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
-          img2.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-          img2.style.cssText = 'width:24px;height:24px;object-fit:contain;flex-shrink:0;';
-          var nameEl2 = document.createElement('span');
-          nameEl2.style.cssText = 'font-size:13px;font-weight:600;';
-          nameEl2.textContent = c.name;
-          item.appendChild(img2);
-          item.appendChild(nameEl2);
-          item.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            confirmedClub = c.name;
-            clubInput.value = c.name;
-            crCrest.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
-            crDropdown.classList.remove('open');
-          });
-          crDropdown.appendChild(item);
-        });
-        crDropdown.classList.toggle('open', filtered.length > 0);
-      });
-    }
-    clubInput.addEventListener('input', crSearch);
-    clubInput.addEventListener('focus', function() { if (clubInput.value.trim()) crSearch(); });
-    clubInput.addEventListener('blur', function() { setTimeout(function() { crDropdown.classList.remove('open'); }, 150); });
-    crWrap.appendChild(crCrest);
-    crWrap.appendChild(clubInput);
-    crPicker.appendChild(crWrap);
-    crPicker.appendChild(crDropdown);
-    clubPickerRow.appendChild(clubLbl2);
-    clubPickerRow.appendChild(crPicker);
-    rolePicker.appendChild(clubPickerRow);
-
-    /* ── Club role (job title) ── */
-    var clubRoleRow = document.createElement('div');
-    clubRoleRow.className = 'inline-role-picker__section';
-    clubRoleRow.style.display = selectedOrgKey === 'club' ? 'flex' : 'none';
-    var clubRoleLbl = document.createElement('div');
-    clubRoleLbl.className = 'inline-role-picker__section-label';
-    clubRoleLbl.textContent = 'Job title';
-    var clubRoleInput = document.createElement('input');
-    clubRoleInput.type = 'text';
-    clubRoleInput.value = u.clubRole || '';
-    clubRoleInput.placeholder = 'e.g. Media Manager';
-    clubRoleInput.style.cssText = 'flex:1;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);';
-    clubRoleRow.appendChild(clubRoleLbl);
-    clubRoleRow.appendChild(clubRoleInput);
-    rolePicker.appendChild(clubRoleRow);
-
-    /* ── Wire up org buttons (after all rows declared) ── */
-    orgs.forEach(function(org) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'invite-org-btn' + (org.key === selectedOrgKey ? ' active' : '');
-      btn.textContent = org.label;
-      btn.addEventListener('click', function() {
-        orgBtns.querySelectorAll('.invite-org-btn').forEach(function(b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        selectedOrgKey = org.key;
-        selectedOrg    = org.label;
-        roleRow.style.display       = org.key === 'club' ? 'none' : 'flex';
-        clubPickerRow.style.display = org.key === 'club' ? 'flex' : 'none';
-        clubRoleRow.style.display   = org.key === 'club' ? 'flex' : 'none';
-        if (org.key !== 'club') selectedRole = 'staff';
-        roleBtns.querySelectorAll('.invite-role-btn').forEach(function(b) {
-          b.classList.toggle('active', b.textContent.toLowerCase() === selectedRole);
-        });
-        previewRoleSliders(selectedOrgKey, selectedRole);
-      });
-      orgBtns.appendChild(btn);
-    });
-
-    /* ── Wire up role buttons ── */
-    ['staff', 'admin'].forEach(function(r) {
-      var rbtn = document.createElement('button');
-      rbtn.type = 'button';
-      rbtn.className = 'invite-role-btn' + (selectedRole === r ? ' active' : '');
-      rbtn.textContent = r.charAt(0).toUpperCase() + r.slice(1);
-      rbtn.addEventListener('click', function() {
-        roleBtns.querySelectorAll('.invite-role-btn').forEach(function(b) { b.classList.remove('active'); });
-        rbtn.classList.add('active');
-        selectedRole = r;
-        previewRoleSliders(selectedOrgKey, selectedRole);
-      });
-      roleBtns.appendChild(rbtn);
-    });
-
-    /* ── Confirm button -- saves role + resets tool defaults ── */
-    var applyRow = document.createElement('div');
-    applyRow.className = 'inline-role-picker__row';
-    var applyBtn = document.createElement('button');
-    applyBtn.type = 'button';
-    applyBtn.className = 'btn btn--primary btn--sm';
-    applyBtn.textContent = 'Confirm';
-    applyBtn.addEventListener('click', function() {
-      var isClub    = selectedOrgKey === 'club';
-      var newRole   = isClub ? 'club' : selectedRole;
-      var newOrg    = isClub ? '' : selectedOrg;
-      var newOrgKey = isClub ? 'club' : selectedOrgKey;
-      var newClub   = isClub ? confirmedClub : '';
-      var newClubRole = isClub ? clubRoleInput.value.trim() : '';
-
-      if (isClub && !newClub) {
-        clubInput.style.borderColor = 'var(--primary)';
-        clubInput.placeholder = 'Please select a club from the list';
-        setTimeout(function() { clubInput.style.borderColor = ''; clubInput.placeholder = 'Search clubs…'; }, 2000);
-        return;
-      }
-
-      /* Build new pseudo-user object for getGroupKey */
-      var newUd = { role: newRole, orgKey: newOrgKey };
-      var newGroupKey = getGroupKey(newUd);
-
-      /* Reset all tool access levels to defaults for new role */
-      var updates = {};
-      updates['users/' + uid + '/role']     = newRole;
-      updates['users/' + uid + '/org']      = newOrg;
-      updates['users/' + uid + '/orgKey']   = newOrgKey;
-      updates['users/' + uid + '/club']     = newClub;
-      updates['users/' + uid + '/clubRole'] = newClubRole;
-
-      /* Write preview levels (what user sees) -- read from slider dataset */
-      body.querySelectorAll('.uacc-tool-row').forEach(function(row) {
-        var slider = row.querySelector('.acc-slider');
-        if (!slider || !slider.dataset.toolkey) return;
-        var level = slider.dataset.previewLevel ||
-                    slider.dataset.currentLevel ||
-                    (STATE.allUsers[uid] && STATE.allUsers[uid].tools && STATE.allUsers[uid].tools[slider.dataset.toolkey]) ||
-                    'hidden';
-        updates['users/' + uid + '/tools/' + slider.dataset.toolkey] = level;
-      });
-      /* Any tools not shown in sliders -- set to default for new role */
-      STATE.toolsList.forEach(function(t) {
-        if (t._key === 'welcome') return;
-        if (updates['users/' + uid + '/tools/' + t._key] !== undefined) return;
-        var defaultLevel = (t.defaults && t.defaults[newGroupKey]) || 'hidden';
-        if (isClub && defaultLevel === 'admin') defaultLevel = 'access';
-        updates['users/' + uid + '/tools/' + t._key] = defaultLevel;
-      });
-
-      var targetUser2 = STATE.allUsers[uid] || {};
-      writeAuditFor(uid, targetUser2.name || '', targetUser2.email || '',
-        'role_changed', (u.role || '?') + ' -> ' + newRole +
-        (newOrg ? ' (' + newOrg + ')' : '') +
-        (newClub ? ' at ' + newClub : '') +
-        ' — tool access reset to defaults');
-
-      db.ref().update(updates)
-        .then(function() {
-          showToast('Role updated — tool access reset to defaults', 'success');
-          rolePicker.classList.remove('open');
-          loadUsers();
-        })
-        .catch(function(err) { showToast('Failed: ' + err.message, 'error'); });
-    });
-
-    var cancelRoleBtn = document.createElement('button');
-    cancelRoleBtn.type = 'button';
-    cancelRoleBtn.className = 'btn btn--ghost btn--sm';
-    cancelRoleBtn.textContent = 'Cancel';
-    cancelRoleBtn.addEventListener('click', function() {
-      revertSliders();
-      rolePicker.classList.remove('open');
-    });
-    applyRow.appendChild(applyBtn);
-    applyRow.appendChild(cancelRoleBtn);
-    rolePicker.appendChild(applyRow);
-
-    changeRoleBtn.addEventListener('click', function() {
-      rolePicker.classList.toggle('open');
-    });
-
-    footer.appendChild(changeRoleBtn);
-    footer.appendChild(rolePicker);
-  }
-
-  body.appendChild(footer);
-  item.appendChild(header);
-  item.appendChild(body);
-
-  /* Toggle on header click */
-  header.addEventListener('click', function() {
-    var isOpen = body.classList.contains('open');
-
-    /* Close any other open item */
-    if (_openAccUid && _openAccUid !== uid) {
-      var prev = document.querySelector('.uacc-item[data-uid="' + _openAccUid + '"]');
-      if (prev) {
-        prev.querySelector('.uacc-header').classList.remove('open');
-        prev.querySelector('.uacc-body').classList.remove('open');
-      }
-    }
-
-    if (isOpen) {
-      header.classList.remove('open');
-      body.classList.remove('open');
-      _openAccUid = null;
-    } else {
-      header.classList.add('open');
-      body.classList.add('open');
-      _openAccUid = uid;
-    }
-  });
-
-  return item;
-}
-
-
-/* ---- Welcome message editor ---------------------------------------------- */
-
-/* ---- Access slider ------------------------------------------------------- */
-var ACC_LEVELS = ['hidden', 'off', 'access', 'admin'];
-var ACC_LABELS = { hidden: 'Hidden', off: 'Off', access: 'Access', admin: 'Admin' };
-
-function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLocked, dept, bodyEl) {
-  var wrap = document.createElement('div');
-  wrap.className = 'acc-slider' + (locked ? ' acc-slider--locked' : '');
-  wrap.dataset.toolkey = toolKey;
-  wrap.dataset.currentLevel = currentLevel;
-  var currentIdx = ACC_LEVELS.indexOf(currentLevel);
-  if (currentIdx === -1) currentIdx = 0;
-  var defaultIdx = ACC_LEVELS.indexOf(defaultLevel);
-
-  var track = document.createElement('div');
-  track.className = 'acc-slider__track';
-  var fill = document.createElement('div');
-  fill.className = 'acc-slider__track-fill';
-  track.appendChild(fill);
-  wrap.appendChild(track);
-
-  function updateFill(idx) {
-    var pct = idx <= 0 ? 0 : (idx / (ACC_LEVELS.length - 1)) * 100;
-    fill.style.width = pct + '%';
-  }
-  updateFill(currentIdx);
-
-  ACC_LEVELS.forEach(function(level, idx) {
-    var isPadlocked = clubLocked && level === 'admin';
-
-    var stop = document.createElement('div');
-    stop.className = 'acc-slider__stop';
-    if (isPadlocked) {
-      stop.classList.add('acc-slider__stop--padlocked');
-    } else {
-      if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
-      if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
-    }
-    var node = document.createElement('div');
-    node.className = 'acc-slider__node';
-    if (isPadlocked) {
-      node.textContent = String.fromCodePoint(0x1F512);
-      node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
-    }
-
-
-    var label = document.createElement('div');
-    label.className = 'acc-slider__label';
-    label.textContent = ACC_LABELS[level];
-    if (isPadlocked) label.style.color = 'var(--border)';
-
-    stop.appendChild(node);
-    stop.appendChild(label);
-
-    if (!locked && !isPadlocked) {
-      stop.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (uid === STATE.uid && STATE.isSuperAdmin && level !== 'admin') {
-          showToast('You cannot reduce your own access', 'error');
-          return;
+        /* Point 2: preserve stored unless default is hidden (tool restricted)
+           or stored exceeds what role allows */
+        var useLevel;
+        if (isStaffLocked || defaultLevel === 'hidden') {
+          /* Tool restricted for this role -- force hidden */
+          useLevel = 'hidden';
+        } else if (isClub && (storedLevel === 'admin' || defaultLevel === 'admin')) {
+          /* Club can't have admin */
+          useLevel = 'access';
+        } else if (levelRank[storedLevel] > levelRank[defaultLevel]) {
+          /* Stored exceeds what role allows -- drop to default */
+          useLevel = defaultLevel;
+        } else {
+          /* Preserve stored */
+          useLevel = storedLevel;
         }
-        var prevLevel = currentLevel;
-        currentLevel  = level;
-        currentIdx    = idx;
-        wrap.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
-          s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
-          if (si < idx)  s.classList.add('acc-slider__stop--filled');
-          if (si === idx) s.classList.add('acc-slider__stop--active');
-        });
-        updateFill(idx);
-        var targetUser = STATE.allUsers[uid] || {};
-        writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
-          'access_changed', toolKey + ': ' + prevLevel + ' -> ' + level);
-        /* Reset dept set-all slider to neutral -- this tool now differs */
-        if (dept && bodyEl) resetSetAllSlider(bodyEl, dept);
-        db.ref('users/' + uid + '/tools/' + toolKey).set(level)
-          .catch(function() { showToast('Failed to update', 'error'); });
-      });
-    }
-    wrap.appendChild(stop);
-  });
-  return wrap;
-}
-
-/* Reset a dept's set-all slider to neutral (mixed state) when individual tools change */
-function resetSetAllSlider(bodyEl, dept) {
-  /* Find the band for this dept */
-  var band = bodyEl ? bodyEl.querySelector('.uacc-dept-band[data-dept="' + dept + '"]') : null;
-  if (!band) {
-    /* bodyEl is deptWrap -- go up to body */
-    var wrap = document.querySelector('.uacc-body .uacc-dept-wrap[data-dept="' + dept + '"]');
-    if (wrap) band = wrap.parentElement.querySelector('.uacc-dept-band[data-dept="' + dept + '"]');
-  }
-  if (!band) return;
-  var slider = band.querySelector('.uacc-set-all-slider');
-  if (!slider) return;
-  /* Remove all active/filled states -- leaves all nodes as empty circles (neutral) */
-  slider.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s) {
-    s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
-  });
-  var fill = slider.querySelector('.uacc-set-all-slider__fill');
-  if (fill) fill.style.width = '0%';
-}
-
-function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
-  var wrap = document.createElement('div');
-  wrap.className = 'uacc-set-all-slider';
-
-  var track = document.createElement('div');
-  track.className = 'uacc-set-all-slider__track';
-  var fill = document.createElement('div');
-  fill.className = 'uacc-set-all-slider__fill';
-  track.appendChild(fill);
-  wrap.appendChild(track);
-
-  function updateFill(idx) {
-    fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
-  }
-
-  ACC_LEVELS.forEach(function(level, idx) {
-    var isClubUser   = u.role === 'club';
-    var isPadlocked  = isClubUser && level === 'admin';
-
-    var stop = document.createElement('div');
-    stop.className = 'uacc-set-all-slider__stop';
-
-    var node = document.createElement('div');
-    node.className = 'uacc-set-all-slider__node';
-    if (isPadlocked) {
-      node.textContent = '\uD83D\uDD12';
-      node.style.cssText = 'font-size:7px;display:flex;align-items:center;justify-content:center;border-color:rgba(255,255,255,0.2);';
-    }
-
-    var label = document.createElement('div');
-    label.className = 'uacc-set-all-slider__label';
-    label.textContent = ACC_LABELS[level];
-    if (isPadlocked) label.style.color = 'rgba(255,255,255,0.25)';
-
-    stop.appendChild(node);
-    stop.appendChild(label);
-
-    if (!isPadlocked) {
-      stop.addEventListener('click', function(e) {
-        e.stopPropagation();
-        /* Update mini slider UI */
-        wrap.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s, si) {
-          s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
-          if (si < idx)  s.classList.add('uacc-set-all-slider__stop--filled');
-          if (si === idx) s.classList.add('uacc-set-all-slider__stop--active');
-        });
-        updateFill(idx);
-        /* Apply to all tools in dept */
-        setAllInDept(uid, u, deptMap[dept], level, deptWrap, getDeptLabel(dept));
-      });
-    }
-    wrap.appendChild(stop);
-  });
-
-  updateFill(0);
-  return wrap;
-}
-
-function setAllInDept(uid, u, deptTools, level, bodyEl, deptLabel) {
-  if (!deptTools || !deptTools.length) return;
-  var updates = {};
-  var isClubUser = u.role === 'club';
-  /* Club users cannot be set to admin */
-  var safeLevel = (isClubUser && level === 'admin') ? 'access' : level;
-  deptTools.forEach(function(t) {
-    updates['users/' + uid + '/tools/' + t._key] = safeLevel;
-  });
-  /* Use safeLevel for DOM update too */
-  level = safeLevel;
-  var idx = ACC_LEVELS.indexOf(level);
-  var rows = bodyEl.querySelectorAll('.uacc-tool-row');
-  rows.forEach(function(row) {
-    var slider = row.querySelector('.acc-slider');
-    if (!slider) return;
-    slider.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
-      s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
-      if (si < idx)  s.classList.add('acc-slider__stop--filled');
-      if (si === idx) s.classList.add('acc-slider__stop--active');
-    });
-    var trackFill = slider.querySelector('.acc-slider__track-fill');
-    if (trackFill) {
-      var pct = idx <= 0 ? 0 : (idx / (ACC_LEVELS.length - 1)) * 100;
-      trackFill.style.width = pct + '%';
-    }
-  });
-  var targetUser = STATE.allUsers[uid] || {};
-  writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
-    'access_changed', 'Set all in ' + (deptLabel || '') + ' to ' + level);
-  db.ref().update(updates)
-    .then(function() { showToast('All set to ' + level, 'success'); })
-    .catch(function() { showToast('Failed to update', 'error'); });
-}
-
-/* ---- Invite club picker -------------------------------------------------- */
-var INV_CLUBS_DATA = [];
-
-function loadInvClubs() {
-  if (INV_CLUBS_DATA.length) return Promise.resolve();
-  var url = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-  return fetch(url + '?cb=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(data) { INV_CLUBS_DATA = data.clubs || []; })
-    .catch(function() { INV_CLUBS_DATA = []; });
-}
-
-function renderInvClubList(filter) {
-  var dd = document.getElementById('invClubDropdown');
-  var q  = (filter || '').toLowerCase().trim();
-  var matches = q
-    ? INV_CLUBS_DATA.filter(function(c) {
-        return c.name.toLowerCase().indexOf(q) !== -1 ||
-               (c.short && c.short.toLowerCase().indexOf(q) !== -1);
-      }).slice(0, 12)
-    : INV_CLUBS_DATA.slice(0, 12);
-
-  dd.innerHTML = '';
-  if (matches.length === 0) {
-    var empty = document.createElement('div');
-    empty.style.cssText = 'padding:8px 12px;font-size:13px;color:var(--text-muted);';
-    empty.textContent = 'No clubs found';
-    dd.appendChild(empty);
-    dd.classList.add('open');
-    return;
-  }
-  matches.forEach(function(c) {
-    var item = document.createElement('div');
-    item.className = 'inv-club-picker__option';
-    var img = document.createElement('img');
-    img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
-    img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-    var nameSpan = document.createElement('span');
-    nameSpan.className = 'inv-club-picker__option-name';
-    nameSpan.textContent = c.name;
-    var divSpan = document.createElement('span');
-    divSpan.className = 'inv-club-picker__option-div';
-    divSpan.textContent = c.division || '';
-    item.appendChild(img);
-    item.appendChild(nameSpan);
-    item.appendChild(divSpan);
-    item.addEventListener('click', function() { selectInvClub(c.name); });
-    dd.appendChild(item);
-  });
-  dd.classList.add('open');
-}
-
-function selectInvClub(name) {
-  document.getElementById('invClubInput').value = name;
-  document.getElementById('inviteClub').value   = name;
-  var img = document.getElementById('invClubCrest');
-  img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-  img.src = CREST_BASE + encodeURIComponent(name) + '.png';
-  document.getElementById('invClubDropdown').classList.remove('open');
-}
-
-function initInvClubPicker() {
-  var input = document.getElementById('invClubInput');
-  var dd    = document.getElementById('invClubDropdown');
-  if (!input) return;
-  input.addEventListener('input', function() {
-    document.getElementById('inviteClub').value = '';
-    var val = input.value.trim();
-    if (!val) { dd.classList.remove('open'); return; }
-    loadInvClubs().then(function() { renderInvClubList(val); });
-  });
-  input.addEventListener('focus', function() {
-    if (input.value.trim() && INV_CLUBS_DATA.length) renderInvClubList(input.value);
-  });
-  document.addEventListener('click', function(e) {
-    var picker = document.querySelector('.inv-club-picker');
-    if (picker && !picker.contains(e.target)) dd.classList.remove('open');
-  });
-}
-function initInviteForm() {
-  initInvClubPicker();
-
-  document.querySelectorAll('.invite-org-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.invite-org-btn').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      var orgKey = btn.dataset.orgkey;
-      var org    = btn.dataset.org;
-      document.getElementById('inviteOrg').value    = org;
-      document.getElementById('inviteOrgKey').value = orgKey;
-      var isClub = orgKey === 'club';
-      document.getElementById('inviteRoleRow').style.display    = isClub ? 'none' : 'flex';
-      document.getElementById('inviteClubField').style.display    = isClub ? 'block' : 'none';
-      document.getElementById('inviteClubRoleField').style.display = isClub ? 'block' : 'none';
-      if (isClub) {
-        document.getElementById('inviteRole').value = 'club';
-        loadInvClubs();
-      } else {
-        var activeRole = document.querySelector('.invite-role-btn.active');
-        document.getElementById('inviteRole').value = activeRole ? activeRole.dataset.role : 'staff';
-      }
-      renderInviteToolSliders();
-    });
-  });
-
-  document.querySelectorAll('.invite-role-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.invite-role-btn').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      document.getElementById('inviteRole').value = btn.dataset.role;
-      renderInviteToolSliders();
-    });
-  });
-
-  renderInviteToolSliders();
-
-  document.getElementById('inviteBtn').addEventListener('click', function() {
-    var email    = document.getElementById('inviteEmail').value.trim();
-    var name     = document.getElementById('inviteName').value.trim();
-    var role     = document.getElementById('inviteRole').value;
-    var org      = document.getElementById('inviteOrg').value;
-    var orgKey   = document.getElementById('inviteOrgKey').value;
-    var club     = document.getElementById('inviteClub').value.trim();
-    var clubRole = document.getElementById('inviteClubRole').value.trim();
-
-    if (!email || !name) { showMsg('inviteMsg', 'Email and name are required.', 'error'); return; }
-    if (role === 'club' && !club) { showMsg('inviteMsg', 'Please select a club.', 'error'); return; }
-
-    setBtnLoading('inviteBtn', true);
-
-    var toolAccess = {};
-    document.querySelectorAll('#inviteToolSliders .acc-slider').forEach(function(slider) {
-      var toolKey = slider.dataset.toolkey;
-      if (!toolKey) return;
-      var stops = slider.querySelectorAll('.acc-slider__stop');
-      var idx = 0;
-      stops.forEach(function(s, i) {
-        if (s.classList.contains('acc-slider__stop--active')) idx = i;
-      });
-      toolAccess[toolKey] = ACC_LEVELS[idx] || 'hidden';
-    });
-
-    /* Show sending state */
-    var inviteBtn = document.getElementById('inviteBtn');
-    inviteBtn.disabled = true;
-    inviteBtn.innerHTML = '<span class="btn-spinner"><\/span> Sending…';
-
-    /* Send invite via GAS -- GAS stores token in RTDB invites/{token}
-       with full user payload. Login page creates user record after auth. */
-    fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
-      method:  'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body:    JSON.stringify({
-        action:   'sendInvite',
-        email:    email,
-        name:     name,
-        role:     role,
-        org:      org      || '',
-        orgKey:   orgKey   || '',
-        club:     club     || '',
-        clubRole: clubRole || '',
-        tools:    toolAccess
-      })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(result) {
-      setBtnLoading('inviteBtn', false, 'Send invite');
-      if (result && result.ok === false) {
-        showMsg('inviteMsg', 'Email failed: ' + (result.error || 'unknown error'), 'error');
-      } else {
-        var auditDetail = role === 'club'
-          ? 'Invited ' + name + ' as ' + club + (clubRole ? ' (' + clubRole + ')' : '') + ' [Club]'
-          : 'Invited ' + name + ' as ' + org + ' (' + role.charAt(0).toUpperCase() + role.slice(1) + ')';
-        writeAudit('invite_sent', auditDetail);
-        showToast('Invite sent to ' + email, 'success');
-        document.getElementById('inviteEmail').value    = '';
-        document.getElementById('inviteName').value     = '';
-        document.getElementById('inviteClub').value     = '';
-        document.getElementById('inviteClubRole').value = '';
-        if (document.getElementById('invClubInput'))
-          document.getElementById('invClubInput').value = '';
-        loadUsers();
-      }
-    })
-    .catch(function(err) {
-      setBtnLoading('inviteBtn', false, 'Send invite');
-      showMsg('inviteMsg', 'Failed: ' + err.message, 'error');
-    });
-  });
-}
-
-function renderInviteToolSliders() {
-  var container = document.getElementById('inviteToolSliders');
-  if (!container) return;
-  container.innerHTML = '';
-  var orgKey   = document.getElementById('inviteOrgKey').value || 'nl';
-  var role     = document.getElementById('inviteRole').value    || 'staff';
-  var groupKey = role === 'club' ? 'club' : orgKey + '-' + role;
-  var isClubOrg = role === 'club';
-  var tools    = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
-  var deptMap  = {};
-  tools.forEach(function(t) {
-    var d = t.department || 'General';
-    if (!deptMap[d]) deptMap[d] = [];
-    deptMap[d].push(t);
-  });
-  sortDepts(Object.keys(deptMap)).forEach(function(dept) {
-    /* Staff dept: skip for clubs, show locked for trust/u19 */
-    if (isClubOrg && dept === 'staff') return;
-
-    /* Navy dept header -- set-all inline (desktop) */
-    var deptHeader = document.createElement('div');
-    deptHeader.className = 'uacc-dept-header';
-    var deptLabelEl = document.createElement('div');
-    deptLabelEl.className = 'uacc-dept-label';
-    deptLabelEl.textContent = getDeptLabel(dept);
-    deptHeader.appendChild(deptLabelEl);
-    deptHeader.appendChild(buildInviteSetAllSlider(dept, deptMap, container, isClubOrg));
-    container.appendChild(deptHeader);
-
-    /* Red band -- mobile only */
-    var deptBand = document.createElement('div');
-    deptBand.className = 'uacc-dept-band';
-    deptBand.appendChild(buildInviteSetAllSlider(dept, deptMap, container, isClubOrg));
-    container.appendChild(deptBand);
-
-    /* Tool rows */
-    deptMap[dept].forEach(function(t) {
-      var defaultLevel = (t.defaults && t.defaults[groupKey]) || 'hidden';
-      if (isClubOrg && defaultLevel === 'admin') defaultLevel = 'access';
-      var row = document.createElement('div');
-      row.className = 'invite-tool-row';
-      row.dataset.dept = dept;
-      var nameEl = document.createElement('div');
-      nameEl.className = 'invite-tool-name';
-      nameEl.textContent = (t.icon ? t.icon + ' ' : '') + (t.label || t._key);
-      var slider = buildInviteSlider(t._key, defaultLevel, isClubOrg);
-      row.appendChild(nameEl);
-      row.appendChild(slider);
-      container.appendChild(row);
-    });
-  });
-}
-
-
-function buildInviteSetAllSlider(dept, deptMap, container, isClubOrg) {
-  var wrap = document.createElement('div');
-  wrap.className = 'uacc-set-all-slider';
-
-  var track = document.createElement('div');
-  track.className = 'uacc-set-all-slider__track';
-  var fill = document.createElement('div');
-  fill.className = 'uacc-set-all-slider__fill';
-  track.appendChild(fill);
-  wrap.appendChild(track);
-
-  function updateFill(idx) {
-    fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
-  }
-
-  ACC_LEVELS.forEach(function(level, idx) {
-    var isPadlocked = isClubOrg && level === 'admin';
-    var stop = document.createElement('div');
-    stop.className = 'uacc-set-all-slider__stop';
-    var node = document.createElement('div');
-    node.className = 'uacc-set-all-slider__node';
-    if (isPadlocked) {
-      node.textContent = String.fromCodePoint(0x1F512);
-      node.style.cssText = 'font-size:7px;display:flex;align-items:center;justify-content:center;border-color:rgba(255,255,255,0.2);';
-    }
-    var label = document.createElement('div');
-    label.className = 'uacc-set-all-slider__label';
-    label.textContent = ACC_LABELS[level];
-    if (isPadlocked) label.style.color = 'rgba(255,255,255,0.25)';
-    stop.appendChild(node);
-    stop.appendChild(label);
-
-    if (!isPadlocked) {
-      stop.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var safeLevel = (isClubOrg && level === 'admin') ? 'access' : level;
-        var safeIdx = ACC_LEVELS.indexOf(safeLevel);
-
-        wrap.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s, si) {
-          s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
-          if (si < safeIdx) s.classList.add('uacc-set-all-slider__stop--filled');
-          if (si === safeIdx) s.classList.add('uacc-set-all-slider__stop--active');
-        });
-        updateFill(safeIdx);
-
-        /* Update all invite tool sliders in this dept */
-        container.querySelectorAll('.invite-tool-row[data-dept="' + dept + '"]').forEach(function(row) {
-          var sliderEl = row.querySelector('.acc-slider');
-          if (!sliderEl) return;
-          sliderEl.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
-            s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
-            if (si < safeIdx) s.classList.add('acc-slider__stop--filled');
-            if (si === safeIdx) s.classList.add('acc-slider__stop--active');
-          });
-          var f = sliderEl.querySelector('.acc-slider__track-fill');
-          if (f) f.style.width = safeIdx <= 0 ? '0%' : (safeIdx / (ACC_LEVELS.length - 1) * 100) + '%';
-        });
-      });
-    }
-    wrap.appendChild(stop);
-  });
-
-  updateFill(0);
-  return wrap;
-}
-
-function buildInviteSlider(toolKey, currentLevel, clubLocked) {
-  var wrap = document.createElement('div');
-  wrap.className = 'acc-slider';
-  wrap.dataset.toolkey = toolKey;
-  /* Cap club users at access */
-  if (clubLocked && currentLevel === 'admin') currentLevel = 'access';
-  var currentIdx = ACC_LEVELS.indexOf(currentLevel);
-  if (currentIdx === -1) currentIdx = 0;
-  var track = document.createElement('div');
-  track.className = 'acc-slider__track';
-  var fill = document.createElement('div');
-  fill.className = 'acc-slider__track-fill';
-  track.appendChild(fill);
-  wrap.appendChild(track);
-  function updateFill(idx) {
-    var pct = idx <= 0 ? 0 : (idx / (ACC_LEVELS.length - 1)) * 100;
-    fill.style.width = pct + '%';
-  }
-  updateFill(currentIdx);
-  ACC_LEVELS.forEach(function(level, idx) {
-    var isPadlocked = clubLocked && level === 'admin';
-    var stop = document.createElement('div');
-    stop.className = 'acc-slider__stop';
-    if (isPadlocked) {
-      stop.classList.add('acc-slider__stop--padlocked');
-    } else {
-      if (idx < currentIdx)  stop.classList.add('acc-slider__stop--filled');
-      if (idx === currentIdx) stop.classList.add('acc-slider__stop--active');
-    }
-    var node = document.createElement('div');
-    node.className = 'acc-slider__node';
-    if (isPadlocked) {
-      node.textContent = '\uD83D\uDD12';
-      node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;';
-    }
-    var label = document.createElement('div');
-    label.className = 'acc-slider__label';
-    label.textContent = ACC_LABELS[level];
-    if (isPadlocked) label.style.color = 'var(--border)';
-    stop.appendChild(node);
-    stop.appendChild(label);
-    if (!isPadlocked) stop.addEventListener('click', function(e) {
-      e.stopPropagation();
-      currentIdx = idx;
-      wrap.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
-        s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
-        if (si < idx)  s.classList.add('acc-slider__stop--filled');
-        if (si === idx) s.classList.add('acc-slider__stop--active');
-      });
-      updateFill(idx);
-    });
-    wrap.appendChild(stop);
-  });
-  return wrap;
-}
-
-function resendInvite(email, btn) {
-  if (!email) return;
-  btn.textContent = 'Sending...';
-  btn.disabled = true;
-  fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
-    method:  'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify({ action: 'sendInvite', email: email, name: '', role: '', org: '', club: '', clubRole: '' })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(result) {
-    if (result && result.ok === false) {
-      showToast('Failed to resend: ' + (result.error || 'unknown'), 'error');
-      btn.disabled    = false;
-      btn.textContent = 'Resend invite';
-    } else {
-      showToast('Invite resent to ' + email, 'success');
-      btn.textContent = 'Sent';
-    }
-  })
-  .catch(function() {
-    showToast('Failed to resend invite', 'error');
-    btn.disabled    = false;
-    btn.textContent = 'Resend invite';
-  });
-}
-
-function initWelcomeEditor() {
-  STATE.wmQuill = new Quill('#wmQuillEditor', {
-    theme:   'snow',
-    modules: { toolbar: [
-      ['bold', 'italic', 'underline'],
-      [{ list: 'ordered' }, { list: 'bullet' }],
-      ['link'],
-      ['clean']
-    ]}
-  });
-
-  loadWmList();
-
-  document.getElementById('wmAddBtn').addEventListener('click', function() {
-    clearWmEditor();
-    document.getElementById('wmInlineEditor').style.display = 'block';
-    document.getElementById('wmTitle').focus();
-  });
-
-  document.getElementById('wmCancelBtn').addEventListener('click', function() {
-    clearWmEditor();
-    document.getElementById('wmInlineEditor').style.display = 'none';
-  });
-
-  document.getElementById('wmSaveBtn').addEventListener('click', function() {
-    saveWmMessage();
-  });
-}
-
-function loadWmList() {
-  if (!STATE.isAdmin) return;
-  db.ref('welcome-messages').once('value').then(function(snap) {
-    var list = document.getElementById('wmList');
-    list.innerHTML = '';
-    var val = snap.val();
-    if (!val || typeof val !== 'object') {
-      list.style.display = 'none';
-      return;
-    }
-    var keys = Object.keys(val);
-    if (keys.length === 0) { list.style.display = 'none'; return; }
-    list.style.display = 'block';
-    /* Header row */
-    var hdr = document.createElement('div');
-    hdr.style.cssText = "font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);padding:12px 24px 6px;";
-    hdr.textContent = 'Existing messages';
-    list.appendChild(hdr);
-    keys.forEach(function(k) {
-      var m = val[k];
-      list.appendChild(buildWmItem(k, m));
-    });
-  });
-}
-
-function buildWmItem(key, m) {
-  var item = document.createElement('div');
-  item.className = 'wm-item';
-
-  var body = document.createElement('div');
-  body.className = 'wm-item__body';
-
-  var title = document.createElement('div');
-  title.className = 'wm-item__title';
-  title.textContent = m.title || '(no title)';
-
-  var meta = document.createElement('div');
-  meta.className = 'wm-item__meta';
-  meta.textContent = 'By ' + (m.author || 'unknown') +
-    (m.createdAt ? '  —  ' + new Date(m.createdAt).toLocaleDateString('en-GB') : '');
-
-  body.appendChild(title);
-  body.appendChild(meta);
-
-  var actions = document.createElement('div');
-  actions.className = 'wm-item__actions';
-
-  var editBtn = document.createElement('button');
-  editBtn.className = 'btn btn--ghost btn--sm';
-  editBtn.textContent = 'Edit';
-  editBtn.addEventListener('click', function() { loadWmIntoEditor(key, m); });
-
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn btn--danger btn--sm';
-  delBtn.textContent = 'Delete';
-  delBtn.addEventListener('click', function() { deleteWmMessage(key, delBtn); });
-
-  actions.appendChild(editBtn);
-  actions.appendChild(delBtn);
-  item.appendChild(body);
-  item.appendChild(actions);
-  return item;
-}
-
-function loadWmIntoEditor(key, m) {
-  document.getElementById('wmTitle').value     = m.title || '';
-  document.getElementById('wmEditingKey').value = key;
-  document.getElementById('wmEditorHead').textContent = 'Editing message';
-  STATE.wmQuill.root.innerHTML = m.content || '';
-}
-
-function clearWmEditor() {
-  document.getElementById('wmTitle').value      = '';
-  document.getElementById('wmEditingKey').value = '';
-  document.getElementById('wmEditorHead').textContent = 'New message';
-  STATE.wmQuill.setContents([]);
-}
-
-function saveWmMessage() {
-  var title   = document.getElementById('wmTitle').value.trim();
-  var content = STATE.wmQuill.root.innerHTML;
-  var key     = document.getElementById('wmEditingKey').value;
-
-  if (!title) { showToast('Please enter a title', 'error'); return; }
-
-  setBtnLoading('wmSaveBtn', true);
-
-  var payload = {
-    title:     title,
-    content:   content,
-    author:    STATE.userData.name || STATE.user.email || '',
-    updatedAt: Date.now()
-  };
-
-  var ref = key
-    ? db.ref('welcome-messages/' + key)
-    : db.ref('welcome-messages').push();
-
-  if (!key) payload.createdAt = Date.now();
-
-  var promise = key ? ref.update(payload) : ref.set(payload);
-
-  promise.then(function() {
-    setBtnLoading('wmSaveBtn', false, 'Save message');
-    clearWmEditor();
-    document.getElementById('wmInlineEditor').style.display = 'none';
-    writeAudit(key ? 'message_edited' : 'message_created', title);
-    showToast('Message saved', 'success');
-    loadWmList();
-    loadWelcomeMessages(); /* Refresh carousel */
-  }).catch(function() {
-    setBtnLoading('wmSaveBtn', false, 'Save message');
-    showToast('Failed to save message', 'error');
-  });
-}
-
-function deleteWmMessage(key, btn) {
-  btn.textContent = 'Confirm?';
-  btn.style.background = 'var(--red)';
-  btn.style.color = '#fff';
-  var confirmed = false;
-
-  btn.addEventListener('click', function handler() {
-    if (!confirmed) {
-      confirmed = true;
-      db.ref('welcome-messages/' + key).remove()
-        .then(function() {
-          showToast('Message deleted', 'success');
-          loadWmList();
-          loadWelcomeMessages();
-        })
-        .catch(function() { showToast('Failed to delete', 'error'); });
-      btn.removeEventListener('click', handler);
-    }
-  });
-
-  setTimeout(function() {
-    if (!confirmed) {
-      btn.textContent = 'Delete';
-      btn.style.background = '';
-      btn.style.color = '';
-    }
-  }, 3000);
-}
-</script>
-</body>
-</html>function approveRequest(r, btn, ss) {
-  btn.disabled = true; btn.textContent = 'Approving...';
-  var toolAccess = {};
-  if (ss) {
-    ss.querySelectorAll('.acc-slider').forEach(function(slider) {
-      var key = slider.dataset.toolkey; if (!key) return;
-      var idx = 0;
-      slider.querySelectorAll('.acc-slider__stop').forEach(function(s,i) {
-        if (s.classList.contains('acc-slider__stop--active')) idx=i;
-      });
-      toolAccess[key] = ACC_LEVELS[idx]||'hidden';
-    });
-  } else {
-    STATE.toolsList.forEach(function(t) {
-      if (t._key==='welcome') return;
-      var lvl = (t.defaults&&t.defaults['club'])||'hidden';
-      if (r.tools&&Array.isArray(r.tools)&&r.tools.indexOf(t._key)!==-1&&(lvl==='hidden'||lvl==='off')) lvl='access';
-      toolAccess[t._key] = lvl;
-    });
-  }
-  fetch(INVITE_GAS_URL+'?cb='+Date.now(), {
-    method:'POST', headers:{'Content-Type':'text/plain'},
-    body: JSON.stringify({action:'sendInvite',email:r.email||'',name:r.name||'',role:'club',org:'',orgKey:'club',club:r.club||'',clubRole:r.clubRole||'',tools:toolAccess})
-  })
-  .then(function(res){return res.json();})
-  .then(function(result) {
-    if (result&&result.ok===false) {
-      btn.disabled=false; btn.textContent='Approve';
-      showToast('Invite failed: '+(result.error||'unknown'),'error'); return;
-    }
-    writeAudit('request_approved','Approved & invited '+(r.name||r.email||'')+(r.club?' ('+r.club+')':''));
-    db.ref('requests/'+r._key+'/status').set('approved').then(function() {
-      showToast('Approved - invite sent to '+(r.email||''),'success'); loadRequests();
-    });
-  })
-  .catch(function(err) {
-    btn.disabled=false; btn.textContent='Approve'; showToast('Failed: '+err.message,'error');
-  });
-}
-
-function rejectRequest(key, btn) {
-  btn.disabled = true;
-  btn.textContent = 'Declining…';
-  writeAudit('request_declined', 'Declined request ' + key);
-  db.ref('requests/' + key + '/status').set('rejected')
-    .then(function() {
-      showToast('Request declined', 'success');
-      loadRequests();
-    })
-    .catch(function() {
-      btn.disabled = false;
-      btn.textContent = 'Decline';
-      showToast('Failed to update request', 'error');
-    });
-}
-
-/* ---- Users table --------------------------------------------------------- */
-var _activeClubFilter = null;
-
-function loadUsers() {
-  db.ref('users').once('value').then(function(snap) {
-    STATE.allUsers = snap.val() || {};
-    renderClubFilterPills();
-    renderUsers(STATE.allUsers);
-  });
-
-  document.getElementById('reloadUsersBtn').addEventListener('click', function() { loadUsers(); });
-
-  document.getElementById('userSearch').addEventListener('input', function() {
-    applyUserFilters();
-  });
-}
-
-function applyUserFilters() {
-  var q    = document.getElementById('userSearch').value.toLowerCase().trim();
-  var club = _activeClubFilter;
-  var filtered = {};
-  Object.keys(STATE.allUsers).forEach(function(uid) {
-    var u = STATE.allUsers[uid];
-    var matchesText = !q ||
-      (u.name  || '').toLowerCase().indexOf(q) !== -1 ||
-      (u.email || '').toLowerCase().indexOf(q) !== -1;
-    var matchesFilter = true;
-    if (club) {
-      if (club.startsWith('__org__')) {
-        var orgVal = club.replace('__org__', '');
-        matchesFilter = (u.org || '') === orgVal;
-      } else if (club.startsWith('__club__')) {
-        var clubVal = club.replace('__club__', '');
-        matchesFilter = (u.club || '') === clubVal;
-      } else {
-        matchesFilter = (u.club || '') === club;
-      }
-    }
-    if (matchesText && matchesFilter) filtered[uid] = u;
-  });
-  renderUsers(filtered);
-}
-
-function renderClubFilterPills() {
-  var wrap   = document.getElementById('clubFilterWrap');
-  var select = document.getElementById('clubFilterSelect');
-  if (!wrap || !select) return;
-
-  /* Collect NL orgs and clubs separately */
-  var nlOrgs = {};
-  var clubs  = {};
-  Object.keys(STATE.allUsers).forEach(function(uid) {
-    var u = STATE.allUsers[uid];
-    if (u.role === 'club' && u.club) {
-      clubs[u.club] = true;
-    } else if (u.org) {
-      nlOrgs[u.org] = true;
-    }
-  });
-
-  var nlOrgList  = Object.keys(nlOrgs).sort();
-  var clubList   = Object.keys(clubs).sort();
-
-  if (nlOrgList.length === 0 && clubList.length === 0) {
-    wrap.style.display = 'none';
-    return;
-  }
-
-  wrap.style.display = 'block';
-
-  /* Rebuild options */
-  select.innerHTML = '<option value="">All users<\/option>';
-
-  if (nlOrgList.length) {
-    var nlGroup = document.createElement('optgroup');
-    nlGroup.label = 'Organisations';
-    nlOrgList.forEach(function(org) {
-      var opt = document.createElement('option');
-      opt.value = '__org__' + org;
-      opt.textContent = org;
-      nlGroup.appendChild(opt);
-    });
-    select.appendChild(nlGroup);
-  }
-
-  if (clubList.length) {
-    var clubGroup = document.createElement('optgroup');
-    clubGroup.label = 'Clubs';
-    clubList.forEach(function(club) {
-      var opt = document.createElement('option');
-      opt.value = '__club__' + club;
-      opt.textContent = club;
-      clubGroup.appendChild(opt);
-    });
-    select.appendChild(clubGroup);
-  }
-
-  select.onchange = function() {
-    var val = select.value;
-    if (!val) {
-      _activeClubFilter = null;
-    } else if (val.startsWith('__org__')) {
-      _activeClubFilter = val; /* stored with prefix, matched in applyUserFilters */
-    } else if (val.startsWith('__club__')) {
-      _activeClubFilter = val;
-    }
-    applyUserFilters();
-  };
-}
-
-function renderUsers(users) {
-  renderUsersAccordion(users);
-}
-
-/* ---- Accordion ----------------------------------------------------------- */
-var _openAccUid = null;
-
-function renderUsersAccordion(users) {
-  var container = document.getElementById('usersAccordion');
-  container.innerHTML = '';
-  _openAccUid = null;
-
-  var uids = Object.keys(users || {});
-  if (uids.length === 0) {
-    var empty = document.createElement('div');
-    empty.className = 'empty-state';
-    var icon = document.createElement('div');
-    icon.className = 'empty-state__icon';
-    icon.textContent = '\uD83D\uDC65';
-    var text = document.createElement('div');
-    text.className = 'empty-state__text';
-    text.textContent = 'No users found.';
-    empty.appendChild(icon);
-    empty.appendChild(text);
-    container.appendChild(empty);
-    return;
-  }
-
-  /* Build dept/tool structure -- all tools including placeholders, except welcome */
-  var tools   = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
-  var deptMap = {};
-  tools.forEach(function(t) {
-    var d = t.department || 'General';
-    if (!deptMap[d]) deptMap[d] = [];
-    deptMap[d].push(t);
-  });
-  var depts = sortDepts(Object.keys(deptMap));
-
-  uids.forEach(function(uid) {
-    var u = users[uid];
-    container.appendChild(buildAccordionItem(uid, u, depts, deptMap));
-  });
-}
-
-function buildAccordionItem(uid, u, depts, deptMap) {
-  var item = document.createElement('div');
-  item.className = 'uacc-item';
-  item.dataset.uid = uid;
-
-  /* Header */
-  var header = document.createElement('div');
-  header.className = 'uacc-header';
-
-  /* Org crest -- club users get their club crest, everyone else gets NL rose */
-  var isClubUser = u.role === 'club';
-  var crestImg = document.createElement('img');
-  crestImg.className = 'uacc-crest';
-  if (isClubUser && u.club) {
-    crestImg.src = CREST_BASE + encodeURIComponent(u.club) + '.png';
-    crestImg.alt = u.club;
-    crestImg.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-  } else {
-    crestImg.src = FALLBACK_CREST;
-    crestImg.alt = 'National League';
-  }
-  header.appendChild(crestImg);
-
-  /* Name + email */
-  var nameWrap = document.createElement('div');
-  nameWrap.className = 'uacc-name';
-  var primary = document.createElement('div');
-  primary.className = 'uacc-name__primary';
-  primary.textContent = u.name || '(no name)';
-  var secondary = document.createElement('div');
-  secondary.className = 'uacc-name__secondary';
-  secondary.textContent = u.email || '';
-  nameWrap.appendChild(primary);
-  nameWrap.appendChild(secondary);
-  header.appendChild(nameWrap);
-
-  /* Stacked pill block: role pill on top, org/club context below */
-  var pillStack = document.createElement('div');
-  pillStack.className = 'uacc-pill-stack';
-
-  var rolePill = document.createElement('span');
-  rolePill.className = 'user-role-pill role-' + (u.pending ? 'pending' : (u.role || 'staff'));
-  rolePill.textContent = u.pending ? 'Pending' : (u.role || 'staff');
-  pillStack.appendChild(rolePill);
-
-  /* Context line below pill */
-  var context = document.createElement('div');
-  context.className = 'uacc-pill-stack__context';
-
-  if (isClubUser && u.club) {
-    var clubCrest = document.createElement('img');
-    clubCrest.className = 'uacc-pill-stack__crest';
-    clubCrest.src = CREST_BASE + encodeURIComponent(u.club) + '.png';
-    clubCrest.alt = u.club;
-    clubCrest.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-    context.appendChild(clubCrest);
-    var clubText = document.createElement('span');
-    clubText.textContent = u.club + (u.clubRole ? '  ·  ' + u.clubRole : '');
-    context.appendChild(clubText);
-  } else if (!u.pending) {
-    var orgText = document.createElement('span');
-    orgText.textContent = u.org || 'National League';
-    context.appendChild(orgText);
-  }
-
-  pillStack.appendChild(context);
-  header.appendChild(pillStack);
-
-  var chevron = document.createElement('span');
-  chevron.className = 'uacc-chevron';
-  chevron.textContent = '\u25BC';
-  header.appendChild(chevron);
-
-  /* Determine superuser status once at item level -- used in dept loop */
-  var isSuperUser = u.role === 'superadmin' || (uid === STATE.uid && STATE.isSuperAdmin);
-
-  /* Body */
-  var body = document.createElement('div');
-  body.className = 'uacc-body';
-
-  /* Tool toggles grouped by dept */
-  depts.forEach(function(dept) {
-    var deptTools = deptMap[dept];
-    if (!deptTools || !deptTools.length) return;
-
-    /* Staff dept always shown but locked to hidden for non-NL users */
-    var staffLocked = dept === 'staff' && u.role !== 'superadmin' &&
-                      (u.role === 'club' || u.orgKey === 'trust' || u.orgKey === 'u19');
-
-    /* deptWrap MUST be declared before buildSetAllSlider so the closure captures it */
-    var deptWrap = document.createElement('div');
-    deptWrap.className = 'uacc-dept-wrap';
-    deptWrap.dataset.dept = dept;
-
-    /* Navy header bar -- label + set-all inline (desktop) */
-    var deptHeader = document.createElement('div');
-    deptHeader.className = 'uacc-dept-header';
-    var deptLabel = document.createElement('div');
-    deptLabel.className = 'uacc-dept-label';
-    deptLabel.textContent = getDeptLabel(dept);
-    deptHeader.appendChild(deptLabel);
-
-    /* Red band -- mobile fallback only */
-    var deptBand = document.createElement('div');
-    deptBand.className = 'uacc-dept-band';
-    deptBand.dataset.dept = dept;
-
-    if (!isSuperUser) {
-      /* Add set-all to header (shown desktop) and band (shown mobile) */
-      deptHeader.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
-      deptBand.appendChild(buildSetAllSlider(uid, u, dept, deptMap, deptWrap));
-    }
-
-    body.appendChild(deptHeader);
-    body.appendChild(deptBand);
-    body.appendChild(deptWrap);
-
-    deptTools.forEach(function(t) {
-      var currentLevel  = getAccessLevel(uid, t._key);
-      var defaultLevel  = getDefaultLevel(t._key, u);
-      /* isSuperUser declared at item level above */
-      var isClubUser    = u.role === 'club';
-      var isClubLocked  = isClubUser; /* Club users cannot have admin on any tool */
-
-      /* If club user is somehow set to admin, cap display at access */
-      if (isClubUser && currentLevel === 'admin') currentLevel = 'access';
-
-      var row = document.createElement('div');
-      row.className = 'uacc-tool-row';
-
-      var toolName = document.createElement('div');
-      toolName.className = 'uacc-tool-name';
-      var iconSpan = document.createElement('span');
-      iconSpan.className = 'uacc-tool-name__icon';
-      iconSpan.textContent = t.icon || '';
-      toolName.appendChild(iconSpan);
-      toolName.appendChild(document.createTextNode(t.label || t._key));
-
-      /* For staff tools on non-NL users: force hidden and lock all options */
-      var effectiveLevel = staffLocked ? 'hidden' : currentLevel;
-      var sliderEl = buildAccSlider(uid, t._key, effectiveLevel, defaultLevel, isSuperUser || staffLocked, isClubLocked || staffLocked, dept, body);
-
-      row.appendChild(toolName);
-      row.appendChild(sliderEl);
-      deptWrap.appendChild(row);
-    });
-  });
-
-  /* Footer — role selector + resend */
-  var footer = document.createElement('div');
-  footer.className = 'uacc-footer';
-
-  if (u.role === 'superadmin') {
-    var lock = document.createElement('span');
-    lock.style.cssText = 'font-size:11px;color:var(--text-muted);font-style:italic;';
-    lock.textContent = 'Superadmin — role locked';
-    footer.appendChild(lock);
-
-  } else if (u.pending) {
-    /* Pending user -- resend, cancel, no role change */
-    var resendBtn = document.createElement('button');
-    resendBtn.className = 'resend-pill';
-    resendBtn.textContent = 'Resend invite';
-    resendBtn.addEventListener('click', function() { resendInvite(u.email, resendBtn); });
-    footer.appendChild(resendBtn);
-
-    var cancelBtn = document.createElement('button');
-    cancelBtn.className = 'cancel-invite-btn';
-    cancelBtn.textContent = 'Cancel invite';
-    var confirmed = false;
-    cancelBtn.addEventListener('click', function() {
-      if (!confirmed) {
-        confirmed = true;
-        cancelBtn.classList.add('confirm');
-        cancelBtn.textContent = 'Confirm cancel?';
-        setTimeout(function() {
-          if (confirmed) {
-            confirmed = false;
-            cancelBtn.classList.remove('confirm');
-            cancelBtn.textContent = 'Cancel invite';
-          }
-        }, 3000);
-      } else {
-        /* Delete the user record */
-        db.ref('users/' + uid).remove()
-          .then(function() {
-            showToast('Invite cancelled', 'success');
-            writeAudit('invite_cancelled', (u.name || u.email || '') + ' invite removed');
-            loadUsers();
-          })
-          .catch(function() { showToast('Failed to cancel invite', 'error'); });
-      }
-    });
-    footer.appendChild(cancelBtn);
-
-  } else {
-    /* Active user -- change role button + inline role picker */
-    var changeRoleBtn = document.createElement('button');
-    changeRoleBtn.className = 'change-role-btn';
-    changeRoleBtn.textContent = 'Change role';
-
-    var rolePicker = document.createElement('div');
-    rolePicker.className = 'inline-role-picker';
-
-    var selectedOrg    = u.org    || 'National League';
-    var selectedOrgKey = u.orgKey || (u.role === 'club' ? 'club' : 'nl');
-    var selectedRole   = (u.role === 'club') ? 'staff' : (u.role || 'staff');
-
-    /* ── Live preview: update tool sliders in body when role changes ────── */
-    function previewRoleSliders(newOrgKey, newRole) {
-      var isClub    = newOrgKey === 'club';
-      var newUd     = { role: isClub ? 'club' : newRole, orgKey: newOrgKey };
-      var gk        = getGroupKey(newUd);
-      var storedTools = (STATE.allUsers[uid] || {}).tools || {};
-
-      /* Get all tool rows in this user's body */
-      body.querySelectorAll('.uacc-tool-row').forEach(function(row) {
-        var slider = row.querySelector('.acc-slider');
-        if (!slider) return;
-        var toolKey = slider.dataset.toolkey;
-        if (!toolKey) return;
-
-        var tool         = STATE.tools[toolKey];
-        var defaultLevel = (tool && tool.defaults && tool.defaults[gk]) || 'hidden';
-        var storedLevel  = storedTools[toolKey] || defaultLevel;
-
-        /* Point 2 logic: preserve stored level unless invalid for new role */
-        var useLevel = storedLevel;
-        if (isClub && storedLevel === 'admin') useLevel = defaultLevel; /* cap at access */
-        if (useLevel === 'admin' && isClub)    useLevel = 'access';
 
         var useIdx = ACC_LEVELS.indexOf(useLevel);
         if (useIdx === -1) useIdx = 0;
 
-        /* Update slider visual state */
         var fill = slider.querySelector('.acc-slider__track-fill');
         if (fill) fill.style.width = useIdx <= 0 ? '0%' : (useIdx / (ACC_LEVELS.length - 1) * 100) + '%';
 
+        /* Lock entire slider if staff-locked */
+        slider.className = 'acc-slider' + (isStaffLocked ? ' acc-slider--locked' : '');
+
         slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
-          var level = ACC_LEVELS[si];
+          var stopLevel = ACC_LEVELS[si];
           stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
           var node = stop.querySelector('.acc-slider__node');
+          var lbl  = stop.querySelector('.acc-slider__label');
 
-          if (isClub && level === 'admin') {
+          if (isStaffLocked) {
+            /* All stops locked -- padlock each one */
+            stop.classList.add('acc-slider__stop--padlocked');
+            stop.style.pointerEvents = 'none';
+            if (node) {
+              node.textContent = String.fromCodePoint(0x1F512);
+              node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:2px solid;';
+            }
+            if (lbl) lbl.style.color = 'var(--border)';
+          } else if (isClub && stopLevel === 'admin') {
             /* Padlock admin for club */
             stop.classList.add('acc-slider__stop--padlocked');
             stop.style.pointerEvents = 'none';
@@ -4729,23 +3213,20 @@ function buildAccordionItem(uid, u, depts, deptMap) {
               node.textContent = String.fromCodePoint(0x1F512);
               node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:2px solid;';
             }
-            var lbl = stop.querySelector('.acc-slider__label');
             if (lbl) lbl.style.color = 'var(--border)';
           } else {
             stop.style.pointerEvents = '';
             if (node) { node.textContent = ''; node.style.cssText = ''; }
-            var lbl2 = stop.querySelector('.acc-slider__label');
-            if (lbl2) lbl2.style.color = '';
+            if (lbl) lbl.style.color = '';
             if (si < useIdx)  stop.classList.add('acc-slider__stop--filled');
             if (si === useIdx) stop.classList.add('acc-slider__stop--active');
           }
         });
 
-        /* Store preview value on slider for confirm to read */
         slider.dataset.previewLevel = useLevel;
       });
 
-      /* Reset all set-all sliders to neutral */
+      /* Reset set-all sliders to neutral */
       body.querySelectorAll('.uacc-set-all-slider').forEach(function(sa) {
         sa.querySelectorAll('.uacc-set-all-slider__stop').forEach(function(s) {
           s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
@@ -4757,33 +3238,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
     /* ── Revert sliders to actual RTDB state (on cancel) ───────────────── */
     function revertSliders() {
-      var storedTools = (STATE.allUsers[uid] || {}).tools || {};
-      var isClub = u.role === 'club';
-      body.querySelectorAll('.uacc-tool-row').forEach(function(row) {
-        var slider = row.querySelector('.acc-slider');
-        if (!slider) return;
-        var toolKey = slider.dataset.toolkey;
-        if (!toolKey) return;
-        var level    = storedTools[toolKey] || getDefaultLevel(toolKey, u);
-        var idx      = ACC_LEVELS.indexOf(level);
-        if (idx === -1) idx = 0;
-        var fill = slider.querySelector('.acc-slider__track-fill');
-        if (fill) fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
-        slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
-          stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
-          var node = stop.querySelector('.acc-slider__node');
-          if (isClub && ACC_LEVELS[si] === 'admin') {
-            stop.classList.add('acc-slider__stop--padlocked');
-            stop.style.pointerEvents = 'none';
-          } else {
-            stop.style.pointerEvents = '';
-            if (node) { node.textContent = ''; node.style.cssText = ''; }
-            if (si < idx)  stop.classList.add('acc-slider__stop--filled');
-            if (si === idx) stop.classList.add('acc-slider__stop--active');
-          }
-        });
-        delete slider.dataset.previewLevel;
-      });
+      /* Revert to actual stored state -- just re-run preview with original role */
+      previewRoleSliders(u.orgKey || (u.role === 'club' ? 'club' : 'nl'), u.role === 'club' ? 'staff' : (u.role || 'staff'));
+      body.querySelectorAll('.acc-slider').forEach(function(s) { delete s.dataset.previewLevel; });
     }
 
     /* ── Organisation ── */
