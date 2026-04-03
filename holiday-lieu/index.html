@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.20 (conversation turn 10)
+  Version: v1.21 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,14 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.21 — Removed "max 1" labels from modal sections.
+         Office day now shows L-border (left+bottom) not just bottom strip.
+         Worked weekend/BH shows pastel navy fill (#e8ecf8).
+         Overtime entries write pending lieu-earned records automatically.
+         AL remaining and lieu available shown in modal headers.
+         Lieu options greyed out when balance is zero.
+         Pending lieu excluded from available balance until approved.
+         Pending records show "Pending approval" in lieu log.
   v1.20 — Entry modal redesigned with structured sections:
          AL (single/half AM-PM/several), Lieu Taken (same), Other
          (office/overtime/note toggles). Several days skips non-workdays.
@@ -155,6 +163,7 @@
     .lieu-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
     .lieu-item:last-child { border-bottom: none; }
     .lieu-item__dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--navy); }
+    .lieu-item__dot.pending  { background: var(--amber); }
     .lieu-item__dot.expiring { background: var(--amber); }
     .lieu-item__dot.urgent   { background: var(--red); }
     .lieu-item__dot.expired  { background: var(--border); }
@@ -162,6 +171,7 @@
     .lieu-item__desc small { display: block; color: var(--text-muted); font-size: 11px; }
     .lieu-item__expiry { font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700; white-space: nowrap; }
     .lieu-item__expiry.ok       { color: var(--green); }
+    .lieu-item__expiry.pending  { color: var(--amber); }
     .lieu-item__expiry.expiring { color: var(--amber); }
     .lieu-item__expiry.urgent   { color: var(--red); }
     .lieu-item__expiry.expired  { color: var(--text-muted); text-decoration: line-through; }
@@ -182,8 +192,10 @@
       --cal-bh:        #fff3db; --cal-bh-text:   #b35c00; /* bank holiday */
       --cal-wknd:      #f5f6f8; /* weekend / non-workday */
       --cal-other:     #f0f0f5; --cal-other-text:#4a5568; /* other - slate */
-      --cal-strip-off: #b2dfbc; /* office day bottom strip */
+      --cal-strip-off: #b2dfbc; /* office day L-border */
       --cal-strip-lt:  #d1a8e6; /* lieu taken bottom strip */
+      --cal-worked:    #e8ecf8; /* worked weekend/BH — pastel navy */
+      --cal-worked-text: #223b7c;
       --cal-today-dot: #1565c0;
     }
 
@@ -226,10 +238,30 @@
     .cal-cell.is-other       { background: var(--cal-other); }
     .cal-cell.is-wknd        { background: var(--cal-wknd); }
     .cal-cell.is-bh          { background: var(--cal-bh); }
+    .cal-cell.is-worked      { background: var(--cal-worked); } /* worked weekend/BH */
+    .cal-cell.is-worked .cal-date { color: var(--cal-worked-text); font-weight: 800; font-variation-settings: 'wght' 800; }
     .cal-cell.other-mo       { background: #f9fafb; opacity: 0.6; }
 
-    /* Today indicator — dot on date number, not full cell override */
-    .cal-cell.is-today::after {
+
+
+    /* Bottom strips for secondary status */
+    /* Office day — L-border (left + bottom), anchored clearly to this cell */
+    .cal-cell.has-office::before {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0;
+      width: 4px; height: 100%;
+      background: var(--cal-strip-off);
+    }
+    .cal-cell.has-office::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--cal-strip-off);
+    }
+    /* Today dot — override after since has-office uses it */
+    .cal-cell.is-today:not(.has-office)::after {
       content: '';
       position: absolute;
       bottom: 6px; right: 7px;
@@ -237,17 +269,14 @@
       border-radius: 50%;
       background: var(--cal-today-dot);
     }
-
-    /* Bottom strips for secondary status */
-    .cal-cell::before {
+    /* Lieu taken — bottom strip */
+    .cal-cell.has-lieu::before {
       content: '';
       position: absolute;
       bottom: 0; left: 0; right: 0;
       height: 4px;
-      background: transparent;
+      background: var(--cal-strip-lt);
     }
-    .cal-cell.has-office::before  { background: var(--cal-strip-off); }
-    .cal-cell.has-lieu::before    { background: var(--cal-strip-lt); }
 
     /* Date number */
     .cal-date {
@@ -368,8 +397,10 @@
     .team-tbl td.t-al-pm  { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
     .team-tbl td.t-other  { background: var(--cal-other); }
     /* Team bottom strips */
-    .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--cal-strip-off); }
-    .team-tbl td.t-lieu::before   { content:''; position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--cal-strip-lt); }
+    .team-tbl td.t-worked  { background: var(--cal-worked); }
+    .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; height:100%; width:3px; background:var(--cal-strip-off); }
+    .team-tbl td.t-office::after  { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--cal-strip-off); }
+    .team-tbl td.t-lieu::before   { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--cal-strip-lt); }
 
     /* Org chart */
     .org-root { padding: 4px 0; }
@@ -1012,7 +1043,7 @@
       var isExp   = expDate && today > expDate;
       var dToExp  = expDate ? daysBetween(today, expDate) : null;
       var status  = isExp ? 'expired' : (dToExp!==null && dToExp<=7 ? 'urgent' : (dToExp!==null && dToExp<=30 ? 'expiring' : 'ok'));
-      if (!isExp) totalAvail += parseFloat(r.days)||0;
+      if (!isExp && r.status !== 'pending') totalAvail += parseFloat(r.days)||0;
       list.push({id:id, dateWorked:r.dateWorked, days:parseFloat(r.days)||0, reason:r.reason||'', expDate:expDate, isExp:isExp, dToExp:dToExp, status:status});
     });
 
@@ -1063,7 +1094,7 @@
     document.getElementById('lieuWarnBadge').style.display = lieu.hasSoon ? '' : 'none';
 
     document.getElementById('lieuList').innerHTML = lieu.list.map(function(r){
-      var expTxt = r.expDate ? (r.isExp ? 'Expired '+fmtDate(r.expDate) : 'Expires '+fmtDate(r.expDate)+(r.dToExp<=30?' ('+r.dToExp+' days)':'')) : 'No expiry';
+      var expTxt = r.expStatus==='pending' ? 'Pending approval' : (r.expDate ? (r.isExp ? 'Expired '+fmtDate(r.expDate) : 'Expires '+fmtDate(r.expDate)+(r.dToExp<=30?' ('+r.dToExp+' days)':'')) : 'No expiry');
       return '<div class="lieu-item">'
         +'<div class="lieu-item__dot '+r.status+'"></div>'
         +'<div class="lieu-item__desc"><strong>'+r.days+' day'+(r.days!==1?'s':'')+'</strong> — '+esc(r.reason||'Lieu earned')+'<small>Worked '+fmtDate(r.dateWorked)+'</small></div>'
@@ -1117,25 +1148,27 @@
       var dayEnts = entries.filter(function(e){ return e.date===iso; });
 
       /* Determine primary cell status */
-      var alFull = dayEnts.find(function(e){ return e.type==='annual-leave'; });
-      var alAM   = dayEnts.find(function(e){ return e.type==='annual-leave-am'; });
-      var alPM   = dayEnts.find(function(e){ return e.type==='annual-leave-pm'; });
-      var alHalf = dayEnts.find(function(e){ return e.type==='annual-leave-half'; });
-      var hasOff = dayEnts.find(function(e){ return e.type==='office-day'; });
-      var hasLT  = dayEnts.find(function(e){ return e.type==='lieu-taken'; });
-      var hasOth = dayEnts.find(function(e){ return e.type==='other'; });
+      var alFull  = dayEnts.find(function(e){ return e.type==='annual-leave'; });
+      var alAM    = dayEnts.find(function(e){ return e.type==='annual-leave-am'; });
+      var alPM    = dayEnts.find(function(e){ return e.type==='annual-leave-pm'; });
+      var alHalf  = dayEnts.find(function(e){ return e.type==='annual-leave-half'; });
+      var hasOff  = dayEnts.find(function(e){ return e.type==='office-day'; });
+      var hasLT   = dayEnts.find(function(e){ return e.type==='lieu-taken' || e.type==='lieu-taken-am' || e.type==='lieu-taken-pm'; });
+      var hasOth  = dayEnts.find(function(e){ return e.type==='other'; });
+      var hasWork = dayEnts.find(function(e){ return e.type==='overtime'; });
 
       /* Build cell classes */
       var cls = 'cal-cell';
       if (isT) cls += ' is-today';
       /* Primary fill */
-      if (alFull)       cls += ' is-al';
-      else if (alAM)    cls += ' is-al-am';
-      else if (alPM)    cls += ' is-al-pm';
-      else if (alHalf)  cls += ' is-al-pm'; /* legacy half day = PM convention */
-      else if (hasOth)  cls += ' is-other';
-      else if (isBH)    cls += ' is-bh';
-      else if (!isWD||isWk) cls += ' is-wknd';
+      if (alFull)            cls += ' is-al';
+      else if (alAM)         cls += ' is-al-am';
+      else if (alPM)         cls += ' is-al-pm';
+      else if (alHalf)       cls += ' is-al-pm';
+      else if (hasWork)      cls += ' is-worked'; /* overtime on any day */
+      else if (hasOth)       cls += ' is-other';
+      else if (isBH)         cls += ' is-bh';
+      else if (!isWD||isWk)  cls += ' is-wknd';
       /* Secondary strips */
       if (hasOff) cls += ' has-office';
       if (hasLT)  cls += ' has-lieu';
@@ -1213,13 +1246,14 @@
         var tdC  = day.isT?' is-today':((!isWD||day.isWk)?' is-wknd':'');
         /* Build td classes for team cell fills */
         var tdStatus = '';
-        if (!day.isBH && de.length) {
+        if (de.length) {
           var te = de[0];
-          if (te.type==='annual-leave')      tdStatus = ' t-al';
-          else if (te.type==='annual-leave-am')  tdStatus = ' t-al-am';
-          else if (te.type==='annual-leave-pm')  tdStatus = ' t-al-pm';
+          if (te.type==='annual-leave')           tdStatus = ' t-al';
+          else if (te.type==='annual-leave-am')   tdStatus = ' t-al-am';
+          else if (te.type==='annual-leave-pm')   tdStatus = ' t-al-pm';
           else if (te.type==='annual-leave-half') tdStatus = ' t-al-pm';
-          else if (te.type==='other')        tdStatus = ' t-other';
+          else if (te.type==='overtime')          tdStatus = ' t-worked';
+          else if (te.type==='other')             tdStatus = ' t-other';
         }
         /* Secondary strips */
         var hasOff2 = de.find(function(e){ return e.type==='office-day'; });
@@ -1495,6 +1529,14 @@
     var body = document.getElementById('entryModalBody');
     var iso  = _eState.iso;
     var isSpecialDay = _eState.isBH || !_eState.isWD;
+
+    /* Balance info shown at top of modal */
+    var balAL     = calcAL(S.uid);
+    var balLieu   = calcLieu(S.uid);
+    var alLeft    = balAL.left;
+    var lieuAvail = balLieu.total;
+    var alBadge   = '<span style="color:' + (alLeft<=0?'#c0392b':'#1e7e34') + ';font-size:11px;text-transform:none;letter-spacing:0">' + alLeft + ' day' + (alLeft===1?'':'s') + ' remaining</span>';
+    var lieuBadge = '<span style="color:' + (lieuAvail<=0?'#c0392b':'#1e7e34') + ';font-size:11px;text-transform:none;letter-spacing:0">' + lieuAvail + ' day' + (lieuAvail===1?'':'s') + ' available</span>';
     var editDate = existingEntry ? existingEntry.date : iso;
     var editEndDate = existingEntry ? (existingEntry.endDate||existingEntry.date) : iso;
     var editNote = existingEntry ? (existingEntry.note||'') : '';
@@ -1504,7 +1546,7 @@
     /* ── ANNUAL LEAVE section (hidden on weekends/BH) ── */
     if (!isSpecialDay) {
       h += '<div class="entry-section" id="secAL">';
-      h += '<div class="entry-section__head">Annual Leave <span>max 1</span></div>';
+      h += '<div class="entry-section__head">Annual Leave '+alBadge+'</div>';
       h += '<div class="entry-options">';
       h += '<button class="eopt'+((_eState.alMode==='single')?' sel-al':'')+'" onclick="setALMode(&apos;single&apos;)">Single day</button>';
       h += '<button class="eopt'+((_eState.alMode==='half')?' sel-al':'')+'" onclick="setALMode(&apos;half&apos;)">Half day</button>';
@@ -1531,11 +1573,12 @@
     /* ── LIEU TAKEN section (hidden on weekends/BH) ── */
     if (!isSpecialDay) {
       h += '<div class="entry-section" id="secLieu">';
-      h += '<div class="entry-section__head">Lieu Taken <span>max 1</span></div>';
+      h += '<div class="entry-section__head">Lieu Taken '+lieuBadge+'</div>';
+      var lieuDisabled = lieuAvail <= 0 ? ' disabled style="opacity:0.4;cursor:not-allowed;pointer-events:none"' : '';
       h += '<div class="entry-options">';
-      h += '<button class="eopt'+((_eState.lieuMode==='single')?' sel-lieu':'')+'" onclick="setLieuMode(&apos;single&apos;)">Single day</button>';
-      h += '<button class="eopt'+((_eState.lieuMode==='half')?' sel-lieu':'')+'" onclick="setLieuMode(&apos;half&apos;)">Half day</button>';
-      h += '<button class="eopt'+((_eState.lieuMode==='several')?' sel-lieu':'')+'" onclick="setLieuMode(&apos;several&apos;)">Several days</button>';
+      h += '<button class="eopt'+((_eState.lieuMode==='single')?' sel-lieu':'')+'"'+lieuDisabled+' onclick="setLieuMode(&apos;single&apos;)">Single day</button>';
+      h += '<button class="eopt'+((_eState.lieuMode==='half')?' sel-lieu':'')+'"'+lieuDisabled+' onclick="setLieuMode(&apos;half&apos;)">Half day</button>';
+      h += '<button class="eopt'+((_eState.lieuMode==='several')?' sel-lieu':'')+'"'+lieuDisabled+' onclick="setLieuMode(&apos;several&apos;)">Several days</button>';
       h += '</div>';
       h += '<div class="ampm-row" id="lieuAmPmRow" style="'+((_eState.lieuMode==='half')?'':'display:none')+'">';
       h += '<button class="ampm-btn'+((_eState.lieuAmPm==='am')?' sel-lieu':'')+'" onclick="setLieuAmPm(&apos;am&apos;)">AM</button>';
@@ -1732,7 +1775,8 @@
     }
     if (_eState.otOvertime) {
       entries.push({ type:'overtime', date:otDate, endDate:otDate,
-        overtimeSize: _eState.otOvertimeSize, note:note });
+        overtimeSize: _eState.otOvertimeSize, note:note,
+        lieuDays: _eState.otOvertimeSize === 'full' ? 1 : 0.5 });
     }
     if (_eState.otNote && !_eState.otOffice && !_eState.otOvertime) {
       /* Standalone note */
@@ -1759,7 +1803,29 @@
       }
       Promise.all(writes)
         .then(function(){
-          showToast(writes.length > 1 ? writes.length+' entries saved' : 'Entry saved');
+          /* For overtime entries, also write pending lieu-earned records */
+          var overtimeEntries = entries.filter(function(e){ return e.type==='overtime'; });
+          var lieuWrites = overtimeEntries.map(function(e) {
+            var ws      = (S.users[S.uid]||{}).workSettings||{};
+            var expDays = parseFloat(ws.lieuExpiryDays)||0;
+            var expDate = expDays > 0 ? addDays(e.date, expDays) : null;
+            var lieuRef = db.ref('holiday-lieu/lieu-earned/'+S.uid).push();
+            var lieuRec = {
+              dateWorked: e.date,
+              days:       e.lieuDays||1,
+              reason:     e.note || (_eState.isBH ? 'Worked bank holiday' : (!_eState.isWD ? 'Worked non-workday' : 'Scheduled overtime')),
+              status:     'pending',
+              submittedAt: Date.now()
+            };
+            if (expDate) lieuRec.expiryDate = expDate;
+            if (!S.lieu[S.uid]) S.lieu[S.uid] = {};
+            S.lieu[S.uid][lieuRef.key] = lieuRec;
+            return lieuRef.set(lieuRec);
+          });
+          return Promise.all(lieuWrites);
+        })
+        .then(function(){
+          showToast(entries.length > 1 ? entries.length+' entries saved' : 'Entry saved');
           closeOv('ovEntry');
           refresh();
         })
