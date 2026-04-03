@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Login Page
-  Version: v3.0 (conversation turn 123)
+  Version: v3.1 (conversation turn 134)
   Date: 03/04/2026
   File: /tools/index.html
 
   Changelog:
+  v3.1 — On invite acceptance, delete matching invites-pending/ entry by email
+         so Pending Invites tab clears automatically.
   v3.0 — Full auth flow rebuild.
          Six panels: sign-in, forgot password, password reset (oobCode),
          set password (invite), request access (2-step), pending, rejected.
@@ -600,7 +602,7 @@ body {
           Your request is being reviewed by The National League.<br><br>
           You'll receive an email once a decision has been made. If you have any questions
           in the meantime, please email
-          <a href="mailto:media@thenationalleague.org.uk">media@thenationalleague.org.uk</a>
+          <a href="/cdn-cgi/l/email-protection#660b03020f0726120e030807120f0908070a0a03070113034809140148130d"><span class="__cf_email__" data-cfemail="dab7bfbeb3bb9aaeb2bfb4bbaeb3b5b4bbb6b6bfbbbdafbff4b5a8bdf4afb1">[email&#160;protected]</span></a>
         </div>
         <div class="pending-check">
           <div class="pending-check__dot"></div>
@@ -621,7 +623,7 @@ body {
         <div class="state-panel__body">
           Unfortunately your request for access to NL Tools has not been approved at this time.<br><br>
           If you believe this is an error or would like to discuss your application, please email
-          <a href="mailto:media@thenationalleague.org.uk">media@thenationalleague.org.uk</a>
+          <a href="/cdn-cgi/l/email-protection#87eae2e3eee6c7f3efe2e9e6f3eee8e9e6ebebe2e6e0f2e2a9e8f5e0a9f2ec"><span class="__cf_email__" data-cfemail="751810111c1435011d101b14011c1a1b14191910141200105b1a07125b001e">[email&#160;protected]</span></a>
         </div>
         <div class="state-panel__actions">
           <button class="btn btn--ghost" onclick="doSignOut()">Sign out</button>
@@ -632,7 +634,7 @@ body {
   </div>
 </div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 /* ── Firebase init ───────────────────────────────────────────────────────── */
 var firebaseConfig = {
   apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
@@ -949,6 +951,16 @@ function doSetPassword() {
         });
     })
     .then(function() {
+      /* Clean up matching invites-pending entry so admin tab clears automatically.
+         Query by email, delete any matching records. Fire and forget. */
+      db.ref('invites-pending').orderByChild('email')
+        .equalTo(email.toLowerCase()).once('value')
+        .then(function(snap) {
+          snap.forEach(function(child) {
+            db.ref('invites-pending/' + child.key).remove().catch(function() {});
+          });
+        }).catch(function() {});
+
       window.location.replace(PORTAL_URL);
     })
     .catch(function(err) {
@@ -1315,15 +1327,4 @@ function reqSelectAll(deptId) {
 }
 
 /* ── Keyboard: submit on Enter ──────────────────────────────────────────── */
-document.addEventListener('keydown', function(e) {
-  if (e.key !== 'Enter') return;
-  var active = document.querySelector('.panel.active');
-  if (!active) return;
-  if (active.id === 'panelSignIn')       doSignIn();
-  if (active.id === 'panelForgot')       doForgotPassword();
-  if (active.id === 'panelResetPassword') doResetPassword();
-  if (active.id === 'panelSetPassword')  doSetPassword();
-});
-</script>
-</body>
-</html>
+docu
