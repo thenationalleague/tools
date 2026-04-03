@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.39 (conversation turn 10)
+  Version: v1.40 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,10 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.40 — calcAL now adds rollover to quota (base + rollover = total).
+         Multi-day AL entries now skip weekends and bank holidays when
+         counting days taken — only contracted working days deducted.
+         Balance card shows e.g. "24 / 29 (incl. 4 rolled over)".
   v1.39 — switchTab tabOrder now includes approvals so the tab highlights
          correctly. toggleAcc function restored (was lost in a patch).
          doApprove now updates S.entries locally so lieu/AL shows on
@@ -1225,22 +1229,41 @@
 
   /* ── Balances ── */
   function calcAL(uid) {
-    var ws = (S.users[uid]||{}).workSettings || {};
-    var quota = parseFloat(ws.alQuota)||0;
+    var ws      = (S.users[uid]||{}).workSettings || {};
+    var base    = parseFloat(ws.alQuota)||0;
+    var rollover = parseFloat(ws.alRolloverDays)||0;
+    var quota   = base + rollover; /* total entitlement including rollover */
     var yearStr = String(new Date().getFullYear());
-    var taken = 0;
+    var wdArr   = ws.workDays||[1,2,3,4,5];
+    var bh      = allBH();
+    var taken   = 0;
+
     Object.keys(S.entries[uid]||{}).forEach(function(id){
       var e = S.entries[uid][id];
-      if (e.type!=='annual-leave' && e.type!=='annual-leave-half') return;
+      var isAL    = e.type==='annual-leave';
+      var isHalf  = e.type==='annual-leave-half'||e.type==='annual-leave-am'||e.type==='annual-leave-pm';
+      if (!isAL && !isHalf) return;
+
+      if (isHalf) {
+        /* Half day — always 0.5 regardless of date range */
+        if (e.date && e.date.startsWith(yearStr)) taken += 0.5;
+        return;
+      }
+
+      /* Full day / multi-day — count only working days, skip weekends + BH */
       var cur = e.date, end = e.endDate||e.date;
       if (end < cur) end = cur;
-      var safety2 = 0;
-      while (cur<=end && safety2++ < 400) {
-        if (cur.startsWith(yearStr)) taken += (e.type==='annual-leave-half' ? 0.5 : 1);
-        cur = addDays(cur,1);
+      var safety = 0;
+      while (cur <= end && safety++ < 400) {
+        if (cur.startsWith(yearStr)) {
+          var jsD = new Date(cur+'T00:00:00').getDay();
+          if (wdArr.indexOf(jsD) !== -1 && !bh[cur]) taken += 1;
+        }
+        cur = addDays(cur, 1);
       }
     });
-    return { quota:quota, taken:taken, left:Math.max(0,quota-taken) };
+
+    return { quota:quota, base:base, rollover:rollover, taken:taken, left:Math.max(0,quota-taken) };
   }
 
   function calcLieu(uid) {
@@ -1283,16 +1306,12 @@
     var rollMax = parseFloat(ws.alRolloverDays)||0;
 
     /* AL card */
-    document.getElementById('balAL').innerHTML = al.left+' <span class="quota">/ '+al.quota+'</span>';
+    var quotaDisplay = al.rollover > 0
+      ? al.quota + ' <span style="font-size:13px;font-weight:400;color:var(--text-muted)">(incl. '+al.rollover+' rolled over)</span>'
+      : String(al.quota);
+    document.getElementById('balAL').innerHTML = al.left+' <span class="quota">/ '+quotaDisplay+'</span>';
     var rollNoteEl = document.getElementById('balRollNote');
-    if (rollNoteEl) {
-      if (rollMax > 0) {
-        rollNoteEl.textContent = 'Includes '+rollMax+' day'+(rollMax===1?'':'s')+' rolled over';
-        rollNoteEl.style.display = '';
-      } else {
-        rollNoteEl.style.display = 'none';
-      }
-    }
+    if (rollNoteEl) rollNoteEl.style.display = 'none'; /* now shown inline above */
 
     /* Lieu card */
     var lieuPending = 0;
