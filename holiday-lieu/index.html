@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.38 (conversation turn 10)
+  Version: v1.39 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,10 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.39 — switchTab tabOrder now includes approvals so the tab highlights
+         correctly. toggleAcc function restored (was lost in a patch).
+         doApprove now updates S.entries locally so lieu/AL shows on
+         calendar immediately after approval without waiting for listener.
   v1.38 — Superadmin/admin bypass removed from isApproverFor entirely.
          Approval rights are now purely based on approverUids, legacy
          approverUid, or lineManagerUid chain — regardless of role.
@@ -1165,7 +1169,7 @@
     S.activeTab = name;
     document.querySelectorAll('.tab').forEach(function(el){ el.classList.remove('active'); });
     document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
-    var tabOrder = ['my','team','org','admin'];
+    var tabOrder = ['my','team','org','approvals','admin'];
     var tabs = document.querySelectorAll('.tab');
     var idx = tabOrder.indexOf(name);
     if (tabs[idx]) tabs[idx].classList.add('active');
@@ -1345,7 +1349,18 @@
   }
 
 
-  function renderLieuLog() {
+  function toggleAcc(key) {
+    var bodies = {alBooked: 'alBookedBody', lieuLog: 'lieuList'};
+    var chevs  = {alBooked: 'alBookedChev', lieuLog: 'lieuLogChev'};
+    var body = document.getElementById(bodies[key]);
+    var chev = document.getElementById(chevs[key]);
+    if (!body) return;
+    var isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : '';
+    if (chev) chev.classList.toggle('open', !isOpen);
+  }
+
+    function renderLieuLog() {
     if (!S.uid) return;
     var lieu = calcLieu(S.uid);
     var section = document.getElementById('lieuLogSection');
@@ -1844,9 +1859,13 @@
         .then(function(){
           return db.ref('holiday-lieu/requests/'+uid+'/'+id).update({status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null});
         })
-        .then(function(){
+        .then(function(newRef){
           showToast('Request approved');
           if (S.requests[uid] && S.requests[uid][id]) S.requests[uid][id].status = 'approved';
+          /* Update local entries state so calendar refreshes immediately */
+          if (!S.entries[uid]) S.entries[uid] = {};
+          var entryKey = typeof newRef === 'object' && newRef && newRef.key ? newRef.key : Date.now().toString();
+          S.entries[uid][entryKey] = entry;
           refresh();
         })
         .catch(function(err){ btn.disabled=false; btn.textContent='Approve'; showToast('Error: '+err.message,'error'); });
