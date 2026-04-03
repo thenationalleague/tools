@@ -1,11 +1,18 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.7 (conversation turn 10)
+  Version: v1.9 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.9 — End date now always defaults to start date and is always written.
+         Start date change syncs end date forward if end < start.
+         Removes the empty endDate edge case that was causing loop hangs.
+  v1.8 — Added 400-day iteration cap to all while loops in expandEntries,
+         calcAL, and calcLieu. A future endDate or bad date range was
+         causing infinite loops that hung the tab after adding an entry.
+         saveEntry now rejects endDate if it predates startDate.
   v1.7 — saveEntry now guards against null S.uid (prevents entries being
          written to holiday-lieu/entries/null/ before auth resolves).
          expandEntries skips malformed entries (missing date/type fields).
@@ -444,7 +451,7 @@
       </div>
       <div class="frow">
         <div class="fg"><label class="fl">Date</label><input type="date" class="fi" id="eDate"></div>
-        <div class="fg"><label class="fl">End Date <span style="font-weight:400;text-transform:none">(optional)</span></label><input type="date" class="fi" id="eEnd"></div>
+        <div class="fg"><label class="fl">End Date</label><input type="date" class="fi" id="eEnd"></div>
       </div>
       <div class="fg"><label class="fl">Note <span style="font-weight:400;text-transform:none">(optional)</span></label><textarea class="fta" id="eNote" placeholder="e.g. Visiting client, Dentist…"></textarea></div>
     </div>
@@ -706,7 +713,9 @@
       if (!e || !e.date || !e.type) return; /* skip malformed entries */
       var cur = e.date, end = e.endDate || e.date;
       if (typeof cur !== 'string' || typeof end !== 'string') return;
-      while (cur <= end) {
+      if (end < cur) end = cur; /* endDate before startDate — treat as single day */
+      var safety = 0;
+      while (cur <= end && safety++ < 400) { /* 400 day cap prevents runaway loops */
         var d = new Date(cur+'T00:00:00');
         if (d.getFullYear()===yr && d.getMonth()===mo)
           out.push({id:id, type:e.type, date:cur, note:e.note||''});
@@ -726,7 +735,9 @@
       var e = S.entries[uid][id];
       if (e.type!=='annual-leave' && e.type!=='annual-leave-half') return;
       var cur = e.date, end = e.endDate||e.date;
-      while (cur<=end) {
+      if (end < cur) end = cur;
+      var safety2 = 0;
+      while (cur<=end && safety2++ < 400) {
         if (cur.startsWith(yearStr)) taken += (e.type==='annual-leave-half' ? 0.5 : 1);
         cur = addDays(cur,1);
       }
@@ -744,9 +755,11 @@
     var lieuTaken = 0;
     Object.keys(S.entries[uid]||{}).forEach(function(id){
       var e = S.entries[uid][id];
-      if (e.type!=='lieu-taken') return;
+      if (!e || !e.date || e.type!=='lieu-taken') return;
       var cur=e.date, end=e.endDate||e.date;
-      while(cur<=end){ lieuTaken+=1; cur=addDays(cur,1); }
+      if (end < cur) end = cur;
+      var safety3 = 0;
+      while(cur<=end && safety3++ < 400){ lieuTaken+=1; cur=addDays(cur,1); }
     });
 
     Object.keys(earned).forEach(function(id){
@@ -1037,8 +1050,9 @@
     S.editId=null; S.selType=null;
     document.getElementById('entryModalTitle').textContent='Add Entry';
     document.getElementById('delEntryBtn').style.display='none';
-    document.getElementById('eDate').value = iso||isoToday();
-    document.getElementById('eEnd').value  = '';
+    var d = iso||isoToday();
+    document.getElementById('eDate').value = d;
+    document.getElementById('eEnd').value  = d; /* default end = start */
     document.getElementById('eNote').value = '';
     resetPills();
     document.getElementById('ovEntry').classList.add('open');
@@ -1051,7 +1065,7 @@
     document.getElementById('entryModalTitle').textContent='Edit Entry';
     document.getElementById('delEntryBtn').style.display='';
     document.getElementById('eDate').value  = e.date;
-    document.getElementById('eEnd').value   = e.endDate||'';
+    document.getElementById('eEnd').value   = e.endDate||e.date; /* always show end date */
     document.getElementById('eNote').value  = e.note||'';
     resetPills();
     var p=document.querySelector('.tpill[data-t="'+e.type+'"]');
@@ -1079,8 +1093,8 @@
     var end =document.getElementById('eEnd').value;
     var note=document.getElementById('eNote').value.trim();
     if (!date) { showToast('Select a date','error'); return; }
-    var entry={type:S.selType, date:date, note:note};
-    if(end&&end>date) entry.endDate=end;
+    var end2 = (end && end >= date) ? end : date; /* ensure endDate always >= startDate */
+    var entry={type:S.selType, date:date, endDate:end2, note:note};
     var ref = S.editId
       ? db.ref('holiday-lieu/entries/'+S.uid+'/'+S.editId)
       : db.ref('holiday-lieu/entries/'+S.uid).push();
@@ -1214,6 +1228,13 @@
       .then(function(){ showToast('Accrual deleted'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
+
+  /* Sync end date when start date changes */
+  document.getElementById('eDate').addEventListener('change', function() {
+    var start = this.value;
+    var end   = document.getElementById('eEnd').value;
+    if (!end || end < start) document.getElementById('eEnd').value = start;
+  });
 
   /* Close overlays on bg click */
   document.querySelectorAll('.ov').forEach(function(ov){
