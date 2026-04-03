@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.23 (conversation turn 124)
+  Version: v5.24 (conversation turn 125)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1759,7 +1759,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.23';
+var PORTAL_VERSION = 'v5.24';
 
 var STATE = {
   uid:      null,
@@ -3808,9 +3808,13 @@ function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
     fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
   }
 
+  var isClubUser  = u.role === 'club';
+  var isTrustU19  = u.orgKey === 'trust' || u.orgKey === 'u19';
+  /* Lock entire set-all slider for staff dept when user is club/trust/u19 */
+  var isStaffLocked = dept === 'staff' && (isClubUser || isTrustU19);
+
   ACC_LEVELS.forEach(function(level, idx) {
-    var isClubUser   = u.role === 'club';
-    var isPadlocked  = isClubUser && level === 'admin';
+    var isPadlocked  = isStaffLocked || (isClubUser && level === 'admin');
 
     var stop = document.createElement('div');
     stop.className = 'uacc-set-all-slider__stop';
@@ -3855,11 +3859,24 @@ function setAllInDept(uid, u, deptTools, level, bodyEl, deptLabel) {
   if (!deptTools || !deptTools.length) return;
   var updates = {};
   var isClubUser = u.role === 'club';
+  var isTrustU19 = u.orgKey === 'trust' || u.orgKey === 'u19';
+
+  /* Staff dept is locked for club/trust/u19 -- never allow set-all to change it */
+  var isStaffDept = deptLabel === 'Staff' ||
+    (deptTools[0] && deptTools[0].department === 'staff');
+  if (isStaffDept && (isClubUser || isTrustU19)) {
+    showToast('Staff tools are locked for this user', 'error');
+    return;
+  }
+
   /* Club users cannot be set to admin */
   var safeLevel = (isClubUser && level === 'admin') ? 'access' : level;
   deptTools.forEach(function(t) {
+    /* Never write staff tools for restricted users even if called directly */
+    if ((t.department === 'staff') && (isClubUser || isTrustU19)) return;
     updates['users/' + uid + '/tools/' + t._key] = safeLevel;
   });
+  if (!Object.keys(updates).length) return; /* nothing to write */
   /* Use safeLevel for DOM update too */
   level = safeLevel;
   var idx = ACC_LEVELS.indexOf(level);
