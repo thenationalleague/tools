@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.30 (conversation turn 10)
+  Version: v1.31 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,10 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.31 — Half-day overtime now shows correct split with underlying day
+         colour (BH amber, weekend grey, or white). Day-type classes
+         (is-bh, is-wknd) now always applied so CSS --cell-base var is set.
+         Status fill classes override background via higher specificity rules.
   v1.30 — Approver field changed from single dropdown to multi-checkbox.
          Stored as approverUids array. isApproverFor checks array.
          Settings table shows all approver names. Legacy approverUid
@@ -283,8 +287,22 @@
     .cal-cell.is-other       { background: var(--cal-other); }
     .cal-cell.is-wknd        { background: var(--cal-wknd); }
     .cal-cell.is-bh          { background: var(--cal-bh); }
-    .cal-cell.is-worked      { background: var(--cal-worked); } /* worked weekend/BH */
-    .cal-cell.is-worked .cal-date { color: var(--cal-worked-text); font-weight: 800; font-variation-settings: 'wght' 800; }
+    .cal-cell.is-worked,
+    .cal-cell.is-bh.is-worked,
+    .cal-cell.is-wknd.is-worked      { background: var(--cal-worked); }
+    /* Half-day worked: top or bottom half blue, other half = underlying day colour */
+    .cal-cell.is-worked-am,
+    .cal-cell.is-bh.is-worked-am,
+    .cal-cell.is-wknd.is-worked-am   { background: linear-gradient(to bottom, var(--cal-worked) 50%, var(--cell-base, var(--white)) 50%); }
+    .cal-cell.is-worked-pm,
+    .cal-cell.is-bh.is-worked-pm,
+    .cal-cell.is-wknd.is-worked-pm   { background: linear-gradient(to bottom, var(--cell-base, var(--white)) 50%, var(--cal-worked) 50%); }
+    .cal-cell.is-worked .cal-date,
+    .cal-cell.is-worked-am .cal-date,
+    .cal-cell.is-worked-pm .cal-date { color: var(--cal-worked-text); font-weight: 800; font-variation-settings: 'wght' 800; }
+    /* Underlying day colour variable — set per day type */
+    .cal-cell.is-wknd { --cell-base: var(--cal-wknd); }
+    .cal-cell.is-bh   { --cell-base: var(--cal-bh); }
     .cal-cell.other-mo       { background: #f9fafb; opacity: 0.6; }
 
 
@@ -1332,20 +1350,22 @@
       /* Build cell classes */
       var cls = 'cal-cell';
       if (isT) cls += ' is-today';
-      /* Primary fill */
-      if (alFull)            cls += ' is-al';
-      else if (alAM)         cls += ' is-al-am';
-      else if (alPM)         cls += ' is-al-pm';
-      else if (alHalf)       cls += ' is-al-pm';
-      else if (hasLT)        cls += ' is-lieu';
-      else if (hasLT_AM)     cls += ' is-lieu-am';
-      else if (hasLT_PM)     cls += ' is-lieu-pm';
-      else if (hasWork)      cls += ' is-worked';
-      else if (hasWorkAM)    cls += ' is-worked-am';
-      else if (hasWorkPM)    cls += ' is-worked-pm';
-      else if (hasOth)       cls += ' is-other';
-      else if (isBH)         cls += ' is-bh';
-      else if (!isWD||isWk)  cls += ' is-wknd';
+      /* Day-type classes — always applied so CSS vars are set */
+      if      (isBH)          cls += ' is-bh';
+      else if (!isWD || isWk) cls += ' is-wknd';
+
+      /* Primary status fill — overrides day-type background */
+      if      (alFull)    cls += ' is-al';
+      else if (alAM)      cls += ' is-al-am';
+      else if (alPM)      cls += ' is-al-pm';
+      else if (alHalf)    cls += ' is-al-pm';
+      else if (hasLT)     cls += ' is-lieu';
+      else if (hasLT_AM)  cls += ' is-lieu-am';
+      else if (hasLT_PM)  cls += ' is-lieu-pm';
+      else if (hasWork)   cls += ' is-worked';
+      else if (hasWorkAM) cls += ' is-worked-am';
+      else if (hasWorkPM) cls += ' is-worked-pm';
+      else if (hasOth)    cls += ' is-other';
       /* Office day bottom strip */
       if (hasOff) cls += ' has-office';
 
