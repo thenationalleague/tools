@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.35 (conversation turn 10)
+  Version: v1.38 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,14 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.38 — Superadmin/admin bypass removed from isApproverFor entirely.
+         Approval rights are now purely based on approverUids, legacy
+         approverUid, or lineManagerUid chain — regardless of role.
+  v1.37 — isApproverFor now returns false for own uid. Superadmin can
+         approve others but not their own requests.
+  v1.36 — Tab bar now scrolls horizontally on narrow screens so Admin
+         never drops off. Tabs set to flex: 0 0 auto so they do not
+         shrink below readable size.
   v1.35 — Balance cards: rollover removed, AL note shows rolled-over days,
          third card shows next upcoming time off. AL booked and lieu log
          moved below calendar as collapsible accordions. Calendar nav
@@ -200,8 +208,10 @@
     .page { max-width: 1200px; margin: 0 auto; padding: 28px 20px 80px; }
 
     /* Tabs */
-    .tabs { display: flex; gap: 4px; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; margin-bottom: 24px; }
-    .tab { flex: 1; text-align: center; padding: 9px 12px; border-radius: 4px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; cursor: pointer; color: var(--text-muted); border: none; background: none; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--font); }
+    .tabs { display: flex; gap: 4px; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; margin-bottom: 24px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex: 0 0 auto; text-align: center; padding: 9px 12px; border-radius: 4px; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; cursor: pointer; color: var(--text-muted); border: none; background: none; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--font); white-space: nowrap; }
+    @media (max-width: 600px) { .tab { padding: 8px 10px; font-size: 10px; letter-spacing: 0.04em; } }
     .tab.active { background: var(--primary); color: var(--white); }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
@@ -1697,10 +1707,10 @@
   }
 
   function isApproverFor(uid) {
-    if (S.isSA || S.isAdmin) return true;
+    if (uid === S.uid) return false; /* never approve your own requests */
     var target = S.users[uid];
     if (!target) return false;
-    /* Check approverUids array (new) */
+    /* Check approverUids array */
     if (Array.isArray(target.approverUids) && target.approverUids.indexOf(S.uid) !== -1) return true;
     /* Check legacy approverUid */
     if (target.approverUid === S.uid) return true;
