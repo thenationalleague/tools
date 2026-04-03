@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.31 (conversation turn 132)
+  Version: v5.32 (conversation turn 133)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1767,7 +1767,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.31';
+var PORTAL_VERSION = 'v5.32';
 
 var STATE = {
   uid:      null,
@@ -3149,15 +3149,23 @@ function buildPendingInviteCard(inv) {
     revokeBtn.disabled = true;
     revokeBtn.textContent = 'Revoking…';
 
-    /* Invalidate unused invite tokens for this email, then delete pending record */
-    db.ref('invites').orderByChild('email').equalTo((inv.email || '').toLowerCase()).once('value')
-      .then(function(snap) {
-        var tokenUpdates = {};
-        snap.forEach(function(child) {
-          if (!child.val().used) tokenUpdates['invites/' + child.key + '/used'] = true;
-        });
-        tokenUpdates['invites-pending/' + inv._key] = null; /* delete pending record */
-        return db.ref().update(tokenUpdates);
+    /* Step 1: delete invites-pending record */
+    db.ref('invites-pending/' + inv._key).remove()
+      .then(function() {
+        /* Step 2: invalidate unused invite tokens for this email separately */
+        return db.ref('invites').orderByChild('email')
+          .equalTo((inv.email || '').toLowerCase()).once('value')
+          .then(function(snap) {
+            var promises = [];
+            snap.forEach(function(child) {
+              if (!child.val().used) {
+                promises.push(
+                  db.ref('invites/' + child.key + '/used').set(true)
+                );
+              }
+            });
+            return Promise.all(promises);
+          });
       })
       .then(function() {
         writeAudit('invite_cancelled', (inv.name || inv.email || '') + ' invite revoked');
