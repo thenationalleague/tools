@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.28 (conversation turn 10)
+  Version: v1.30 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,15 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.30 — Approver field changed from single dropdown to multi-checkbox.
+         Stored as approverUids array. isApproverFor checks array.
+         Settings table shows all approver names. Legacy approverUid
+         single field still supported as fallback.
+  v1.29 — Overtime now writes ONLY to lieu-earned/ as pending (not entries/).
+         Pending overtime shows as dashed pill on calendar.
+         doApprove for lieu-claim now writes the calendar entry to entries/
+         with overtimeSize/overtimeAmPm so half-day fills correctly.
+         Retract works for both requests and lieu-claim pending records.
   v1.28 — expandEntries now passes overtimeSize and overtimeAmPm through
          to the renderer. This was fixed in v1.26 but lost in v1.27.
          Half-day overtime cells now correctly show top/bottom half fill.
@@ -829,9 +838,9 @@
       </div>
       <div class="fg"><label class="fl">Line Manager</label><select class="fsel" id="sLM" onchange="prefillApprover()"></select></div>
       <div class="fg">
-        <label class="fl">Approver for leave requests</label>
-        <select class="fsel" id="sApprover"></select>
-        <div class="fhint">Person who approves this staff member's AL and lieu requests. Defaults to line manager.</div>
+        <label class="fl">Approvers for leave requests</label>
+        <div id="sApprovers" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;"></div>
+        <div class="fhint">Anyone ticked can approve this person's AL and lieu requests. Tick at least one, or leave all unticked for self-approval.</div>
       </div>
     </div>
     <div class="modal__ft">
@@ -1340,16 +1349,22 @@
       /* Office day bottom strip */
       if (hasOff) cls += ' has-office';
 
-      /* Check pending requests for this day */
+      /* Check pending requests (AL/lieu) for this day */
       var pendingReqs = [];
       Object.keys(S.requests[S.uid]||{}).forEach(function(id){
         var r = (S.requests[S.uid]||{})[id];
         if (!r || r.status !== 'pending') return;
         var cur2 = r.date, end2 = r.endDate||r.date, saf2 = 0;
         while (cur2 <= end2 && saf2++ < 400) {
-          if (cur2 === iso) { pendingReqs.push({id:id, r:r}); break; }
+          if (cur2 === iso) { pendingReqs.push({kind:'request', id:id, r:r}); break; }
           cur2 = addDays(cur2, 1);
         }
+      });
+      /* Check pending overtime (lieu-earned pending) for this day */
+      Object.keys(S.lieu[S.uid]||{}).forEach(function(id){
+        var r = (S.lieu[S.uid]||{})[id];
+        if (!r || r.status !== 'pending' || !r.dateWorked) return;
+        if (r.dateWorked === iso) pendingReqs.push({kind:'lieu-claim', id:id, r:r});
       });
 
       /* Build inner content */
@@ -1361,7 +1376,9 @@
       if (sNote) inner += '<span class="cal-shared-note">'+esc((sNote.label||'').substring(0,20))+'</span>';
       /* Pending request pills */
       pendingReqs.forEach(function(p){
-        var pLabel = 'Pending: ' + typeLabel(p.r.type||'request');
+        var pLabel = p.kind === 'lieu-claim'
+          ? 'Pending: Overtime (' + (p.r.overtimeSize||'full') + (p.r.overtimeAmPm ? ' '+p.r.overtimeAmPm.toUpperCase() : '') + ')'
+          : 'Pending: ' + typeLabel(p.r.type||'request');
         inner += '<span class="cal-pending" data-reqid="'+escJ(p.id)+'" onclick="openPendingRequest(event,this.dataset.reqid)">'+esc(pLabel.substring(0,28))+'</span>';
       });
       inner += '<span class="cal-add-hint">+ add</span>';
@@ -1524,10 +1541,13 @@
 
   function isApproverFor(uid) {
     if (S.isSA || S.isAdmin) return true;
-    /* Check explicit approverUid field */
     var target = S.users[uid];
-    if (target && target.approverUid === S.uid) return true;
-    /* Fallback: walk lineManagerUid chain */
+    if (!target) return false;
+    /* Check approverUids array (new) */
+    if (Array.isArray(target.approverUids) && target.approverUids.indexOf(S.uid) !== -1) return true;
+    /* Check legacy approverUid */
+    if (target.approverUid === S.uid) return true;
+    /* Fallback: lineManagerUid chain */
     var cur = uid, seen = {}, safety = 0;
     while (cur && safety++ < 10) {
       var mgr = (S.users[cur]||{}).lineManagerUid;
@@ -1625,10 +1645,25 @@
     var comment = getComment(id);
 
     if (kind === 'lieu-claim') {
-      /* Approve lieu-earned record — set status to approved */
-      db.ref('holiday-lieu/lieu-earned/'+uid+'/'+id).update({status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null})
+      var lr = (S.lieu[uid]||{})[id];
+      /* Write calendar entry first, then mark lieu-earned as approved */
+      var otCalEntry = {
+        type:        'overtime',
+        date:        lr ? lr.dateWorked : '',
+        endDate:     lr ? lr.dateWorked : '',
+        overtimeSize: lr ? (lr.overtimeSize||'full') : 'full',
+        overtimeAmPm: lr ? (lr.overtimeAmPm||null) : null,
+        note:        lr ? (lr.reason||'') : '',
+        lieuDays:    lr ? (lr.days||1) : 1
+      };
+      db.ref('holiday-lieu/entries/'+uid).push(otCalEntry)
         .then(function(){
-          showToast('Lieu claim approved');
+          return db.ref('holiday-lieu/lieu-earned/'+uid+'/'+id).update({
+            status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null
+          });
+        })
+        .then(function(){
+          showToast('Overtime approved — lieu added');
           if (S.lieu[uid] && S.lieu[uid][id]) S.lieu[uid][id].status = 'approved';
           refresh();
         })
@@ -1840,7 +1875,10 @@
       var u=S.users[uid], ws=u.workSettings||{};
       var wdTxt = (ws.workDays||[1,2,3,4,5]).map(function(d){ return DN[d]; }).join(', ');
       var mgr  = u.lineManagerUid && S.users[u.lineManagerUid] ? S.users[u.lineManagerUid].name : '—';
-      var appr = !u.approverUid ? 'Self' : (S.users[u.approverUid] ? S.users[u.approverUid].name : '—');
+      var aprList = Array.isArray(u.approverUids) && u.approverUids.length
+        ? u.approverUids.map(function(aid){ return S.users[aid] ? S.users[aid].name : '?' ; }).join(', ')
+        : (u.approverUid && S.users[u.approverUid] ? S.users[u.approverUid].name : 'Self');
+      var appr = aprList;
       h+='<tr><td class="nm">'+esc(u.name||uid)+'</td><td>'+esc(wdTxt)+'</td><td>'+(ws.alQuota||'—')+'</td><td>'+(ws.alRolloverDays||'—')+'</td><td>'+(ws.alRolloverExpiry?fmtDate(ws.alRolloverExpiry):'—')+'</td><td>'+(ws.lieuExpiryDays?ws.lieuExpiryDays+' days':'None')+'</td><td>'+esc(mgr)+'</td><td>'+esc(appr)+'</td><td><a class="a-lnk" onclick="openSettings(\''+escJ(uid)+'\')">Edit</a></td></tr>';
     });
     document.getElementById('settingsTbody').innerHTML = h||'<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No staff found.</td></tr>';
@@ -1983,7 +2021,9 @@
 
   function openPendingRequest(ev, reqId) {
     if (ev) ev.stopPropagation();
-    var r = (S.requests[S.uid]||{})[reqId];
+    /* Check both requests and lieu-earned (pending overtime) */
+    var r = (S.requests[S.uid]||{})[reqId] || (S.lieu[S.uid]||{})[reqId];
+    var isLieuClaim = !!(S.lieu[S.uid]||{})[reqId];
     if (!r) return;
     /* Show a simple popover with request details and retract button */
     closeCellPopover();
@@ -2011,10 +2051,14 @@
     retract.addEventListener('click', function(ev2){
       ev2.stopPropagation();
       if (!confirm('Retract this request?')) return;
-      db.ref('holiday-lieu/requests/'+S.uid+'/'+reqId).remove()
+      var retractPath = isLieuClaim
+          ? 'holiday-lieu/lieu-earned/'+S.uid+'/'+reqId
+          : 'holiday-lieu/requests/'+S.uid+'/'+reqId;
+      db.ref(retractPath).remove()
         .then(function(){
           closeCellPopover();
-          if (S.requests[S.uid]) delete S.requests[S.uid][reqId];
+          if (isLieuClaim) { if (S.lieu[S.uid]) delete S.lieu[S.uid][reqId]; }
+          else { if (S.requests[S.uid]) delete S.requests[S.uid][reqId]; }
           showToast('Request retracted');
           refresh();
         })
@@ -2381,8 +2425,10 @@
     /* Determine if entries need approval or can be self-applied.
        Self-approve = no approverUid set (null/empty) for this user.
        Even superadmin goes through approval if they have an approver assigned. */
-    var myApproverUid = (S.users[S.uid]||{}).approverUid;
-    var needsApproval = !!myApproverUid; /* null/empty = self-approve */
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids) ? me.approverUids : (me.approverUid ? [me.approverUid] : []);
+    var myApproverUid  = myApproverUids[0] || null; /* legacy compat */
+    var needsApproval  = myApproverUids.length > 0;
 
     var writeAll = function() {
       var writes = [];
@@ -2392,21 +2438,46 @@
         writes.push(db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).set(entries[0]));
       } else {
         entries.forEach(function(entry) {
-          var isApprovalEntry = (entry.type.indexOf('annual-leave') !== -1 || entry.type.indexOf('lieu-taken') !== -1);
+          var isALEntry  = entry.type.indexOf('annual-leave') !== -1 || entry.type.indexOf('lieu-taken') !== -1;
+          var isOT       = entry.type === 'overtime';
 
-          if (isApprovalEntry && needsApproval) {
-            /* Write to requests/ — awaits approver action */
+          if (isOT) {
+            /* Overtime → pending lieu-earned record only (no entry/ until approved) */
+            var ws2     = (S.users[S.uid]||{}).workSettings||{};
+            var expD2   = parseFloat(ws2.lieuExpiryDays)||0;
+            var expDt2  = expD2 > 0 ? addDays(entry.date, expD2) : null;
+            var lieuRef = db.ref('holiday-lieu/lieu-earned/'+S.uid).push();
+            var lieuRec = {
+              dateWorked:   entry.date,
+              days:         entry.lieuDays || 1,
+              overtimeSize: entry.overtimeSize || 'full',
+              overtimeAmPm: entry.overtimeAmPm || null,
+              reason:       entry.note || (_eState.isBH ? 'Worked bank holiday' : (!_eState.isWD ? 'Worked non-workday' : 'Scheduled overtime')),
+              status:       'pending',
+              submittedAt:  Date.now(),
+              approverUid:  myApproverUid  || null,
+              approverUids: myApproverUids
+            };
+            if (expDt2) lieuRec.expiryDate = expDt2;
+            if (!S.lieu[S.uid]) S.lieu[S.uid] = {};
+            S.lieu[S.uid][lieuRef.key] = lieuRec;
+            writes.push(lieuRef.set(lieuRec));
+
+          } else if (isALEntry && needsApproval) {
+            /* AL/lieu-taken → pending request */
             var req = Object.assign({}, entry, {
-              status: 'pending',
-              submittedAt: Date.now(),
-              approverUid: myApproverUid
+              status:       'pending',
+              submittedAt:  Date.now(),
+              approverUid:  myApproverUid,  /* legacy */
+              approverUids: myApproverUids
             });
             var reqRef = db.ref('holiday-lieu/requests/'+S.uid).push();
             if (!S.requests[S.uid]) S.requests[S.uid] = {};
             S.requests[S.uid][reqRef.key] = req;
             writes.push(reqRef.set(req));
+
           } else {
-            /* Self-approve or non-approval type — write directly to entries/ */
+            /* Self-approve or non-approval type (office-day, note) → entries/ */
             var ref = db.ref('holiday-lieu/entries/'+S.uid).push();
             if (!S.entries[S.uid]) S.entries[S.uid] = {};
             S.entries[S.uid][ref.key] = entry;
@@ -2415,34 +2486,13 @@
         });
       }
       Promise.all(writes)
-        .then(function(){
-          /* For overtime entries, also write pending lieu-earned records */
-          var overtimeEntries = entries.filter(function(e){ return e.type==='overtime'; });
-          var lieuWrites = overtimeEntries.map(function(e) {
-            var ws      = (S.users[S.uid]||{}).workSettings||{};
-            var expDays = parseFloat(ws.lieuExpiryDays)||0;
-            var expDate = expDays > 0 ? addDays(e.date, expDays) : null;
-            var lieuRef = db.ref('holiday-lieu/lieu-earned/'+S.uid).push();
-            var lieuRec = {
-              dateWorked: e.date,
-              days:       e.lieuDays||1,
-              reason:     e.note || (_eState.isBH ? 'Worked bank holiday' : (!_eState.isWD ? 'Worked non-workday' : 'Scheduled overtime')),
-              status:     'pending',
-              submittedAt: Date.now()
-            };
-            if (expDate) lieuRec.expiryDate = expDate;
-            if (!S.lieu[S.uid]) S.lieu[S.uid] = {};
-            S.lieu[S.uid][lieuRef.key] = lieuRec;
-            return lieuRef.set(lieuRec);
-          });
-          return Promise.all(lieuWrites);
-        })
+        .then(function(){ return Promise.resolve(); })
         .then(function(){
           var pendingCount = entries.filter(function(e){
-            return (e.type.indexOf('annual-leave')!==-1||e.type.indexOf('lieu-taken')!==-1) && needsApproval;
-          }).length;
+            return (e.type.indexOf('annual-leave')!==-1 || e.type.indexOf('lieu-taken')!==-1 || e.type==='overtime') && needsApproval;
+          }).length + entries.filter(function(e){ return e.type==='overtime'; }).length;
           if (pendingCount > 0) {
-            showToast('Request submitted — awaiting approval');
+            showToast('Submitted — awaiting approval');
           } else {
             showToast(entries.length > 1 ? entries.length+' entries saved' : 'Entry saved');
           }
@@ -2485,18 +2535,38 @@
     others.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
     lmEl.innerHTML='<option value="">— None —</option>'+others.map(function(u){ return '<option value="'+escJ(u)+'">'+esc(S.users[u].name||u)+'</option>'; }).join('');
     lmEl.value = u.lineManagerUid||'';
-    var aprEl = document.getElementById('sApprover');
-    if (aprEl) {
-      aprEl.innerHTML = '<option value="">— Self —</option>'
-        + others.map(function(ou){ return '<option value="'+escJ(ou)+'">'+esc(S.users[ou].name||ou)+'</option>'; }).join('');
-      aprEl.value = (u.approverUid !== undefined && u.approverUid !== null) ? u.approverUid : (u.lineManagerUid||'');
+    var aprWrap = document.getElementById('sApprovers');
+    if (aprWrap) {
+      /* Current approvers — stored as array or legacy single uid */
+      var curApprovers = [];
+      if (Array.isArray(u.approverUids)) curApprovers = u.approverUids;
+      else if (u.approverUid) curApprovers = [u.approverUid];
+      else if (u.lineManagerUid) curApprovers = [u.lineManagerUid];
+      aprWrap.innerHTML = '';
+      others.forEach(function(ou) {
+        var checked = curApprovers.indexOf(ou) !== -1;
+        var lbl = document.createElement('label');
+        lbl.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.value = ou; cb.checked = checked;
+        cb.style.cssText = 'width:15px;height:15px;cursor:pointer;accent-color:var(--navy);';
+        var txt = document.createElement('span');
+        txt.textContent = S.users[ou].name || ou;
+        lbl.appendChild(cb); lbl.appendChild(txt);
+        aprWrap.appendChild(lbl);
+      });
     }
   }
 
   function prefillApprover() {
     var lm = document.getElementById('sLM') && document.getElementById('sLM').value;
-    var apr = document.getElementById('sApprover');
-    if (apr) apr.value = lm || '';
+    if (!lm) return;
+    var aprWrap = document.getElementById('sApprovers');
+    if (!aprWrap) return;
+    /* Tick the line manager checkbox */
+    aprWrap.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
+      if (cb.value === lm) cb.checked = true;
+    });
   }
 
   function prefillApprover() {
@@ -2518,11 +2588,16 @@
       lieuExpiryDays:  parseFloat(document.getElementById('sLieuExp').value)||0
     };
     var lm=document.getElementById('sLM').value;
-    var apr = document.getElementById('sApprover') ? document.getElementById('sApprover').value : '';
+    var aprUids = [];
+    var aprWrap2 = document.getElementById('sApprovers');
+    if (aprWrap2) {
+      aprWrap2.querySelectorAll('input[type=checkbox]:checked').forEach(function(cb){ aprUids.push(cb.value); });
+    }
     var upd={};
     upd['users/'+uid+'/workSettings']   = ws;
     upd['users/'+uid+'/lineManagerUid'] = lm||null;
-    upd['users/'+uid+'/approverUid']    = apr||null;
+    upd['users/'+uid+'/approverUids']   = aprUids.length ? aprUids : null;
+    upd['users/'+uid+'/approverUid']    = null; /* clear legacy field */
     db.ref().update(upd).then(function(){ showToast('Settings saved'); closeOv('ovSettings'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
