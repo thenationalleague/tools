@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.26 (conversation turn 127)
+  Version: v5.27 (conversation turn 128)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1767,7 +1767,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.26';
+var PORTAL_VERSION = 'v5.27';
 
 var STATE = {
   uid:      null,
@@ -2981,53 +2981,31 @@ function loadPendingInvites() {
   if (!container) return;
   container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>';
 
-  /* Load both users and requests in parallel */
-  Promise.all([
-    db.ref('users').once('value'),
-    db.ref('requests').orderByChild('status').equalTo('pending').once('value')
-  ]).then(function(results) {
-    var usersSnap    = results[0];
-    var requestsSnap = results[1];
-
-    /* Build set of uids that have a pending request entry */
-    var requestUids = {};
-    if (requestsSnap.exists()) {
-      requestsSnap.forEach(function(child) {
-        var r = child.val();
-        if (r.uid) requestUids[r.uid] = true;
+  db.ref('invites-pending').once('value').then(function(snap) {
+    var items = [];
+    if (snap.exists()) {
+      snap.forEach(function(child) {
+        var inv = child.val();
+        inv._key = child.key;
+        items.push(inv);
       });
     }
 
-    /* Collect pending invited users = pending:true AND not in requestUids */
-    var pendingInvited = [];
-    if (usersSnap.exists()) {
-      usersSnap.forEach(function(child) {
-        var u = child.val();
-        var uid = child.key;
-        if (u.pending && !u.rejected && !requestUids[uid]) {
-          u._uid = uid;
-          pendingInvited.push(u);
-        }
-      });
-    }
-
-    /* Sort newest first -- use a createdAt field if present, else name */
-    pendingInvited.sort(function(a, b) {
-      return (b.createdAt || 0) - (a.createdAt || 0);
-    });
+    /* Sort newest first */
+    items.sort(function(a, b) { return (b.sentAt || 0) - (a.sentAt || 0); });
 
     /* Update tab badge */
     var badge = document.getElementById('pendingInviteCount');
     if (badge) {
-      badge.textContent = pendingInvited.length ? '(' + pendingInvited.length + ')' : '';
-      badge.style.cssText = pendingInvited.length
+      badge.textContent = items.length ? '(' + items.length + ')' : '';
+      badge.style.cssText = items.length
         ? 'background:var(--primary);color:#fff;border-radius:8px;padding:1px 6px;font-size:9px;margin-left:4px;'
         : '';
     }
 
     container.innerHTML = '';
 
-    if (!pendingInvited.length) {
+    if (!items.length) {
       var empty = document.createElement('div');
       empty.style.cssText = 'font-size:13px;color:var(--text-muted);padding:8px 0;';
       empty.textContent = 'No pending invites.';
@@ -3037,19 +3015,16 @@ function loadPendingInvites() {
 
     var hdr = document.createElement('div');
     hdr.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;';
-    hdr.textContent = pendingInvited.length + ' pending invite' + (pendingInvited.length === 1 ? '' : 's');
+    hdr.textContent = items.length + ' pending invite' + (items.length === 1 ? '' : 's');
     container.appendChild(hdr);
 
-    pendingInvited.forEach(function(u) {
-      container.appendChild(buildPendingInviteCard(u));
-    });
+    items.forEach(function(inv) { container.appendChild(buildPendingInviteCard(inv)); });
   }).catch(function() {
     container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Could not load pending invites.</div>';
   });
 }
 
-function buildPendingInviteCard(u) {
-  var uid = u._uid;
+function buildPendingInviteCard(inv) {
   var card = document.createElement('div');
   card.className = 'request-card';
 
@@ -3061,23 +3036,28 @@ function buildPendingInviteCard(u) {
 
   var nameEl = document.createElement('div');
   nameEl.className = 'request-card__name';
-  nameEl.textContent = u.name || '(no name)';
+  nameEl.textContent = inv.name || '(no name)';
 
   var meta = document.createElement('div');
   meta.className = 'request-card__meta';
-  var metaParts = [u.email || ''];
-  if (u.role === 'club' && u.club) metaParts.push(u.club + (u.clubRole ? ' · ' + u.clubRole : ''));
-  else if (u.org) metaParts.push(u.org + (u.role ? ' — ' + u.role : ''));
+  var metaParts = [inv.email || ''];
+  if (inv.role === 'club' && inv.club) metaParts.push(inv.club + (inv.clubRole ? ' · ' + inv.clubRole : ''));
+  else if (inv.org) metaParts.push(inv.org + (inv.role ? ' — ' + capitalise(inv.role) : ''));
+  if (inv.sentAt) {
+    var d = new Date(inv.sentAt);
+    metaParts.push('Sent ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) +
+      ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) +
+      (inv.sentBy ? ' by ' + inv.sentBy : ''));
+  }
   meta.textContent = metaParts.join('  —  ');
 
   info.appendChild(nameEl);
   info.appendChild(meta);
   header.appendChild(info);
 
-  /* Role pill */
   var pill = document.createElement('span');
   pill.className = 'user-role-pill role-pending';
-  pill.textContent = 'Invite pending';
+  pill.textContent = 'Awaiting acceptance';
   header.appendChild(pill);
 
   card.appendChild(header);
@@ -3087,7 +3067,7 @@ function buildPendingInviteCard(u) {
   actions.className = 'request-card__actions';
   actions.style.cssText = 'padding:12px 20px;border-top:1px solid var(--border);';
 
-  /* Resend */
+  /* Resend -- generates new token via GAS, updates sentAt */
   var resendBtn = document.createElement('button');
   resendBtn.className = 'btn btn--ghost btn--sm';
   resendBtn.textContent = 'Resend invite';
@@ -3099,14 +3079,14 @@ function buildPendingInviteCard(u) {
       headers: { 'Content-Type': 'text/plain' },
       body:    JSON.stringify({
         action:   'sendInvite',
-        email:    u.email    || '',
-        name:     u.name     || '',
-        role:     u.role     || 'staff',
-        org:      u.org      || '',
-        orgKey:   u.orgKey   || '',
-        club:     u.club     || '',
-        clubRole: u.clubRole || '',
-        tools:    u.tools    || {}
+        email:    inv.email    || '',
+        name:     inv.name     || '',
+        role:     inv.role     || 'staff',
+        org:      inv.org      || '',
+        orgKey:   inv.orgKey   || '',
+        club:     inv.club     || '',
+        clubRole: inv.clubRole || '',
+        tools:    inv.tools    || {}
       })
     })
     .then(function(r) { return r.json(); })
@@ -3116,9 +3096,12 @@ function buildPendingInviteCard(u) {
         resendBtn.disabled = false;
         resendBtn.textContent = 'Resend invite';
       } else {
-        showToast('Invite resent to ' + u.email, 'success');
-        writeAudit('invite_sent', 'Resent invite to ' + (u.name || u.email || ''));
+        /* Update sentAt on the pending record */
+        db.ref('invites-pending/' + inv._key + '/sentAt').set(Date.now()).catch(function() {});
+        showToast('Invite resent to ' + inv.email, 'success');
+        writeAudit('invite_sent', 'Resent invite to ' + (inv.name || inv.email || ''));
         resendBtn.textContent = 'Sent ✓';
+        setTimeout(function() { loadPendingInvites(); }, 1000);
       }
     })
     .catch(function() {
@@ -3128,7 +3111,7 @@ function buildPendingInviteCard(u) {
     });
   });
 
-  /* Revoke */
+  /* Revoke -- deletes invites-pending entry + invalidates RTDB invite tokens */
   var revokeBtn = document.createElement('button');
   revokeBtn.className = 'btn btn--ghost btn--sm';
   revokeBtn.style.cssText = 'color:var(--red);border-color:#f5c6c2;';
@@ -3137,16 +3120,12 @@ function buildPendingInviteCard(u) {
     if (revokeBtn.dataset.confirmed !== '1') {
       revokeBtn.dataset.confirmed = '1';
       revokeBtn.textContent = 'Confirm revoke?';
-      revokeBtn.style.background = 'var(--red)';
-      revokeBtn.style.color = '#fff';
-      revokeBtn.style.borderColor = 'var(--red)';
+      revokeBtn.style.cssText = 'background:var(--red);color:#fff;border-color:var(--red);';
       setTimeout(function() {
         if (revokeBtn.dataset.confirmed === '1') {
           revokeBtn.dataset.confirmed = '0';
           revokeBtn.textContent = 'Revoke';
-          revokeBtn.style.background = '';
-          revokeBtn.style.color = 'var(--red)';
-          revokeBtn.style.borderColor = '#f5c6c2';
+          revokeBtn.style.cssText = 'color:var(--red);border-color:#f5c6c2;';
         }
       }, 3000);
       return;
@@ -3154,27 +3133,19 @@ function buildPendingInviteCard(u) {
     revokeBtn.disabled = true;
     revokeBtn.textContent = 'Revoking…';
 
-    /* Delete RTDB user record.
-       Also invalidate any unused invite tokens for this email. */
-    db.ref('users/' + uid).remove()
-      .then(function() {
-        /* Find and mark unused tokens for this email as used (invalidate) */
-        return db.ref('invites').orderByChild('email').equalTo((u.email || '').toLowerCase()).once('value')
-          .then(function(snap) {
-            var tokenUpdates = {};
-            snap.forEach(function(child) {
-              if (!child.val().used) {
-                tokenUpdates['invites/' + child.key + '/used'] = true;
-              }
-            });
-            if (Object.keys(tokenUpdates).length) {
-              return db.ref().update(tokenUpdates);
-            }
-          });
+    /* Invalidate unused invite tokens for this email, then delete pending record */
+    db.ref('invites').orderByChild('email').equalTo((inv.email || '').toLowerCase()).once('value')
+      .then(function(snap) {
+        var tokenUpdates = {};
+        snap.forEach(function(child) {
+          if (!child.val().used) tokenUpdates['invites/' + child.key + '/used'] = true;
+        });
+        tokenUpdates['invites-pending/' + inv._key] = null; /* delete pending record */
+        return db.ref().update(tokenUpdates);
       })
       .then(function() {
-        writeAudit('invite_cancelled', (u.name || u.email || '') + ' invite revoked');
-        showToast('Invite revoked for ' + (u.name || u.email || ''), 'success');
+        writeAudit('invite_cancelled', (inv.name || inv.email || '') + ' invite revoked');
+        showToast('Invite revoked for ' + (inv.name || inv.email || ''), 'success');
         loadPendingInvites();
       })
       .catch(function(err) {
@@ -4391,6 +4362,24 @@ function initInviteForm() {
           ? 'Invited ' + name + ' as ' + club + (clubRole ? ' (' + clubRole + ')' : '') + ' [Club]'
           : 'Invited ' + name + ' as ' + org + ' (' + role.charAt(0).toUpperCase() + role.slice(1) + ')';
         writeAudit('invite_sent', auditDetail);
+
+        /* Write pending invite record so it appears in Pending Invites tab */
+        var pendingRecord = {
+          email:     email,
+          name:      name,
+          role:      role,
+          org:       org      || '',
+          orgKey:    orgKey   || '',
+          club:      club     || '',
+          clubRole:  clubRole || '',
+          tools:     toolAccess,
+          sentAt:    Date.now(),
+          sentBy:    (STATE.userData && STATE.userData.name) || ''
+        };
+        db.ref('invites-pending').push(pendingRecord)
+          .then(function() { loadPendingInvites(); })
+          .catch(function() {});
+
         showToast('Invite sent to ' + email, 'success');
         document.getElementById('inviteEmail').value    = '';
         document.getElementById('inviteName').value     = '';
