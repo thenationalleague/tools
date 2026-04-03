@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.17 (conversation turn 10)
+  Version: v1.19 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,16 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.19 — Calendar visual redesign.
+         Fixed cell height (110px solo, 44px team). Pastel status fills
+         replace chips. Half-day split (top=AM, bottom=PM). Bottom colour
+         strips for office day (green) and lieu taken (purple). Today shown
+         as blue dot on date number. All cells clickable. Popover on click
+         shows full entry detail. Team view uses td fills not pip spans.
+         New colour tokens added to :root.
+  v1.18 — Fixed refresh-wipes-data: on() error handlers no longer clear
+         S.entries/S.users on PERMISSION_DENIED. Listeners only update
+         state when snap.exists() is true. Debug overlay removed.
   v1.15 — Fixed root cause of 400x render: init() was being called up to 3
          times from nlAuthReady (then + catch + else branches), each call
          adding a new on() listener. Added S._initDone guard so init() and
@@ -159,64 +169,202 @@
     .cal-nav__btn.today { background: var(--navy); color: var(--white); border-color: var(--navy); }
     .cal-nav__btn.today:hover { background: var(--navy-mid); }
 
+    /* ── Calendar colour tokens ── */
+    :root {
+      --cal-al:        #fde8e8; --cal-al-text:   #9e0000; /* annual leave pastel */
+      --cal-al-am:     #fde8e8; /* AM leave = top half */
+      --cal-al-pm:     #fde8e8; /* PM leave = bottom half */
+      --cal-bh:        #fff3db; --cal-bh-text:   #b35c00; /* bank holiday */
+      --cal-wknd:      #f5f6f8; /* weekend / non-workday */
+      --cal-other:     #f0f0f5; --cal-other-text:#4a5568; /* other - slate */
+      --cal-strip-off: #b2dfbc; /* office day bottom strip */
+      --cal-strip-lt:  #d1a8e6; /* lieu taken bottom strip */
+      --cal-today-dot: #1565c0;
+    }
+
     /* Month grid */
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--white); box-shadow: var(--shadow); }
-    .cal-day-hdr { background: var(--navy); color: var(--white); text-align: center; padding: 10px 4px; font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; }
-    .cal-cell { min-height: 96px; padding: 6px 7px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+    .cal-day-hdr {
+      background: var(--navy); color: var(--white);
+      text-align: center; padding: 10px 4px;
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+
+    /* Fixed-size cells */
+    .cal-cell {
+      height: 110px;
+      padding: 0;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: filter 0.1s;
+      background: var(--white);
+    }
     .cal-cell:nth-child(7n) { border-right: none; }
-    .cal-cell:hover { background: #f0f3f8; }
-    .cal-cell.other-mo { background: #fafbfc; }
-    .cal-cell.other-mo .cal-date { color: #c8cdd8; }
-    .cal-cell.is-today { background: var(--blue-light); }
-    .cal-cell.is-today .cal-date { color: var(--blue); font-weight: 900; font-variation-settings: 'wght' 900; }
-    .cal-cell.is-wknd  { background: #fafbfc; }
-    .cal-cell.is-bh    { background: #fff8e1; }
-    .cal-cell.no-click { cursor: default; }
-    .cal-cell.no-click:hover { background: inherit; }
-    .cal-cell.is-wknd.is-today { background: var(--blue-light); }
-    .cal-date { font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700; display: block; margin-bottom: 2px; }
-    .bh-tag { font-size: 9px; color: var(--amber); font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.04em; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cal-entry { font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700; padding: 2px 5px; border-radius: 3px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; cursor: pointer; }
-    .cal-entry.annual-leave      { background: var(--primary); color: var(--white); }
-    .cal-entry.annual-leave-half { background: #f5c6c6; color: var(--primary); border: 1px solid #e0aaaa; }
-    .cal-entry.office-day        { background: var(--green-light); color: var(--green); border: 1px solid #b2dfbc; }
-    .cal-entry.other             { background: var(--amber-light); color: var(--amber); border: 1px solid #f0c99a; }
-    .cal-entry.lieu-taken        { background: var(--purple-light); color: var(--purple); border: 1px solid #d1a8e6; }
-    .cal-add-hint { font-size: 9px; color: transparent; display: block; text-align: center; padding-top: 4px; }
+    .cal-cell:hover { filter: brightness(0.96); }
+
+    /* Status fills — applied to cell background */
+    .cal-cell.is-al          { background: var(--cal-al); }
+    .cal-cell.is-al-am       { background: linear-gradient(to bottom, var(--cal-al) 50%, var(--white) 50%); }
+    .cal-cell.is-al-pm       { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
+    .cal-cell.is-other       { background: var(--cal-other); }
+    .cal-cell.is-wknd        { background: var(--cal-wknd); }
+    .cal-cell.is-bh          { background: var(--cal-bh); }
+    .cal-cell.other-mo       { background: #f9fafb; opacity: 0.6; }
+
+    /* Today indicator — dot on date number, not full cell override */
+    .cal-cell.is-today::after {
+      content: '';
+      position: absolute;
+      bottom: 6px; right: 7px;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--cal-today-dot);
+    }
+
+    /* Bottom strips for secondary status */
+    .cal-cell::before {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 4px;
+      background: transparent;
+    }
+    .cal-cell.has-office::before  { background: var(--cal-strip-off); }
+    .cal-cell.has-lieu::before    { background: var(--cal-strip-lt); }
+
+    /* Date number */
+    .cal-date {
+      display: block;
+      padding: 6px 7px 2px;
+      font-size: 12px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      color: var(--text-muted);
+      line-height: 1;
+    }
+    .cal-cell.is-al .cal-date          { color: var(--cal-al-text); font-weight: 900; font-variation-settings: 'wght' 900; }
+    .cal-cell.is-al-am .cal-date       { color: var(--cal-al-text); font-weight: 900; font-variation-settings: 'wght' 900; }
+    .cal-cell.is-al-pm .cal-date       { color: var(--cal-al-text); font-weight: 900; font-variation-settings: 'wght' 900; }
+    .cal-cell.is-bh .cal-date          { color: var(--cal-bh-text); font-weight: 800; font-variation-settings: 'wght' 800; }
+    .cal-cell.is-other .cal-date       { color: var(--cal-other-text); }
+    .cal-cell.is-today .cal-date       { color: var(--cal-today-dot); font-weight: 900; font-variation-settings: 'wght' 900; }
+    .cal-cell.other-mo .cal-date       { color: #c8cdd8; }
+
+    /* BH label */
+    .bh-tag {
+      display: block;
+      font-size: 8px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--cal-bh-text);
+      padding: 0 7px 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Note text inside cell (for Other entries with notes) */
+    .cal-note {
+      display: block;
+      font-size: 10px;
+      color: var(--cal-other-text);
+      padding: 2px 7px 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      opacity: 0.8;
+    }
+
+    /* Add hint */
+    .cal-add-hint {
+      position: absolute;
+      bottom: 8px; left: 0; right: 0;
+      font-size: 9px; color: transparent;
+      text-align: center;
+      transition: color 0.1s;
+    }
     .cal-cell:hover .cal-add-hint { color: var(--text-muted); }
 
+    /* Cell popover — shown on click for overflow content */
+    .cal-popover {
+      position: fixed;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(10,22,40,0.15);
+      padding: 12px 16px;
+      min-width: 180px; max-width: 240px;
+      z-index: 300;
+      font-size: 13px;
+    }
+    .cal-popover__date {
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); margin-bottom: 8px;
+    }
+    .cal-popover__entry {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .cal-popover__entry:last-child { border-bottom: none; }
+    .cal-popover__dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .cal-popover__label { flex: 1; font-size: 12px; font-weight: 600; font-variation-settings: 'wght' 600; }
+    .cal-popover__note  { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .cal-popover__add {
+      margin-top: 8px; width: 100%; text-align: center;
+      font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700;
+      color: var(--navy); cursor: pointer; padding: 4px 0;
+      border-top: 1px solid var(--border);
+    }
+    .cal-popover__add:hover { color: var(--primary); }
+
     /* Legend */
-    .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
-    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
-    .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-    .legend-dot.annual-leave      { background: var(--primary); }
-    .legend-dot.annual-leave-half { background: #f5c6c6; border: 1px solid var(--primary); }
-    .legend-dot.office-day        { background: var(--green-light); border: 1px solid var(--green); }
-    .legend-dot.other             { background: var(--amber-light); border: 1px solid var(--amber); }
-    .legend-dot.lieu-taken        { background: var(--purple-light); border: 1px solid var(--purple); }
-    .legend-dot.bank-hol          { background: #fff8e1; border: 1px solid var(--amber); }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+    .legend-swatch {
+      width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .legend-swatch.annual-leave      { background: var(--cal-al); }
+    .legend-swatch.annual-leave-half { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
+    .legend-swatch.office-day        { background: var(--white); border-bottom: 3px solid var(--cal-strip-off); }
+    .legend-swatch.other             { background: var(--cal-other); }
+    .legend-swatch.lieu-taken        { background: var(--white); border-bottom: 3px solid var(--cal-strip-lt); }
+    .legend-swatch.bank-hol          { background: var(--cal-bh); }
 
     /* Team view */
     .team-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
     .team-tbl  { border-collapse: collapse; background: var(--white); min-width: 100%; }
     .team-tbl th { background: var(--navy); color: var(--white); font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 10px 6px; white-space: nowrap; text-align: center; }
     .team-tbl th.name-col { text-align: left; padding-left: 14px; min-width: 160px; }
-    .team-tbl th.is-today  { background: var(--blue); }
-    .team-tbl th.is-wknd   { opacity: 0.65; }
-    .team-tbl td { padding: 0; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); height: 38px; }
+    .team-tbl th.is-today { background: var(--blue); }
+    .team-tbl th.is-wknd  { opacity: 0.65; }
+    .team-tbl td { padding: 0; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); height: 44px; position: relative; }
     .team-tbl td:last-child { border-right: none; }
     .team-tbl tr:last-child td { border-bottom: none; }
     .team-tbl td.name-cell { padding: 0 14px; font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; white-space: nowrap; min-width: 160px; }
     .team-tbl td.name-cell.is-you { color: var(--primary); font-weight: 800; font-variation-settings: 'wght' 800; }
-    .team-tbl td.is-today { background: var(--blue-light); }
-    .team-tbl td.is-wknd  { background: #fafbfc; }
-    .team-tbl td.is-bh    { background: #fff8e1; }
-    .t-pip { display: block; width: 100%; height: 100%; }
-    .t-pip.annual-leave      { background: rgba(158,0,0,0.8); }
-    .t-pip.annual-leave-half { background: #f5c6c6; border-top: 3px solid var(--primary); }
-    .t-pip.office-day        { background: var(--green-light); border-top: 3px solid var(--green); }
-    .t-pip.other             { background: var(--amber-light); border-top: 3px solid var(--amber); }
-    .t-pip.lieu-taken        { background: var(--purple-light); border-top: 3px solid var(--purple); }
+    .team-tbl td.is-today { background: rgba(21,101,192,0.08); }
+    .team-tbl td.is-wknd  { background: var(--cal-wknd); }
+    .team-tbl td.is-bh    { background: var(--cal-bh); }
+    /* Team cell fills */
+    .team-tbl td.t-al     { background: var(--cal-al); }
+    .team-tbl td.t-al-am  { background: linear-gradient(to bottom, var(--cal-al) 50%, var(--white) 50%); }
+    .team-tbl td.t-al-pm  { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
+    .team-tbl td.t-other  { background: var(--cal-other); }
+    /* Team bottom strips */
+    .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--cal-strip-off); }
+    .team-tbl td.t-lieu::before   { content:''; position:absolute; bottom:0; left:0; right:0; height:4px; background:var(--cal-strip-lt); }
 
     /* Org chart */
     .org-root { padding: 4px 0; }
@@ -689,29 +837,30 @@
   /* ── Firebase ── */
   /* ── Init ── */
   function init() {
-    function dbg(label, val) {
-      var el = document.getElementById('debugBar');
-      if (el) el.innerHTML += '<br>'+label+': '+val;
-    }
+    /* All listeners are attached here - called only after getIdToken() confirms
+       the auth token is valid, so PERMISSION_DENIED should not occur.
+       Error handlers do NOT wipe existing data to prevent blank-on-refresh. */
     db.ref('users').on('value', function(snap){
       S.users = {};
       var v = snap.val()||{};
       Object.keys(v).forEach(function(uid){ v[uid]._uid=uid; S.users[uid]=v[uid]; });
-      dbg('users', Object.keys(S.users).length+' records');
       refresh();
-    }, function(err){ dbg('users ERROR', err.code+' — '+err.message); });
+    }, function(err){ console.warn('users listener error:', err.code); /* do not wipe */ });
 
     db.ref('holiday-lieu/entries').on('value', function(snap){
-      S.entries = snap.val()||{}; refresh();
-    }, function(err){ dbg('entries ERROR', err.code); });
+      if (snap.exists()) { S.entries = snap.val(); } /* only update if read succeeded */
+      refresh();
+    }, function(err){ console.warn('entries listener error:', err.code); });
 
     db.ref('holiday-lieu/lieu-earned').on('value', function(snap){
-      S.lieu = snap.val()||{}; refresh();
-    }, function(err){ dbg('lieu ERROR', err.code); });
+      if (snap.exists()) { S.lieu = snap.val(); }
+      refresh();
+    }, function(err){ console.warn('lieu listener error:', err.code); });
 
     db.ref('holiday-lieu/bank-holidays').on('value', function(snap){
-      S.bh = snap.val()||{}; refresh();
-    }, function(err){ dbg('bh ERROR', err.code); });
+      if (snap.exists()) { S.bh = snap.val(); }
+      refresh();
+    }, function(err){ console.warn('bh listener error:', err.code); });
   }
 
   function refresh() {
@@ -753,32 +902,22 @@
   function expandEntries(uid, yr, mo) {
     var raw = S.entries[uid] || {};
     var out = [];
-    var dbgLines = ['rawKeys='+Object.keys(raw).length+' yr='+yr+' mo='+(mo+1)];
+
     Object.keys(raw).forEach(function(id){
       var e = raw[id];
-      if (!e || !e.date || !e.type) { dbgLines.push(id.substring(0,6)+':SKIP'); return; }
+      if (!e || !e.date || !e.type) return;
       var cur = e.date, end = e.endDate || e.date;
       if (end < cur) end = cur;
       var safety = 0, cnt = 0;
       while (cur <= end && safety++ < 400) {
         var d = new Date(cur+'T00:00:00');
-        if (d.getFullYear()===yr && d.getMonth()===mo) {
+        if (d.getFullYear()===yr && d.getMonth()===mo)
           out.push({id:id, type:e.type, date:cur, note:e.note||''});
-          cnt++;
-        }
         cur = addDays(cur,1);
       }
-      dbgLines.push(id.substring(0,6)+':s='+safety+',added='+cnt+',date='+e.date+',end='+end);
+
     });
-    /* Fixed overlay debug */
-    var el = document.getElementById('xdbg');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'xdbg';
-      el.style.cssText = 'position:fixed;top:79px;left:0;right:0;background:#9e0000;color:#fff;font-size:10px;padding:6px 10px;font-family:monospace;z-index:9999;line-height:1.5;';
-      document.body.appendChild(el);
-    }
-    el.innerHTML = dbgLines.join(' | ') + ' | TOTAL='+out.length;
+
     return out;
   }
 
@@ -902,55 +1041,77 @@
     if (!S.uid) return;
     var yr=S.myY, mo=S.myM;
     document.getElementById('myTitle').textContent = moName(yr,mo);
-    var entries  = expandEntries(S.uid,yr,mo);
-    var bh       = allBH();
-    var ws       = (S.users[S.uid]||{}).workSettings||{};
-    var wdArr    = ws.workDays||[1,2,3,4,5];
-    var today    = isoToday();
-    var first    = new Date(yr,mo,1).getDay();
-    var dInMo    = new Date(yr,mo+1,0).getDate();
-    var dInPrev  = new Date(yr,mo,0).getDate();
-    var offset   = first===0?6:first-1;
+    var entries = expandEntries(S.uid,yr,mo);
+    var bh      = allBH();
+    var ws      = (S.users[S.uid]||{}).workSettings||{};
+    var wdArr   = ws.workDays||[1,2,3,4,5];
+    var today   = isoToday();
+    var first   = new Date(yr,mo,1).getDay();
+    var dInMo   = new Date(yr,mo+1,0).getDate();
+    var dInPrev = new Date(yr,mo,0).getDate();
+    var offset  = first===0?6:first-1;
 
     var h = DN_MON.map(function(d){ return '<div class="cal-day-hdr">'+d+'</div>'; }).join('');
 
+    /* Padding cells */
     for (var i=offset-1;i>=0;i--)
-      h += '<div class="cal-cell other-mo no-click"><span class="cal-date">'+(dInPrev-i)+'</span></div>';
+      h += '<div class="cal-cell other-mo"><span class="cal-date">'+(dInPrev-i)+'</span></div>';
 
     for (var day=1;day<=dInMo;day++) {
       var iso  = yr+'-'+pad(mo+1)+'-'+pad(day);
-      var isoParts=iso.split('-'); var jsD=new Date(Date.UTC(+isoParts[0],+isoParts[1]-1,+isoParts[2])).getUTCDay();
+      var jsD  = new Date(iso+'T00:00:00').getDay();
       var isT  = iso===today;
       var isBH = !!bh[iso];
       var isWk = jsD===0||jsD===6;
       var isWD = wdArr.indexOf(jsD)!==-1;
 
-      var cls = 'cal-cell';
-      if (isT)       cls+=' is-today';
-      else if (isBH) cls+=' is-bh';
-      else if (isWk) cls+=' is-wknd';
-      if (!isWD)     cls+=' no-click';
-
-      var inner = '<span class="cal-date">'+day+'</span>';
-      if (isBH) inner += '<span class="bh-tag">'+esc((bh[iso].label||'Bank Holiday').substring(0,18))+'</span>';
-
+      /* Get entries for this day */
       var dayEnts = entries.filter(function(e){ return e.date===iso; });
-      dayEnts.forEach(function(e){
-        inner += '<span class="cal-entry '+e.type+'" onclick="openEdit(\''+escJ(e.id)+'\',event)">'+typeShort(e.type)+(e.note?' · '+esc(e.note.substring(0,14)):'')+'</span>';
-      });
-      if (isWD&&!isBH) inner += '<span class="cal-add-hint">+ add</span>';
 
-      var clk = isWD&&!isBH ? 'onclick="openAdd(\''+iso+'\')"' : '';
-      h += '<div class="'+cls+'" '+clk+'>'+inner+'</div>';
+      /* Determine primary cell status */
+      var alFull = dayEnts.find(function(e){ return e.type==='annual-leave'; });
+      var alAM   = dayEnts.find(function(e){ return e.type==='annual-leave-am'; });
+      var alPM   = dayEnts.find(function(e){ return e.type==='annual-leave-pm'; });
+      var alHalf = dayEnts.find(function(e){ return e.type==='annual-leave-half'; });
+      var hasOff = dayEnts.find(function(e){ return e.type==='office-day'; });
+      var hasLT  = dayEnts.find(function(e){ return e.type==='lieu-taken'; });
+      var hasOth = dayEnts.find(function(e){ return e.type==='other'; });
+
+      /* Build cell classes */
+      var cls = 'cal-cell';
+      if (isT) cls += ' is-today';
+      /* Primary fill */
+      if (alFull)       cls += ' is-al';
+      else if (alAM)    cls += ' is-al-am';
+      else if (alPM)    cls += ' is-al-pm';
+      else if (alHalf)  cls += ' is-al-pm'; /* legacy half day = PM convention */
+      else if (hasOth)  cls += ' is-other';
+      else if (isBH)    cls += ' is-bh';
+      else if (!isWD||isWk) cls += ' is-wknd';
+      /* Secondary strips */
+      if (hasOff) cls += ' has-office';
+      if (hasLT)  cls += ' has-lieu';
+
+      /* Build inner content */
+      var inner = '<span class="cal-date">'+day+'</span>';
+      if (isBH) inner += '<span class="bh-tag">'+esc((bh[iso].label||'Bank Holiday').substring(0,20))+'</span>';
+      if (hasOth && hasOth.note) inner += '<span class="cal-note">'+esc(hasOth.note.substring(0,22))+'</span>';
+      inner += '<span class="cal-add-hint">+ add</span>';
+
+      /* All cells are clickable — context determines modal content */
+      var clickData = encodeURIComponent(JSON.stringify({iso:iso,isBH:isBH,isWD:isWD,bhLabel:(bh[iso]&&bh[iso].label)||''}));
+      h += '<div class="'+cls+'" onclick="openCellModal(this,event)" data-iso="'+esc(iso)+'" data-bh="'+(isBH?'1':'0')+'" data-wd="'+(isWD?'1':'0')+'" data-bhlabel="'+esc((bh[iso]&&bh[iso].label)||'')+'">'+inner+'</div>';
     }
 
+    /* Trailing padding */
     var total = offset+dInMo;
     var rem   = total%7===0?0:7-(total%7);
     for (var j=1;j<=rem;j++)
-      h += '<div class="cal-cell other-mo no-click"><span class="cal-date">'+j+'</span></div>';
+      h += '<div class="cal-cell other-mo"><span class="cal-date">'+j+'</span></div>';
 
     document.getElementById('myCal').innerHTML = h;
   }
+
 
   function typeShort(t) {
     var m = {'annual-leave':'AL','annual-leave-half':'AL ½','office-day':'Office','other':'Other','lieu-taken':'Lieu'};
@@ -1002,10 +1163,23 @@
         var isWD = wdA.indexOf(jsD)!==-1;
         var de   = ents.filter(function(e){ return e.date===day.iso; });
         var tdC  = day.isT?' is-today':((!isWD||day.isWk)?' is-wknd':'');
-        var pip  = '';
-        if (day.isBH) pip = '<span class="t-pip" style="background:#fff8e1" title="'+(bh[day.iso]?esc(bh[day.iso].label):'Bank Holiday')+'"></span>';
-        else if (de.length) pip = '<span class="t-pip '+de[0].type+'" title="'+typeShort(de[0].type)+(de[0].note?' · '+esc(de[0].note):'')+'"></span>';
-        rows += '<td class="'+tdC+'">'+pip+'</td>';
+        /* Build td classes for team cell fills */
+        var tdStatus = '';
+        if (!day.isBH && de.length) {
+          var te = de[0];
+          if (te.type==='annual-leave')      tdStatus = ' t-al';
+          else if (te.type==='annual-leave-am')  tdStatus = ' t-al-am';
+          else if (te.type==='annual-leave-pm')  tdStatus = ' t-al-pm';
+          else if (te.type==='annual-leave-half') tdStatus = ' t-al-pm';
+          else if (te.type==='other')        tdStatus = ' t-other';
+        }
+        /* Secondary strips */
+        var hasOff2 = de.find(function(e){ return e.type==='office-day'; });
+        var hasLT2  = de.find(function(e){ return e.type==='lieu-taken'; });
+        if (hasOff2) tdStatus += ' t-office';
+        if (hasLT2)  tdStatus += ' t-lieu';
+        var title = de.length ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'') : (day.isBH?(bh[day.iso]?bh[day.iso].label:'Bank Holiday'):'');
+        rows += '<td class="'+tdC+tdStatus+'" title="'+esc(title)+'"></td>';
       });
       rows += '</tr>';
     });
@@ -1103,7 +1277,112 @@
   function closeOv(id) { document.getElementById(id).classList.remove('open'); }
 
   /* Entry */
-  function openAdd(iso) {
+  /* ── Cell modal — context-aware entry point ── */
+  var _popover = null;
+
+  function closeCellPopover() {
+    if (_popover) { _popover.parentNode && _popover.parentNode.removeChild(_popover); _popover = null; }
+    document.removeEventListener('click', closeCellPopover);
+  }
+
+  function openCellModal(el, ev) {
+    var iso     = el.dataset.iso;
+    var isBH    = el.dataset.bh === '1';
+    var isWD    = el.dataset.wd === '1';
+    var bhLabel = el.dataset.bhlabel || '';
+    if (ev) ev.stopPropagation();
+    closeCellPopover();
+
+    var yr = parseInt(iso.split('-')[0]);
+    var mo = parseInt(iso.split('-')[1]) - 1;
+    var entries = expandEntries(S.uid, yr, mo).filter(function(e){ return e.date===iso; });
+
+    /* If there are existing entries or it's a special cell, show popover */
+    if (entries.length > 0 || isBH) {
+      showCellPopover(iso, isBH, bhLabel, entries, ev);
+      return;
+    }
+
+    /* Otherwise open add modal directly */
+    openAdd(iso);
+  }
+
+  function showCellPopover(iso, isBH, bhLabel, entries, ev) {
+    var pop = document.createElement('div');
+    pop.className = 'cal-popover';
+    _popover = pop;
+
+    var dateLabel = document.createElement('div');
+    dateLabel.className = 'cal-popover__date';
+    var d = new Date(iso+'T00:00:00');
+    dateLabel.textContent = d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+    pop.appendChild(dateLabel);
+
+    if (isBH) {
+      var bhRow = document.createElement('div');
+      bhRow.className = 'cal-popover__entry';
+      var bhDot = document.createElement('span');
+      bhDot.className = 'cal-popover__dot';
+      bhDot.style.background = 'var(--cal-bh-text)';
+      var bhLbl = document.createElement('div');
+      bhLbl.className = 'cal-popover__label';
+      bhLbl.textContent = bhLabel || 'Bank Holiday';
+      bhRow.appendChild(bhDot); bhRow.appendChild(bhLbl);
+      pop.appendChild(bhRow);
+    }
+
+    var dotColours = {
+      'annual-leave':'#9e0000','annual-leave-am':'#9e0000','annual-leave-pm':'#9e0000',
+      'annual-leave-half':'#9e0000','office-day':'#1e7e34','other':'#4a5568',
+      'lieu-taken':'#6a1b9a'
+    };
+
+    entries.forEach(function(e) {
+      var row = document.createElement('div');
+      row.className = 'cal-popover__entry';
+      row.addEventListener('click', function(ev2){ ev2.stopPropagation(); closeCellPopover(); openEdit(e.id, ev2); });
+      var dot = document.createElement('span');
+      dot.className = 'cal-popover__dot';
+      dot.style.background = dotColours[e.type]||'var(--text-muted)';
+      var info = document.createElement('div');
+      info.style.flex = '1';
+      var lbl = document.createElement('div');
+      lbl.className = 'cal-popover__label';
+      lbl.textContent = typeLabel(e.type);
+      info.appendChild(lbl);
+      if (e.note) {
+        var note = document.createElement('div');
+        note.className = 'cal-popover__note';
+        note.textContent = e.note;
+        info.appendChild(note);
+      }
+      row.appendChild(dot); row.appendChild(info);
+      pop.appendChild(row);
+    });
+
+    var addLink = document.createElement('div');
+    addLink.className = 'cal-popover__add';
+    addLink.textContent = '+ Add entry';
+    addLink.addEventListener('click', function(ev2){ ev2.stopPropagation(); closeCellPopover(); openAdd(iso); });
+    pop.appendChild(addLink);
+
+    /* Position near click */
+    document.body.appendChild(pop);
+    var x = ev.clientX, y = ev.clientY;
+    var pw = pop.offsetWidth||200, ph = pop.offsetHeight||150;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    pop.style.left = Math.min(x+8, vw-pw-12)+'px';
+    pop.style.top  = Math.min(y+8, vh-ph-12)+'px';
+
+    setTimeout(function(){ document.addEventListener('click', closeCellPopover); }, 50);
+  }
+
+  function typeLabel(t) {
+    var m = {'annual-leave':'Annual Leave','annual-leave-am':'AL — Morning','annual-leave-pm':'AL — Afternoon','annual-leave-half':'Half Day AL','office-day':'Office Day','other':'Other','lieu-taken':'Lieu Taken'};
+    return m[t]||t;
+  }
+
+    function openAdd(iso) {
     S.editId=null; S.selType=null;
     document.getElementById('entryModalTitle').textContent='Add Entry';
     document.getElementById('delEntryBtn').style.display='none';
