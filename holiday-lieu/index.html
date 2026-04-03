@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.24 (conversation turn 10)
+  Version: v1.25 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,14 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.25 — Legend: "Worked extra" -> "Worked Extra". Shared note pill style.
+         Overtime detection fixed for legacy entries without overtimeSize.
+         Lieu cap: blocks submission if requested > available.
+         Approval assignment: approverUid field in work settings, prefills
+         from line manager, persisted independently.
+         Pending requests show as dashed grey pill on calendar cells.
+         Click pending pill to view and retract request.
+         isApproverFor now checks approverUid field first.
   v1.24 — Legend: "Half Day (PM)" -> "Half Day", removed Other, added Note.
          Renamed "Other" to "Note" in typeLabel and modal.
          Org chart: avatar circles with initials, drop shadow, hover.
@@ -325,6 +333,20 @@
     }
 
     /* Add hint */
+    /* Pending request pill in cell */
+    .cal-pending {
+      display: block;
+      font-size: 9px; font-weight: 700; font-variation-settings: 'wght' 700;
+      background: #f0f0f0; color: #5a6a82;
+      border: 1.5px dashed #aab0be;
+      border-radius: 3px;
+      margin: 1px 5px;
+      padding: 1px 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .cal-pending:hover { background: #e8ecf8; color: var(--navy); }
+
     .cal-add-hint {
       position: absolute;
       bottom: 8px; left: 0; right: 0;
@@ -665,7 +687,7 @@
         </div>
         <div class="tbl-wrap">
           <table class="adm-tbl">
-            <thead><tr><th>Name</th><th>Work Days</th><th>AL Quota</th><th>Rollover Max</th><th>Rollover Expiry</th><th>Lieu Expiry</th><th>Line Manager</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Work Days</th><th>AL Quota</th><th>Rollover Max</th><th>Rollover Expiry</th><th>Lieu Expiry</th><th>Line Manager</th><th>Approver</th><th></th></tr></thead>
             <tbody id="settingsTbody"></tbody>
           </table>
         </div>
@@ -795,7 +817,12 @@
         <div class="fg"><label class="fl">Rollover Expiry Date</label><input type="date" class="fi" id="sRollExp"><div class="fhint">Date rolled-over days must be used by.</div></div>
         <div class="fg"><label class="fl">Lieu Expiry (days after earned)</label><input type="number" class="fi" id="sLieuExp" min="0" placeholder="90"><div class="fhint">0 = no expiry.</div></div>
       </div>
-      <div class="fg"><label class="fl">Line Manager</label><select class="fsel" id="sLM"></select></div>
+      <div class="fg"><label class="fl">Line Manager</label><select class="fsel" id="sLM" onchange="prefillApprover()"></select></div>
+      <div class="fg">
+        <label class="fl">Approver for leave requests</label>
+        <select class="fsel" id="sApprover"></select>
+        <div class="fhint">Person who approves this staff member's AL and lieu requests. Defaults to line manager.</div>
+      </div>
     </div>
     <div class="modal__ft">
       <button class="btn btn-ghost" onclick="closeOv('ovSettings')">Cancel</button>
@@ -1276,7 +1303,8 @@
       var hasLT_AM  = dayEnts.find(function(e){ return e.type==='lieu-taken-am'; });
       var hasLT_PM  = dayEnts.find(function(e){ return e.type==='lieu-taken-pm'; });
       var hasOth    = dayEnts.find(function(e){ return e.type==='other'; });
-      var hasWork   = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeSize==='full'; });
+      /* overtimeSize defaults to 'full' if not set (legacy entries) */
+      var hasWork   = dayEnts.find(function(e){ return e.type==='overtime' && (!e.overtimeSize || e.overtimeSize==='full'); });
       var hasWorkAM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='am'; });
       var hasWorkPM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='pm'; });
 
@@ -1300,6 +1328,18 @@
       /* Office day bottom strip */
       if (hasOff) cls += ' has-office';
 
+      /* Check pending requests for this day */
+      var pendingReqs = [];
+      Object.keys(S.requests[S.uid]||{}).forEach(function(id){
+        var r = (S.requests[S.uid]||{})[id];
+        if (!r || r.status !== 'pending') return;
+        var cur2 = r.date, end2 = r.endDate||r.date, saf2 = 0;
+        while (cur2 <= end2 && saf2++ < 400) {
+          if (cur2 === iso) { pendingReqs.push({id:id, r:r}); break; }
+          cur2 = addDays(cur2, 1);
+        }
+      });
+
       /* Build inner content */
       var inner = '<span class="cal-date">'+day+'</span>';
       if (isBH) inner += '<span class="bh-tag">'+esc((bh[iso].label||'Bank Holiday').substring(0,20))+'</span>';
@@ -1307,6 +1347,11 @@
       /* Shared admin note */
       var sNote = allSharedNotes()[iso];
       if (sNote) inner += '<span class="cal-shared-note">'+esc((sNote.label||'').substring(0,20))+'</span>';
+      /* Pending request pills */
+      pendingReqs.forEach(function(p){
+        var pLabel = 'Pending: ' + typeLabel(p.r.type||'request');
+        inner += '<span class="cal-pending" data-reqid="'+escJ(p.id)+'" onclick="openPendingRequest(event,this.dataset.reqid)">'+esc(pLabel.substring(0,28))+'</span>';
+      });
       inner += '<span class="cal-add-hint">+ add</span>';
 
       /* All cells are clickable — context determines modal content */
@@ -1415,7 +1460,7 @@
           else if (te.type==='lieu-taken')              tdStatus = ' t-lieu';
           else if (te.type==='lieu-taken-am')           tdStatus = ' t-lieu-am';
           else if (te.type==='lieu-taken-pm')           tdStatus = ' t-lieu-pm';
-          else if (te.type==='overtime' && te.overtimeSize==='full')  tdStatus = ' t-worked';
+          else if (te.type==='overtime' && (!te.overtimeSize || te.overtimeSize==='full')) tdStatus = ' t-worked';
           else if (te.type==='overtime' && te.overtimeSize==='half')  tdStatus = ' t-worked';
           else if (te.type==='other')                   tdStatus = ' t-other';
         }
@@ -1467,15 +1512,16 @@
 
   function isApproverFor(uid) {
     if (S.isSA || S.isAdmin) return true;
-    /* Walk lineManagerUid chain */
-    var myUid = S.uid;
-    var cur = uid;
-    var seen = {}, safety = 0;
+    /* Check explicit approverUid field */
+    var target = S.users[uid];
+    if (target && target.approverUid === S.uid) return true;
+    /* Fallback: walk lineManagerUid chain */
+    var cur = uid, seen = {}, safety = 0;
     while (cur && safety++ < 10) {
       var mgr = (S.users[cur]||{}).lineManagerUid;
       if (!mgr || seen[mgr]) break;
       seen[mgr] = true;
-      if (mgr === myUid) return true;
+      if (mgr === S.uid) return true;
       cur = mgr;
     }
     return false;
@@ -1782,7 +1828,7 @@
       var u=S.users[uid], ws=u.workSettings||{};
       var wdTxt = (ws.workDays||[1,2,3,4,5]).map(function(d){ return DN[d]; }).join(', ');
       var mgr   = u.lineManagerUid && S.users[u.lineManagerUid] ? S.users[u.lineManagerUid].name : '—';
-      h+='<tr><td class="nm">'+esc(u.name||uid)+'</td><td>'+esc(wdTxt)+'</td><td>'+(ws.alQuota||'—')+'</td><td>'+(ws.alRolloverDays||'—')+'</td><td>'+(ws.alRolloverExpiry?fmtDate(ws.alRolloverExpiry):'—')+'</td><td>'+(ws.lieuExpiryDays?ws.lieuExpiryDays+' days':'None')+'</td><td>'+esc(mgr)+'</td><td><a class="a-lnk" onclick="openSettings(\''+escJ(uid)+'\')">Edit</a></td></tr>';
+      h+='<tr><td class="nm">'+esc(u.name||uid)+'</td><td>'+esc(wdTxt)+'</td><td>'+(ws.alQuota||'—')+'</td><td>'+(ws.alRolloverDays||'—')+'</td><td>'+(ws.alRolloverExpiry?fmtDate(ws.alRolloverExpiry):'—')+'</td><td>'+(ws.lieuExpiryDays?ws.lieuExpiryDays+' days':'None')+'</td><td>'+esc(mgr)+'</td><td>'+esc(appr)+'</td><td><a class="a-lnk" onclick="openSettings(\''+escJ(uid)+'\')">Edit</a></td></tr>';
     });
     document.getElementById('settingsTbody').innerHTML = h||'<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No staff found.</td></tr>';
   }
@@ -1922,7 +1968,56 @@
     setTimeout(function(){ document.addEventListener('click', closeCellPopover); }, 50);
   }
 
-  function typeLabel(t) {
+  function openPendingRequest(ev, reqId) {
+    if (ev) ev.stopPropagation();
+    var r = (S.requests[S.uid]||{})[reqId];
+    if (!r) return;
+    /* Show a simple popover with request details and retract button */
+    closeCellPopover();
+    var pop = document.createElement('div');
+    pop.className = 'cal-popover';
+    _popover = pop;
+    var title = document.createElement('div');
+    title.className = 'cal-popover__date';
+    title.textContent = 'Pending Request';
+    pop.appendChild(title);
+    var info = document.createElement('div');
+    info.style.cssText = 'font-size:13px;padding:6px 0 8px;';
+    info.textContent = typeLabel(r.type||'') + ' · ' + fmtDate(r.date) + (r.endDate&&r.endDate!==r.date?' – '+fmtDate(r.endDate):'');
+    pop.appendChild(info);
+    if (r.note) {
+      var note = document.createElement('div');
+      note.style.cssText = 'font-size:11px;color:var(--text-muted);font-style:italic;margin-bottom:8px;';
+      note.textContent = r.note;
+      pop.appendChild(note);
+    }
+    var retract = document.createElement('button');
+    retract.className = 'btn btn-danger btn-sm';
+    retract.style.cssText = 'width:100%;margin-top:4px;';
+    retract.textContent = 'Retract request';
+    retract.addEventListener('click', function(ev2){
+      ev2.stopPropagation();
+      if (!confirm('Retract this request?')) return;
+      db.ref('holiday-lieu/requests/'+S.uid+'/'+reqId).remove()
+        .then(function(){
+          closeCellPopover();
+          if (S.requests[S.uid]) delete S.requests[S.uid][reqId];
+          showToast('Request retracted');
+          refresh();
+        })
+        .catch(function(err){ showToast('Error: '+err.message,'error'); });
+    });
+    pop.appendChild(retract);
+    document.body.appendChild(pop);
+    var x = ev.clientX, y = ev.clientY;
+    var pw = pop.offsetWidth||200, ph = pop.offsetHeight||160;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    pop.style.left = Math.min(x+8, vw-pw-12)+'px';
+    pop.style.top  = Math.min(y+8, vh-ph-12)+'px';
+    setTimeout(function(){ document.addEventListener('click', closeCellPopover); }, 50);
+  }
+
+    function typeLabel(t) {
     var m = {'annual-leave':'Annual Leave','annual-leave-am':'AL — Morning','annual-leave-pm':'AL — Afternoon','annual-leave-half':'Half Day AL','office-day':'Office Day','other':'Note','lieu-taken':'Lieu Taken'};
     return m[t]||t;
   }
@@ -2223,6 +2318,14 @@
       var lDate     = lieuStart ? lieuStart.value : _eState.iso;
       if (!lDate) { showToast('Select a date for Lieu Taken','error'); return; }
 
+      /* Validate lieu balance */
+      var lieuBal = calcLieu(S.uid).total;
+      var lieuReq = (_eState.lieuMode==='half') ? 0.5 : (_eState.lieuMode==='several' ? getWorkingDaysInRange(
+        (document.getElementById('lieuStart')||{value:_eState.iso}).value,
+        (document.getElementById('lieuEnd')||{value:_eState.iso}).value
+      ).length : 1);
+      if (lieuReq > lieuBal) { showToast('Insufficient lieu balance ('+lieuBal+' day'+(lieuBal===1?'':'s')+' available, '+lieuReq+' requested)','error'); return; }
+
       if (_eState.lieuMode === 'single') {
         entries.push({ type:'lieu-taken', date:lDate, endDate:lDate, note:'' });
       } else if (_eState.lieuMode === 'half') {
@@ -2340,6 +2443,25 @@
     others.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
     lmEl.innerHTML='<option value="">— None —</option>'+others.map(function(u){ return '<option value="'+escJ(u)+'">'+esc(S.users[u].name||u)+'</option>'; }).join('');
     lmEl.value = u.lineManagerUid||'';
+    var aprEl = document.getElementById('sApprover');
+    if (aprEl) {
+      aprEl.innerHTML = '<option value="">— Self —</option>'
+        + others.map(function(ou){ return '<option value="'+escJ(ou)+'">'+esc(S.users[ou].name||ou)+'</option>'; }).join('');
+      aprEl.value = (u.approverUid !== undefined && u.approverUid !== null) ? u.approverUid : (u.lineManagerUid||'');
+    }
+  }
+
+  function prefillApprover() {
+    var lm = document.getElementById('sLM') && document.getElementById('sLM').value;
+    var apr = document.getElementById('sApprover');
+    if (apr) apr.value = lm || '';
+  }
+
+  function prefillApprover() {
+    var lm = document.getElementById('sLM').value;
+    var apr = document.getElementById('sApprover');
+    /* Only prefill if approver hasn't been manually set */
+    if (apr && !apr.dataset.manuallySet) apr.value = lm;
   }
 
   function saveSettings() {
@@ -2354,9 +2476,11 @@
       lieuExpiryDays:  parseFloat(document.getElementById('sLieuExp').value)||0
     };
     var lm=document.getElementById('sLM').value;
+    var apr = document.getElementById('sApprover') ? document.getElementById('sApprover').value : '';
     var upd={};
     upd['users/'+uid+'/workSettings']   = ws;
     upd['users/'+uid+'/lineManagerUid'] = lm||null;
+    upd['users/'+uid+'/approverUid']    = apr||null;
     db.ref().update(upd).then(function(){ showToast('Settings saved'); closeOv('ovSettings'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
