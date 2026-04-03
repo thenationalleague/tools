@@ -1,47 +1,36 @@
 <!DOCTYPE html>
 <!--
-  NL Tools - Login Page
-  Version: v2.10 (conversation turn 9)
-  Date: 31/03/2026
+  NL Tools — Login Page
+  Version: v3.0 (conversation turn 123)
+  Date: 03/04/2026
   File: /tools/index.html
 
   Changelog:
-  v2.10 - Fixed loadSignupTools filter: was checking t.tier === "club" which
-          does not exist in v2 tool records. Now checks defaults.club !== "hidden"
-          so club-visible tools correctly appear on sign-up step 2.
-  v2.9 - setPersistence(LOCAL) added before signInWithEmailAndPassword.
-         Restored missing club picker constants (CLUBS_META_URL, CREST_BASE,
-         FALLBACK_CREST, suClubsData) which were dropped between versions,
-         causing silent fetch failure and blank club dropdown. before signInWithEmailAndPassword.
-         Ensures Firebase auth token persists across browser sessions and
-         page navigations, preventing unexpected logouts on tool pages.
-  v1.2 - Club picker: removed freetext fallback (must select from 72 clubs).
-         Club picker: fixed crest not updating on selection - onblur was racing
-         onmousedown and closing the dropdown before the click registered.
-         Fix: preventDefault on dropdown mousedown to suppress the blur entirely.
-         Also fixes forgot password success message to be non-committal.
-  v1.1 - Club name field replaced with club picker component (autocomplete dropdown,
-         live crest previews, freetext fallback). Clubs loaded from clubs-meta.json.
-  v1.0 - Initial v2 build. Rebuilt from scratch.
-         Panels: Sign in | Forgot password | Club sign-up request | Set password (invite flow).
-         Club sign-up: clubRole field, tools grouped by department with select-all per department.
-         Auth: email/password + email link invite (set-password screen on first sign-in).
-         Redirects to /tools/portal/ on successful sign-in.
-         Firebase compat CDN only - no ES modules.
+  v3.0 — Full auth flow rebuild.
+         Six panels: sign-in, forgot password, password reset (oobCode),
+         set password (invite), request access (2-step), pending, rejected.
+         Request flow: creates Firebase Auth account + pending:true user record
+         + writes to requests/ + fires notifyAdmin + confirmRequest GAS calls.
+         onAuthStateChanged routes pending/rejected/active users correctly.
+         Pending panel has RTDB real-time listener — auto-redirects on approval.
+         Rejected panel shows contact email + re-apply prompt.
+         Email-exists error prompts to sign in rather than raw Firebase error.
+         Password reset: detects ?oobCode= param, shows reset panel inline.
+         Consolidated GAS URL throughout.
+  v2.10 — Fixed loadSignupTools filter.
+  v2.9  — setPersistence(LOCAL) + restored club picker constants.
 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NL Tools - Sign In</title>
+<title>NL Tools — Sign In</title>
 
-<!-- Firebase compat CDN -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
 <style>
-/* -- Font ---------------------------------------------------------------- */
 @font-face {
   font-family: "carbona-variable";
   src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
@@ -49,7 +38,6 @@
   font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
 }
 
-/* -- Reset & variables --------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -83,7 +71,6 @@ body {
   min-height: 100vh;
 }
 
-/* -- Layout -------------------------------------------------------------- */
 .login-wrap {
   min-height: 100vh;
   display: flex;
@@ -102,10 +89,7 @@ body {
   text-align: center;
 }
 
-.login-box__logo {
-  width: 84px;
-  margin-bottom: 22px;
-}
+.login-box__logo { width: 84px; margin-bottom: 22px; }
 
 .login-box h1 {
   font-size: 26px;
@@ -129,11 +113,11 @@ body {
   font-variation-settings: 'wght' 700;
 }
 
-/* -- Panels -------------------------------------------------------------- */
+/* Panels */
 .panel { display: none; text-align: left; }
 .panel.active { display: block; }
 
-/* -- Form elements ------------------------------------------------------- */
+/* Fields */
 .field { margin-bottom: 16px; }
 .field label {
   display: block;
@@ -165,7 +149,7 @@ body {
   box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
 }
 
-/* -- Buttons ------------------------------------------------------------- */
+/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -195,12 +179,12 @@ body {
   color: var(--text-muted);
 }
 .btn--ghost:hover:not(:disabled) { background: var(--off-white); }
+.btn--danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
+.btn--danger:hover:not(:disabled) { background: #fae0de; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
 .btn-row { display: flex; gap: 10px; }
 .btn-row .btn { flex: 1; }
 
-/* -- Spinner inside button ----------------------------------------------- */
 @keyframes spin { to { transform: rotate(360deg); } }
 .btn-spinner {
   display: inline-block;
@@ -211,7 +195,7 @@ body {
   animation: spin 0.7s linear infinite;
 }
 
-/* -- Messages ------------------------------------------------------------ */
+/* Messages */
 .msg {
   font-size: 13px;
   border-radius: var(--radius);
@@ -220,13 +204,14 @@ body {
   font-weight: 600;
   font-variation-settings: 'wght' 600;
   display: none;
+  line-height: 1.5;
 }
-.msg.show { display: block; }
-.msg--error   { background: var(--red-light);   color: var(--red); }
-.msg--success { background: var(--green-light);  color: var(--green); }
-.msg--info    { background: var(--amber-light);  color: var(--amber); }
+.msg.show       { display: block; }
+.msg--error     { background: var(--red-light);   color: var(--red); }
+.msg--success   { background: var(--green-light);  color: var(--green); }
+.msg--info      { background: var(--amber-light);  color: var(--amber); }
 
-/* -- Link buttons -------------------------------------------------------- */
+/* Link buttons */
 .link-btn {
   background: none;
   border: none;
@@ -251,7 +236,6 @@ body {
   gap: 8px;
 }
 
-/* -- Divider ------------------------------------------------------------- */
 .divider {
   display: flex;
   align-items: center;
@@ -264,14 +248,26 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
-.divider::before, .divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-/* -- Club sign-up: tool groups ------------------------------------------- */
+/* Step indicator */
+.step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+.step-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.2s;
+}
+.step-dot.active { background: var(--primary); }
+.step-dot.done   { background: var(--navy); }
+
+/* Tool checkboxes */
 .tool-group { margin-bottom: 18px; }
 .tool-group__header {
   display: flex;
@@ -301,11 +297,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.tool-checkboxes {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.tool-checkboxes { display: flex; flex-direction: column; gap: 6px; }
 .tool-checkbox {
   display: flex;
   align-items: flex-start;
@@ -340,62 +332,19 @@ body {
   margin-top: 1px;
 }
 
-/* -- Step indicator ------------------------------------------------------ */
-.step-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-bottom: 24px;
-}
-.step-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--border);
-  transition: background 0.2s;
-}
-.step-dot.active { background: var(--primary); }
-.step-dot.done   { background: var(--navy); }
-
-/* -- Pending banner ------------------------------------------------------ */
-.pending-banner {
-  text-align: center;
-  padding: 20px;
-  background: var(--amber-light);
-  border-radius: var(--radius);
-  border: 1px solid #f0cfa0;
-  margin-top: 8px;
-}
-.pending-banner__icon { font-size: 32px; margin-bottom: 10px; }
-.pending-banner__title {
-  font-size: 15px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  color: var(--amber);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 6px;
-}
-.pending-banner p {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-/* -- Scrollable panel (sign-up is long) ---------------------------------- */
 .signup-scroll {
-  max-height: 60vh;
+  max-height: 55vh;
   overflow-y: auto;
   padding-right: 4px;
 }
 
-/* -- Club picker ---------------------------------------------------------- */
+/* Club picker */
 .club-picker { position: relative; }
 .club-picker__wrap {
   display: flex; align-items: center; gap: 10px;
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 7px 12px; background: var(--white);
-  transition: border-color 0.15s, box-shadow 0.15s; cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .club-picker__wrap:focus-within {
   border-color: var(--primary);
@@ -425,12 +374,61 @@ body {
 .club-picker__option img { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
 .club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
 .club-picker__option-div { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.club-picker__freetext {
-  padding: 9px 14px; font-size: 13px; color: var(--text-muted);
-  font-style: italic; cursor: pointer;
-  border-top: 1px solid var(--border); background: var(--off-white);
+
+/* State panels — pending and rejected */
+.state-panel {
+  text-align: center;
+  padding: 8px 0;
 }
-.club-picker__freetext:hover { background: #eaeef4; }
+.state-panel__icon { font-size: 40px; margin-bottom: 16px; }
+.state-panel__title {
+  font-size: 16px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+.state-panel__title--amber { color: var(--amber); }
+.state-panel__title--red   { color: var(--red); }
+.state-panel__body {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.state-panel__body a {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: underline;
+}
+.state-panel__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* Spinner for pending panel */
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.pending-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 16px;
+  animation: pulse 2s ease-in-out infinite;
+}
+.pending-check__dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
 </style>
 </head>
 <body>
@@ -438,19 +436,17 @@ body {
 <div class="login-wrap">
   <div class="login-box">
 
-    <!-- Logo -->
     <img class="login-box__logo"
       src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
       alt="National League"
       onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
 
-    <!-- Heading - updated per active panel -->
     <h1 id="pageTitle">
       <span class="word-primary">NL</span> <span class="word-secondary">Tools</span>
     </h1>
     <p class="login-box__sub" id="pageSubtitle">Staff &amp; Club Portal</p>
 
-    <!-- -- Panel: Sign in ------------------------------------------------- -->
+    <!-- ── Panel: Sign in ─────────────────────────────────────────────── -->
     <div class="panel active" id="panelSignIn">
       <div class="msg" id="signinMsg"></div>
       <div class="field">
@@ -461,40 +457,56 @@ body {
         <label for="signinPassword">Password</label>
         <input type="password" id="signinPassword" placeholder="Your password" autocomplete="current-password">
       </div>
-      <button class="btn btn--primary" id="signinBtn" onclick="doSignIn()">
-        Sign in
-      </button>
+      <button class="btn btn--primary" id="signinBtn" onclick="doSignIn()">Sign in</button>
       <div class="login-links">
         <span>
           <button class="link-btn" onclick="showPanel('panelForgot')">Forgot your password?</button>
         </span>
         <span>
           Club representative?
-          <button class="link-btn" onclick="showPanel('panelSignUp')">Request access</button>
+          <button class="link-btn" onclick="showPanel('panelRequest')">Request access</button>
         </span>
       </div>
     </div>
 
-    <!-- -- Panel: Forgot password ----------------------------------------- -->
+    <!-- ── Panel: Forgot password ─────────────────────────────────────── -->
     <div class="panel" id="panelForgot">
       <div class="msg" id="forgotMsg"></div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">
+        Enter your email address and we'll send you a link to reset your password.
+      </p>
       <div class="field">
         <label for="forgotEmail">Email address</label>
         <input type="email" id="forgotEmail" placeholder="you@example.com" autocomplete="email">
       </div>
       <div class="btn-row">
         <button class="btn btn--ghost" onclick="showPanel('panelSignIn')">Back</button>
-        <button class="btn btn--primary" id="forgotBtn" onclick="doForgotPassword()">
-          Send reset email
-        </button>
+        <button class="btn btn--primary" id="forgotBtn" onclick="doForgotPassword()">Send reset email</button>
       </div>
     </div>
 
-    <!-- -- Panel: Set password (email-link invite flow) ------------------- -->
+    <!-- ── Panel: Reset password (oobCode flow) ───────────────────────── -->
+    <div class="panel" id="panelResetPassword">
+      <div class="msg" id="resetpwMsg"></div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">
+        Choose a new password for your account.
+      </p>
+      <div class="field">
+        <label for="resetPwNew">New password</label>
+        <input type="password" id="resetPwNew" placeholder="At least 8 characters" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label for="resetPwConfirm">Confirm password</label>
+        <input type="password" id="resetPwConfirm" placeholder="Repeat password" autocomplete="new-password">
+      </div>
+      <button class="btn btn--primary" id="resetPwBtn" onclick="doResetPassword()">Set new password</button>
+    </div>
+
+    <!-- ── Panel: Set password (invite token flow) ────────────────────── -->
     <div class="panel" id="panelSetPassword">
       <div class="msg" id="setpwMsg"></div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">
-        Welcome to NL Tools. Please set a password for your account to complete sign-in.
+        Welcome to NL Tools. Set a password to complete your account setup.
       </p>
       <div class="field">
         <label for="setPwEmail">Email address</label>
@@ -508,101 +520,120 @@ body {
         <label for="setPwConfirm">Confirm password</label>
         <input type="password" id="setPwConfirm" placeholder="Repeat password" autocomplete="new-password">
       </div>
-      <button class="btn btn--primary" id="setPwBtn" onclick="doSetPassword()">
-        Set password &amp; sign in
-      </button>
+      <button class="btn btn--primary" id="setPwBtn" onclick="doSetPassword()">Set password &amp; sign in</button>
     </div>
 
-    <!-- -- Panel: Club sign-up -------------------------------------------- -->
-    <div class="panel" id="panelSignUp">
+    <!-- ── Panel: Request access ──────────────────────────────────────── -->
+    <div class="panel" id="panelRequest">
 
-      <!-- Step 1: Your details -->
-      <div id="signupStep1">
+      <!-- Step 1: Details + password -->
+      <div id="reqStep1">
         <div class="step-indicator">
-          <div class="step-dot active" id="dot1"></div>
-          <div class="step-dot" id="dot2"></div>
+          <div class="step-dot active" id="reqDot1"></div>
+          <div class="step-dot" id="reqDot2"></div>
         </div>
-        <div class="msg" id="signupMsg1"></div>
+        <div class="msg" id="reqMsg1"></div>
         <div class="field">
-          <label for="suName">Your full name</label>
-          <input type="text" id="suName" placeholder="First and last name">
-        </div>
-        <div class="field">
-          <label for="suEmail">Email address</label>
-          <input type="email" id="suEmail" placeholder="you@yourclub.com">
+          <label for="reqName">Your full name</label>
+          <input type="text" id="reqName" placeholder="First and last name">
         </div>
         <div class="field">
-          <label>Club name</label>
+          <label for="reqEmail">Email address</label>
+          <input type="email" id="reqEmail" placeholder="you@yourclub.com" autocomplete="email">
+        </div>
+        <div class="field">
+          <label for="reqPassword">Choose a password</label>
+          <input type="password" id="reqPassword" placeholder="At least 8 characters" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label>Club</label>
           <div class="club-picker">
             <div class="club-picker__wrap">
-              <img class="club-picker__crest" id="suClubCrest"
+              <img class="club-picker__crest" id="reqClubCrest"
                 src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
                 alt=""
                 onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-              <input class="club-picker__input" id="suClubInput" type="text"
-                placeholder="Search club name…" autocomplete="off"
-                oninput="onSuClubInput(this.value)">
+              <input class="club-picker__input" id="reqClubInput" type="text"
+                placeholder="Search club name…" autocomplete="off">
             </div>
-            <div class="club-picker__dropdown" id="suClubDropdown"></div>
+            <div class="club-picker__dropdown" id="reqClubDropdown"></div>
           </div>
-          <input type="hidden" id="suClub">
+          <input type="hidden" id="reqClub">
         </div>
         <div class="field">
-          <label for="suClubRole">Your role at the club</label>
-          <input type="text" id="suClubRole" placeholder="e.g. Secretary, Media Officer">
+          <label for="reqClubRole">Your role at the club</label>
+          <input type="text" id="reqClubRole" placeholder="e.g. Secretary, Media Officer">
         </div>
         <div class="btn-row">
           <button class="btn btn--ghost" onclick="showPanel('panelSignIn')">Back</button>
-          <button class="btn btn--navy" onclick="goSignupStep2()">Next - Select tools</button>
+          <button class="btn btn--navy" id="reqNextBtn" onclick="goReqStep2()">Next — select tools</button>
         </div>
       </div>
 
       <!-- Step 2: Tools -->
-      <div id="signupStep2" style="display:none;">
+      <div id="reqStep2" style="display:none;">
         <div class="step-indicator">
-          <div class="step-dot done" id="dot1b"></div>
-          <div class="step-dot active" id="dot2b"></div>
+          <div class="step-dot done"></div>
+          <div class="step-dot active"></div>
         </div>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;font-weight:600;font-variation-settings:'wght' 600;">
-          Select the tools you'd like to request access to. Leave blank to request general access only.
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;font-weight:600;font-variation-settings:'wght' 600;line-height:1.5;">
+          Select the tools you'd like access to. Leave blank for general access only.
         </p>
-        <div class="msg" id="signupMsg2"></div>
-        <div class="signup-scroll" id="toolGroupsContainer">
-          <!-- Populated by JS from RTDB tools catalogue -->
-          <p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">
-            Loading available tools…
-          </p>
+        <div class="msg" id="reqMsg2"></div>
+        <div class="signup-scroll" id="reqToolContainer">
+          <p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">Loading available tools…</p>
         </div>
         <div class="btn-row" style="margin-top:16px;">
-          <button class="btn btn--ghost" onclick="goSignupStep1()">Back</button>
-          <button class="btn btn--primary" id="submitSignupBtn" onclick="doSubmitSignup()">
-            Submit request
-          </button>
+          <button class="btn btn--ghost" onclick="goReqStep1()">Back</button>
+          <button class="btn btn--primary" id="reqSubmitBtn" onclick="doSubmitRequest()">Submit request</button>
         </div>
       </div>
 
-      <!-- Step 3: Submitted -->
-      <div id="signupStep3" style="display:none;text-align:center;">
-        <div class="pending-banner">
-          <div class="pending-banner__icon">✅</div>
-          <div class="pending-banner__title">Request submitted</div>
-          <p>
-            Your access request has been sent to the National League team.
-            You'll receive an email once your account has been approved.
-          </p>
+    </div>
+
+    <!-- ── Panel: Pending approval ────────────────────────────────────── -->
+    <div class="panel" id="panelPending">
+      <div class="state-panel">
+        <div class="state-panel__icon">⏳</div>
+        <div class="state-panel__title state-panel__title--amber">Request pending</div>
+        <div class="state-panel__body">
+          Your request is being reviewed by The National League.<br><br>
+          You'll receive an email once a decision has been made. If you have any questions
+          in the meantime, please email
+          <a href="mailto:media@thenationalleague.org.uk">media@thenationalleague.org.uk</a>
         </div>
-        <div style="margin-top:20px;">
-          <button class="link-btn" onclick="showPanel('panelSignIn')">Back to sign in</button>
+        <div class="pending-check">
+          <div class="pending-check__dot"></div>
+          Checking for updates…
+        </div>
+        <div class="state-panel__actions">
+          <button class="btn btn--danger" id="withdrawBtn" onclick="doWithdraw()">Withdraw request</button>
+          <button class="btn btn--ghost" onclick="doSignOut()">Sign out</button>
         </div>
       </div>
+    </div>
 
+    <!-- ── Panel: Rejected ────────────────────────────────────────────── -->
+    <div class="panel" id="panelRejected">
+      <div class="state-panel">
+        <div class="state-panel__icon">❌</div>
+        <div class="state-panel__title state-panel__title--red">Request unsuccessful</div>
+        <div class="state-panel__body">
+          Unfortunately your request for access to NL Tools has not been approved at this time.<br><br>
+          If you believe this is an error or would like to discuss your application, please email
+          <a href="mailto:media@thenationalleague.org.uk">media@thenationalleague.org.uk</a>
+        </div>
+        <div class="state-panel__actions">
+          <button class="btn btn--ghost" onclick="doSignOut()">Sign out</button>
+        </div>
+      </div>
     </div>
 
   </div>
 </div>
 
 <script>
-/* -- Firebase init --------------------------------------------------------- */
+/* ── Firebase init ───────────────────────────────────────────────────────── */
 var firebaseConfig = {
   apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
   authDomain:        'nl-tools.firebaseapp.com',
@@ -616,20 +647,57 @@ firebase.initializeApp(firebaseConfig);
 var auth = firebase.auth();
 var db   = firebase.database();
 
-/* -- Constants ------------------------------------------------------------- */
-var PORTAL_URL = '/tools/portal/';
-var GAS_URL    = 'https://script.google.com/macros/s/AKfycbx0OWIGn8LbXXlf1m2H20-FpV16rHDrHETYOszO4_WtpWBJPuGAxxmwL-1ghtBNMQoQ/exec';
+/* ── Constants ───────────────────────────────────────────────────────────── */
+var PORTAL_URL     = '/tools/portal/';
+var NL_GAS_URL     = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
 
-/* -- Escape helpers -------------------------------------------------------- */
-function esc(s)  { s = String(s||''); s = s.replace(/&/g,'&amp;'); s = s.replace(/</g,'&lt;'); s = s.replace(/>/g,'&gt;'); s = s.replace(/"/g,'&quot;'); return s; }
+/* ── URL params ─────────────────────────────────────────────────────────── */
+var urlParams    = new URLSearchParams(window.location.search);
+var INVITE_TOKEN = urlParams.get('invite') || '';
+var INVITE_EMAIL = urlParams.get('email')  ? decodeURIComponent(urlParams.get('email')) : '';
+var OOB_CODE     = urlParams.get('oobCode') || '';
+var IS_INVITE    = !!INVITE_TOKEN;
+var IS_RESET     = !!OOB_CODE;
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
-/* -- Panel switching ------------------------------------------------------- */
+function showMsg(id, text, type) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'msg msg--' + (type || 'error') + ' show';
+}
+
+function clearMsg(id) {
+  var el = document.getElementById(id);
+  if (el) el.className = 'msg';
+}
+
+function clearAllMsgs() {
+  document.querySelectorAll('.msg').forEach(function(m) { m.className = 'msg'; m.textContent = ''; });
+}
+
+function setBtnLoading(id, loading, label) {
+  var btn = document.getElementById(id);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.innerHTML = loading ? '<span class="btn-spinner"><\/span>' : (label || btn.dataset.label || btn.textContent);
+  if (label) btn.dataset.label = label;
+}
+
 var PANEL_TITLES = {
-  panelSignIn:     { title: 'NL <span class="word-secondary">Tools<\/span>', sub: 'Staff &amp; Club Portal' },
-  panelForgot:     { title: 'Reset <span class="word-secondary">Password<\/span>', sub: 'We\'ll send you a reset link' },
-  panelSetPassword:{ title: 'Set <span class="word-secondary">Password<\/span>', sub: 'Complete your account setup' },
-  panelSignUp:     { title: 'Request <span class="word-secondary">Access<\/span>', sub: 'Club representative sign-up' }
+  panelSignIn:      { title: 'NL Tools',             sub: 'Staff &amp; Club Portal' },
+  panelForgot:      { title: 'Reset Password',        sub: "We'll send you a reset link" },
+  panelResetPassword:{ title: 'New Password',         sub: 'Choose a new password' },
+  panelSetPassword: { title: 'Set Password',          sub: 'Complete your account setup' },
+  panelRequest:     { title: 'Request Access',        sub: 'Club representative sign-up' },
+  panelPending:     { title: 'Pending Approval',      sub: 'The National League' },
+  panelRejected:    { title: 'Request Unsuccessful',  sub: 'The National League' }
 };
 
 function showPanel(id) {
@@ -638,152 +706,46 @@ function showPanel(id) {
 
   var info = PANEL_TITLES[id];
   if (info) {
+    var parts = info.title.split(' ');
     document.getElementById('pageTitle').innerHTML =
-      '<span class="word-primary">' + info.title.split(' ')[0].replace(/<[^>]*>/g,'') + '<\/span> ' +
-      info.title.split(' ').slice(1).join(' ');
+      '<span class="word-primary">' + esc(parts[0]) + '<\/span>' +
+      (parts.length > 1 ? ' <span class="word-secondary">' + esc(parts.slice(1).join(' ')) + '<\/span>' : '');
     document.getElementById('pageSubtitle').innerHTML = info.sub;
   }
 
-  /* Load tools and init picker when sign-up panel opens */
-  if (id === 'panelSignUp') { loadSignupTools(); initSuClubPicker(); }
-
+  if (id === 'panelRequest') { loadReqTools(); initReqClubPicker(); }
   clearAllMsgs();
 }
 
-function clearAllMsgs() {
-  document.querySelectorAll('.msg').forEach(function(m) {
-    m.className = 'msg'; m.textContent = '';
-  });
+function doSignOut() {
+  if (window._pendingListener) {
+    window._pendingListener();
+    window._pendingListener = null;
+  }
+  auth.signOut().then(function() { showPanel('panelSignIn'); });
 }
 
-function showMsg(id, text, type) {
-  var el = document.getElementById(id);
-  el.textContent = text;
-  el.className = 'msg msg--' + (type || 'error') + ' show';
-}
+/* ── Initialise on load ─────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {
 
-/* -- Heading for sign-in panel is special (split colour) ------------------- */
-function resetTitle() {
-  document.getElementById('pageTitle').innerHTML =
-    '<span class="word-primary">NL<\/span> <span class="word-secondary">Tools<\/span>';
-  document.getElementById('pageSubtitle').innerHTML = 'Staff &amp; Club Portal';
-}
+  /* Password reset flow — oobCode in URL */
+  if (IS_RESET) {
+    /* Verify the code is valid first */
+    auth.verifyPasswordResetCode(OOB_CODE)
+      .then(function() {
+        showPanel('panelResetPassword');
+        /* Clean URL */
+        window.history.replaceState({}, '', window.location.pathname);
+      })
+      .catch(function() {
+        showPanel('panelForgot');
+        showMsg('forgotMsg', 'This reset link has expired or already been used. Please request a new one.', 'error');
+      });
+    return;
+  }
 
-/* -- Button loading state -------------------------------------------------- */
-function setBtnLoading(id, loading, label) {
-  var btn = document.getElementById(id);
-  if (!btn) return;
-  btn.disabled = loading;
-  btn.innerHTML = loading
-    ? '<span class="btn-spinner"><\/span>'
-    : (label || btn.dataset.label || btn.textContent);
-  if (label && !loading) btn.dataset.label = label;
-}
-
-/* -- Check for email link sign-in on page load ----------------------------- */
-/*
- * Order of operations:
- * 1. If the URL is an email invite link:
- *    a. If a user is already signed in, sign them out first so the invite
- *       can be processed for the correct account.
- *    b. Show the set-password panel with email pre-filled and locked.
- * 2. If no invite link and user is already signed in, go to portal.
- */
-/*
- * -- Invite link & auth flow -------------------------------------------------
- *
- * Firebase email link auth flow (standard pattern):
- *
- * 1. Capture the FULL href immediately on script load -- before anything
- *    can modify it. Store it. This is the link Firebase needs.
- *
- * 2. Check isSignInWithEmailLink synchronously from the captured href.
- *
- * 3. If it IS an email link:
- *    - Show set-password panel immediately (do NOT wait for async signOut).
- *    - Pre-fill email from localStorage if available.
- *    - Do NOT call signOut here -- it can interfere with the link token.
- *
- * 4. onAuthStateChanged:
- *    - If processing an email link, ignore auth state changes until the
- *      set-password form is submitted.
- *    - Otherwise redirect to portal if signed in.
- *
- * 5. doSetPassword:
- *    - If a different user is currently signed in, sign out first THEN
- *      call signInWithEmailLink with the SAVED href (not window.location.href
- *      which may have been modified).
- *    - Chain: signInWithEmailLink -> updatePassword -> set pending=false -> redirect.
- *    - Only redirect after pending=false write completes.
- */
-
-/* Save href immediately before anything can change it */
-/*
- * -- Firebase Auth: Email Link (Invite) Flow --------------------------------
- *
- * Best practices applied:
- *
- * 1. Email delivered via continueUrl ?email= param in the invite link itself.
- *    Works on any device, any browser. No localStorage dependency.
- *
- * 2. INVITE_HREF captured immediately at script load time. Used exclusively
- *    in signInWithEmailLink -- never window.location.href which may change.
- *
- * 3. IS_EMAIL_LINK checked synchronously from saved href.
- *
- * 4. Panel shown on DOMContentLoaded -- no async dependencies for display.
- *
- * 5. Email field pre-filled from URL ?email= param and set readOnly.
- *    Falls back to a clear prompt if param not present.
- *
- * 6. onAuthStateChanged suppressed while processing email link -- redirect
- *    is handled explicitly after the full chain completes.
- *
- * 7. signOut only called if a different user is currently signed in, and
- *    only immediately before signInWithEmailLink.
- *
- * 8. Chain order: signInWithEmailLink -> updatePassword -> pending=false -> redirect.
- *    pending write failure is non-blocking (portal also clears it on load).
- *
- * 9. Explicit, specific error messages for each Firebase error code.
- */
-
-/* 1. Save href immediately -- before any async operation can modify it */
-/*
- * -- Custom Token Invite Flow ------------------------------------------------
- *
- * Replaces Firebase email link auth for invite flow.
- * Token-based: GAS generates UUID, stores in RTDB invites/{token},
- * emails link with ?invite=TOKEN&email=EMAIL params.
- *
- * Flow:
- * 1. Detect ?invite= param in URL → show set-password panel.
- * 2. Pre-fill email from ?email= param, lock field.
- * 3. On submit: call GAS validateInvite → marks token used in RTDB.
- * 4. Call Firebase createUserWithEmailAndPassword with chosen password.
- *    If user already exists (reinvite): sign in and updatePassword instead.
- * 5. Clear pending flag in RTDB.
- * 6. Redirect to portal.
- *
- * Standard sign-in (no invite param) uses normal email/password flow.
- */
-
-var INVITE_GAS_URL = 'https://script.google.com/macros/s/AKfycbw9PcyI4Gl53H3hDagt-M_r9bBXUfNsPxuGTBFKxf0AIEpEx8aMuSN65i482Ke0gMb4Cg/exec';
-
-/* -- Club picker constants ------------------------------------------------- */
-var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
-var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
-var suClubsData    = [];
-
-var urlParams    = new URLSearchParams(window.location.search);
-var INVITE_TOKEN = urlParams.get('invite') || '';
-var INVITE_EMAIL = urlParams.get('email')  ? decodeURIComponent(urlParams.get('email')) : '';
-var IS_INVITE    = !!INVITE_TOKEN;
-
-/* Show set-password panel immediately if this is an invite link */
-if (IS_INVITE) {
-  document.addEventListener('DOMContentLoaded', function() {
+  /* Invite flow — token in URL */
+  if (IS_INVITE) {
     showPanel('panelSetPassword');
     var emailInput = document.getElementById('setPwEmail');
     if (INVITE_EMAIL) {
@@ -792,19 +754,68 @@ if (IS_INVITE) {
       emailInput.style.background = 'var(--off-white)';
       emailInput.style.color      = 'var(--text-muted)';
       emailInput.style.cursor     = 'default';
-    } else {
-      emailInput.placeholder = 'Enter the email address your invite was sent to';
     }
-  });
-}
-
-/* Auth state -- only redirect if not processing an invite */
-auth.onAuthStateChanged(function(user) {
-  if (IS_INVITE) return;
-  if (user) window.location.replace(PORTAL_URL);
+    /* Clean URL */
+    window.history.replaceState({}, '', window.location.pathname);
+    return;
+  }
 });
 
-/* -- Sign in --------------------------------------------------------------- */
+/* ── Auth state routing ─────────────────────────────────────────────────── */
+auth.onAuthStateChanged(function(user) {
+  /* Invite and reset flows handle their own routing */
+  if (IS_INVITE || IS_RESET) return;
+
+  if (!user) {
+    showPanel('panelSignIn');
+    return;
+  }
+
+  /* User is logged in — check their status */
+  db.ref('users/' + user.uid).once('value').then(function(snap) {
+    if (!snap.exists()) {
+      /* No user record — sign out and show error */
+      auth.signOut();
+      return;
+    }
+    var ud = snap.val();
+    if (ud.rejected) {
+      showPanel('panelRejected');
+    } else if (ud.pending) {
+      showPanel('panelPending');
+      startPendingListener(user.uid);
+    } else {
+      window.location.replace(PORTAL_URL);
+    }
+  }).catch(function() {
+    auth.signOut();
+  });
+});
+
+/* ── Real-time listener for pending approval ────────────────────────────── */
+function startPendingListener(uid) {
+  /* Cancel any existing listener */
+  if (window._pendingListener) {
+    window._pendingListener();
+    window._pendingListener = null;
+  }
+
+  var ref = db.ref('users/' + uid + '/pending');
+  var unsubscribe = ref.on('value', function(snap) {
+    var pending = snap.val();
+    if (pending === false || pending === null) {
+      /* Approved — redirect to portal */
+      unsubscribe();
+      window._pendingListener = null;
+      window.location.replace(PORTAL_URL);
+    }
+  });
+
+  /* Store unsubscribe function so we can cancel on sign-out */
+  window._pendingListener = function() { ref.off('value', unsubscribe); };
+}
+
+/* ── Sign in ────────────────────────────────────────────────────────────── */
 function doSignIn() {
   var email = document.getElementById('signinEmail').value.trim();
   var pass  = document.getElementById('signinPassword').value;
@@ -820,9 +831,7 @@ function doSignIn() {
     .catch(function(err) {
       setBtnLoading('signinBtn', false, 'Sign in');
       var msg = 'Sign-in failed. Please check your details.';
-      if (err.code === 'auth/user-not-found' ||
-          err.code === 'auth/wrong-password'  ||
-          err.code === 'auth/invalid-credential') {
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         msg = 'Incorrect email or password.';
       } else if (err.code === 'auth/too-many-requests') {
         msg = 'Too many attempts. Please try again later or reset your password.';
@@ -833,7 +842,7 @@ function doSignIn() {
     });
 }
 
-/* -- Forgot password ------------------------------------------------------- */
+/* ── Forgot password ────────────────────────────────────────────────────── */
 function doForgotPassword() {
   var email = document.getElementById('forgotEmail').value.trim();
   if (!email) {
@@ -844,15 +853,44 @@ function doForgotPassword() {
   auth.sendPasswordResetEmail(email)
     .then(function() {
       setBtnLoading('forgotBtn', false, 'Send reset email');
-      showMsg('forgotMsg', 'If that address is registered, a reset email has been sent.', 'info');
+      showMsg('forgotMsg', 'If that address is registered, a reset email has been sent. Check your inbox.', 'info');
     })
     .catch(function() {
       setBtnLoading('forgotBtn', false, 'Send reset email');
-      showMsg('forgotMsg', 'If that address is registered, a reset email has been sent.', 'info');
+      showMsg('forgotMsg', 'If that address is registered, a reset email has been sent. Check your inbox.', 'info');
     });
 }
 
-/* -- Set password (custom token invite flow) -------------------------------- */
+/* ── Reset password (oobCode flow) ─────────────────────────────────────── */
+function doResetPassword() {
+  var newPass  = document.getElementById('resetPwNew').value;
+  var confirm  = document.getElementById('resetPwConfirm').value;
+  if (newPass.length < 8) {
+    showMsg('resetpwMsg', 'Password must be at least 8 characters.', 'error');
+    return;
+  }
+  if (newPass !== confirm) {
+    showMsg('resetpwMsg', 'Passwords do not match.', 'error');
+    return;
+  }
+  setBtnLoading('resetPwBtn', true);
+  auth.confirmPasswordReset(OOB_CODE, newPass)
+    .then(function() {
+      setBtnLoading('resetPwBtn', false, 'Set new password');
+      showMsg('resetpwMsg', 'Password updated successfully. You can now sign in.', 'success');
+      setTimeout(function() { showPanel('panelSignIn'); }, 2000);
+    })
+    .catch(function(err) {
+      setBtnLoading('resetPwBtn', false, 'Set new password');
+      var msg = 'Could not reset password.';
+      if (err.code === 'auth/weak-password')     msg = 'Password is too weak — please choose something stronger.';
+      if (err.code === 'auth/expired-action-code') msg = 'This reset link has expired. Please request a new one.';
+      if (err.code === 'auth/invalid-action-code') msg = 'This reset link is invalid or already used.';
+      showMsg('resetpwMsg', msg, 'error');
+    });
+}
+
+/* ── Set password (invite token flow) ───────────────────────────────────── */
 function doSetPassword() {
   var email   = document.getElementById('setPwEmail').value.trim();
   var pass    = document.getElementById('setPwPassword').value;
@@ -878,28 +916,24 @@ function doSetPassword() {
   setBtnLoading('setPwBtn', true);
   showMsg('setpwMsg', 'Verifying invite…', 'info');
 
-  /* Step 1: read token directly from RTDB -- instant, no GAS cold start */
+  /* Read token directly from RTDB — instant, no GAS cold start */
   db.ref('invites/' + INVITE_TOKEN).once('value')
     .then(function(snap) {
       var invite = snap.val();
-
-      if (!invite)            throw { message: 'Invite not found. Please use the link from your invite email.' };
-      if (invite.used)        throw { message: 'This invite link has already been used.' };
+      if (!invite)       throw { message: 'Invite not found. Please use the link from your invite email.' };
+      if (invite.used)   throw { message: 'This invite link has already been used.' };
       if ((invite.email || '').toLowerCase() !== email.toLowerCase()) {
         throw { message: 'Email does not match this invite. Please check and try again.' };
       }
       var now     = new Date();
       var expires = new Date(invite.expiresAt);
-      if (now > expires)      throw { message: 'This invite link has expired. Please ask for a new invite.' };
+      if (now > expires) throw { message: 'This invite link has expired. Please ask for a new invite.' };
 
       showMsg('setpwMsg', 'Creating your account…', 'info');
 
-      /* Step 2: create Firebase Auth account */
       return auth.createUserWithEmailAndPassword(email, pass)
         .then(function(credential) {
           var uid = credential.user.uid;
-
-          /* Step 3: mark token used + create user record in one update */
           var updates = {};
           updates['invites/' + INVITE_TOKEN + '/used'] = true;
           updates['users/' + uid + '/name']     = invite.name     || '';
@@ -911,7 +945,6 @@ function doSetPassword() {
           updates['users/' + uid + '/clubRole'] = invite.clubRole || '';
           updates['users/' + uid + '/pending']  = false;
           updates['users/' + uid + '/tools']    = invite.tools    || {};
-
           return db.ref().update(updates);
         });
     })
@@ -920,310 +953,377 @@ function doSetPassword() {
     })
     .catch(function(err) {
       setBtnLoading('setPwBtn', false, 'Set password & sign in');
-
       if (err.code === 'auth/email-already-in-use') {
-        showMsg('setpwMsg', 'An account with this email already exists. Please sign in normally or use the forgot password link.', 'info');
+        showMsg('setpwMsg',
+          'An account with this email already exists. Please sign in instead, or use the forgot password link if needed.',
+          'info');
         return;
       }
-      var msg;
-      switch (err.code) {
-        case 'auth/weak-password':
-          msg = 'Password is too weak — please choose something stronger.';
-          break;
-        case 'auth/invalid-email':
-          msg = 'Invalid email address.';
-          break;
-        case 'auth/too-many-requests':
-          msg = 'Too many attempts. Please wait a few minutes and try again.';
-          break;
-        default:
-          msg = err.message || 'Could not complete sign-in. Please contact the National League if this persists.';
-      }
+      var msg = err.message || 'Could not complete sign-in.';
+      if (err.code === 'auth/weak-password')    msg = 'Password is too weak — please choose something stronger.';
+      if (err.code === 'auth/invalid-email')     msg = 'Invalid email address.';
+      if (err.code === 'auth/too-many-requests') msg = 'Too many attempts. Please wait a few minutes and try again.';
       showMsg('setpwMsg', msg, 'error');
     });
 }
 
-function loadSuClubs() {
-  if (suClubsData.length) return Promise.resolve();
-  return fetch(CLUBS_META_URL + '?cb=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(data) { suClubsData = data.clubs || []; })
-    .catch(function() { suClubsData = []; });
+/* ── Request access: step navigation ───────────────────────────────────── */
+function goReqStep2() {
+  var name     = document.getElementById('reqName').value.trim();
+  var email    = document.getElementById('reqEmail').value.trim();
+  var pass     = document.getElementById('reqPassword').value;
+  var club     = document.getElementById('reqClub').value.trim();
+  var clubRole = document.getElementById('reqClubRole').value.trim();
+
+  if (!name || !email || !clubRole) {
+    showMsg('reqMsg1', 'Please fill in all fields.', 'error');
+    return;
+  }
+  if (!club) {
+    showMsg('reqMsg1', 'Please select your club from the dropdown.', 'error');
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showMsg('reqMsg1', 'Please enter a valid email address.', 'error');
+    return;
+  }
+  if (pass.length < 8) {
+    showMsg('reqMsg1', 'Password must be at least 8 characters.', 'error');
+    return;
+  }
+
+  document.getElementById('reqStep1').style.display = 'none';
+  document.getElementById('reqStep2').style.display = 'block';
 }
 
-function renderSuClubList(filter) {
-  var dd = document.getElementById('suClubDropdown');
-  var q  = (filter || '').toLowerCase().trim();
+function goReqStep1() {
+  document.getElementById('reqStep2').style.display = 'none';
+  document.getElementById('reqStep1').style.display = 'block';
+}
 
-  var matches = q
-    ? suClubsData.filter(function(c) {
-        return c.name.toLowerCase().indexOf(q) !== -1 ||
-               (c.short && c.short.toLowerCase().indexOf(q) !== -1);
-      }).slice(0, 12)
-    : suClubsData.slice(0, 12);
+/* ── Request access: submit ─────────────────────────────────────────────── */
+function doSubmitRequest() {
+  var name     = document.getElementById('reqName').value.trim();
+  var email    = document.getElementById('reqEmail').value.trim();
+  var pass     = document.getElementById('reqPassword').value;
+  var club     = document.getElementById('reqClub').value.trim();
+  var clubRole = document.getElementById('reqClubRole').value.trim();
+
+  /* Collect selected tool keys */
+  var selectedTools = {};
+  document.querySelectorAll('#reqToolContainer input[name="reqTool"]:checked').forEach(function(cb) {
+    selectedTools[cb.value] = 'access';
+  });
+
+  setBtnLoading('reqSubmitBtn', true);
+  showMsg('reqMsg2', 'Creating your account…', 'info');
+
+  /* Step 1: Create Firebase Auth account */
+  auth.createUserWithEmailAndPassword(email, pass)
+    .then(function(credential) {
+      var uid = credential.user.uid;
+
+      /* Step 2: Write user record (pending:true) + request entry atomically */
+      var now     = Date.now();
+      var updates = {};
+
+      updates['users/' + uid + '/name']      = name;
+      updates['users/' + uid + '/email']     = email;
+      updates['users/' + uid + '/role']      = 'club';
+      updates['users/' + uid + '/org']       = '';
+      updates['users/' + uid + '/orgKey']    = 'club';
+      updates['users/' + uid + '/club']      = club;
+      updates['users/' + uid + '/clubRole']  = clubRole;
+      updates['users/' + uid + '/pending']   = true;
+      updates['users/' + uid + '/tools']     = selectedTools;
+
+      /* Write request record — references the uid so admin can link them */
+      var reqKey = db.ref('requests').push().key;
+      updates['requests/' + reqKey + '/uid']       = uid;
+      updates['requests/' + reqKey + '/name']      = name;
+      updates['requests/' + reqKey + '/email']     = email;
+      updates['requests/' + reqKey + '/club']      = club;
+      updates['requests/' + reqKey + '/clubRole']  = clubRole;
+      updates['requests/' + reqKey + '/tools']     = selectedTools;
+      updates['requests/' + reqKey + '/role']      = 'club';
+      updates['requests/' + reqKey + '/status']    = 'pending';
+      updates['requests/' + reqKey + '/createdAt'] = now;
+
+      return db.ref().update(updates).then(function() { return uid; });
+    })
+    .then(function(uid) {
+      /* Step 3: Fire GAS calls — fire and forget, don't block on these */
+      var portalUrl = window.location.origin + '/tools/portal/';
+
+      /* Notify admins */
+      fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify({
+          action:    'notifyAdmin',
+          name:      name,
+          email:     email,
+          club:      club,
+          clubRole:  clubRole,
+          tools:     selectedTools,
+          portalUrl: portalUrl
+        })
+      }).catch(function() {});
+
+      /* Confirm to user */
+      fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify({
+          action: 'confirmRequest',
+          name:   name,
+          email:  email,
+          club:   club
+        })
+      }).catch(function() {});
+
+      /* Show pending panel — they're already signed in */
+      showPanel('panelPending');
+      startPendingListener(uid);
+    })
+    .catch(function(err) {
+      setBtnLoading('reqSubmitBtn', false, 'Submit request');
+      if (err.code === 'auth/email-already-in-use') {
+        goReqStep1();
+        showMsg('reqMsg1',
+          'An account already exists with this email. Please sign in instead.',
+          'info');
+        return;
+      }
+      var msg = 'Could not submit request. Please try again.';
+      if (err.code === 'auth/weak-password')    msg = 'Password is too weak — please choose something stronger.';
+      if (err.code === 'auth/invalid-email')     msg = 'Invalid email address.';
+      if (err.code === 'auth/too-many-requests') msg = 'Too many attempts. Please wait and try again.';
+      showMsg('reqMsg2', msg, 'error');
+    });
+}
+
+/* ── Withdraw request ───────────────────────────────────────────────────── */
+function doWithdraw() {
+  var btn = document.getElementById('withdrawBtn');
+  if (btn.dataset.confirmed !== '1') {
+    btn.dataset.confirmed = '1';
+    btn.textContent = 'Confirm withdrawal?';
+    btn.style.background = 'var(--red)';
+    btn.style.color = '#fff';
+    btn.style.border = 'none';
+    setTimeout(function() {
+      if (btn.dataset.confirmed === '1') {
+        btn.dataset.confirmed = '0';
+        btn.textContent = 'Withdraw request';
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.border = '';
+      }
+    }, 3000);
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Withdrawing…';
+
+  var user = auth.currentUser;
+  if (!user) { doSignOut(); return; }
+
+  var uid = user.uid;
+
+  /* Cancel RTDB listener */
+  if (window._pendingListener) {
+    window._pendingListener();
+    window._pendingListener = null;
+  }
+
+  /* Delete user record from RTDB + mark request cancelled */
+  db.ref('users/' + uid).remove()
+    .then(function() {
+      /* Delete Firebase Auth account — user is currently signed in so this works */
+      return user.delete();
+    })
+    .then(function() {
+      showPanel('panelSignIn');
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'Withdraw request';
+      btn.dataset.confirmed = '0';
+      /* If requires-recent-login, sign out and redirect */
+      if (err.code === 'auth/requires-recent-login') {
+        doSignOut();
+      }
+    });
+}
+
+/* ── Club picker for request form ───────────────────────────────────────── */
+var reqClubsData = [];
+var reqClubPickerInited = false;
+
+function loadReqClubs() {
+  if (reqClubsData.length) return Promise.resolve();
+  return fetch(CLUBS_META_URL + '?cb=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(data) { reqClubsData = data.clubs || []; })
+    .catch(function() { reqClubsData = []; });
+}
+
+function initReqClubPicker() {
+  if (reqClubPickerInited) return;
+  reqClubPickerInited = true;
+
+  var input = document.getElementById('reqClubInput');
+  var dd    = document.getElementById('reqClubDropdown');
+
+  input.addEventListener('input', function() {
+    document.getElementById('reqClub').value = '';
+    setReqCrest('');
+    var val = input.value.trim();
+    if (!val) { dd.classList.remove('open'); return; }
+    loadReqClubs().then(function() { renderReqClubList(val); });
+  });
+
+  input.addEventListener('focus', function() {
+    if (input.value.trim() && reqClubsData.length) renderReqClubList(input.value);
+  });
+
+  document.addEventListener('click', function(e) {
+    var picker = document.querySelector('#panelRequest .club-picker');
+    if (picker && !picker.contains(e.target)) dd.classList.remove('open');
+  });
+}
+
+function renderReqClubList(filter) {
+  var dd      = document.getElementById('reqClubDropdown');
+  var q       = filter.toLowerCase().trim();
+  var matches = reqClubsData.filter(function(c) {
+    return c.name.toLowerCase().indexOf(q) !== -1 ||
+           (c.short && c.short.toLowerCase().indexOf(q) !== -1);
+  }).slice(0, 12);
 
   dd.innerHTML = '';
-
-  if (matches.length === 0) {
-      var emptyEl = document.createElement('div');
-  emptyEl.style.cssText = 'padding:10px 14px;font-size:13px;color:#aab4c4;';
-  emptyEl.textContent = 'No clubs found';
-  dd.appendChild(emptyEl);
-  dd.classList.add('open');
-  return;
+  if (!matches.length) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:10px 14px;font-size:13px;color:#aab4c4;';
+    empty.textContent = 'No clubs found';
+    dd.appendChild(empty);
+    dd.classList.add('open');
+    return;
   }
 
   matches.forEach(function(c) {
     var item = document.createElement('div');
     item.className = 'club-picker__option';
-
     var img = document.createElement('img');
     img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
-    img.style.width  = '28px';
-    img.style.height = '28px';
-    img.style.objectFit = 'contain';
     img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-
     var nameSpan = document.createElement('span');
     nameSpan.className = 'club-picker__option-name';
     nameSpan.textContent = c.name;
-
     var divSpan = document.createElement('span');
     divSpan.className = 'club-picker__option-div';
     divSpan.textContent = c.division || '';
-
     item.appendChild(img);
     item.appendChild(nameSpan);
     item.appendChild(divSpan);
-
-    /* Use click, not mousedown - no blur race since we removed onblur */
-    item.addEventListener('click', function() {
-      selectSuClub(c.name, CREST_BASE + encodeURIComponent(c.name) + '.png');
+    item.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      selectReqClub(c.name);
     });
-
     dd.appendChild(item);
   });
-
   dd.classList.add('open');
 }
 
-function selectSuClub(name, crestUrl) {
-  document.getElementById('suClubInput').value = name;
-  document.getElementById('suClub').value      = name;
-  setSuClubCrest(crestUrl);
-  document.getElementById('suClubDropdown').classList.remove('open');
+function selectReqClub(name) {
+  document.getElementById('reqClubInput').value = name;
+  document.getElementById('reqClub').value      = name;
+  setReqCrest(CREST_BASE + encodeURIComponent(name) + '.png');
+  document.getElementById('reqClubDropdown').classList.remove('open');
 }
 
-function setSuClubCrest(url) {
-  var img = document.getElementById('suClubCrest');
+function setReqCrest(url) {
+  var img = document.getElementById('reqClubCrest');
   img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
   img.src = url || FALLBACK_CREST;
 }
 
-function onSuClubInput(val) {
-  document.getElementById('suClub').value = '';
-  setSuClubCrest('');
-  if (!val.trim()) {
-    document.getElementById('suClubDropdown').classList.remove('open');
-    return;
-  }
-  loadSuClubs().then(function() { renderSuClubList(val); });
-}
+/* ── Load tools for request form ────────────────────────────────────────── */
+var reqToolsLoaded = false;
 
-function initSuClubPicker() {
-  var input = document.getElementById('suClubInput');
-  var dd    = document.getElementById('suClubDropdown');
-
-  /* Open dropdown on focus if input has a value */
-  input.addEventListener('focus', function() {
-    if (input.value.trim() && suClubsData.length) renderSuClubList(input.value);
-  });
-
-  /* Close when clicking outside the picker entirely */
-  document.addEventListener('click', function(e) {
-    var picker = document.querySelector('.club-picker');
-    if (picker && !picker.contains(e.target)) {
-      dd.classList.remove('open');
+function loadReqTools() {
+  if (reqToolsLoaded) return;
+  db.ref('tools').once('value').then(function(snap) {
+    reqToolsLoaded = true;
+    var container = document.getElementById('reqToolContainer');
+    if (!snap.exists()) {
+      container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px 0;">No tools available.</p>';
+      return;
     }
+    var tools  = snap.val();
+    var groups = {};
+    Object.keys(tools).forEach(function(key) {
+      var t = tools[key];
+      if (t.placeholder) return;
+      if (t.department === 'staff') return; /* staff tools never shown to club */
+      var clubDefault = t.defaults && t.defaults['club'];
+      if (!clubDefault || clubDefault === 'hidden') return;
+      var dept = t.department || 'General';
+      if (!groups[dept]) groups[dept] = [];
+      groups[dept].push({ key: key, label: t.label || key, description: t.description || '', icon: t.icon || '' });
+    });
+
+    var depts = Object.keys(groups).sort();
+    if (!depts.length) {
+      container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px 0;">No tools available for club sign-up.</p>';
+      return;
+    }
+
+    var html = '';
+    depts.forEach(function(dept) {
+      var deptId = dept.replace(/[^a-z0-9]/gi, '_');
+      html += '<div class="tool-group">';
+      html += '<div class="tool-group__header">';
+      html += '<span class="tool-group__label">' + esc(dept) + '</span>';
+      html += '<button type="button" class="tool-group__select-all" onclick="reqSelectAll(\'' + escJ(deptId) + '\')">Select all</button>';
+      html += '</div><div class="tool-checkboxes" id="reqDept_' + esc(deptId) + '">';
+      groups[dept].forEach(function(t) {
+        html += '<label class="tool-checkbox">';
+        html += '<input type="checkbox" name="reqTool" value="' + esc(t.key) + '">';
+        html += '<span class="tool-checkbox__text">';
+        html += '<span class="tool-checkbox__name">' + esc((t.icon ? t.icon + '  ' : '') + t.label) + '</span>';
+        if (t.description) html += '<span class="tool-checkbox__desc">' + esc(t.description) + '</span>';
+        html += '</span></label>';
+      });
+      html += '</div></div>';
+    });
+    container.innerHTML = html;
+  }).catch(function() {
+    document.getElementById('reqToolContainer').innerHTML =
+      '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px 0;">Could not load tools. You can still submit your request.</p>';
   });
 }
 
-/* -- Club sign-up: tool loading -------------------------------------------- */
-/*
- * Loads the tools catalogue from RTDB and renders club-tier tools only,
- * grouped by department, each with a select-all button.
- * visibleToAll tools are always shown. placeholder tools are excluded.
- */
-var suToolsLoaded = false;
-
-function loadSignupTools() {
-  if (suToolsLoaded) return;
-
-  db.ref('tools').once('value')
-    .then(function(snap) {
-      suToolsLoaded = true;
-      var container = document.getElementById('toolGroupsContainer');
-
-      if (!snap.exists()) {
-        container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">No tools available.<\/p>';
-        return;
-      }
-
-      var tools = snap.val();
-      /* Collect tools visible to club users (defaults.club !== hidden)
-         or visibleToAll. Exclude placeholders. */
-      var groups = {};
-      Object.keys(tools).forEach(function(key) {
-        var t = tools[key];
-        if (t.placeholder) return;
-        var clubDefault = t.defaults && t.defaults['club'];
-        var isClubVisible = clubDefault && clubDefault !== 'hidden';
-        if (!isClubVisible && !t.visibleToAll) return;
-        var dept = t.department || 'General';
-        if (!groups[dept]) groups[dept] = [];
-        groups[dept].push({ key: key, label: t.label, description: t.description || '', icon: t.icon || '' });
-      });
-
-      var depts = Object.keys(groups).sort();
-      if (depts.length === 0) {
-        container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">No tools available for club sign-up.<\/p>';
-        return;
-      }
-
-      var html = '';
-      depts.forEach(function(dept) {
-        var deptId = dept.replace(/[^a-z0-9]/gi, '_');
-        html += '<div class="tool-group">';
-        html += '<div class="tool-group__header">';
-        html += '<span class="tool-group__label">' + esc(dept) + '<\/span>';
-        html += '<button class="tool-group__select-all" onclick="selectAllInDept(\'' + escJ(deptId) + '\')">Select all<\/button>';
-        html += '<\/div>';
-        html += '<div class="tool-checkboxes" id="dept_' + esc(deptId) + '">';
-        groups[dept].forEach(function(t) {
-          html += '<label class="tool-checkbox">';
-          html += '<input type="checkbox" name="suTool" value="' + esc(t.key) + '">';
-          html += '<span class="tool-checkbox__text">';
-          html += '<span class="tool-checkbox__name">' + esc(t.icon ? t.icon + '  ' : '') + esc(t.label) + '<\/span>';
-          if (t.description) {
-            html += '<span class="tool-checkbox__desc">' + esc(t.description) + '<\/span>';
-          }
-          html += '<\/span>';
-          html += '<\/label>';
-        });
-        html += '<\/div><\/div>';
-      });
-
-      container.innerHTML = html;
-    })
-    .catch(function(err) {
-      document.getElementById('toolGroupsContainer').innerHTML =
-        '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">Could not load tools. You can still submit your request.<\/p>';
-    });
+function reqSelectAll(deptId) {
+  var c = document.getElementById('reqDept_' + deptId);
+  if (!c) return;
+  var boxes = c.querySelectorAll('input[type="checkbox"]');
+  var all   = Array.prototype.every.call(boxes, function(b) { return b.checked; });
+  boxes.forEach(function(b) { b.checked = !all; });
 }
 
-function selectAllInDept(deptId) {
-  var container = document.getElementById('dept_' + deptId);
-  if (!container) return;
-  var checkboxes = container.querySelectorAll('input[type="checkbox"]');
-  /* If all checked, uncheck all; otherwise check all */
-  var allChecked = Array.prototype.every.call(checkboxes, function(c) { return c.checked; });
-  checkboxes.forEach(function(c) { c.checked = !allChecked; });
-}
-
-/* -- Club sign-up: step navigation ---------------------------------------- */
-function goSignupStep2() {
-  var name     = document.getElementById('suName').value.trim();
-  var email    = document.getElementById('suEmail').value.trim();
-  /* suClub hidden field is set by selectSuClub(); suClubInput is display only */
-  var club     = document.getElementById('suClub').value.trim();
-  var clubRole = document.getElementById('suClubRole').value.trim();
-
-  if (!name || !email || !clubRole) {
-    showMsg('signupMsg1', 'Please fill in all fields.', 'error');
-    return;
-  }
-  if (!club) {
-    showMsg('signupMsg1', 'Please select your club from the dropdown.', 'error');
-    return;
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showMsg('signupMsg1', 'Please enter a valid email address.', 'error');
-    return;
-  }
-
-  document.getElementById('signupStep1').style.display = 'none';
-  document.getElementById('signupStep2').style.display = 'block';
-}
-
-function goSignupStep1() {
-  document.getElementById('signupStep2').style.display = 'none';
-  document.getElementById('signupStep1').style.display = 'block';
-}
-
-/* -- Club sign-up: submit -------------------------------------------------- */
-function doSubmitSignup() {
-  var name     = document.getElementById('suName').value.trim();
-  var email    = document.getElementById('suEmail').value.trim();
-  var club     = document.getElementById('suClub').value.trim();
-  var clubRole = document.getElementById('suClubRole').value.trim();
-
-  /* Collect selected tool keys */
-  var selected = [];
-  document.querySelectorAll('input[name="suTool"]:checked').forEach(function(cb) {
-    selected.push(cb.value);
-  });
-
-  setBtnLoading('submitSignupBtn', true);
-
-  /* Write to RTDB requests/ node - unauthenticated write allowed */
-  var requestRef = db.ref('requests').push();
-  var payload = {
-    name:      name,
-    email:     email,
-    club:      club,
-    clubRole:  clubRole,
-    tools:     selected,
-    role:      'club',
-    status:    'pending',
-    createdAt: Date.now()
-  };
-
-  requestRef.set(payload)
-    .then(function() {
-      /* RTDB write succeeded -- show success immediately */
-      setBtnLoading('submitSignupBtn', false, 'Submit request');
-      document.getElementById('signupStep2').style.display = 'none';
-      document.getElementById('signupStep3').style.display = 'block';
-
-      /* Notify via GAS -- fire and forget, fields sent flat as GAS expects */
-      fetch(GAS_URL + '?cb=' + Date.now(), {
-        method:  'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body:    JSON.stringify({
-          action: 'requestAccess',
-          name:    payload.name,
-          email:   payload.email,
-          club:    payload.club,
-          tools:   payload.tools.join(', ')
-        })
-      }).catch(function() { /* GAS failure -- request already saved to RTDB */ });
-    })
-    .catch(function() {
-      setBtnLoading('submitSignupBtn', false, 'Submit request');
-      showMsg('signupMsg2', 'Could not submit request. Please try again.', 'error');
-    });
-}
-
-/* -- Keyboard: submit on Enter --------------------------------------------- */
+/* ── Keyboard: submit on Enter ──────────────────────────────────────────── */
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Enter') return;
   var active = document.querySelector('.panel.active');
   if (!active) return;
-  if (active.id === 'panelSignIn')      doSignIn();
-  if (active.id === 'panelForgot')      doForgotPassword();
-  if (active.id === 'panelSetPassword') doSetPassword();
+  if (active.id === 'panelSignIn')       doSignIn();
+  if (active.id === 'panelForgot')       doForgotPassword();
+  if (active.id === 'panelResetPassword') doResetPassword();
+  if (active.id === 'panelSetPassword')  doSetPassword();
 });
 </script>
-
 </body>
 </html>
