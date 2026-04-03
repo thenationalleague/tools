@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.10 (conversation turn 10)
+  Version: v1.11 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.11 — Force ID token refresh (getIdToken(true)) before firing init().
+          RTDB was denying all reads because the auth token had not been
+          presented yet even though currentUser was available. Debug bar removed.
   v1.9 — End date now always defaults to start date and is always written.
          Start date change syncs end date forward if end < start.
          Removes the empty endDate edge case that was causing loop hangs.
@@ -571,21 +574,19 @@
       if (S.isSA) document.getElementById('adminTab').style.display = '';
       document.getElementById('pageWrap').style.display = 'block';
 
-      /* Temporary debug bar */
-      var dbg = document.createElement('div');
-      dbg.id = 'debugBar';
-      dbg.style.cssText = 'background:#1a2f63;color:#fff;font-size:11px;padding:8px 14px;font-family:monospace;line-height:1.8;word-break:break-all;position:relative;z-index:50;';
-      dbg.innerHTML = 'UID: '+uid+'<br>Role: '+userData.role+'<br>isSA: '+S.isSA;
-      document.getElementById('pageWrap').insertAdjacentElement('afterbegin', dbg);
-
-      init();
-
-      setTimeout(function() {
-        var el = document.getElementById('debugBar');
-        if (el) el.innerHTML += '<br>Users loaded: '+Object.keys(S.users).length
-          +'<br>Entries loaded: '+Object.keys(S.entries[uid]||{}).length
-          +'<br>BH loaded: '+Object.keys(S.bh).length;
-      }, 4000);
+      /* Force token refresh before any RTDB reads.
+         currentUser exists but the ID token may not have been sent to RTDB yet.
+         getIdToken() ensures Firebase has a valid token in flight before init(). */
+      var currentUser = firebase.auth().currentUser;
+      if (currentUser) {
+        currentUser.getIdToken(true).then(function() {
+          init();
+        }).catch(function() {
+          init(); /* proceed anyway — RTDB rules will reject if still invalid */
+        });
+      } else {
+        init();
+      }
     }
 
     /* If Firebase already has a live auth user, use it immediately */
