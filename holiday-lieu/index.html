@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.13 (conversation turn 10)
+  Version: v1.14 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.14 — After write/delete, update S.entries in memory and call refresh()
+         immediately. No longer relies on on() listener which was unreliable
+         after the getIdToken() token refresh pattern.
   v1.13 — Removed force re-fetch after save (was causing render loop with
          the on() listener). Token refresh before write retained.
          The on() listener handles re-render naturally after write.
@@ -1126,10 +1129,14 @@
         .then(function(){
           showToast(S.editId?'Entry updated':'Entry added');
           closeOv('ovEntry');
+          /* Update local state directly — on() listener unreliable after token refresh */
+          if (!S.entries[S.uid]) S.entries[S.uid] = {};
+          var entryKey = S.editId || ref.key;
+          S.entries[S.uid][entryKey] = entry;
+          refresh();
         })
         .catch(function(err){ showToast('Error: '+err.message,'error'); });
     };
-    /* Refresh token before writing to ensure RTDB auth is current */
     if (cu) { cu.getIdToken(true).then(writeEntry).catch(writeEntry); }
     else { writeEntry(); }
   }
