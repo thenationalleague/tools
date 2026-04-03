@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.21 (conversation turn 10)
+  Version: v1.22 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,12 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.22 — Office day: thick green bottom line (6px) replacing L-border.
+         Legend colours now correctly showing (legend-dot -> legend-swatch).
+         Today cell: blue inset border on solo view.
+         Team view: week view (Mon-Sun), week navigation, 1yr date limit.
+         Overtime half-day: AM/PM prompt, overtime-am/pm cell split.
+         Worked weekend/BH: pastel navy split for half-day overtime.
   v1.21 — Removed "max 1" labels from modal sections.
          Office day now shows L-border (left+bottom) not just bottom strip.
          Worked weekend/BH shows pastel navy fill (#e8ecf8).
@@ -375,6 +381,7 @@
     .legend-swatch.other             { background: var(--cal-other); }
     .legend-swatch.lieu-taken        { background: var(--white); border-bottom: 3px solid var(--cal-strip-lt); }
     .legend-swatch.bank-hol          { background: var(--cal-bh); }
+    .legend-swatch.worked             { background: var(--cal-worked); }
 
     /* Team view */
     .team-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -564,12 +571,13 @@
           <button class="btn btn-primary btn-sm" onclick="openAdd(null)">+ Add Entry</button>
         </div>
         <div class="legend">
-          <div class="legend-item"><div class="legend-dot annual-leave"></div>Annual Leave</div>
-          <div class="legend-item"><div class="legend-dot annual-leave-half"></div>Half Day</div>
-          <div class="legend-item"><div class="legend-dot office-day"></div>Office Day</div>
-          <div class="legend-item"><div class="legend-dot other"></div>Other</div>
-          <div class="legend-item"><div class="legend-dot lieu-taken"></div>Lieu Taken</div>
-          <div class="legend-item"><div class="legend-dot bank-hol"></div>Bank Holiday</div>
+          <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
+          <div class="legend-item"><div class="legend-swatch annual-leave-half"></div>Half Day (PM)</div>
+          <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
+          <div class="legend-item"><div class="legend-swatch other"></div>Other</div>
+          <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
+          <div class="legend-item"><div class="legend-swatch worked"></div>Worked extra</div>
+          <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
         <div class="cal-grid" id="myCal"></div>
       </div>
@@ -580,16 +588,16 @@
       <div class="card">
         <div class="cal-nav">
           <div class="cal-nav__title" id="teamTitle"></div>
-          <button class="cal-nav__btn" onclick="teamNav(-1)">‹</button>
+          <button class="cal-nav__btn" onclick="teamNav(-7)">‹ Prev week</button>
           <button class="cal-nav__btn today" onclick="teamToday()">Today</button>
-          <button class="cal-nav__btn" onclick="teamNav(1)">›</button>
+          <button class="cal-nav__btn" onclick="teamNav(7)">Next week ›</button>
         </div>
         <div class="legend">
-          <div class="legend-item"><div class="legend-dot annual-leave"></div>Annual Leave</div>
-          <div class="legend-item"><div class="legend-dot office-day"></div>Office Day</div>
-          <div class="legend-item"><div class="legend-dot other"></div>Other</div>
-          <div class="legend-item"><div class="legend-dot lieu-taken"></div>Lieu Taken</div>
-          <div class="legend-item"><div class="legend-dot bank-hol"></div>Bank Holiday</div>
+          <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
+          <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
+          <div class="legend-item"><div class="legend-swatch other"></div>Other</div>
+          <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
+          <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
         <div class="team-wrap">
           <table class="team-tbl">
@@ -909,6 +917,7 @@
     users: {}, entries: {}, lieu: {}, bh: {},
     myY: new Date().getFullYear(), myM: new Date().getMonth(),
     tmY: new Date().getFullYear(), tmM: new Date().getMonth(),
+    tmWeekStart: null, /* ISO date of Mon of current team week */
     activeTab: 'my',
     editId: null, selType: null
   };
@@ -1106,13 +1115,39 @@
   /* ── My Calendar ── */
   function myNav(d) { advMo('my',d); }
   function myToday() { S.myY=new Date().getFullYear(); S.myM=new Date().getMonth(); renderMyCal(); }
-  function teamNav(d) { advMo('tm',d); }
-  function teamToday() { S.tmY=new Date().getFullYear(); S.tmM=new Date().getMonth(); renderTeam(); }
+  function getMonOfWeek(isoDate) {
+    var d = new Date(isoDate+'T00:00:00');
+    var day = d.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().split('T')[0];
+  }
+  function teamNav(d) {
+    if (!S.tmWeekStart) S.tmWeekStart = getMonOfWeek(isoToday());
+    var next = addDays(S.tmWeekStart, d);
+    var minIso = getMonOfWeek(addDays(isoToday(), -365));
+    var maxIso = getMonOfWeek(addDays(isoToday(),  365));
+    if (next < minIso || next > maxIso) return;
+    S.tmWeekStart = next;
+    renderTeam();
+  }
+  function teamToday() {
+    S.tmWeekStart = getMonOfWeek(isoToday());
+    renderTeam();
+  }
 
   function advMo(pfx, dir) {
-    S[pfx+'M'] += dir;
-    if (S[pfx+'M']>11){ S[pfx+'M']=0; S[pfx+'Y']++; }
-    if (S[pfx+'M']<0) { S[pfx+'M']=11; S[pfx+'Y']--; }
+    var newM = S[pfx+'M'] + dir, newY = S[pfx+'Y'];
+    if (newM > 11) { newM = 0;  newY++; }
+    if (newM < 0)  { newM = 11; newY--; }
+    if (pfx === 'my') {
+      var t = new Date();
+      var minY=t.getFullYear()-1, minM=t.getMonth();
+      var maxY=t.getFullYear()+1, maxM=t.getMonth();
+      if (newY < minY || (newY===minY && newM < minM)) return;
+      if (newY > maxY || (newY===maxY && newM > maxM)) return;
+    }
+    S[pfx+'M'] = newM; S[pfx+'Y'] = newY;
     if (pfx==='my') renderMyCal(); else renderTeam();
   }
 
@@ -1155,7 +1190,9 @@
       var hasOff  = dayEnts.find(function(e){ return e.type==='office-day'; });
       var hasLT   = dayEnts.find(function(e){ return e.type==='lieu-taken' || e.type==='lieu-taken-am' || e.type==='lieu-taken-pm'; });
       var hasOth  = dayEnts.find(function(e){ return e.type==='other'; });
-      var hasWork = dayEnts.find(function(e){ return e.type==='overtime'; });
+      var hasWork   = dayEnts.find(function(e){ return e.type==='overtime' && (!e.overtimeAmPm); });
+      var hasWorkAM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeAmPm==='am'; });
+      var hasWorkPM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeAmPm==='pm'; });
 
       /* Build cell classes */
       var cls = 'cal-cell';
@@ -1165,7 +1202,9 @@
       else if (alAM)         cls += ' is-al-am';
       else if (alPM)         cls += ' is-al-pm';
       else if (alHalf)       cls += ' is-al-pm';
-      else if (hasWork)      cls += ' is-worked'; /* overtime on any day */
+      else if (hasWork)      cls += ' is-worked';
+      else if (hasWorkAM)    cls += ' is-worked-am';
+      else if (hasWorkPM)    cls += ' is-worked-pm';
       else if (hasOth)       cls += ' is-other';
       else if (isBH)         cls += ' is-bh';
       else if (!isWD||isWk)  cls += ' is-wknd';
@@ -1201,74 +1240,111 @@
 
   /* ── Team View ── */
   function renderTeam() {
-    var yr=S.tmY, mo=S.tmM;
-    document.getElementById('teamTitle').textContent = moName(yr,mo);
-    var dInMo = new Date(yr,mo+1,0).getDate();
-    var today = isoToday();
-    var bh    = allBH();
-    var days  = [];
-    for (var d=1;d<=dInMo;d++) {
-      var iso=yr+'-'+pad(mo+1)+'-'+pad(d);
-      var iP=iso.split('-'); var jsD=new Date(Date.UTC(+iP[0],+iP[1]-1,+iP[2])).getUTCDay();
-      days.push({iso:iso, d:d, isT:iso===today, isBH:!!bh[iso], isWk:jsD===0||jsD===6});
+    if (!S.uid) return;
+
+    /* Initialise week start to Monday of current week */
+    if (!S.tmWeekStart) S.tmWeekStart = getMonOfWeek(isoToday());
+
+    /* Build 7-day range Mon–Sun */
+    var days = [];
+    for (var i = 0; i < 7; i++) {
+      var iso = addDays(S.tmWeekStart, i);
+      var jsD = new Date(iso+'T00:00:00').getDay();
+      days.push({
+        iso:   iso,
+        jsD:   jsD,
+        day:   parseInt(iso.split('-')[2]),
+        isT:   iso === isoToday(),
+        isBH:  !!allBH()[iso],
+        isWk:  jsD === 0 || jsD === 6
+      });
     }
 
-    var hh = '<tr><th class="name-col">Name</th>';
-    days.forEach(function(day){
-      var c = day.isT?' is-today':(day.isWk?' is-wknd':'');
-      hh += '<th class="'+c+'">'+day.d+'</th>';
-    });
-    hh += '</tr>';
-    document.getElementById('teamHead').innerHTML = hh;
+    /* Week title */
+    var wkStart = new Date(S.tmWeekStart+'T00:00:00');
+    var wkEnd   = new Date(addDays(S.tmWeekStart, 6)+'T00:00:00');
+    var opts = {day:'numeric', month:'short'};
+    var title = wkStart.toLocaleDateString('en-GB', opts) + ' – ' +
+                wkEnd.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
+    document.getElementById('teamTitle').textContent = title;
 
-    var uids = Object.keys(S.users).filter(function(uid){
+    /* Get users */
+    var uids = Object.keys(S.users).filter(function(uid) {
       if (uid === 'null' || !uid) return false;
-      var r=S.users[uid].role; return r==='staff'||r==='admin'||r==='superadmin';
+      var r = S.users[uid].role;
+      return r === 'staff' || r === 'admin' || r === 'superadmin';
     });
-    uids.sort(function(a,b){
-      if(a===S.uid) return -1; if(b===S.uid) return 1;
-      return (S.users[a].name||'').localeCompare(S.users[b].name||'');
+    uids.sort(function(a,b) {
+      var na = (S.users[a].name||'').toLowerCase();
+      var nb = (S.users[b].name||'').toLowerCase();
+      return na < nb ? -1 : na > nb ? 1 : 0;
     });
 
     var bh = allBH();
+
+    /* Build header row */
+    var hdr = '<tr><th class="name-col">Name</th>';
+    days.forEach(function(day) {
+      var cls = day.isT ? ' is-today' : (day.isWk ? ' is-wknd' : '');
+      var dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][day.jsD];
+      hdr += '<th class="'+cls+'"><div>'+dayName+'</div><div>'+day.day+'</div></th>';
+    });
+    hdr += '</tr>';
+
+    /* Build data rows */
     var rows = '';
-    uids.forEach(function(uid){
-      var u   = S.users[uid];
-      var ws  = u.workSettings||{};
-      var wdA = ws.workDays||[1,2,3,4,5];
-      var ents = expandEntries(uid,yr,mo);
-      var isMe = uid===S.uid;
-      rows += '<tr><td class="name-cell'+(isMe?' is-you':'')+'">'+esc(u.name||uid)+(isMe?' <span style="color:var(--text-muted);font-size:11px">(you)</span>':'')+'</td>';
-      days.forEach(function(day){
-        var jsD  = new Date(day.iso+'T00:00:00').getDay();
-        var isWD = wdA.indexOf(jsD)!==-1;
-        var de   = ents.filter(function(e){ return e.date===day.iso; });
-        var tdC  = day.isT?' is-today':((!isWD||day.isWk)?' is-wknd':'');
-        /* Build td classes for team cell fills */
+    uids.forEach(function(uid) {
+      var u = S.users[uid];
+      var ws = (u.workSettings)||{};
+      var wdArr = ws.workDays||[1,2,3,4,5];
+      var isYou = uid === S.uid;
+
+      rows += '<tr>';
+      rows += '<td class="name-cell'+(isYou?' is-you':'')+'">'+esc(u.name||uid)+(isYou?' <span style="font-size:10px;opacity:0.6">(you)</span>':'')+'</td>';
+
+      days.forEach(function(day) {
+        var yr = parseInt(day.iso.split('-')[0]);
+        var mo = parseInt(day.iso.split('-')[1]) - 1;
+        var de = expandEntries(uid, yr, mo).filter(function(e){ return e.date===day.iso; });
+        var isWD = wdArr.indexOf(day.jsD) !== -1;
+
+        var tdC = '';
+        if (day.isT)  tdC += ' is-today';
+        if (day.isWk || !isWD) tdC += ' is-wknd';
+        if (day.isBH) tdC += ' is-bh';
+
+        /* Status fills */
         var tdStatus = '';
         if (de.length) {
           var te = de[0];
-          if (te.type==='annual-leave')           tdStatus = ' t-al';
-          else if (te.type==='annual-leave-am')   tdStatus = ' t-al-am';
-          else if (te.type==='annual-leave-pm')   tdStatus = ' t-al-pm';
-          else if (te.type==='annual-leave-half') tdStatus = ' t-al-pm';
-          else if (te.type==='overtime')          tdStatus = ' t-worked';
-          else if (te.type==='other')             tdStatus = ' t-other';
+          if      (te.type==='annual-leave')           tdStatus = ' t-al';
+          else if (te.type==='annual-leave-am')         tdStatus = ' t-al-am';
+          else if (te.type==='annual-leave-pm')         tdStatus = ' t-al-pm';
+          else if (te.type==='annual-leave-half')       tdStatus = ' t-al-pm';
+          else if (te.type==='overtime')                tdStatus = ' t-worked';
+          else if (te.type==='other')                   tdStatus = ' t-other';
         }
-        /* Secondary strips */
         var hasOff2 = de.find(function(e){ return e.type==='office-day'; });
-        var hasLT2  = de.find(function(e){ return e.type==='lieu-taken'; });
+        var hasLT2  = de.find(function(e){ return e.type==='lieu-taken'||e.type==='lieu-taken-am'||e.type==='lieu-taken-pm'; });
         if (hasOff2) tdStatus += ' t-office';
         if (hasLT2)  tdStatus += ' t-lieu';
-        var title = de.length ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'') : (day.isBH?(bh[day.iso]?bh[day.iso].label:'Bank Holiday'):'');
-        rows += '<td class="'+tdC+tdStatus+'" title="'+esc(title)+'"></td>';
+
+        var title2 = de.length
+          ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'')
+          : (day.isBH ? (bh[day.iso]?bh[day.iso].label:'Bank Holiday') : '');
+
+        rows += '<td class="'+tdC+tdStatus+'" title="'+esc(title2)+'"></td>';
       });
+
       rows += '</tr>';
     });
-    document.getElementById('teamBody').innerHTML = rows;
+
+    var wrap = document.getElementById('teamWrap');
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="team-wrap"><table class="team-tbl"><thead>'+hdr+'</thead><tbody>'+rows+'</tbody></table></div>';
   }
 
-  /* ── Org Chart ── */
+
   function renderOrg() {
     var reps = {}, hasMgr = {};
     Object.keys(S.users).forEach(function(uid){
@@ -1485,7 +1561,7 @@
   function openAdd(iso) {
     _eState = { iso:iso, isBH:false, isWD:true, bhLabel:'', alMode:null, alAmPm:null,
       lieuMode:null, lieuAmPm:null, otOffice:false, otOvertime:false, otOvertimeSize:'full',
-      otNote:false, editId:null, editType:null };
+      otAmPm:null, otNote:false, editId:null, editType:null };
     /* Detect cell context */
     var cell = document.querySelector('[data-iso="'+iso+'"]');
     if (cell) {
@@ -1621,6 +1697,13 @@
     h += '<button class="ampm-btn'+(_eState.otOvertimeSize==='full'?' sel-lieu':'')+'" onclick="setOtSize(&apos;full&apos;)">Full day</button>';
     h += '<button class="ampm-btn'+(_eState.otOvertimeSize==='half'?' sel-lieu':'')+'" onclick="setOtSize(&apos;half&apos;)">Half day</button>';
     h += '</div>';
+    if (_eState.otOvertime && _eState.otOvertimeSize === 'half') {
+      h += '<div class="ampm-row" style="margin-top:6px">';
+      h += '<button class="ampm-btn'+((_eState.otAmPm==='am')?' sel-lieu':'')+'\" onclick="setOtAmPm(&apos;am&apos;)">AM worked</button>';
+      h += '<button class="ampm-btn'+((_eState.otAmPm==='pm')?' sel-lieu':'')+'\" onclick="setOtAmPm(&apos;pm&apos;)">PM worked</button>';
+      h += '</div>';
+    }
+    
 
     /* Notes — on workdays only */
     if (!isSpecialDay) {
@@ -1680,7 +1763,8 @@
     if (which==='note')     { _eState.otNote     = !_eState.otNote; }
     buildEntryModal();
   }
-  function setOtSize(v) { _eState.otOvertimeSize = v; buildEntryModal(); }
+  function setOtSize(v) { _eState.otOvertimeSize = v; _eState.otAmPm = null; buildEntryModal(); }
+  function setOtAmPm(v) { _eState.otAmPm = v; buildEntryModal(); }
 
   function getWorkingDaysInRange(startIso, endIso) {
     /* Returns array of ISO dates that are working days (not weekend, not BH) */
@@ -1774,9 +1858,13 @@
       entries.push({ type:'office-day', date:otDate, endDate:otDate, note:note });
     }
     if (_eState.otOvertime) {
-      entries.push({ type:'overtime', date:otDate, endDate:otDate,
+      var otEntry = { type:'overtime', date:otDate, endDate:otDate,
         overtimeSize: _eState.otOvertimeSize, note:note,
-        lieuDays: _eState.otOvertimeSize === 'full' ? 1 : 0.5 });
+        lieuDays: _eState.otOvertimeSize === 'full' ? 1 : 0.5 };
+      if (_eState.otOvertimeSize === 'half' && _eState.otAmPm) {
+        otEntry.overtimeAmPm = _eState.otAmPm;
+      }
+      entries.push(otEntry);
     }
     if (_eState.otNote && !_eState.otOffice && !_eState.otOvertime) {
       /* Standalone note */
