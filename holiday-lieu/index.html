@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.31 (conversation turn 10)
+  Version: v1.33 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,11 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.33 — Team view fixed: renderTeam now writes to teamHead/teamBody
+         rather than looking for non-existent teamWrap element.
+         My calendar nav buttons now say "Prev month" / "Next month".
+  v1.32 — "Worked extra" → "Worked Extra". Note cell style changed to pill.
+         Note removed from legend.
   v1.31 — Half-day overtime now shows correct split with underlying day
          colour (BH amber, weekend grey, or white). Day-type classes
          (is-bh, is-wknd) now always applied so CSS --cell-base var is set.
@@ -349,14 +354,16 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    /* Note text inside cell (for Other entries with notes) */
+    /* Note text inside cell — pill style */
     .cal-note {
       display: block;
-      font-size: 10px;
-      color: var(--cal-other-text);
-      padding: 2px 7px 0;
+      font-size: 8px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      color: #4a5568; background: #e2e4ea;
+      border-radius: 3px;
+      margin: 2px 5px 0;
+      padding: 1px 4px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      opacity: 0.8;
     }
     /* Shared admin note — subtle, italic, visible to all */
     .cal-shared-note {
@@ -656,18 +663,17 @@
       <div class="card">
         <div class="cal-nav">
           <div class="cal-nav__title" id="myTitle"></div>
-          <button class="cal-nav__btn" onclick="myNav(-1)">‹</button>
+          <button class="cal-nav__btn" onclick="myNav(-1)">‹ Prev month</button>
           <button class="cal-nav__btn today" onclick="myToday()">Today</button>
-          <button class="cal-nav__btn" onclick="myNav(1)">›</button>
+          <button class="cal-nav__btn" onclick="myNav(1)">Next month ›</button>
           <button class="btn btn-primary btn-sm" onclick="openAdd(null)">+ Add Entry</button>
         </div>
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
           <div class="legend-item"><div class="legend-swatch annual-leave-half"></div>Half Day</div>
           <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
-          <div class="legend-item"><div class="legend-swatch note"></div>Note</div>
           <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
-          <div class="legend-item"><div class="legend-swatch worked"></div>Worked extra</div>
+          <div class="legend-item"><div class="legend-swatch worked"></div>Worked Extra</div>
           <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
         <div class="cal-grid" id="myCal"></div>
@@ -686,7 +692,6 @@
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
           <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
-          <div class="legend-item"><div class="legend-swatch note"></div>Note</div>
           <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
           <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
@@ -1526,9 +1531,11 @@
       rows += '</tr>';
     });
 
-    var wrap = document.getElementById('teamWrap');
-    if (!wrap) return;
-    wrap.innerHTML = '<div class="team-wrap"><table class="team-tbl"><thead>'+hdr+'</thead><tbody>'+rows+'</tbody></table></div>';
+    var thead = document.getElementById('teamHead');
+    var tbody = document.getElementById('teamBody');
+    if (!thead || !tbody) return;
+    thead.innerHTML = hdr;
+    tbody.innerHTML = rows;
   }
 
 
