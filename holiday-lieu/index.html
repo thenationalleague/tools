@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.44 (conversation turn 10)
+  Version: v1.45 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -320,22 +320,18 @@
     .cal-cell:hover { filter: brightness(0.96); }
 
     /* Status fills — applied to cell background */
-    .cal-cell.is-al          { background: var(--cal-al); }
-    .cal-cell.is-al-am       { background: linear-gradient(to bottom, var(--cal-al) 50%, var(--white) 50%); }
-    .cal-cell.is-al-pm       { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
-    .cal-cell.is-other       { background: var(--cal-other); }
+    .cal-cell.is-al, .team-tbl td.is-al          { background: var(--cal-al); }
+    .cal-cell.is-al-am, .team-tbl td.is-al-am   { background: linear-gradient(to bottom, var(--cal-al) 50%, var(--white) 50%); }
+    .cal-cell.is-al-pm, .team-tbl td.is-al-pm   { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
+    .cal-cell.is-other, .team-tbl td.is-other { background: var(--cal-other); }
     .cal-cell.is-wknd        { background: var(--cal-wknd); }
     .cal-cell.is-bh          { background: var(--cal-bh); }
-    .cal-cell.is-worked,
-    .cal-cell.is-bh.is-worked,
-    .cal-cell.is-wknd.is-worked      { background: var(--cal-worked); }
-    /* Half-day worked: top or bottom half blue, other half = underlying day colour */
-    .cal-cell.is-worked-am,
-    .cal-cell.is-bh.is-worked-am,
-    .cal-cell.is-wknd.is-worked-am   { background: linear-gradient(to bottom, var(--cal-worked) 50%, var(--cell-base, var(--white)) 50%); }
-    .cal-cell.is-worked-pm,
-    .cal-cell.is-bh.is-worked-pm,
-    .cal-cell.is-wknd.is-worked-pm   { background: linear-gradient(to bottom, var(--cell-base, var(--white)) 50%, var(--cal-worked) 50%); }
+    .cal-cell.is-worked, .team-tbl td.is-worked,
+    .cal-cell.is-bh.is-worked, .cal-cell.is-wknd.is-worked      { background: var(--cal-worked); }
+    .cal-cell.is-worked-am, .team-tbl td.is-worked-am,
+    .cal-cell.is-bh.is-worked-am, .cal-cell.is-wknd.is-worked-am { background: linear-gradient(to bottom, var(--cal-worked) 50%, var(--cell-base, var(--white)) 50%); }
+    .cal-cell.is-worked-pm, .team-tbl td.is-worked-pm,
+    .cal-cell.is-bh.is-worked-pm, .cal-cell.is-wknd.is-worked-pm { background: linear-gradient(to bottom, var(--cell-base, var(--white)) 50%, var(--cal-worked) 50%); }
     .cal-cell.is-worked .cal-date,
     .cal-cell.is-worked-am .cal-date,
     .cal-cell.is-worked-pm .cal-date { color: var(--cal-worked-text); font-weight: 800; font-variation-settings: 'wght' 800; }
@@ -355,10 +351,13 @@
       height: 6px;
       background: var(--cal-strip-off);
     }
-    /* Lieu taken — full pastel purple cell fill (bottom strip removed) */
-    .cal-cell.has-lieu {
-      /* fill handled by is-lieu class below */
-    }
+    /* Lieu taken — full pastel purple fill */
+    .cal-cell.is-lieu, .team-tbl td.is-lieu           { background: #f3e5f5; }
+    .cal-cell.is-lieu-am, .team-tbl td.is-lieu-am     { background: linear-gradient(to bottom, #f3e5f5 50%, var(--white) 50%); }
+    .cal-cell.is-lieu-pm, .team-tbl td.is-lieu-pm     { background: linear-gradient(to bottom, var(--white) 50%, #f3e5f5 50%); }
+    .cal-cell.is-lieu .cal-date,
+    .cal-cell.is-lieu-am .cal-date,
+    .cal-cell.is-lieu-pm .cal-date { color: #6a1b9a; font-weight: 900; font-variation-settings: 'wght' 900; }
 
     /* Date number */
     .cal-date {
@@ -525,9 +524,8 @@
     .team-tbl td.t-lieu    { background: #f3e5f5; }
     .team-tbl td.t-lieu-am { background: linear-gradient(to bottom, #f3e5f5 50%, var(--white) 50%); }
     .team-tbl td.t-lieu-pm { background: linear-gradient(to bottom, var(--white) 50%, #f3e5f5 50%); }
-    /* Team strips — td uses has-office/has-lieu same as cal-cell */
+    /* Team strips */
     .team-tbl td.has-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
-    .team-tbl td.t-office::before   { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
 
     /* Org chart — SVG-based */
     .org-wrap { overflow-x: auto; padding: 16px 8px; min-height: 120px; }
@@ -2000,7 +1998,7 @@
       return;
     }
 
-    var BOX_W = 172, BOX_H = 64, H_GAP = 28, V_GAP = 56, AV_R = 18;
+    var BOX_W = 200, BOX_H = 64, H_GAP = 28, V_GAP = 56, AV_R = 18;
 
     function initials(name) {
       var parts = (name||'?').trim().split(' ');
@@ -2072,10 +2070,10 @@
       parts.push('<circle class="'+avBg+'" cx="'+(avX+AV_R)+'" cy="'+avY+'" r="'+AV_R+'"/>');
       parts.push('<text class="org-avatar-txt '+avTxt+'" x="'+(avX+AV_R)+'" y="'+avY+'">'+ini+'</text>');
       /* Name */
-      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700">'+nameStr+'</text>');
-      if (isMe) parts.push('<tspan class="org-you-tag"> (you)</tspan>');
-      var jobStr = esc(u.jobTitle||roleLabel(u.role));
-      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10">'+jobStr+'</text>');
+      var maxTxtW = BOX_W - (textX - n.x) - 10;
+      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700" textLength="'+maxTxtW+'" lengthAdjust="spacingAndGlyphs">'+nameStr+(isMe?' (you)':'')+'</text>');
+      var jobStr = esc((u.jobTitle||roleLabel(u.role)).substring(0,28));
+      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10" textLength="'+maxTxtW+'" lengthAdjust="spacingAndGlyphs">'+jobStr+'</text>');
       parts.push('</g>');
     });
 
