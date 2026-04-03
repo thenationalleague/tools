@@ -1,16 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.21 (conversation turn 9)
+  Version: v5.22 (conversation turn 9)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
   Changelog:
-  v5.21 -- Fixed auth-guard.js included twice and before Firebase CDN.
-          This caused PERMISSION_DENIED on all RTDB reads in tool pages
-          that loaded after the portal session (holiday-lieu etc).
-          approveRequest now sends invite directly via GAS without
-          redirecting to the Invite tab. Button relabelled to "Approve".
+  v5.22 -- auth-guard removed from head/before Firebase CDN (PERMISSION_DENIED fix).
+          Request cards show per-tool access sliders; approve reads slider values.
+          loadRequests shows pending + recently handled (last 20).
   v2.0 -- Audit log tab: paginated 20-at-a-time chronological feed with
          cursor-based Load More. Search by name/email/action reads full
          per-user history from audit-by-user/{uid}. All meaningful actions
@@ -1761,7 +1759,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.21';
+var PORTAL_VERSION = 'v5.22';
 
 var STATE = {
   uid:      null,
@@ -2647,144 +2645,107 @@ function initAdminTabs() {
 
 /* ---- Requests ------------------------------------------------------------ */
 function loadRequests() {
-  db.ref('requests').orderByChild('status').equalTo('pending').once('value')
-    .then(function(snap) {
-      var container = document.getElementById('requestsList');
-      container.innerHTML = '';
+  var c = document.getElementById('requestsList');
+  c.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>';
+  db.ref('requests').once('value').then(function(snap) {
+    c.innerHTML = '';
+    if (!snap.exists()) {
+      var e=document.createElement('div'); e.className='empty-state';
+      var ei=document.createElement('div'); ei.className='empty-state__icon'; ei.textContent='??';
+      var et=document.createElement('div'); et.className='empty-state__text'; et.textContent='No requests yet.';
+      e.appendChild(ei); e.appendChild(et); c.appendChild(e); return;
+    }
+    var pending=[], handled=[];
+    snap.forEach(function(child){var r=child.val();r._key=child.key;if(r.status==='pending')pending.push(r);else handled.push(r);});
+    handled.sort(function(a,b){return(b.createdAt||0)-(a.createdAt||0);});
+    handled=handled.slice(0,20);
 
-      if (!snap.exists()) {
-        var empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.innerHTML = '';
-        var icon = document.createElement('div');
-        icon.className = 'empty-state__icon';
-        icon.textContent = '📭';
-        var text = document.createElement('div');
-        text.className = 'empty-state__text';
-        text.textContent = 'No pending requests.';
-        empty.appendChild(icon);
-        empty.appendChild(text);
-        container.appendChild(empty);
-        return;
-      }
-
-      snap.forEach(function(child) {
-        var r = child.val();
-        r._key = child.key;
-        container.appendChild(buildRequestCard(r));
+    if (pending.length) {
+      var ph=document.createElement('div');
+      ph.style.cssText='font-size:10px;font-weight:800;font-variation-settings:"wght" 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:12px;';
+      ph.textContent='Pending ('+pending.length+')'; c.appendChild(ph);
+      pending.forEach(function(r){c.appendChild(buildRequestCard(r));});
+    } else {
+      var np=document.createElement('div'); np.style.cssText='font-size:13px;color:var(--text-muted);padding:8px 0 20px;';
+      np.textContent='No pending requests.'; c.appendChild(np);
+    }
+    if (handled.length) {
+      var hh=document.createElement('div');
+      hh.style.cssText='font-size:10px;font-weight:800;font-variation-settings:"wght" 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin:20px 0 12px;border-top:1px solid var(--border);padding-top:16px;';
+      hh.textContent='Recently handled'; c.appendChild(hh);
+      handled.forEach(function(r) {
+        var card=document.createElement('div');
+        card.style.cssText='background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;opacity:0.75;';
+        var dot=document.createElement('span');
+        dot.style.cssText='width:8px;height:8px;border-radius:50%;flex-shrink:0;background:'+(r.status==='approved'?'var(--green)':'var(--red)')+';';
+        var inf=document.createElement('div'); inf.style.cssText='flex:1;min-width:0;';
+        var nm=document.createElement('div'); nm.style.cssText='font-size:13px;font-weight:700;font-variation-settings:"wght" 700;';
+        nm.textContent=(r.name||'(no name)')+(r.club?'  —  '+r.club:'');
+        var em=document.createElement('div'); em.style.cssText='font-size:11px;color:var(--text-muted);';
+        em.textContent=r.email||'';
+        inf.appendChild(nm); inf.appendChild(em);
+        var pill=document.createElement('span');
+        pill.style.cssText='font-size:10px;font-weight:800;font-variation-settings:"wght" 800;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-radius:10px;white-space:nowrap;'+(r.status==='approved'?'background:var(--green-light);color:var(--green);':'background:var(--red-light);color:var(--red);');
+        pill.textContent=r.status;
+        card.appendChild(dot); card.appendChild(inf); card.appendChild(pill); c.appendChild(card);
       });
-    });
+    }
+  });
 }
 
 function buildRequestCard(r) {
   var card = document.createElement('div');
   card.className = 'request-card';
+  var header = document.createElement('div'); header.className = 'request-card__header';
+  var info = document.createElement('div'); info.className = 'request-card__info';
+  var name = document.createElement('div'); name.className = 'request-card__name'; name.textContent = r.name || '(no name)';
+  var meta = document.createElement('div'); meta.className = 'request-card__meta';
+  meta.textContent = (r.email||'') + (r.club ? '  —  '+r.club : '') + (r.clubRole ? '  ('+r.clubRole+')' : '');
+  info.appendChild(name); info.appendChild(meta); header.appendChild(info); card.appendChild(header);
 
-  var header = document.createElement('div');
-  header.className = 'request-card__header';
+  var ss = document.createElement('div');
+  ss.style.cssText = 'border-top:1px solid var(--border);padding:14px 20px 4px;';
+  var sh = document.createElement('div');
+  sh.style.cssText = 'font-size:10px;font-weight:800;font-variation-settings:"wght" 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:10px;';
+  sh.textContent = 'Access to grant — adjust before approving';
+  ss.appendChild(sh);
 
-  var info = document.createElement('div');
-  info.className = 'request-card__info';
+  var reqKeys = Array.isArray(r.tools) ? r.tools : [];
+  var tls = STATE.toolsList.filter(function(t) { return t._key !== 'welcome'; });
+  var dm = {};
+  tls.forEach(function(t) { var d = t.department||'General'; if (!dm[d]) dm[d]=[]; dm[d].push(t); });
 
-  var name = document.createElement('div');
-  name.className = 'request-card__name';
-  name.textContent = r.name || '(no name)';
-
-  var meta = document.createElement('div');
-  meta.className = 'request-card__meta';
-  meta.textContent = (r.email || '') + (r.club ? '  —  ' + r.club : '') + (r.clubRole ? '  (' + r.clubRole + ')' : '');
-
-  info.appendChild(name);
-  info.appendChild(meta);
-  header.appendChild(info);
-  card.appendChild(header);
-
-  if (r.tools && r.tools.length) {
-    var tools = document.createElement('div');
-    tools.className = 'request-card__tools';
-    var toolNames = Array.isArray(r.tools)
-      ? r.tools.join(', ')
-      : String(r.tools);
-    tools.textContent = 'Requested tools: ' + toolNames;
-    card.appendChild(tools);
-  }
-
-  var actions = document.createElement('div');
-  actions.className = 'request-card__actions';
-
-  var approveBtn = document.createElement('button');
-  approveBtn.className = 'btn btn--navy btn--sm';
-  approveBtn.textContent = 'Approve';
-  approveBtn.addEventListener('click', function() {
-    approveRequest(r, approveBtn);
+  sortDepts(Object.keys(dm)).forEach(function(dept) {
+    var dl = document.createElement('div');
+    dl.style.cssText = 'font-size:9px;font-weight:800;font-variation-settings:"wght" 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);padding:8px 0 4px;border-top:1px solid var(--border);';
+    dl.textContent = getDeptLabel(dept);
+    ss.appendChild(dl);
+    dm[dept].forEach(function(t) {
+      var lvl = (t.defaults && t.defaults['club']) || 'hidden';
+      if (reqKeys.indexOf(t._key) !== -1 && (lvl==='hidden'||lvl==='off')) lvl = 'access';
+      if (lvl === 'admin') lvl = 'access';
+      var row = document.createElement('div'); row.className = 'invite-tool-row'; row.dataset.dept = dept;
+      var nm = document.createElement('div'); nm.className = 'invite-tool-name';
+      nm.textContent = (t.icon ? t.icon+' ' : '') + (t.label||t._key);
+      if (reqKeys.indexOf(t._key) !== -1) {
+        var b = document.createElement('span');
+        b.style.cssText = 'margin-left:6px;font-size:9px;background:var(--navy);color:#fff;padding:1px 6px;border-radius:8px;font-weight:800;text-transform:uppercase;';
+        b.textContent = 'Requested'; nm.appendChild(b);
+      }
+      row.appendChild(nm); row.appendChild(buildInviteSlider(t._key, lvl, true));
+      ss.appendChild(row);
+    });
   });
+  card.appendChild(ss);
 
-  var rejectBtn = document.createElement('button');
-  rejectBtn.className = 'btn btn--ghost btn--sm';
-  rejectBtn.textContent = 'Decline';
-  rejectBtn.addEventListener('click', function() {
-    rejectRequest(r._key, rejectBtn);
-  });
-
-  actions.appendChild(approveBtn);
-  actions.appendChild(rejectBtn);
-  card.appendChild(actions);
-
+  var actions = document.createElement('div'); actions.className = 'request-card__actions';
+  actions.style.cssText = 'padding:14px 20px;border-top:1px solid var(--border);';
+  var ab = document.createElement('button'); ab.className = 'btn btn--navy btn--sm'; ab.textContent = 'Approve';
+  ab.addEventListener('click', function() { approveRequest(r, ab, ss); });
+  var rb = document.createElement('button'); rb.className = 'btn btn--ghost btn--sm'; rb.textContent = 'Decline';
+  rb.addEventListener('click', function() { rejectRequest(r._key, rb); });
+  actions.appendChild(ab); actions.appendChild(rb); card.appendChild(actions);
   return card;
-}
-
-function approveRequest(r, btn) {
-  btn.disabled = true;
-  btn.textContent = 'Approving…';
-
-  /* Build default tool access for club role, honouring requested tools */
-  var toolAccess = {};
-  STATE.toolsList.forEach(function(t) {
-    if (t._key === 'welcome') return;
-    var defaultLevel = (t.defaults && t.defaults['club']) || 'hidden';
-    if (r.tools && Array.isArray(r.tools) && r.tools.indexOf(t._key) !== -1) {
-      if (defaultLevel === 'hidden' || defaultLevel === 'off') defaultLevel = 'access';
-    }
-    toolAccess[t._key] = defaultLevel;
-  });
-
-  /* Send invite directly via GAS */
-  fetch(INVITE_GAS_URL + '?cb=' + Date.now(), {
-    method:  'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify({
-      action:   'sendInvite',
-      email:    r.email    || '',
-      name:     r.name     || '',
-      role:     'club',
-      org:      '',
-      orgKey:   'club',
-      club:     r.club     || '',
-      clubRole: r.clubRole || '',
-      tools:    toolAccess
-    })
-  })
-  .then(function(res) { return res.json(); })
-  .then(function(result) {
-    if (result && result.ok === false) {
-      btn.disabled    = false;
-      btn.textContent = 'Approve';
-      showToast('Invite failed: ' + (result.error || 'unknown error'), 'error');
-      return;
-    }
-    writeAudit('request_approved', 'Approved & invited ' + (r.name || r.email || '') +
-      (r.club ? ' (' + r.club + ')' : ''));
-    db.ref('requests/' + r._key + '/status').set('approved')
-      .then(function() {
-        showToast('Approved — invite sent to ' + (r.email || ''), 'success');
-        loadRequests();
-      });
-  })
-  .catch(function(err) {
-    btn.disabled    = false;
-    btn.textContent = 'Approve';
-    showToast('Failed: ' + err.message, 'error');
-  });
 }
 
 function rejectRequest(key, btn) {
@@ -4308,4 +4269,35 @@ function deleteWmMessage(key, btn) {
 }
 </script>
 </body>
-</html>
+</html>function approveRequest(r, btn, ss) {
+  btn.disabled = true; btn.textContent = 'Approving…';
+  var toolAccess = {};
+  if (ss) {
+    ss.querySelectorAll('.acc-slider').forEach(function(slider) {
+      var key = slider.dataset.toolkey; if (!key) return;
+      var idx = 0;
+      slider.querySelectorAll('.acc-slider__stop').forEach(function(s,i) { if (s.classList.contains('acc-slider__stop--active')) idx=i; });
+      toolAccess[key] = ACC_LEVELS[idx]||'hidden';
+    });
+  } else {
+    STATE.toolsList.forEach(function(t) {
+      if (t._key==='welcome') return;
+      var lvl = (t.defaults&&t.defaults['club'])||'hidden';
+      if (r.tools&&Array.isArray(r.tools)&&r.tools.indexOf(t._key)!==-1&&(lvl==='hidden'||lvl==='off')) lvl='access';
+      toolAccess[t._key] = lvl;
+    });
+  }
+  fetch(INVITE_GAS_URL+'?cb='+Date.now(), {
+    method:'POST', headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify({action:'sendInvite',email:r.email||'',name:r.name||'',role:'club',org:'',orgKey:'club',club:r.club||'',clubRole:r.clubRole||'',tools:toolAccess})
+  })
+  .then(function(res){return res.json();})
+  .then(function(result) {
+    if (result&&result.ok===false) { btn.disabled=false; btn.textContent='Approve'; showToast('Invite failed: '+(result.error||'unknown'),'error'); return; }
+    writeAudit('request_approved','Approved & invited '+(r.name||r.email||'')+(r.club?' ('+r.club+')':''));
+    db.ref('requests/'+r._key+'/status').set('approved').then(function() {
+      showToast('Approved — invite sent to '+(r.email||''),'success'); loadRequests();
+    });
+  })
+  .catch(function(err) { btn.disabled=false; btn.textContent='Approve'; showToast('Failed: '+err.message,'error'); });
+}
