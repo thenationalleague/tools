@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.22 (conversation turn 10)
+  Version: v1.23 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,11 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.23 — Office day: confirmed as 6px bottom-only green line (no L-border).
+         Lieu taken: full pastel purple cell fill matching AL treatment.
+         Overtime half-day: correctly uses overtimeSize to determine fill.
+         Lieu balance card: shows confirmed + amber pending-approval line.
+         Org chart: rebuilt as SVG organigram with proper centred branching.
   v1.22 — Office day: thick green bottom line (6px) replacing L-border.
          Legend colours now correctly showing (legend-dot -> legend-swatch).
          Today cell: blue inset border on solo view.
@@ -251,37 +256,17 @@
 
 
     /* Bottom strips for secondary status */
-    /* Office day — L-border (left + bottom), anchored clearly to this cell */
+    /* Office day — 6px bottom line */
     .cal-cell.has-office::before {
       content: '';
       position: absolute;
-      bottom: 0; left: 0;
-      width: 4px; height: 100%;
+      bottom: 0; left: 0; right: 0;
+      height: 6px;
       background: var(--cal-strip-off);
     }
-    .cal-cell.has-office::after {
-      content: '';
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      height: 4px;
-      background: var(--cal-strip-off);
-    }
-    /* Today dot — override after since has-office uses it */
-    .cal-cell.is-today:not(.has-office)::after {
-      content: '';
-      position: absolute;
-      bottom: 6px; right: 7px;
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: var(--cal-today-dot);
-    }
-    /* Lieu taken — bottom strip */
-    .cal-cell.has-lieu::before {
-      content: '';
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      height: 4px;
-      background: var(--cal-strip-lt);
+    /* Lieu taken — full pastel purple cell fill (bottom strip removed) */
+    .cal-cell.has-lieu {
+      /* fill handled by is-lieu class below */
     }
 
     /* Date number */
@@ -379,7 +364,7 @@
     .legend-swatch.annual-leave-half { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
     .legend-swatch.office-day        { background: var(--white); border-bottom: 3px solid var(--cal-strip-off); }
     .legend-swatch.other             { background: var(--cal-other); }
-    .legend-swatch.lieu-taken        { background: var(--white); border-bottom: 3px solid var(--cal-strip-lt); }
+    .legend-swatch.lieu-taken        { background: #f3e5f5; }
     .legend-swatch.bank-hol          { background: var(--cal-bh); }
     .legend-swatch.worked             { background: var(--cal-worked); }
 
@@ -405,23 +390,22 @@
     .team-tbl td.t-other  { background: var(--cal-other); }
     /* Team bottom strips */
     .team-tbl td.t-worked  { background: var(--cal-worked); }
-    .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; height:100%; width:3px; background:var(--cal-strip-off); }
-    .team-tbl td.t-office::after  { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--cal-strip-off); }
-    .team-tbl td.t-lieu::before   { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--cal-strip-lt); }
+    .team-tbl td.t-lieu    { background: #f3e5f5; }
+    .team-tbl td.t-lieu-am { background: linear-gradient(to bottom, #f3e5f5 50%, var(--white) 50%); }
+    .team-tbl td.t-lieu-pm { background: linear-gradient(to bottom, var(--white) 50%, #f3e5f5 50%); }
+    .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
 
-    /* Org chart */
-    .org-root { padding: 4px 0; }
-    .org-node-wrap { margin-bottom: 4px; }
-    .org-card { background: var(--white); border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: var(--radius); padding: 10px 16px; display: inline-block; min-width: 200px; box-shadow: var(--shadow); }
-    .org-card.is-root { border-left-color: var(--navy); }
-    .org-card.is-you  { border-left-color: var(--primary); }
-    .org-card__name { font-size: 14px; font-weight: 700; font-variation-settings: 'wght' 700; }
-    .org-card.is-root .org-card__name { color: var(--navy); }
-    .org-card.is-you .org-card__name  { color: var(--primary); }
-    .org-card__role { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .org-children { padding-left: 40px; border-left: 2px solid var(--border); margin-left: 24px; margin-top: 4px; padding-top: 4px; }
-    .org-child-row { margin-bottom: 4px; position: relative; }
-    .org-child-row::before { content: ''; position: absolute; top: 16px; left: -16px; width: 16px; height: 2px; background: var(--border); }
+    /* Org chart — SVG-based */
+    .org-wrap { overflow-x: auto; padding: 8px 0; }
+    .org-svg { font-family: var(--font); }
+    .org-box { fill: var(--white); stroke: var(--border); stroke-width: 1; rx: 6; }
+    .org-box-root { stroke: var(--navy); stroke-width: 2; }
+    .org-box-you  { stroke: var(--primary); stroke-width: 2; }
+    .org-name { font-size: 13px; font-weight: 700; fill: var(--text); }
+    .org-name-root { fill: var(--navy); }
+    .org-name-you  { fill: var(--primary); }
+    .org-role { font-size: 11px; fill: var(--text-muted); }
+    .org-line { stroke: var(--border); stroke-width: 1.5; fill: none; }
 
     /* Card */
     .card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px; }
@@ -551,6 +535,7 @@
           <div class="bal-card__label">Lieu Balance</div>
           <div class="bal-card__main" id="balLieu">—</div>
           <div class="bal-card__sub">days available</div>
+          <div class="bal-card__warn" id="balLieuPending" style="display:none;color:var(--amber)"></div>
         </div>
       </div>
 
@@ -1091,7 +1076,19 @@
       rollWarnEl.style.display = 'none';
     }
 
-    document.getElementById('balLieu').textContent = lieu.total%1===0 ? lieu.total : lieu.total.toFixed(1);
+    var lieuEl = document.getElementById('balLieu');
+    var lieuPending = 0;
+    Object.keys(S.lieu[S.uid]||{}).forEach(function(id){
+      var r = (S.lieu[S.uid]||{})[id];
+      if (r && r.status === 'pending') lieuPending += parseFloat(r.days)||0;
+    });
+    var lieuStr = lieu.total%1===0 ? lieu.total : lieu.total.toFixed(1);
+    lieuEl.textContent = lieuStr;
+    var lieuPendEl = document.getElementById('balLieuPending');
+    if (lieuPendEl) {
+      lieuPendEl.style.display = lieuPending > 0 ? '' : 'none';
+      lieuPendEl.textContent = lieuPending + ' day' + (lieuPending===1?'':'s') + ' pending approval';
+    }
   }
 
   function renderLieuLog() {
@@ -1187,12 +1184,14 @@
       var alAM    = dayEnts.find(function(e){ return e.type==='annual-leave-am'; });
       var alPM    = dayEnts.find(function(e){ return e.type==='annual-leave-pm'; });
       var alHalf  = dayEnts.find(function(e){ return e.type==='annual-leave-half'; });
-      var hasOff  = dayEnts.find(function(e){ return e.type==='office-day'; });
-      var hasLT   = dayEnts.find(function(e){ return e.type==='lieu-taken' || e.type==='lieu-taken-am' || e.type==='lieu-taken-pm'; });
-      var hasOth  = dayEnts.find(function(e){ return e.type==='other'; });
-      var hasWork   = dayEnts.find(function(e){ return e.type==='overtime' && (!e.overtimeAmPm); });
-      var hasWorkAM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeAmPm==='am'; });
-      var hasWorkPM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeAmPm==='pm'; });
+      var hasOff    = dayEnts.find(function(e){ return e.type==='office-day'; });
+      var hasLT     = dayEnts.find(function(e){ return e.type==='lieu-taken'; });
+      var hasLT_AM  = dayEnts.find(function(e){ return e.type==='lieu-taken-am'; });
+      var hasLT_PM  = dayEnts.find(function(e){ return e.type==='lieu-taken-pm'; });
+      var hasOth    = dayEnts.find(function(e){ return e.type==='other'; });
+      var hasWork   = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeSize==='full'; });
+      var hasWorkAM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='am'; });
+      var hasWorkPM = dayEnts.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='pm'; });
 
       /* Build cell classes */
       var cls = 'cal-cell';
@@ -1202,15 +1201,17 @@
       else if (alAM)         cls += ' is-al-am';
       else if (alPM)         cls += ' is-al-pm';
       else if (alHalf)       cls += ' is-al-pm';
+      else if (hasLT)        cls += ' is-lieu';
+      else if (hasLT_AM)     cls += ' is-lieu-am';
+      else if (hasLT_PM)     cls += ' is-lieu-pm';
       else if (hasWork)      cls += ' is-worked';
       else if (hasWorkAM)    cls += ' is-worked-am';
       else if (hasWorkPM)    cls += ' is-worked-pm';
       else if (hasOth)       cls += ' is-other';
       else if (isBH)         cls += ' is-bh';
       else if (!isWD||isWk)  cls += ' is-wknd';
-      /* Secondary strips */
+      /* Office day bottom strip */
       if (hasOff) cls += ' has-office';
-      if (hasLT)  cls += ' has-lieu';
 
       /* Build inner content */
       var inner = '<span class="cal-date">'+day+'</span>';
@@ -1321,13 +1322,15 @@
           else if (te.type==='annual-leave-am')         tdStatus = ' t-al-am';
           else if (te.type==='annual-leave-pm')         tdStatus = ' t-al-pm';
           else if (te.type==='annual-leave-half')       tdStatus = ' t-al-pm';
-          else if (te.type==='overtime')                tdStatus = ' t-worked';
+          else if (te.type==='lieu-taken')              tdStatus = ' t-lieu';
+          else if (te.type==='lieu-taken-am')           tdStatus = ' t-lieu-am';
+          else if (te.type==='lieu-taken-pm')           tdStatus = ' t-lieu-pm';
+          else if (te.type==='overtime' && te.overtimeSize==='full')  tdStatus = ' t-worked';
+          else if (te.type==='overtime' && te.overtimeSize==='half')  tdStatus = ' t-worked';
           else if (te.type==='other')                   tdStatus = ' t-other';
         }
         var hasOff2 = de.find(function(e){ return e.type==='office-day'; });
-        var hasLT2  = de.find(function(e){ return e.type==='lieu-taken'||e.type==='lieu-taken-am'||e.type==='lieu-taken-pm'; });
         if (hasOff2) tdStatus += ' t-office';
-        if (hasLT2)  tdStatus += ' t-lieu';
 
         var title2 = de.length
           ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'')
@@ -1346,34 +1349,105 @@
 
 
   function renderOrg() {
+    /* Build adjacency */
     var reps = {}, hasMgr = {};
-    Object.keys(S.users).forEach(function(uid){
+    Object.keys(S.users).forEach(function(uid) {
       var mgr = S.users[uid].lineManagerUid;
-      if (mgr) { if(!reps[mgr]) reps[mgr]=[]; reps[mgr].push(uid); hasMgr[uid]=true; }
+      if (mgr && S.users[mgr]) { if (!reps[mgr]) reps[mgr]=[]; reps[mgr].push(uid); hasMgr[uid]=true; }
     });
-    var roots = Object.keys(S.users).filter(function(uid){
-      var r=S.users[uid].role; return !hasMgr[uid]&&(r==='staff'||r==='admin'||r==='superadmin');
+    var roots = Object.keys(S.users).filter(function(uid) {
+      if (uid==='null'||!uid) return false;
+      var r = S.users[uid].role;
+      return !hasMgr[uid] && (r==='staff'||r==='admin'||r==='superadmin');
     });
+    roots.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
 
-    function node(uid, depth) {
-      var u=S.users[uid]||{}, isMe=uid===S.uid, isRoot=depth===0;
-      var cc='org-card'+(isRoot?' is-root':'')+(isMe?' is-you':'');
-      var ch=reps[uid]||[];
-      ch.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
-      var h='<div class="org-node-wrap"><div class="'+cc+'"><div class="org-card__name">'+esc(u.name||uid)+(isMe?' <span style="font-size:11px;color:var(--text-muted)">(you)</span>':'')+'</div><div class="org-card__role">'+esc(roleLabel(u.role))+'</div></div>';
-      if (ch.length) { h+='<div class="org-children">'; ch.forEach(function(c){ h+='<div class="org-child-row">'+node(c,depth+1)+'</div>'; }); h+='</div>'; }
-      return h+'</div>';
-    }
-
-    var h='';
+    var el = document.getElementById('orgChart');
     if (!roots.length) {
-      h='<div class="empty"><div class="empty__icon">🌳</div><div class="empty__msg">No hierarchy configured. Use the Admin tab to assign line managers.</div></div>';
-    } else {
-      roots.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
-      roots.forEach(function(uid){ h+=node(uid,0); });
+      el.innerHTML = '<div class="empty"><div class="empty__icon">🌳</div><div class="empty__msg">No hierarchy configured. Use Admin to assign line managers.</div></div>';
+      return;
     }
-    document.getElementById('orgChart').innerHTML = h;
+
+    /* Layout constants */
+    var BOX_W = 160, BOX_H = 52, H_GAP = 24, V_GAP = 60;
+
+    /* Recursive layout: returns {width, nodes:[{uid,x,y}], edges:[{x1,y1,x2,y2}]} */
+    function layout(uid, x, y) {
+      var ch = (reps[uid]||[]).slice().sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
+      var nodes = [{uid:uid, x:x, y:y}];
+      var edges = [];
+      if (!ch.length) return { width: BOX_W, nodes: nodes, edges: edges };
+
+      var childY = y + BOX_H + V_GAP;
+      var childLayouts = ch.map(function(c) { return layout(c, 0, childY); });
+      var totalW = childLayouts.reduce(function(s,l){ return s+l.width; }, 0) + H_GAP*(ch.length-1);
+
+      /* Centre this node over its children */
+      var cx = x + Math.max(0, (totalW - BOX_W) / 2);
+      nodes[0].x = cx;
+
+      var childX = x;
+      childLayouts.forEach(function(cl, i) {
+        var offsetX = childX + (cl.width - BOX_W) / 2;
+        cl.nodes.forEach(function(n) { nodes.push({uid:n.uid, x:n.x+childX, y:n.y}); });
+        cl.edges.forEach(function(e) { edges.push({x1:e.x1+childX, y1:e.y1, x2:e.x2+childX, y2:e.y2}); });
+        /* Edge: parent bottom-centre to child top-centre */
+        var childMidX = childX + cl.width/2;
+        var parentMidX = cx + BOX_W/2;
+        var parentBottomY = y + BOX_H;
+        var childTopY = childY;
+        var midY = parentBottomY + (childTopY - parentBottomY)/2;
+        edges.push({x1:parentMidX, y1:parentBottomY, x2:parentMidX, y2:midY});
+        edges.push({x1:parentMidX, y1:midY, x2:childMidX, y2:midY});
+        edges.push({x1:childMidX, y1:midY, x2:childMidX, y2:childTopY});
+        childX += cl.width + H_GAP;
+      });
+
+      return { width: Math.max(BOX_W, totalW), nodes: nodes, edges: edges };
+    }
+
+    /* Layout each root tree side by side */
+    var allNodes = [], allEdges = [];
+    var rootX = 0;
+    roots.forEach(function(uid) {
+      var tree = layout(uid, rootX, 20);
+      tree.nodes.forEach(function(n){ allNodes.push(n); });
+      tree.edges.forEach(function(e){ allEdges.push(e); });
+      rootX += tree.width + H_GAP * 3;
+    });
+
+    /* SVG dimensions */
+    var maxX = allNodes.reduce(function(m,n){ return Math.max(m, n.x+BOX_W); }, 0) + 20;
+    var maxY = allNodes.reduce(function(m,n){ return Math.max(m, n.y+BOX_H); }, 0) + 20;
+
+    var svgParts = ['<svg class="org-svg" width="'+maxX+'" height="'+maxY+'" viewBox="0 0 '+maxX+' '+maxY+'" xmlns="http://www.w3.org/2000/svg">'];
+
+    /* Edges first (behind nodes) */
+    allEdges.forEach(function(e) {
+      svgParts.push('<path class="org-line" d="M'+e.x1+','+e.y1+' L'+e.x2+','+e.y2+'"/>');
+    });
+
+    /* Nodes */
+    allNodes.forEach(function(n) {
+      var u = S.users[n.uid]||{};
+      var isMe = n.uid === S.uid;
+      var isRoot = !hasMgr[n.uid];
+      var boxCls = 'org-box' + (isRoot?' org-box-root':'') + (isMe?' org-box-you':'');
+      var nameCls = 'org-name' + (isRoot?' org-name-root':'') + (isMe?' org-name-you':'');
+      var name = esc(u.name||n.uid) + (isMe?' (you)':'');
+      var role = esc(roleLabel(u.role));
+      svgParts.push(
+        '<rect class="'+boxCls+'" x="'+n.x+'" y="'+n.y+'" width="'+BOX_W+'" height="'+BOX_H+'" rx="6"/>',
+        '<text class="'+nameCls+'" x="'+(n.x+12)+'" y="'+(n.y+22)+'" font-size="13" font-weight="700">'+name+'</text>',
+        '<text class="org-role" x="'+(n.x+12)+'" y="'+(n.y+38)+'" font-size="11">'+role+'</text>'
+      );
+    });
+
+    svgParts.push('</svg>');
+
+    el.innerHTML = '<div class="org-wrap">'+svgParts.join('')+'</div>';
   }
+
 
   function roleLabel(r) {
     return {superadmin:'Super Admin',admin:'Admin',staff:'Staff',club:'Club'}[r]||r||'';
