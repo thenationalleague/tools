@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.33 (conversation turn 10)
+  Version: v1.35 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,15 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.35 — Balance cards: rollover removed, AL note shows rolled-over days,
+         third card shows next upcoming time off. AL booked and lieu log
+         moved below calendar as collapsible accordions. Calendar nav
+         redesigned: arrow buttons flank title, Today + Add Entry right.
+         Past entries locked: no edit/delete, "Request change" button shown.
+         Org chart uses jobTitle field instead of role label.
+  v1.34 — Mobile responsive improvements: nav buttons compact, legend
+         scrolls horizontally, team name column narrows, first name only
+         shown on mobile, title truncates to single line.
   v1.33 — Team view fixed: renderTeam now writes to teamHead/teamBody
          rather than looking for non-existent teamWrap element.
          My calendar nav buttons now say "Prev month" / "Next month".
@@ -231,12 +240,17 @@
     .lieu-item__expiry.expired  { color: var(--text-muted); text-decoration: line-through; }
 
     /* Calendar nav */
-    .cal-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-    .cal-nav__title { font-size: 20px; font-weight: 800; font-variation-settings: 'wght' 800; flex: 1; }
-    .cal-nav__btn { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 14px; cursor: pointer; font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700; font-family: var(--font); color: var(--text); transition: all 0.15s; }
+    .cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .cal-nav__title { font-size: 20px; font-weight: 800; font-variation-settings: 'wght' 800; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-nav__btn { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700; font-family: var(--font); color: var(--text); transition: all 0.15s; white-space: nowrap; }
+    .cal-nav__arr { padding: 7px 10px; font-size: 14px; }
     .cal-nav__btn:hover { background: var(--off-white); border-color: var(--navy); }
     .cal-nav__btn.today { background: var(--navy); color: var(--white); border-color: var(--navy); }
     .cal-nav__btn.today:hover { background: var(--navy-mid); }
+    @media (max-width: 600px) {
+      .cal-nav__title { font-size: 15px; }
+      .cal-nav__btn { padding: 6px 8px; font-size: 11px; }
+    }
 
     /* ── Calendar colour tokens ── */
     :root {
@@ -437,8 +451,12 @@
     .cal-popover__add:hover { color: var(--primary); }
 
     /* Legend */
-    .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
-    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    @media (max-width: 600px) {
+      .legend { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; gap: 10px; }
+      .legend-item { font-size: 10px; }
+    }
     .legend-swatch {
       width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0;
       border: 1px solid rgba(0,0,0,0.08);
@@ -454,6 +472,11 @@
 
     /* Team view */
     .team-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .team-you-tag { font-size: 9px; opacity: 0.6; margin-left: 3px; }
+    @media (max-width: 600px) {
+      .team-name-full  { display: none !important; }
+      .team-name-short { display: inline !important; }
+    }
     .team-tbl  { border-collapse: collapse; background: var(--white); min-width: 100%; }
     .team-tbl th { background: var(--navy); color: var(--white); font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 10px 0; white-space: nowrap; text-align: center; width: 32px; min-width: 32px; max-width: 32px; }
     .team-tbl th.name-col { text-align: left; padding-left: 14px; width: 160px; min-width: 160px; max-width: 160px; }
@@ -463,6 +486,11 @@
     .team-tbl td:last-child { border-right: none; }
     .team-tbl tr:last-child td { border-bottom: none; }
     .team-tbl td.name-cell { padding: 0 14px; font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; white-space: nowrap; width: 160px; min-width: 160px; max-width: 160px; }
+    @media (max-width: 600px) {
+      .team-tbl th.name-col, .team-tbl td.name-cell { width: 90px; min-width: 90px; max-width: 90px; padding: 0 8px; font-size: 11px; }
+      .team-tbl th { width: 36px; min-width: 36px; max-width: 36px; font-size: 9px; padding: 8px 0; }
+      .team-tbl td { width: 36px; min-width: 36px; max-width: 36px; height: 38px; }
+    }
     .team-tbl td.name-cell.is-you { color: var(--primary); font-weight: 800; font-variation-settings: 'wght' 800; }
     .team-tbl td.is-today { background: rgba(21,101,192,0.08); }
     .team-tbl td.is-wknd  { background: var(--cal-wknd); }
@@ -604,6 +632,19 @@
     .toast.success { border-left: 4px solid var(--green); }
     .toast.error   { border-left: 4px solid var(--red); }
 
+    /* Accordion sections */
+    .acc-section { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
+    .acc-section__hd { display: flex; align-items: center; gap: 10px; padding: 14px 20px; cursor: pointer; font-size: 12px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); user-select: none; }
+    .acc-section__hd:hover { background: var(--off-white); }
+    .acc-section__chevron { margin-left: auto; font-size: 16px; color: var(--text-muted); transition: transform 0.2s; }
+    .acc-section__chevron.open { transform: rotate(90deg); }
+    .acc-section__bd { padding: 0 0 8px; border-top: 1px solid var(--border); }
+    .al-booked-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .al-booked-item:last-child { border-bottom: none; }
+    .al-booked-item__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .al-booked-item__date { flex: 1; }
+    .al-booked-item__days { font-size: 11px; color: var(--text-muted); font-weight: 600; font-variation-settings: 'wght' 600; }
+
     /* Empty */
     .empty { text-align: center; padding: 40px 24px; color: var(--text-muted); }
     .empty__icon { font-size: 36px; margin-bottom: 10px; }
@@ -637,12 +678,7 @@
           <div class="bal-card__label">Annual Leave</div>
           <div class="bal-card__main" id="balAL">— <span class="quota">/ —</span></div>
           <div class="bal-card__sub">days remaining this year</div>
-        </div>
-        <div class="bal-card roll">
-          <div class="bal-card__label">Rollover</div>
-          <div class="bal-card__main" id="balRoll">—</div>
-          <div class="bal-card__sub" id="balRollSub">max rollover days</div>
-          <div class="bal-card__warn" id="balRollWarn" style="display:none"></div>
+          <div class="bal-card__sub" id="balRollNote" style="display:none;margin-top:2px;color:var(--text-muted);font-size:11px"></div>
         </div>
         <div class="bal-card lieu">
           <div class="bal-card__label">Lieu Balance</div>
@@ -650,22 +686,21 @@
           <div class="bal-card__sub">days available</div>
           <div class="bal-card__warn" id="balLieuPending" style="display:none;color:var(--amber)"></div>
         </div>
+        <div class="bal-card" style="border-top-color:var(--navy);">
+          <div class="bal-card__label">Upcoming Time Off</div>
+          <div class="bal-card__main" id="balUpcoming" style="font-size:18px">—</div>
+          <div class="bal-card__sub" id="balUpcomingSub"></div>
+        </div>
       </div>
 
-      <div class="card" id="lieuCard" style="display:none">
-        <div class="card__title">
-          Lieu Days Log
-          <span id="lieuWarnBadge" style="display:none" class="pill pill-amber">⚠ Expiring soon</span>
-        </div>
-        <div id="lieuList"></div>
-      </div>
+      <!-- AL booked accordion and Lieu log moved below calendar -->
 
       <div class="card">
         <div class="cal-nav">
+          <button class="cal-nav__btn cal-nav__arr" onclick="myNav(-1)">‹</button>
           <div class="cal-nav__title" id="myTitle"></div>
-          <button class="cal-nav__btn" onclick="myNav(-1)">‹ Prev month</button>
+          <button class="cal-nav__btn cal-nav__arr" onclick="myNav(1)">›</button>
           <button class="cal-nav__btn today" onclick="myToday()">Today</button>
-          <button class="cal-nav__btn" onclick="myNav(1)">Next month ›</button>
           <button class="btn btn-primary btn-sm" onclick="openAdd(null)">+ Add Entry</button>
         </div>
         <div class="legend">
@@ -678,6 +713,26 @@
         </div>
         <div class="cal-grid" id="myCal"></div>
       </div>
+
+      <!-- AL Booked accordion -->
+      <div class="acc-section" id="alBookedSection" style="display:none">
+        <div class="acc-section__hd" onclick="toggleAcc('alBooked')">
+          <span id="alBookedTitle">AL Booked</span>
+          <span class="acc-section__chevron" id="alBookedChev">›</span>
+        </div>
+        <div class="acc-section__bd" id="alBookedBody" style="display:none"></div>
+      </div>
+
+      <!-- Lieu log accordion -->
+      <div class="acc-section" id="lieuLogSection" style="display:none">
+        <div class="acc-section__hd" onclick="toggleAcc('lieuLog')">
+          <span>Lieu Days Log</span>
+          <span id="lieuWarnBadge" style="display:none" class="pill pill-amber">⚠ Expiring soon</span>
+          <span class="acc-section__chevron" id="lieuLogChev">›</span>
+        </div>
+        <div class="acc-section__bd" id="lieuList" style="display:none"></div>
+      </div>
+
     </div>
 
     <!-- TEAM VIEW -->
@@ -826,6 +881,7 @@
     </div>
     <div class="modal__ft">
       <button class="btn btn-danger btn-sm" id="delEntryBtn" style="display:none;margin-right:auto" onclick="deleteEntry()">Delete</button>
+      <button class="btn btn-ghost btn-sm" id="requestChangeBtn" style="display:none;margin-right:auto" onclick="requestChange()">Request change</button>
       <button class="btn btn-ghost" onclick="closeOv('ovEntry')">Cancel</button>
       <button class="btn btn-primary" id="saveEntryBtn" onclick="saveEntry()">Save</button>
     </div>
@@ -1085,6 +1141,7 @@
     if (!S.uid) return;
     renderBalances();
     renderLieuLog();
+    renderALBooked();
     renderMyCal();
     if (S.activeTab === 'team')      renderTeam();
     if (S.activeTab === 'org')       renderOrg();
@@ -1206,56 +1263,87 @@
 
   function renderBalances() {
     if (!S.uid || !Object.keys(S.users).length) return;
-    var al   = calcAL(S.uid);
-    var lieu = calcLieu(S.uid);
-    var ws   = (S.users[S.uid]||{}).workSettings||{};
+    var al    = calcAL(S.uid);
+    var lieu  = calcLieu(S.uid);
+    var ws    = (S.users[S.uid]||{}).workSettings||{};
     var rollMax = parseFloat(ws.alRolloverDays)||0;
-    var rollExp = ws.alRolloverExpiry||null;
-    var today   = isoToday();
 
+    /* AL card */
     document.getElementById('balAL').innerHTML = al.left+' <span class="quota">/ '+al.quota+'</span>';
-    document.getElementById('balRoll').textContent = rollMax;
-
-    var rollWarnEl = document.getElementById('balRollWarn');
-    if (rollExp) {
-      var diff = daysBetween(today, rollExp);
-      if (diff < 0) {
-        rollWarnEl.textContent = 'Expired '+fmtDate(rollExp);
-        rollWarnEl.className = 'bal-card__warn urgent';
-        rollWarnEl.style.display = '';
-      } else if (diff <= 30) {
-        rollWarnEl.textContent = 'Expires '+fmtDate(rollExp)+' ('+diff+' days)';
-        rollWarnEl.className = 'bal-card__warn'+(diff<=7?' urgent':'');
-        rollWarnEl.style.display = '';
+    var rollNoteEl = document.getElementById('balRollNote');
+    if (rollNoteEl) {
+      if (rollMax > 0) {
+        rollNoteEl.textContent = 'Includes '+rollMax+' day'+(rollMax===1?'':'s')+' rolled over';
+        rollNoteEl.style.display = '';
       } else {
-        rollWarnEl.style.display = 'none';
+        rollNoteEl.style.display = 'none';
       }
-    } else {
-      rollWarnEl.style.display = 'none';
     }
 
-    var lieuEl = document.getElementById('balLieu');
+    /* Lieu card */
     var lieuPending = 0;
     Object.keys(S.lieu[S.uid]||{}).forEach(function(id){
       var r = (S.lieu[S.uid]||{})[id];
       if (r && r.status === 'pending') lieuPending += parseFloat(r.days)||0;
     });
-    var lieuStr = lieu.total%1===0 ? lieu.total : lieu.total.toFixed(1);
-    lieuEl.textContent = lieuStr;
+    var lieuStr = lieu.total%1===0 ? String(lieu.total) : lieu.total.toFixed(1);
+    document.getElementById('balLieu').textContent = lieuStr;
     var lieuPendEl = document.getElementById('balLieuPending');
     if (lieuPendEl) {
       lieuPendEl.style.display = lieuPending > 0 ? '' : 'none';
-      lieuPendEl.textContent = lieuPending + ' day' + (lieuPending===1?'':'s') + ' pending approval';
+      lieuPendEl.textContent = lieuPending+' day'+(lieuPending===1?'':'s')+' pending approval';
     }
+
+    /* Upcoming time off card */
+    var upcoming = nextTimeOff(S.uid);
+    var upEl  = document.getElementById('balUpcoming');
+    var upSub = document.getElementById('balUpcomingSub');
+    if (upEl)  upEl.textContent  = upcoming ? upcoming.label : '—';
+    if (upSub) upSub.textContent = upcoming ? upcoming.sub   : 'No upcoming leave';
   }
+
+  function nextTimeOff(uid) {
+    var today = isoToday();
+    var entries = S.entries[uid]||{};
+    var best = null;
+    Object.keys(entries).forEach(function(id){
+      var e = entries[id];
+      if (!e || !e.date) return;
+      var isAL = e.type==='annual-leave'||e.type==='annual-leave-am'||e.type==='annual-leave-pm'||e.type==='annual-leave-half';
+      var isLT = e.type==='lieu-taken'||e.type==='lieu-taken-am'||e.type==='lieu-taken-pm';
+      if (!isAL && !isLT) return;
+      var startDate = e.date >= today ? e.date : (e.endDate && e.endDate >= today ? today : null);
+      if (!startDate) return;
+      if (!best || startDate < best.startDate) {
+        var isHalf = e.type.indexOf('-am')!==-1||e.type.indexOf('-pm')!==-1||e.type==='annual-leave-half';
+        var isSpan = e.endDate && e.endDate !== e.date;
+        var label, sub;
+        if (isSpan) {
+          label = fmtDate(e.date);
+          sub   = 'to '+fmtDate(e.endDate)+' · '+(isAL?'Annual Leave':'Lieu');
+        } else if (isHalf) {
+          label = fmtDate(e.date);
+          sub   = (isAL?'Annual Leave':'Lieu')+' — half day '+(e.type.indexOf('am')!==-1?'(AM)':'(PM)');
+        } else {
+          label = fmtDate(e.date);
+          sub   = isAL ? 'Annual Leave' : 'Lieu Taken';
+        }
+        best = {startDate:startDate, label:label, sub:sub};
+      }
+    });
+    return best;
+  }
+
 
   function renderLieuLog() {
     if (!S.uid) return;
     var lieu = calcLieu(S.uid);
-    var card = document.getElementById('lieuCard');
-    if (!lieu.list.length) { card.style.display='none'; return; }
-    card.style.display = '';
-    document.getElementById('lieuWarnBadge').style.display = lieu.hasSoon ? '' : 'none';
+    var section = document.getElementById('lieuLogSection');
+    if (!section) return;
+    if (!lieu.list.length) { section.style.display='none'; return; }
+    section.style.display = '';
+    var badge = document.getElementById('lieuWarnBadge');
+    if (badge) badge.style.display = lieu.hasSoon ? '' : 'none';
 
     document.getElementById('lieuList').innerHTML = lieu.list.map(function(r){
       var expTxt = r.expStatus==='pending' ? 'Pending approval' : (r.expDate ? (r.isExp ? 'Expired '+fmtDate(r.expDate) : 'Expires '+fmtDate(r.expDate)+(r.dToExp<=30?' ('+r.dToExp+' days)':'')) : 'No expiry');
@@ -1263,6 +1351,46 @@
         +'<div class="lieu-item__dot '+r.status+'"></div>'
         +'<div class="lieu-item__desc"><strong>'+r.days+' day'+(r.days!==1?'s':'')+'</strong> — '+esc(r.reason||'Lieu earned')+'<small>Worked '+fmtDate(r.dateWorked)+'</small></div>'
         +'<div class="lieu-item__expiry '+r.status+'">'+esc(expTxt)+'</div>'
+        +'</div>';
+    }).join('');
+  }
+
+  function renderALBooked() {
+    if (!S.uid) return;
+    var section = document.getElementById('alBookedSection');
+    var titleEl = document.getElementById('alBookedTitle');
+    var body    = document.getElementById('alBookedBody');
+    if (!section || !body) return;
+    var today   = isoToday();
+    var yearStr = String(new Date().getFullYear());
+    var items   = [];
+    var totalDays = 0;
+    Object.keys(S.entries[S.uid]||{}).forEach(function(id){
+      var e = S.entries[S.uid][id];
+      if (!e || !e.date) return;
+      var isAL = e.type==='annual-leave'||e.type==='annual-leave-am'||e.type==='annual-leave-pm'||e.type==='annual-leave-half';
+      if (!isAL) return;
+      if (!e.date.startsWith(yearStr)) return;
+      var days = (e.type==='annual-leave-half'||e.type==='annual-leave-am'||e.type==='annual-leave-pm') ? 0.5 : 1;
+      if (e.endDate && e.endDate !== e.date) days = getWorkingDaysInRange(e.date, e.endDate).length;
+      totalDays += days;
+      var isPast = e.endDate ? e.endDate < today : e.date < today;
+      items.push({e:e, days:days, isPast:isPast});
+    });
+    items.sort(function(a,b){ return a.e.date < b.e.date ? -1 : 1; });
+    if (!items.length) { section.style.display='none'; return; }
+    section.style.display = '';
+    if (titleEl) titleEl.textContent = 'AL Booked ('+totalDays+' day'+(totalDays===1?'':'s')+')';
+    body.innerHTML = items.map(function(item){
+      var e = item.e;
+      var isSpan = e.endDate && e.endDate !== e.date;
+      var isHalf = e.type.indexOf('-am')!==-1||e.type.indexOf('-pm')!==-1||e.type==='annual-leave-half';
+      var dateStr = isSpan ? fmtDate(e.date)+' – '+fmtDate(e.endDate) : fmtDate(e.date);
+      var typeStr = isHalf ? 'Half day '+(e.type.indexOf('am')!==-1?'(AM)':'(PM)') : item.days+' day'+(item.days===1?'':'s');
+      return '<div class="al-booked-item" style="opacity:'+(item.isPast?'0.5':'1')+'">'
+        +'<div class="al-booked-item__dot" style="background:var(--cal-al-text)"></div>'
+        +'<div class="al-booked-item__date">'+dateStr+(item.isPast?' <span style="font-size:10px;color:var(--text-muted)">(past)</span>':'')+'</div>'
+        +'<div class="al-booked-item__days">'+typeStr+'</div>'
         +'</div>';
     }).join('');
   }
@@ -1490,7 +1618,9 @@
       var isYou = uid === S.uid;
 
       rows += '<tr>';
-      rows += '<td class="name-cell'+(isYou?' is-you':'')+'">'+esc(u.name||uid)+(isYou?' <span style="font-size:10px;opacity:0.6">(you)</span>':'')+'</td>';
+      var fullName = u.name||uid;
+      var firstName = fullName.split(' ')[0];
+      rows += '<td class="name-cell'+(isYou?' is-you':'')+'"><span class="team-name-full">'+esc(fullName)+'</span><span class="team-name-short" style="display:none">'+esc(firstName)+'</span>'+(isYou?' <span class="team-you-tag">(you)</span>':'')+'</td>';
 
       days.forEach(function(day) {
         var yr = parseInt(day.iso.split('-')[0]);
@@ -1872,7 +2002,8 @@
       /* Name */
       parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700">'+nameStr+'</text>');
       if (isMe) parts.push('<tspan class="org-you-tag"> (you)</tspan>');
-      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10">'+roleStr+'</text>');
+      var jobStr = esc(u.jobTitle||roleLabel(u.role));
+      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10">'+jobStr+'</text>');
       parts.push('</g>');
     });
 
@@ -2101,6 +2232,15 @@
     setTimeout(function(){ document.addEventListener('click', closeCellPopover); }, 50);
   }
 
+    function requestChange() {
+    /* Phase 2: will submit a change request to approver.
+       For now, inform the user to contact their approver. */
+    var e = (S.entries[S.uid]||{})[_eState.editId];
+    var dateStr = e ? fmtDate(e.date) : 'this entry';
+    showToast('Contact your approver to request a change to '+dateStr, 'success');
+    closeOv('ovEntry');
+  }
+
     function typeLabel(t) {
     var m = {'annual-leave':'Annual Leave','annual-leave-am':'AL — Morning','annual-leave-pm':'AL — Afternoon','annual-leave-half':'Half Day AL','office-day':'Office Day','other':'Note','lieu-taken':'Lieu Taken'};
     return m[t]||t;
@@ -2147,8 +2287,15 @@
     _eState.editId   = id;
     _eState.editType = e.type;
     _eState.iso      = e.date;
-    document.getElementById('entryModalTitle').textContent = 'Edit Entry';
-    document.getElementById('delEntryBtn').style.display = '';
+    /* Lock past entries — use endDate if set, otherwise date */
+    var entryDate = (e.endDate && e.endDate > e.date) ? e.endDate : e.date;
+    var isPastEntry = entryDate <= isoToday();
+    document.getElementById('entryModalTitle').textContent = isPastEntry ? 'View Entry' : 'Edit Entry';
+    document.getElementById('delEntryBtn').style.display = isPastEntry ? 'none' : '';
+    document.getElementById('saveEntryBtn').style.display = isPastEntry ? 'none' : '';
+    /* Show request-to-change button for past entries */
+    var reqBtn = document.getElementById('requestChangeBtn');
+    if (reqBtn) reqBtn.style.display = isPastEntry ? '' : 'none';
     /* Pre-populate state from entry */
     if (e.type === 'annual-leave')     { _eState.alMode = e.endDate !== e.date ? 'several' : 'single'; }
     if (e.type === 'annual-leave-am')  { _eState.alMode = 'half'; _eState.alAmPm = 'am'; }
