@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.27 (conversation turn 10)
+  Version: v1.28 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,9 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.28 — expandEntries now passes overtimeSize and overtimeAmPm through
+         to the renderer. This was fixed in v1.26 but lost in v1.27.
+         Half-day overtime cells now correctly show top/bottom half fill.
   v1.27 — Fixed renderSettingsTable: var appr was missing causing a
          ReferenceError that silently broke the entire admin tab render.
   v1.26 — expandEntries now passes overtimeSize/overtimeAmPm so half-day
@@ -1102,11 +1105,13 @@
       if (!e || !e.date || !e.type) return;
       var cur = e.date, end = e.endDate || e.date;
       if (end < cur) end = cur;
-      var safety = 0, cnt = 0;
+      var safety = 0;
       while (cur <= end && safety++ < 400) {
         var d = new Date(cur+'T00:00:00');
         if (d.getFullYear()===yr && d.getMonth()===mo)
-          out.push({id:id, type:e.type, date:cur, note:e.note||''});
+          out.push({id:id, type:e.type, date:cur, note:e.note||'',
+            overtimeSize:  e.overtimeSize  || null,
+            overtimeAmPm:  e.overtimeAmPm  || null});
         cur = addDays(cur,1);
       }
 
