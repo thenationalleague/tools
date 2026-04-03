@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.19 (conversation turn 10)
+  Version: v1.20 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,11 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.20 — Entry modal redesigned with structured sections:
+         AL (single/half AM-PM/several), Lieu Taken (same), Other
+         (office/overtime/note toggles). Several days skips non-workdays.
+         Weekend/BH cells show only overtime option. Team view column
+         widths fixed to uniform 32px.
   v1.19 — Calendar visual redesign.
          Fixed cell height (110px solo, 44px team). Pastel status fills
          replace chips. Half-day split (top=AM, bottom=PM). Bottom colour
@@ -345,14 +350,14 @@
     /* Team view */
     .team-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
     .team-tbl  { border-collapse: collapse; background: var(--white); min-width: 100%; }
-    .team-tbl th { background: var(--navy); color: var(--white); font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 10px 6px; white-space: nowrap; text-align: center; }
-    .team-tbl th.name-col { text-align: left; padding-left: 14px; min-width: 160px; }
+    .team-tbl th { background: var(--navy); color: var(--white); font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 10px 0; white-space: nowrap; text-align: center; width: 32px; min-width: 32px; max-width: 32px; }
+    .team-tbl th.name-col { text-align: left; padding-left: 14px; width: 160px; min-width: 160px; max-width: 160px; }
     .team-tbl th.is-today { background: var(--blue); }
     .team-tbl th.is-wknd  { opacity: 0.65; }
-    .team-tbl td { padding: 0; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); height: 44px; position: relative; }
+    .team-tbl td { padding: 0; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); height: 44px; position: relative; width: 32px; min-width: 32px; max-width: 32px; }
     .team-tbl td:last-child { border-right: none; }
     .team-tbl tr:last-child td { border-bottom: none; }
-    .team-tbl td.name-cell { padding: 0 14px; font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; white-space: nowrap; min-width: 160px; }
+    .team-tbl td.name-cell { padding: 0 14px; font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; white-space: nowrap; width: 160px; min-width: 160px; max-width: 160px; }
     .team-tbl td.name-cell.is-you { color: var(--primary); font-weight: 800; font-variation-settings: 'wght' 800; }
     .team-tbl td.is-today { background: rgba(21,101,192,0.08); }
     .team-tbl td.is-wknd  { background: var(--cal-wknd); }
@@ -606,29 +611,72 @@
 </div>
 
 <!-- ADD / EDIT ENTRY -->
+<style>
+  .entry-section { margin-bottom: 18px; }
+  .entry-section__head {
+    font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted);
+    margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .entry-section__head span { font-size: 9px; font-weight: 600; font-variation-settings: 'wght' 600; color: var(--border); text-transform: none; letter-spacing: 0; }
+  .entry-options { display: flex; gap: 6px; flex-wrap: wrap; }
+  .eopt {
+    flex: 1; min-width: 80px; padding: 8px 10px; border-radius: var(--radius);
+    border: 1.5px solid var(--border); background: var(--white);
+    font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700;
+    cursor: pointer; font-family: var(--font); color: var(--text-muted);
+    transition: all 0.15s; text-align: center;
+  }
+  .eopt:hover { border-color: var(--navy); color: var(--navy); }
+  .eopt.sel-al    { background: #fde8e8; border-color: #9e0000; color: #9e0000; }
+  .eopt.sel-lieu  { background: var(--purple-light); border-color: var(--purple); color: var(--purple); }
+  .eopt.sel-other { background: var(--off-white); border-color: var(--navy); color: var(--navy); }
+  .ampm-row { display: flex; gap: 6px; margin-top: 8px; }
+  .ampm-btn {
+    flex: 1; padding: 7px; border-radius: var(--radius);
+    border: 1.5px solid var(--border); background: var(--white);
+    font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700;
+    cursor: pointer; font-family: var(--font); color: var(--text-muted);
+    transition: all 0.15s; text-align: center;
+  }
+  .ampm-btn.sel { background: #fde8e8; border-color: #9e0000; color: #9e0000; }
+  .ampm-btn.sel-lieu { background: var(--purple-light); border-color: var(--purple); color: var(--purple); }
+  .entry-dates { margin-top: 10px; }
+  .other-toggles { display: flex; flex-direction: column; gap: 6px; }
+  .otog {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: var(--radius);
+    border: 1.5px solid var(--border); background: var(--white);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .otog:hover { border-color: var(--navy); }
+  .otog.sel { background: var(--off-white); border-color: var(--navy); }
+  .otog__check {
+    width: 16px; height: 16px; border-radius: 3px;
+    border: 1.5px solid var(--border); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; transition: all 0.15s;
+  }
+  .otog.sel .otog__check { background: var(--navy); border-color: var(--navy); color: var(--white); }
+  .otog__label { font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; flex: 1; }
+  .otog__sub { font-size: 11px; color: var(--text-muted); }
+  .ot-overtime-size { display: none; margin-top: 6px; }
+  .ot-overtime-size.open { display: flex; gap: 6px; }
+  .divider-line { height: 1px; background: var(--border); margin: 14px 0; }
+</style>
 <div class="ov" id="ovEntry">
   <div class="modal">
-    <div class="modal__hd"><h3 id="entryModalTitle">Add Entry</h3><button class="modal__x" onclick="closeOv('ovEntry')">×</button></div>
-    <div class="modal__bd">
-      <div class="fg">
-        <label class="fl">Type</label>
-        <div class="type-pills">
-          <button class="tpill" data-t="annual-leave" onclick="selType('annual-leave')">Annual Leave</button>
-          <button class="tpill" data-t="annual-leave-half" onclick="selType('annual-leave-half')">Half Day AL</button>
-          <button class="tpill" data-t="office-day" onclick="selType('office-day')">Office Day</button>
-          <button class="tpill" data-t="other" onclick="selType('other')">Other</button>
-        </div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Date</label><input type="date" class="fi" id="eDate"></div>
-        <div class="fg"><label class="fl">End Date</label><input type="date" class="fi" id="eEnd"></div>
-      </div>
-      <div class="fg"><label class="fl">Note <span style="font-weight:400;text-transform:none">(optional)</span></label><textarea class="fta" id="eNote" placeholder="e.g. Visiting client, Dentist…"></textarea></div>
+    <div class="modal__hd">
+      <h3 id="entryModalTitle">Add Entry</h3>
+      <button class="modal__x" onclick="closeOv('ovEntry')">×</button>
+    </div>
+    <div class="modal__bd" id="entryModalBody">
+      <!-- Populated by JS based on cell context -->
     </div>
     <div class="modal__ft">
       <button class="btn btn-danger btn-sm" id="delEntryBtn" style="display:none;margin-right:auto" onclick="deleteEntry()">Delete</button>
       <button class="btn btn-ghost" onclick="closeOv('ovEntry')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveEntry()">Save</button>
+      <button class="btn btn-primary" id="saveEntryBtn" onclick="saveEntry()">Save</button>
     </div>
   </div>
 </div>
@@ -1382,84 +1430,345 @@
     return m[t]||t;
   }
 
-    function openAdd(iso) {
-    S.editId=null; S.selType=null;
-    document.getElementById('entryModalTitle').textContent='Add Entry';
-    document.getElementById('delEntryBtn').style.display='none';
-    var d = iso||isoToday();
-    document.getElementById('eDate').value = d;
-    document.getElementById('eEnd').value  = d; /* default end = start */
-    document.getElementById('eNote').value = '';
-    resetPills();
+    /* ── Entry modal state ── */
+  var _eState = {
+    iso: null,        /* clicked cell date */
+    isBH: false,
+    isWD: true,
+    bhLabel: '',
+    alMode: null,     /* null | 'single' | 'half' | 'several' */
+    alAmPm: null,     /* null | 'am' | 'pm' */
+    lieuMode: null,
+    lieuAmPm: null,
+    otOffice: false,
+    otOvertime: false,
+    otOvertimeSize: 'full', /* 'full' | 'half' */
+    otNote: false,
+    editId: null,
+    editType: null
+  };
+
+  function openAdd(iso) {
+    _eState = { iso:iso, isBH:false, isWD:true, bhLabel:'', alMode:null, alAmPm:null,
+      lieuMode:null, lieuAmPm:null, otOffice:false, otOvertime:false, otOvertimeSize:'full',
+      otNote:false, editId:null, editType:null };
+    /* Detect cell context */
+    var cell = document.querySelector('[data-iso="'+iso+'"]');
+    if (cell) {
+      _eState.isBH  = cell.dataset.bh  === '1';
+      _eState.isWD  = cell.dataset.wd  === '1';
+      _eState.bhLabel = cell.dataset.bhlabel || '';
+    }
+    document.getElementById('entryModalTitle').textContent = 'Add Entry';
+    document.getElementById('delEntryBtn').style.display = 'none';
+    buildEntryModal();
     document.getElementById('ovEntry').classList.add('open');
   }
 
   function openEdit(id, ev) {
-    if(ev) ev.stopPropagation();
-    var e=(S.entries[S.uid]||{})[id]; if(!e) return;
-    S.editId=id; S.selType=e.type;
-    document.getElementById('entryModalTitle').textContent='Edit Entry';
-    document.getElementById('delEntryBtn').style.display='';
-    document.getElementById('eDate').value  = e.date;
-    document.getElementById('eEnd').value   = e.endDate||e.date; /* always show end date */
-    document.getElementById('eNote').value  = e.note||'';
-    resetPills();
-    var p=document.querySelector('.tpill[data-t="'+e.type+'"]');
-    if(p) setPillStyle(p, e.type);
+    if (ev) ev.stopPropagation();
+    var e = (S.entries[S.uid]||{})[id]; if (!e) return;
+    _eState.editId   = id;
+    _eState.editType = e.type;
+    _eState.iso      = e.date;
+    document.getElementById('entryModalTitle').textContent = 'Edit Entry';
+    document.getElementById('delEntryBtn').style.display = '';
+    /* Pre-populate state from entry */
+    if (e.type === 'annual-leave')     { _eState.alMode = e.endDate !== e.date ? 'several' : 'single'; }
+    if (e.type === 'annual-leave-am')  { _eState.alMode = 'half'; _eState.alAmPm = 'am'; }
+    if (e.type === 'annual-leave-pm' || e.type === 'annual-leave-half')
+                                       { _eState.alMode = 'half'; _eState.alAmPm = 'pm'; }
+    if (e.type === 'lieu-taken')       { _eState.lieuMode = e.endDate !== e.date ? 'several' : 'single'; }
+    if (e.type === 'lieu-taken-am')    { _eState.lieuMode = 'half'; _eState.lieuAmPm = 'am'; }
+    if (e.type === 'lieu-taken-pm')    { _eState.lieuMode = 'half'; _eState.lieuAmPm = 'pm'; }
+    if (e.type === 'office-day')       { _eState.otOffice = true; }
+    if (e.type === 'overtime')         { _eState.otOvertime = true; _eState.otOvertimeSize = e.overtimeSize||'full'; }
+    if (e.type === 'other')            { _eState.otNote = true; }
+    _eState.isWD  = true; _eState.isBH = false;
+    var cell = document.querySelector('[data-iso="'+_eState.iso+'"]');
+    if (cell) { _eState.isBH = cell.dataset.bh==='1'; _eState.isWD = cell.dataset.wd==='1'; }
+    buildEntryModal(e);
     document.getElementById('ovEntry').classList.add('open');
   }
 
-  function resetPills() { document.querySelectorAll('.tpill').forEach(function(p){ p.className='tpill'; }); }
+  function buildEntryModal(existingEntry) {
+    var body = document.getElementById('entryModalBody');
+    var iso  = _eState.iso;
+    var isSpecialDay = _eState.isBH || !_eState.isWD;
+    var editDate = existingEntry ? existingEntry.date : iso;
+    var editEndDate = existingEntry ? (existingEntry.endDate||existingEntry.date) : iso;
+    var editNote = existingEntry ? (existingEntry.note||'') : '';
 
-  function selType(t) {
-    S.selType=t; resetPills();
-    var p=document.querySelector('.tpill[data-t="'+t+'"]');
-    if(p) setPillStyle(p, t);
+    var h = '';
+
+    /* ── ANNUAL LEAVE section (hidden on weekends/BH) ── */
+    if (!isSpecialDay) {
+      h += '<div class="entry-section" id="secAL">';
+      h += '<div class="entry-section__head">Annual Leave <span>max 1</span></div>';
+      h += '<div class="entry-options">';
+      h += '<button class="eopt'+((_eState.alMode==='single')?' sel-al':'')+'" onclick="setALMode(&apos;single&apos;)">Single day</button>';
+      h += '<button class="eopt'+((_eState.alMode==='half')?' sel-al':'')+'" onclick="setALMode(&apos;half&apos;)">Half day</button>';
+      h += '<button class="eopt'+((_eState.alMode==='several')?' sel-al':'')+'" onclick="setALMode(&apos;several&apos;)">Several days</button>';
+      h += '</div>';
+      /* AM/PM row - shown when half selected */
+      h += '<div class="ampm-row" id="alAmPmRow" style="'+((_eState.alMode==='half')?'':'display:none')+'">';
+      h += '<button class="ampm-btn'+((_eState.alAmPm==='am')?' sel':'')+'" onclick="setALAmPm(&apos;am&apos;)">AM (morning off)</button>';
+      h += '<button class="ampm-btn'+((_eState.alAmPm==='pm')?' sel':'')+'" onclick="setALAmPm(&apos;pm&apos;)">PM (afternoon off)</button>';
+      h += '</div>';
+      /* Date inputs */
+      h += '<div class="entry-dates" id="alDates" style="'+((_eState.alMode?'':'display:none'))+'">';
+      if (_eState.alMode==='several') {
+        h += '<div class="frow"><div class="fg"><label class="fl">Start</label><input type="date" class="fi" id="alStart" value="'+editDate+'"></div>';
+        h += '<div class="fg"><label class="fl">End</label><input type="date" class="fi" id="alEnd" value="'+editEndDate+'"></div></div>';
+      } else {
+        h += '<div class="fg"><label class="fl">Date</label><input type="date" class="fi" id="alStart" value="'+editDate+'"></div>';
+      }
+      h += '</div>';
+      h += '</div>';
+      h += '<div class="divider-line"></div>';
+    }
+
+    /* ── LIEU TAKEN section (hidden on weekends/BH) ── */
+    if (!isSpecialDay) {
+      h += '<div class="entry-section" id="secLieu">';
+      h += '<div class="entry-section__head">Lieu Taken <span>max 1</span></div>';
+      h += '<div class="entry-options">';
+      h += '<button class="eopt'+((_eState.lieuMode==='single')?' sel-lieu':'')+'" onclick="setLieuMode(&apos;single&apos;)">Single day</button>';
+      h += '<button class="eopt'+((_eState.lieuMode==='half')?' sel-lieu':'')+'" onclick="setLieuMode(&apos;half&apos;)">Half day</button>';
+      h += '<button class="eopt'+((_eState.lieuMode==='several')?' sel-lieu':'')+'" onclick="setLieuMode(&apos;several&apos;)">Several days</button>';
+      h += '</div>';
+      h += '<div class="ampm-row" id="lieuAmPmRow" style="'+((_eState.lieuMode==='half')?'':'display:none')+'">';
+      h += '<button class="ampm-btn'+((_eState.lieuAmPm==='am')?' sel-lieu':'')+'" onclick="setLieuAmPm(&apos;am&apos;)">AM</button>';
+      h += '<button class="ampm-btn'+((_eState.lieuAmPm==='pm')?' sel-lieu':'')+'" onclick="setLieuAmPm(&apos;pm&apos;)">PM</button>';
+      h += '</div>';
+      h += '<div class="entry-dates" id="lieuDates" style="'+((_eState.lieuMode?'':'display:none'))+'">';
+      if (_eState.lieuMode==='several') {
+        h += '<div class="frow"><div class="fg"><label class="fl">Start</label><input type="date" class="fi" id="lieuStart" value="'+editDate+'"></div>';
+        h += '<div class="fg"><label class="fl">End</label><input type="date" class="fi" id="lieuEnd" value="'+editEndDate+'"></div></div>';
+      } else {
+        h += '<div class="fg"><label class="fl">Date</label><input type="date" class="fi" id="lieuStart" value="'+editDate+'"></div>';
+      }
+      h += '</div>';
+      h += '</div>';
+      h += '<div class="divider-line"></div>';
+    }
+
+    /* ── OTHER section ── */
+    h += '<div class="entry-section">';
+    h += '<div class="entry-section__head">Other</div>';
+    h += '<div class="other-toggles">';
+
+    /* Office Day — only on workdays, not BH */
+    if (!isSpecialDay) {
+      h += '<div class="otog'+(_eState.otOffice?' sel':'')+'" onclick="toggleOther(&apos;office&apos;)">';
+      h += '<div class="otog__check">'+(_eState.otOffice?'✓':'')+'</div>';
+      h += '<div><div class="otog__label">Office Day</div><div class="otog__sub">Mark as working from office</div></div>';
+      h += '</div>';
+    }
+
+    /* Scheduled Overtime */
+    var otLabel = _eState.isBH ? 'Worked bank holiday' : (!_eState.isWD ? 'Worked non-workday' : 'Scheduled overtime');
+    var otSub   = _eState.isBH ? 'Working on '+(_eState.bhLabel||'a bank holiday')+' earns lieu' : (!_eState.isWD ? 'Working outside contracted days earns lieu' : 'Working outside contracted hours earns lieu');
+    h += '<div class="otog'+(_eState.otOvertime?' sel':'')+'" onclick="toggleOther(&apos;overtime&apos;)">';
+    h += '<div class="otog__check">'+(_eState.otOvertime?'✓':'')+'</div>';
+    h += '<div style="flex:1"><div class="otog__label">'+otLabel+'</div><div class="otog__sub">'+otSub+'</div></div>';
+    h += '</div>';
+    /* Overtime size sub-options */
+    h += '<div class="ot-overtime-size'+(_eState.otOvertime?' open':'')+'" id="otSizeRow">';
+    h += '<button class="ampm-btn'+(_eState.otOvertimeSize==='full'?' sel-lieu':'')+'" onclick="setOtSize(&apos;full&apos;)">Full day</button>';
+    h += '<button class="ampm-btn'+(_eState.otOvertimeSize==='half'?' sel-lieu':'')+'" onclick="setOtSize(&apos;half&apos;)">Half day</button>';
+    h += '</div>';
+
+    /* Notes — on workdays only */
+    if (!isSpecialDay) {
+      h += '<div class="otog'+(_eState.otNote?' sel':'')+'" onclick="toggleOther(&apos;note&apos;)">';
+      h += '<div class="otog__check">'+(_eState.otNote?'✓':'')+'</div>';
+      h += '<div><div class="otog__label">Note</div><div class="otog__sub">Add a note to this day</div></div>';
+      h += '</div>';
+    }
+
+    h += '</div>'; /* other-toggles */
+
+    /* Note textarea */
+    h += '<div id="noteArea" style="margin-top:10px;'+((_eState.otNote||existingEntry)?'':'display:none')+'">';
+    h += '<textarea class="fta" id="eNote" placeholder="Add a note…">'+esc(editNote)+'</textarea>';
+    h += '</div>';
+
+    /* Date for overtime/special days */
+    if (isSpecialDay) {
+      h += '<div class="fg" style="margin-top:10px"><label class="fl">Date</label><input type="date" class="fi" id="otDate" value="'+editDate+'"></div>';
+    }
+
+    h += '</div>'; /* entry-section */
+
+    body.innerHTML = h;
+
+    /* Sync end date when start changes */
+    var startEl = document.getElementById('alStart') || document.getElementById('lieuStart');
+    if (startEl && _eState.alMode !== 'several' && _eState.lieuMode !== 'several') {
+      startEl.addEventListener('change', function() {
+        var endEl = document.getElementById('alEnd') || document.getElementById('lieuEnd');
+        if (endEl && endEl.value < this.value) endEl.value = this.value;
+      });
+    }
   }
 
-  function setPillStyle(p, t) {
-    var m={'annual-leave':'s-al','annual-leave-half':'s-alh','office-day':'s-off','other':'s-oth'};
-    p.className='tpill '+(m[t]||'');
+  /* ── AL mode setters ── */
+  function setALMode(mode) {
+    /* Clear lieu if setting AL */
+    _eState.lieuMode = null; _eState.lieuAmPm = null;
+    _eState.alMode   = (_eState.alMode === mode) ? null : mode; /* toggle off if same */
+    buildEntryModal();
+  }
+  function setALAmPm(v) { _eState.alAmPm = v; buildEntryModal(); }
+
+  /* ── Lieu mode setters ── */
+  function setLieuMode(mode) {
+    _eState.alMode = null; _eState.alAmPm = null;
+    _eState.lieuMode = (_eState.lieuMode === mode) ? null : mode;
+    buildEntryModal();
+  }
+  function setLieuAmPm(v) { _eState.lieuAmPm = v; buildEntryModal(); }
+
+  /* ── Other toggles ── */
+  function toggleOther(which) {
+    if (which==='office')   { _eState.otOffice   = !_eState.otOffice; }
+    if (which==='overtime') { _eState.otOvertime = !_eState.otOvertime; }
+    if (which==='note')     { _eState.otNote     = !_eState.otNote; }
+    buildEntryModal();
+  }
+  function setOtSize(v) { _eState.otOvertimeSize = v; buildEntryModal(); }
+
+  function getWorkingDaysInRange(startIso, endIso) {
+    /* Returns array of ISO dates that are working days (not weekend, not BH) */
+    var ws   = (S.users[S.uid]||{}).workSettings||{};
+    var wdA  = ws.workDays||[1,2,3,4,5];
+    var bh   = allBH();
+    var days = [];
+    var cur  = startIso;
+    var safety = 0;
+    while (cur <= endIso && safety++ < 400) {
+      var jsD = new Date(cur+'T00:00:00').getDay();
+      if (wdA.indexOf(jsD) !== -1 && !bh[cur]) days.push(cur);
+      cur = addDays(cur, 1);
+    }
+    return days;
+  }
+
+
+  function deleteEntry() {
+    if (!_eState.editId||!confirm('Delete this entry?')) return;
+    var keyToDelete = _eState.editId;
+    db.ref('holiday-lieu/entries/'+S.uid+'/'+keyToDelete).remove()
+      .then(function(){
+        showToast('Entry deleted');
+        closeOv('ovEntry');
+        if (S.entries[S.uid]) delete S.entries[S.uid][keyToDelete];
+        refresh();
+      })
+      .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
 
   function saveEntry() {
     if (!S.uid) { showToast('Not signed in — please refresh','error'); return; }
-    if (!S.selType) { showToast('Select an entry type','error'); return; }
-    var date=document.getElementById('eDate').value;
-    var end =document.getElementById('eEnd').value;
-    var note=document.getElementById('eNote').value.trim();
-    if (!date) { showToast('Select a date','error'); return; }
-    var end2 = (end && end >= date) ? end : date; /* ensure endDate always >= startDate */
-    var entry={type:S.selType, date:date, endDate:end2, note:note};
+
+    var entries = [];
+    var hasAL   = !!_eState.alMode;
+    var hasLieu = !!_eState.lieuMode;
+    var hasAny  = hasAL || hasLieu || _eState.otOffice || _eState.otOvertime || _eState.otNote;
+
+    if (!hasAny) { showToast('Select at least one entry type','error'); return; }
+
+    /* ── Build AL entries ── */
+    if (hasAL) {
+      var startEl = document.getElementById('alStart');
+      var endEl   = document.getElementById('alEnd');
+      var date    = startEl ? startEl.value : _eState.iso;
+      if (!date) { showToast('Select a date for Annual Leave','error'); return; }
+
+      if (_eState.alMode === 'single') {
+        entries.push({ type:'annual-leave', date:date, endDate:date, note:'' });
+      } else if (_eState.alMode === 'half') {
+        if (!_eState.alAmPm) { showToast('Select AM or PM for half day','error'); return; }
+        entries.push({ type:'annual-leave-'+_eState.alAmPm, date:date, endDate:date, note:'' });
+      } else if (_eState.alMode === 'several') {
+        var end = endEl ? endEl.value : date;
+        if (end < date) { showToast('End date must be after start date','error'); return; }
+        /* Only write working days */
+        var wdDays = getWorkingDaysInRange(date, end);
+        if (!wdDays.length) { showToast('No working days in that range','error'); return; }
+        /* Write as a single entry with date range — renderer handles per-day display */
+        entries.push({ type:'annual-leave', date:date, endDate:end, note:'' });
+      }
+    }
+
+    /* ── Build Lieu Taken entries ── */
+    if (hasLieu) {
+      var lieuStart = document.getElementById('lieuStart');
+      var lieuEnd   = document.getElementById('lieuEnd');
+      var lDate     = lieuStart ? lieuStart.value : _eState.iso;
+      if (!lDate) { showToast('Select a date for Lieu Taken','error'); return; }
+
+      if (_eState.lieuMode === 'single') {
+        entries.push({ type:'lieu-taken', date:lDate, endDate:lDate, note:'' });
+      } else if (_eState.lieuMode === 'half') {
+        if (!_eState.lieuAmPm) { showToast('Select AM or PM for half day lieu','error'); return; }
+        entries.push({ type:'lieu-taken-'+_eState.lieuAmPm, date:lDate, endDate:lDate, note:'' });
+      } else if (_eState.lieuMode === 'several') {
+        var lEnd = lieuEnd ? lieuEnd.value : lDate;
+        if (lEnd < lDate) { showToast('End date must be after start date','error'); return; }
+        entries.push({ type:'lieu-taken', date:lDate, endDate:lEnd, note:'' });
+      }
+    }
+
+    /* ── Build Other entries ── */
+    var note = (document.getElementById('eNote') && document.getElementById('eNote').value.trim()) || '';
+    var otDate = _eState.iso;
+    var otDateEl = document.getElementById('otDate');
+    if (otDateEl) otDate = otDateEl.value || otDate;
+
+    if (_eState.otOffice) {
+      entries.push({ type:'office-day', date:otDate, endDate:otDate, note:note });
+    }
+    if (_eState.otOvertime) {
+      entries.push({ type:'overtime', date:otDate, endDate:otDate,
+        overtimeSize: _eState.otOvertimeSize, note:note });
+    }
+    if (_eState.otNote && !_eState.otOffice && !_eState.otOvertime) {
+      /* Standalone note */
+      entries.push({ type:'other', date:otDate, endDate:otDate, note:note });
+    }
+
+    if (!entries.length) { showToast('Nothing to save','error'); return; }
+
+    /* Write all entries */
     var cu = firebase.auth().currentUser;
-    var writeEntry = function() {
-      var ref = S.editId
-        ? db.ref('holiday-lieu/entries/'+S.uid+'/'+S.editId)
-        : db.ref('holiday-lieu/entries/'+S.uid).push();
-      ref.set(entry)
-        .then(function(){
-          showToast(S.editId?'Entry updated':'Entry added');
-          closeOv('ovEntry');
-          /* Update local state directly — on() listener unreliable after token refresh */
+    var writeAll = function() {
+      var writes = [];
+      if (_eState.editId && entries.length === 1) {
+        /* Editing single entry — update in place */
+        entries[0].note = entries[0].note || note;
+        writes.push(db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).set(entries[0]));
+      } else {
+        entries.forEach(function(entry) {
+          var ref = db.ref('holiday-lieu/entries/'+S.uid).push();
           if (!S.entries[S.uid]) S.entries[S.uid] = {};
-          var entryKey = S.editId || ref.key;
-          S.entries[S.uid][entryKey] = entry;
+          S.entries[S.uid][ref.key] = entry;
+          writes.push(ref.set(entry));
+        });
+      }
+      Promise.all(writes)
+        .then(function(){
+          showToast(writes.length > 1 ? writes.length+' entries saved' : 'Entry saved');
+          closeOv('ovEntry');
           refresh();
         })
         .catch(function(err){ showToast('Error: '+err.message,'error'); });
     };
-    if (cu) { cu.getIdToken(true).then(writeEntry).catch(writeEntry); }
-    else { writeEntry(); }
+    if (cu) { cu.getIdToken(true).then(writeAll).catch(writeAll); }
+    else { writeAll(); }
   }
 
-  function deleteEntry() {
-    if (!S.editId||!confirm('Delete this entry?')) return;
-    db.ref('holiday-lieu/entries/'+S.uid+'/'+S.editId).remove()
-      .then(function(){ showToast('Entry deleted'); closeOv('ovEntry'); })
-      .catch(function(err){ showToast('Error: '+err.message,'error'); });
-  }
-
-  /* User settings */
   function openSettings(uid) {
     if (!S.isSA) return;
     var uids=Object.keys(S.users).filter(function(u){ return S.users[u].role!=='club'; });
