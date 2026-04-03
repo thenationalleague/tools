@@ -1,11 +1,15 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.14 (conversation turn 10)
+  Version: v1.15 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v1.15 — Fixed root cause of 400x render: init() was being called up to 3
+         times from nlAuthReady (then + catch + else branches), each call
+         adding a new on() listener. Added S._initDone guard so init() and
+         its Firebase listeners are set up exactly once per page load.
   v1.14 — After write/delete, update S.entries in memory and call refresh()
          immediately. No longer relies on on() listener which was unreliable
          after the getIdToken() token refresh pattern.
@@ -578,21 +582,19 @@
     S.isAdmin = userData.role === 'admin' || S.isSA;
 
     function startApp(uid) {
+      if (S._initDone) return; /* guard: init() must only run once */
+      S._initDone = true;
       S.uid = uid;
       document.getElementById('topbarUser').textContent = userData.name || '';
       if (S.isSA) document.getElementById('adminTab').style.display = '';
       document.getElementById('pageWrap').style.display = 'block';
 
-      /* Force token refresh before any RTDB reads.
-         currentUser exists but the ID token may not have been sent to RTDB yet.
-         getIdToken() ensures Firebase has a valid token in flight before init(). */
-      var currentUser = firebase.auth().currentUser;
-      if (currentUser) {
-        currentUser.getIdToken(true).then(function() {
-          init();
-        }).catch(function() {
-          init(); /* proceed anyway — RTDB rules will reject if still invalid */
-        });
+      /* Force token refresh before RTDB reads, then init exactly once */
+      var cu = firebase.auth().currentUser;
+      if (cu) {
+        cu.getIdToken(true)
+          .then(function() { init(); })
+          .catch(function()  { init(); });
       } else {
         init();
       }
@@ -659,6 +661,7 @@
   /* ── State ── */
   var S = {
     uid: null, userData: null, isSA: false, isAdmin: false,
+    _initDone: false, /* guard against init() being called more than once */
     users: {}, entries: {}, lieu: {}, bh: {},
     myY: new Date().getFullYear(), myM: new Date().getMonth(),
     tmY: new Date().getFullYear(), tmM: new Date().getMonth(),
