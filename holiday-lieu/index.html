@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.43 (conversation turn 10)
+  Version: v1.44 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -525,7 +525,9 @@
     .team-tbl td.t-lieu    { background: #f3e5f5; }
     .team-tbl td.t-lieu-am { background: linear-gradient(to bottom, #f3e5f5 50%, var(--white) 50%); }
     .team-tbl td.t-lieu-pm { background: linear-gradient(to bottom, var(--white) 50%, #f3e5f5 50%); }
-    .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
+    /* Team strips — td uses has-office/has-lieu same as cal-cell */
+    .team-tbl td.has-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
+    .team-tbl td.t-office::before   { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
 
     /* Org chart — SVG-based */
     .org-wrap { overflow-x: auto; padding: 16px 8px; min-height: 120px; }
@@ -1449,11 +1451,15 @@
   function myNav(d) { advMo('my',d); }
   function myToday() { S.myY=new Date().getFullYear(); S.myM=new Date().getMonth(); renderMyCal(); }
   function getMonOfWeek(isoDate) {
-    var d = new Date(isoDate+'T00:00:00');
-    var day = d.getDay();
+    /* Use UTC to avoid BST shifting day backwards */
+    var parts = isoDate.split('-');
+    var d = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2]));
+    var day = d.getUTCDay(); /* 0=Sun, 1=Mon … */
     var diff = day === 0 ? -6 : 1 - day;
-    d.setDate(d.getDate() + diff);
-    return d.toISOString().split('T')[0];
+    d.setUTCDate(d.getUTCDate() + diff);
+    return d.getUTCFullYear() + '-'
+      + ('0'+(d.getUTCMonth()+1)).slice(-2) + '-'
+      + ('0'+d.getUTCDate()).slice(-2);
   }
   function teamNav(d) {
     if (!S.tmWeekStart) S.tmWeekStart = getMonOfWeek(isoToday());
@@ -1678,31 +1684,40 @@
         var de = expandEntries(uid, yr, mo).filter(function(e){ return e.date===day.iso; });
         var isWD = wdArr.indexOf(day.jsD) !== -1;
 
-        /* Status fills — determined first so we know if day-type should show */
-        var tdStatus = '';
-        if (de.length) {
-          var te = de[0];
-          if      (te.type==='annual-leave')                                             tdStatus = ' t-al';
-          else if (te.type==='annual-leave-am')                                          tdStatus = ' t-al-am';
-          else if (te.type==='annual-leave-pm')                                          tdStatus = ' t-al-pm';
-          else if (te.type==='annual-leave-half')                                        tdStatus = ' t-al-pm';
-          else if (te.type==='lieu-taken')                                               tdStatus = ' t-lieu';
-          else if (te.type==='lieu-taken-am')                                            tdStatus = ' t-lieu-am';
-          else if (te.type==='lieu-taken-pm')                                            tdStatus = ' t-lieu-pm';
-          else if (te.type==='overtime' && (!te.overtimeSize||te.overtimeSize==='full')) tdStatus = ' t-worked';
-          else if (te.type==='overtime' && te.overtimeSize==='half')                     tdStatus = ' t-worked';
-          else if (te.type==='other')                                                    tdStatus = ' t-other';
-        }
-        var hasOff2 = de.find(function(e){ return e.type==='office-day'; });
-        if (hasOff2) tdStatus += ' t-office';
+        /* ── Team cell classes — exact same logic as solo renderMyCal ── */
+        var alFull2  = de.find(function(e){ return e.type==='annual-leave'; });
+        var alAM2    = de.find(function(e){ return e.type==='annual-leave-am'; });
+        var alPM2    = de.find(function(e){ return e.type==='annual-leave-pm'; });
+        var alHalf2  = de.find(function(e){ return e.type==='annual-leave-half'; });
+        var hasLT2   = de.find(function(e){ return e.type==='lieu-taken'; });
+        var hasLTAM2 = de.find(function(e){ return e.type==='lieu-taken-am'; });
+        var hasLTPM2 = de.find(function(e){ return e.type==='lieu-taken-pm'; });
+        var hasOff2  = de.find(function(e){ return e.type==='office-day'; });
+        var hasOth2  = de.find(function(e){ return e.type==='other'; });
+        var hasWk2   = de.find(function(e){ return e.type==='overtime' && (!e.overtimeSize||e.overtimeSize==='full'); });
+        var hasWkAM2 = de.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='am'; });
+        var hasWkPM2 = de.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='pm'; });
 
-        /* Day-type classes — only apply if no primary status fill (matches solo calendar logic) */
+        /* Day-type always first (sets CSS vars) */
         var tdC = '';
-        if (day.isT) tdC += ' is-today';
-        if (!tdStatus) {
-          if (day.isWk || !isWD) tdC += ' is-wknd';
-          if (day.isBH)          tdC += ' is-bh';
-        }
+        if (day.isT)         tdC += ' is-today';
+        if (day.isBH)        tdC += ' is-bh';
+        else if (day.isWk || !isWD) tdC += ' is-wknd';
+
+        /* Status fill — same precedence as solo */
+        var tdStatus = '';
+        if      (alFull2)  tdStatus = ' is-al';
+        else if (alAM2)    tdStatus = ' is-al-am';
+        else if (alPM2)    tdStatus = ' is-al-pm';
+        else if (alHalf2)  tdStatus = ' is-al-pm';
+        else if (hasLT2)   tdStatus = ' is-lieu';
+        else if (hasLTAM2) tdStatus = ' is-lieu-am';
+        else if (hasLTPM2) tdStatus = ' is-lieu-pm';
+        else if (hasWk2)   tdStatus = ' is-worked';
+        else if (hasWkAM2) tdStatus = ' is-worked-am';
+        else if (hasWkPM2) tdStatus = ' is-worked-pm';
+        else if (hasOth2)  tdStatus = ' is-other';
+        if (hasOff2)       tdStatus += ' has-office';
 
         var title2 = de.length
           ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'')
