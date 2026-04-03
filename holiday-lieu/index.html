@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.23 (conversation turn 10)
+  Version: v1.24 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,13 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.24 — Legend: "Half Day (PM)" -> "Half Day", removed Other, added Note.
+         Renamed "Other" to "Note" in typeLabel and modal.
+         Org chart: avatar circles with initials, drop shadow, hover.
+         Shared calendar notes: admin posts notes visible on all calendars.
+         Approvals tab: visible to admin/superadmin, shows pending AL,
+         lieu-taken and overtime lieu-claim requests with approve/reject
+         and optional comment. Badge shows pending count.
   v1.23 — Office day: confirmed as 6px bottom-only green line (no L-border).
          Lieu taken: full pastel purple cell fill matching AL treatment.
          Overtime half-day: correctly uses overtimeSize to determine fill.
@@ -306,6 +313,16 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       opacity: 0.8;
     }
+    /* Shared admin note — subtle, italic, visible to all */
+    .cal-shared-note {
+      display: block;
+      font-size: 9px;
+      font-style: italic;
+      color: var(--text-muted);
+      padding: 2px 7px 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      opacity: 0.75;
+    }
 
     /* Add hint */
     .cal-add-hint {
@@ -364,6 +381,7 @@
     .legend-swatch.annual-leave-half { background: linear-gradient(to bottom, var(--white) 50%, var(--cal-al) 50%); }
     .legend-swatch.office-day        { background: var(--white); border-bottom: 3px solid var(--cal-strip-off); }
     .legend-swatch.other             { background: var(--cal-other); }
+    .legend-swatch.note              { background: var(--cal-other); border-left: 3px solid #4a5568; }
     .legend-swatch.lieu-taken        { background: #f3e5f5; }
     .legend-swatch.bank-hol          { background: var(--cal-bh); }
     .legend-swatch.worked             { background: var(--cal-worked); }
@@ -396,16 +414,28 @@
     .team-tbl td.t-office::before { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:var(--cal-strip-off); }
 
     /* Org chart — SVG-based */
-    .org-wrap { overflow-x: auto; padding: 8px 0; }
+    .org-wrap { overflow-x: auto; padding: 16px 8px; min-height: 120px; }
     .org-svg { font-family: var(--font); }
-    .org-box { fill: var(--white); stroke: var(--border); stroke-width: 1; rx: 6; }
-    .org-box-root { stroke: var(--navy); stroke-width: 2; }
-    .org-box-you  { stroke: var(--primary); stroke-width: 2; }
-    .org-name { font-size: 13px; font-weight: 700; fill: var(--text); }
-    .org-name-root { fill: var(--navy); }
-    .org-name-you  { fill: var(--primary); }
-    .org-role { font-size: 11px; fill: var(--text-muted); }
-    .org-line { stroke: var(--border); stroke-width: 1.5; fill: none; }
+    .org-node-g { cursor: default; }
+    .org-node-g:hover .org-box { filter: drop-shadow(0 4px 12px rgba(10,22,40,0.15)); }
+    .org-box { fill: white; stroke: #dde3ed; stroke-width: 1.5; }
+    .org-box-root { stroke: #223b7c; stroke-width: 2; }
+    .org-box-you  { stroke: #9e0000; stroke-width: 2; }
+    .org-avatar { }
+    .org-avatar-bg { }
+    .org-avatar-bg-root { fill: #e8ecf8; }
+    .org-avatar-bg-you  { fill: #fde8e8; }
+    .org-avatar-bg-std  { fill: #f4f6f9; }
+    .org-avatar-txt { font-size: 12px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
+    .org-avatar-txt-root { fill: #223b7c; }
+    .org-avatar-txt-you  { fill: #9e0000; }
+    .org-avatar-txt-std  { fill: #5a6a82; }
+    .org-name { font-size: 12px; font-weight: 700; fill: #1a2a44; }
+    .org-name-root { fill: #223b7c; }
+    .org-name-you  { fill: #9e0000; }
+    .org-role { font-size: 10px; fill: #5a6a82; }
+    .org-you-tag { font-size: 9px; fill: #9e0000; font-style: italic; }
+    .org-line { stroke: #c8d0e0; stroke-width: 1.5; fill: none; }
 
     /* Card */
     .card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px; }
@@ -486,6 +516,22 @@
     .pill-navy   { background: #e8ecf8; color: var(--navy); }
     .pill-muted  { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
 
+    /* Approval cards */
+    .appr-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .appr-card__head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .appr-card__avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--off-white); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; font-variation-settings: 'wght' 800; color: var(--navy); flex-shrink: 0; }
+    .appr-card__info { flex: 1; }
+    .appr-card__name { font-size: 14px; font-weight: 700; font-variation-settings: 'wght' 700; }
+    .appr-card__meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .appr-card__type { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .appr-card__type.al   { background: #fde8e8; color: #9e0000; }
+    .appr-card__type.lieu { background: #f3e5f5; color: #6a1b9a; }
+    .appr-card__type.ot   { background: var(--blue-light); color: var(--navy); }
+    .appr-card__dates { font-size: 13px; margin-bottom: 10px; color: var(--text); }
+    .appr-card__note { font-size: 12px; color: var(--text-muted); font-style: italic; margin-bottom: 10px; padding: 6px 10px; background: var(--off-white); border-radius: 4px; }
+    .appr-card__actions { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+    .appr-card__comment { width: 100%; margin-top: 8px; }
+
     /* Toast */
     .toast { position: fixed; bottom: 24px; right: 24px; background: var(--navy); color: var(--white); padding: 12px 18px; border-radius: var(--radius); font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.08em; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 999; transform: translateY(80px); opacity: 0; transition: all 0.25s ease; max-width: 300px; pointer-events: none; }
     .toast.show    { transform: translateY(0); opacity: 1; }
@@ -514,6 +560,7 @@
       <button class="tab active" onclick="switchTab('my')">My Calendar</button>
       <button class="tab" onclick="switchTab('team')">Team View</button>
       <button class="tab" onclick="switchTab('org')">Org Chart</button>
+      <button class="tab" id="approvalsTab" style="display:none" onclick="switchTab('approvals')">Approvals <span id="approvalsBadge" style="display:none;background:#c0392b;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:4px;vertical-align:middle"></span></button>
       <button class="tab" id="adminTab" style="display:none" onclick="switchTab('admin')">Admin</button>
     </div>
 
@@ -557,9 +604,9 @@
         </div>
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
-          <div class="legend-item"><div class="legend-swatch annual-leave-half"></div>Half Day (PM)</div>
+          <div class="legend-item"><div class="legend-swatch annual-leave-half"></div>Half Day</div>
           <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
-          <div class="legend-item"><div class="legend-swatch other"></div>Other</div>
+          <div class="legend-item"><div class="legend-swatch note"></div>Note</div>
           <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
           <div class="legend-item"><div class="legend-swatch worked"></div>Worked extra</div>
           <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
@@ -580,7 +627,7 @@
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
           <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
-          <div class="legend-item"><div class="legend-swatch other"></div>Other</div>
+          <div class="legend-item"><div class="legend-swatch note"></div>Note</div>
           <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
           <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
@@ -598,6 +645,14 @@
       <div class="card">
         <div class="card__title">Organisation Chart</div>
         <div id="orgChart" class="org-root"></div>
+      </div>
+    </div>
+
+    <!-- APPROVALS -->
+    <div class="tab-panel" id="tab-approvals">
+      <div class="card">
+        <div class="card__title">Pending Approvals</div>
+        <div id="approvalsList"></div>
       </div>
     </div>
 
@@ -622,6 +677,14 @@
         </div>
         <div id="bhList"></div>
       </div>
+      <div class="card">
+        <div class="card__title">
+          Shared Calendar Notes
+          <button class="btn btn-navy btn-sm" onclick="openAddSharedNote()">+ Add Note</button>
+        </div>
+        <div id="sharedNotesList"></div>
+      </div>
+
       <div class="card">
         <div class="card__title">
           Lieu Accrual Log — All Staff
@@ -813,6 +876,7 @@
       S.uid = uid;
       document.getElementById('topbarUser').textContent = userData.name || '';
       if (S.isSA) document.getElementById('adminTab').style.display = '';
+      if (S.isAdmin || S.isSA) document.getElementById('approvalsTab').style.display = '';
       document.getElementById('pageWrap').style.display = 'block';
 
       /* Force token refresh before RTDB reads, then init exactly once */
@@ -902,7 +966,9 @@
     users: {}, entries: {}, lieu: {}, bh: {},
     myY: new Date().getFullYear(), myM: new Date().getMonth(),
     tmY: new Date().getFullYear(), tmM: new Date().getMonth(),
-    tmWeekStart: null, /* ISO date of Mon of current team week */
+    tmWeekStart: null,
+    sharedNotes: {},
+    requests: {}, /* leave/lieu requests pending approval */
     activeTab: 'my',
     editId: null, selType: null
   };
@@ -934,6 +1000,16 @@
       if (snap.exists()) { S.bh = snap.val(); }
       refresh();
     }, function(err){ console.warn('bh listener error:', err.code); });
+
+    db.ref('holiday-lieu/shared-notes').on('value', function(snap){
+      if (snap.exists()) { S.sharedNotes = snap.val(); } else { S.sharedNotes = {}; }
+      refresh();
+    }, function(err){ console.warn('shared-notes listener error:', err.code); });
+
+    db.ref('holiday-lieu/requests').on('value', function(snap){
+      if (snap.exists()) { S.requests = snap.val(); } else { S.requests = {}; }
+      refresh();
+    }, function(err){ console.warn('requests listener error:', err.code); });
   }
 
   function refresh() {
@@ -941,9 +1017,11 @@
     renderBalances();
     renderLieuLog();
     renderMyCal();
-    if (S.activeTab === 'team')  renderTeam();
-    if (S.activeTab === 'org')   renderOrg();
-    if (S.activeTab === 'admin') renderAdmin();
+    if (S.activeTab === 'team')      renderTeam();
+    if (S.activeTab === 'org')       renderOrg();
+    if (S.activeTab === 'approvals') renderApprovals();
+    if (S.activeTab === 'admin')     renderAdmin();
+    updateApprovalsBadge();
   }
 
   /* ── Tabs ── */
@@ -957,9 +1035,10 @@
     if (tabs[idx]) tabs[idx].classList.add('active');
     var panel = document.getElementById('tab-'+name);
     if (panel) panel.classList.add('active');
-    if (name === 'team')  renderTeam();
-    if (name === 'org')   renderOrg();
-    if (name === 'admin') renderAdmin();
+    if (name === 'team')      renderTeam();
+    if (name === 'org')       renderOrg();
+    if (name === 'approvals') renderApprovals();
+    if (name === 'admin')     renderAdmin();
   }
 
   /* ── BH helpers ── */
@@ -967,6 +1046,14 @@
     var out = {};
     Object.keys(S.bh).forEach(function(yr){
       Object.keys(S.bh[yr]).forEach(function(d){ out[d] = S.bh[yr][d]; });
+    });
+    return out;
+  }
+
+  function allSharedNotes() {
+    var out = {};
+    Object.keys(S.sharedNotes||{}).forEach(function(yr){
+      Object.keys(S.sharedNotes[yr]).forEach(function(d){ out[d] = S.sharedNotes[yr][d]; });
     });
     return out;
   }
@@ -1217,6 +1304,9 @@
       var inner = '<span class="cal-date">'+day+'</span>';
       if (isBH) inner += '<span class="bh-tag">'+esc((bh[iso].label||'Bank Holiday').substring(0,20))+'</span>';
       if (hasOth && hasOth.note) inner += '<span class="cal-note">'+esc(hasOth.note.substring(0,22))+'</span>';
+      /* Shared admin note */
+      var sNote = allSharedNotes()[iso];
+      if (sNote) inner += '<span class="cal-shared-note">'+esc((sNote.label||'').substring(0,20))+'</span>';
       inner += '<span class="cal-add-hint">+ add</span>';
 
       /* All cells are clickable — context determines modal content */
@@ -1235,7 +1325,7 @@
 
 
   function typeShort(t) {
-    var m = {'annual-leave':'AL','annual-leave-half':'AL ½','office-day':'Office','other':'Other','lieu-taken':'Lieu'};
+    var m = {'annual-leave':'AL','annual-leave-half':'AL ½','office-day':'Office','other':'Note','lieu-taken':'Lieu'};
     return m[t]||t;
   }
 
@@ -1348,12 +1438,232 @@
   }
 
 
+  /* ── Approvals ── */
+  function updateApprovalsBadge() {
+    var badge = document.getElementById('approvalsBadge');
+    if (!badge) return;
+    var count = countPendingForMe();
+    if (count > 0) { badge.textContent = count; badge.style.display = ''; }
+    else badge.style.display = 'none';
+  }
+
+  function countPendingForMe() {
+    var count = 0;
+    Object.keys(S.requests||{}).forEach(function(uid) {
+      Object.keys(S.requests[uid]||{}).forEach(function(id) {
+        var r = S.requests[uid][id];
+        if (r && r.status === 'pending' && isApproverFor(uid)) count++;
+      });
+    });
+    /* Also count pending lieu-earned claims */
+    Object.keys(S.lieu||{}).forEach(function(uid) {
+      Object.keys(S.lieu[uid]||{}).forEach(function(id) {
+        var r = S.lieu[uid][id];
+        if (r && r.status === 'pending' && isApproverFor(uid)) count++;
+      });
+    });
+    return count;
+  }
+
+  function isApproverFor(uid) {
+    if (S.isSA || S.isAdmin) return true;
+    /* Walk lineManagerUid chain */
+    var myUid = S.uid;
+    var cur = uid;
+    var seen = {}, safety = 0;
+    while (cur && safety++ < 10) {
+      var mgr = (S.users[cur]||{}).lineManagerUid;
+      if (!mgr || seen[mgr]) break;
+      seen[mgr] = true;
+      if (mgr === myUid) return true;
+      cur = mgr;
+    }
+    return false;
+  }
+
+  function renderApprovals() {
+    var el = document.getElementById('approvalsList');
+    if (!el) return;
+    var items = [];
+
+    /* Gather pending leave/lieu requests */
+    Object.keys(S.requests||{}).forEach(function(uid) {
+      if (!isApproverFor(uid)) return;
+      Object.keys(S.requests[uid]||{}).forEach(function(id) {
+        var r = S.requests[uid][id];
+        if (r && r.status === 'pending') items.push({kind:'request', uid:uid, id:id, r:r});
+      });
+    });
+
+    /* Gather pending lieu-earned claims */
+    Object.keys(S.lieu||{}).forEach(function(uid) {
+      if (!isApproverFor(uid)) return;
+      Object.keys(S.lieu[uid]||{}).forEach(function(id) {
+        var r = S.lieu[uid][id];
+        if (r && r.status === 'pending') items.push({kind:'lieu-claim', uid:uid, id:id, r:r});
+      });
+    });
+
+    if (!items.length) {
+      el.innerHTML = '<div class="empty"><div class="empty__icon">✅</div><div class="empty__msg">No pending approvals.</div></div>';
+      return;
+    }
+
+    items.sort(function(a,b){ return (a.r.submittedAt||0) - (b.r.submittedAt||0); });
+
+    el.innerHTML = items.map(function(item) {
+      var u = S.users[item.uid]||{};
+      var r = item.r;
+      var ini = (u.name||'?').split(' ').map(function(p){ return p[0]||''; }).join('').toUpperCase().substring(0,2);
+
+      var typeCls, typeLabel2;
+      if (item.kind === 'lieu-claim') {
+        typeCls = 'ot'; typeLabel2 = 'Overtime / Lieu Claim';
+      } else if (r.type && r.type.indexOf('annual-leave') !== -1) {
+        typeCls = 'al'; typeLabel2 = 'Annual Leave';
+      } else {
+        typeCls = 'lieu'; typeLabel2 = 'Lieu Taken';
+      }
+
+      var dateStr = r.date ? fmtDate(r.date) + (r.endDate && r.endDate !== r.date ? ' – '+fmtDate(r.endDate) : '') : (r.dateWorked ? fmtDate(r.dateWorked) : '—');
+      var days = r.days || r.lieuDays || (r.type && r.type.indexOf('half') !== -1 ? 0.5 : 1);
+      var meta = days + ' day' + (days===1?'':'s') + ' · ' + dateStr;
+      var subAt = r.submittedAt ? ' · Submitted '+fmtDate(new Date(r.submittedAt).toISOString().split('T')[0]) : '';
+
+      return '<div class="appr-card" id="appr-'+item.kind+'-'+item.id+'">'
+        +'<div class="appr-card__head">'
+        +'<div class="appr-card__avatar">'+ini+'</div>'
+        +'<div class="appr-card__info">'
+        +'<div class="appr-card__name">'+esc(u.name||item.uid)+'</div>'
+        +'<div class="appr-card__meta">'+meta+subAt+'</div>'
+        +'</div>'
+        +'<span class="appr-card__type '+typeCls+'">'+typeLabel2+'</span>'
+        +'</div>'
+        +(r.note ? '<div class="appr-card__note">'+esc(r.note)+'</div>' : '')
+        +'<div class="appr-card__actions">'
+        +'<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Approve</button>'
+        +'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doReject(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Reject</button>'
+        +'<button class="btn btn-ghost btn-sm" data-id="'+escJ(item.id)+'" onclick="toggleApprComment(this.dataset.id)">+ Comment</button>'
+        +'</div>'
+        +'<div class="appr-card__comment" id="comment-'+item.id+'" style="display:none">'
+        +'<textarea class="fta" placeholder="Optional comment…" style="min-height:56px" id="commentText-'+item.id+'"></textarea>'
+        +'</div>'
+        +'</div>';
+    }).join('');
+  }
+
+  function toggleApprComment(id) {
+    var el = document.getElementById('comment-'+id);
+    if (el) el.style.display = el.style.display==='none'?'':'none';
+  }
+
+  function getComment(id) {
+    var el = document.getElementById('commentText-'+id);
+    return el ? el.value.trim() : '';
+  }
+
+  function doApprove(kind, uid, id, btn) {
+    btn.disabled = true; btn.textContent = 'Approving…';
+    var comment = getComment(id);
+
+    if (kind === 'lieu-claim') {
+      /* Approve lieu-earned record — set status to approved */
+      db.ref('holiday-lieu/lieu-earned/'+uid+'/'+id).update({status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null})
+        .then(function(){
+          showToast('Lieu claim approved');
+          if (S.lieu[uid] && S.lieu[uid][id]) S.lieu[uid][id].status = 'approved';
+          refresh();
+        })
+        .catch(function(err){ btn.disabled=false; btn.textContent='Approve'; showToast('Error: '+err.message,'error'); });
+    } else {
+      /* Approve leave/lieu-taken request — write entry to entries node */
+      var r = (S.requests[uid]||{})[id];
+      if (!r) { showToast('Request not found','error'); return; }
+      var entry = { type:r.type, date:r.date, endDate:r.endDate||r.date, note:r.note||'' };
+      db.ref('holiday-lieu/entries/'+uid).push(entry)
+        .then(function(){
+          return db.ref('holiday-lieu/requests/'+uid+'/'+id).update({status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null});
+        })
+        .then(function(){
+          showToast('Request approved');
+          if (S.requests[uid] && S.requests[uid][id]) S.requests[uid][id].status = 'approved';
+          refresh();
+        })
+        .catch(function(err){ btn.disabled=false; btn.textContent='Approve'; showToast('Error: '+err.message,'error'); });
+    }
+  }
+
+  function doReject(kind, uid, id, btn) {
+    btn.disabled = true; btn.textContent = 'Rejecting…';
+    var comment = getComment(id);
+    var path = kind==='lieu-claim' ? 'holiday-lieu/lieu-earned/'+uid+'/'+id : 'holiday-lieu/requests/'+uid+'/'+id;
+    db.ref(path).update({status:'rejected', rejectedBy:S.uid, rejectedAt:Date.now(), comment:comment||null})
+      .then(function(){
+        showToast('Rejected');
+        var store = kind==='lieu-claim' ? S.lieu : S.requests;
+        if (store[uid] && store[uid][id]) store[uid][id].status = 'rejected';
+        refresh();
+      })
+      .catch(function(err){ btn.disabled=false; btn.textContent='Reject'; showToast('Error: '+err.message,'error'); });
+  }
+
+  /* ── Shared calendar notes admin ── */
+  function openAddSharedNote() {
+    var d = document.createElement('div');
+    d.innerHTML = '<div class="fg"><label class="fl">Date</label><input type="date" class="fi" id="snDate" value="'+isoToday()+'"></div>'
+      +'<div class="fg"><label class="fl">Note</label><input type="text" class="fi" id="snLabel" placeholder="e.g. Diwali, Office closed, Cup Final"></div>';
+    var modal = document.getElementById('ovEntry');
+    /* Reuse the modal for simplicity — override title and body */
+    document.getElementById('entryModalTitle').textContent = 'Add Shared Note';
+    document.getElementById('entryModalBody').innerHTML = d.innerHTML;
+    document.getElementById('delEntryBtn').style.display = 'none';
+    document.getElementById('saveEntryBtn').onclick = saveSharedNote;
+    modal.classList.add('open');
+  }
+
+  function saveSharedNote() {
+    var date  = document.getElementById('snDate') && document.getElementById('snDate').value;
+    var label = document.getElementById('snLabel') && document.getElementById('snLabel').value.trim();
+    if (!date||!label) { showToast('Date and note text required','error'); return; }
+    var yr = date.split('-')[0];
+    db.ref('holiday-lieu/shared-notes/'+yr+'/'+date).set({label:label, addedBy:S.uid, addedAt:Date.now()})
+      .then(function(){
+        showToast('Note added to all calendars');
+        closeOv('ovEntry');
+        document.getElementById('saveEntryBtn').onclick = saveEntry;
+      })
+      .catch(function(err){ showToast('Error: '+err.message,'error'); });
+  }
+
+  function renderSharedNotesList() {
+    var el = document.getElementById('sharedNotesList');
+    if (!el) return;
+    var notes = allSharedNotes();
+    var keys = Object.keys(notes).sort().reverse();
+    if (!keys.length) { el.innerHTML='<div class="empty"><div class="empty__msg">No shared notes yet.</div></div>'; return; }
+    el.innerHTML = keys.map(function(iso){
+      var n = notes[iso];
+      return '<div class="bh-row"><span class="bh-date">'+fmtDate(iso)+'</span><span class="bh-name">'+esc(n.label||'')+'</span>'
+        +'<button class="bh-del" data-iso="'+escJ(iso)+'" onclick="deleteSharedNote(this.dataset.iso)" title="Delete">×</button></div>';
+    }).join('');
+  }
+
+  function deleteSharedNote(iso) {
+    if (!confirm('Remove this note?')) return;
+    db.ref('holiday-lieu/shared-notes/'+iso.split('-')[0]+'/'+iso).remove()
+      .then(function(){ showToast('Note removed'); })
+      .catch(function(err){ showToast('Error: '+err.message,'error'); });
+  }
+
   function renderOrg() {
-    /* Build adjacency */
     var reps = {}, hasMgr = {};
     Object.keys(S.users).forEach(function(uid) {
       var mgr = S.users[uid].lineManagerUid;
-      if (mgr && S.users[mgr]) { if (!reps[mgr]) reps[mgr]=[]; reps[mgr].push(uid); hasMgr[uid]=true; }
+      if (mgr && S.users[mgr]) {
+        if (!reps[mgr]) reps[mgr] = [];
+        reps[mgr].push(uid);
+        hasMgr[uid] = true;
+      }
     });
     var roots = Object.keys(S.users).filter(function(uid) {
       if (uid==='null'||!uid) return false;
@@ -1368,84 +1678,86 @@
       return;
     }
 
-    /* Layout constants */
-    var BOX_W = 160, BOX_H = 52, H_GAP = 24, V_GAP = 60;
+    var BOX_W = 172, BOX_H = 64, H_GAP = 28, V_GAP = 56, AV_R = 18;
 
-    /* Recursive layout: returns {width, nodes:[{uid,x,y}], edges:[{x1,y1,x2,y2}]} */
+    function initials(name) {
+      var parts = (name||'?').trim().split(' ');
+      return (parts[0][0]+(parts.length>1?parts[parts.length-1][0]:'')).toUpperCase();
+    }
+
     function layout(uid, x, y) {
       var ch = (reps[uid]||[]).slice().sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
       var nodes = [{uid:uid, x:x, y:y}];
       var edges = [];
-      if (!ch.length) return { width: BOX_W, nodes: nodes, edges: edges };
-
+      if (!ch.length) return { width:BOX_W, nodes:nodes, edges:edges };
       var childY = y + BOX_H + V_GAP;
-      var childLayouts = ch.map(function(c) { return layout(c, 0, childY); });
+      var childLayouts = ch.map(function(c){ return layout(c, 0, childY); });
       var totalW = childLayouts.reduce(function(s,l){ return s+l.width; }, 0) + H_GAP*(ch.length-1);
-
-      /* Centre this node over its children */
       var cx = x + Math.max(0, (totalW - BOX_W) / 2);
       nodes[0].x = cx;
-
       var childX = x;
-      childLayouts.forEach(function(cl, i) {
-        var offsetX = childX + (cl.width - BOX_W) / 2;
-        cl.nodes.forEach(function(n) { nodes.push({uid:n.uid, x:n.x+childX, y:n.y}); });
-        cl.edges.forEach(function(e) { edges.push({x1:e.x1+childX, y1:e.y1, x2:e.x2+childX, y2:e.y2}); });
-        /* Edge: parent bottom-centre to child top-centre */
+      childLayouts.forEach(function(cl) {
         var childMidX = childX + cl.width/2;
         var parentMidX = cx + BOX_W/2;
-        var parentBottomY = y + BOX_H;
-        var childTopY = childY;
-        var midY = parentBottomY + (childTopY - parentBottomY)/2;
-        edges.push({x1:parentMidX, y1:parentBottomY, x2:parentMidX, y2:midY});
-        edges.push({x1:parentMidX, y1:midY, x2:childMidX, y2:midY});
-        edges.push({x1:childMidX, y1:midY, x2:childMidX, y2:childTopY});
+        var midY = y + BOX_H + V_GAP/2;
+        cl.nodes.forEach(function(n){ nodes.push({uid:n.uid, x:n.x+childX, y:n.y}); });
+        cl.edges.forEach(function(e){ edges.push({x1:e.x1+childX,y1:e.y1,x2:e.x2+childX,y2:e.y2}); });
+        edges.push({x1:parentMidX,y1:y+BOX_H,   x2:parentMidX,y2:midY});
+        edges.push({x1:parentMidX,y1:midY,       x2:childMidX, y2:midY});
+        edges.push({x1:childMidX, y1:midY,       x2:childMidX, y2:childY});
         childX += cl.width + H_GAP;
       });
-
-      return { width: Math.max(BOX_W, totalW), nodes: nodes, edges: edges };
+      return { width:Math.max(BOX_W,totalW), nodes:nodes, edges:edges };
     }
 
-    /* Layout each root tree side by side */
-    var allNodes = [], allEdges = [];
+    var allNodes=[], allEdges=[];
     var rootX = 0;
     roots.forEach(function(uid) {
-      var tree = layout(uid, rootX, 20);
+      var tree = layout(uid, rootX, 24);
       tree.nodes.forEach(function(n){ allNodes.push(n); });
       tree.edges.forEach(function(e){ allEdges.push(e); });
-      rootX += tree.width + H_GAP * 3;
+      rootX += tree.width + H_GAP*3;
     });
 
-    /* SVG dimensions */
-    var maxX = allNodes.reduce(function(m,n){ return Math.max(m, n.x+BOX_W); }, 0) + 20;
-    var maxY = allNodes.reduce(function(m,n){ return Math.max(m, n.y+BOX_H); }, 0) + 20;
+    var maxX = allNodes.reduce(function(m,n){ return Math.max(m,n.x+BOX_W); },0)+24;
+    var maxY = allNodes.reduce(function(m,n){ return Math.max(m,n.y+BOX_H); },0)+24;
+    var parts = ['<svg class="org-svg" width="'+maxX+'" height="'+maxY+'" viewBox="0 0 '+maxX+' '+maxY+'" xmlns="http://www.w3.org/2000/svg">'];
 
-    var svgParts = ['<svg class="org-svg" width="'+maxX+'" height="'+maxY+'" viewBox="0 0 '+maxX+' '+maxY+'" xmlns="http://www.w3.org/2000/svg">'];
+    /* Defs: drop shadow filter */
+    parts.push('<defs><filter id="orgShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(10,22,40,0.10)"/></filter></defs>');
 
-    /* Edges first (behind nodes) */
-    allEdges.forEach(function(e) {
-      svgParts.push('<path class="org-line" d="M'+e.x1+','+e.y1+' L'+e.x2+','+e.y2+'"/>');
+    allEdges.forEach(function(e){
+      parts.push('<path class="org-line" d="M'+e.x1+','+e.y1+' L'+e.x2+','+e.y2+'"/>');
     });
 
-    /* Nodes */
     allNodes.forEach(function(n) {
       var u = S.users[n.uid]||{};
-      var isMe = n.uid === S.uid;
+      var isMe   = n.uid === S.uid;
       var isRoot = !hasMgr[n.uid];
-      var boxCls = 'org-box' + (isRoot?' org-box-root':'') + (isMe?' org-box-you':'');
-      var nameCls = 'org-name' + (isRoot?' org-name-root':'') + (isMe?' org-name-you':'');
-      var name = esc(u.name||n.uid) + (isMe?' (you)':'');
-      var role = esc(roleLabel(u.role));
-      svgParts.push(
-        '<rect class="'+boxCls+'" x="'+n.x+'" y="'+n.y+'" width="'+BOX_W+'" height="'+BOX_H+'" rx="6"/>',
-        '<text class="'+nameCls+'" x="'+(n.x+12)+'" y="'+(n.y+22)+'" font-size="13" font-weight="700">'+name+'</text>',
-        '<text class="org-role" x="'+(n.x+12)+'" y="'+(n.y+38)+'" font-size="11">'+role+'</text>'
-      );
+      var avBg   = isMe ? 'org-avatar-bg-you' : (isRoot ? 'org-avatar-bg-root' : 'org-avatar-bg-std');
+      var avTxt  = isMe ? 'org-avatar-txt-you' : (isRoot ? 'org-avatar-txt-root' : 'org-avatar-txt-std');
+      var boxCls = 'org-box'+(isRoot?' org-box-root':'')+(isMe?' org-box-you':'');
+      var nameCls= 'org-name'+(isRoot?' org-name-root':'')+(isMe?' org-name-you':'');
+      var ini    = initials(u.name);
+      var nameStr= esc(u.name||n.uid);
+      var roleStr= esc(roleLabel(u.role));
+      var avX = n.x + 14, avY = n.y + BOX_H/2;
+      var textX = n.x + 14 + AV_R*2 + 10;
+
+      parts.push('<g class="org-node-g" filter="url(#orgShadow)">');
+      parts.push('<rect class="'+boxCls+'" x="'+n.x+'" y="'+n.y+'" width="'+BOX_W+'" height="'+BOX_H+'" rx="8"/>');
+      /* Avatar circle */
+      parts.push('<circle class="'+avBg+'" cx="'+(avX+AV_R)+'" cy="'+avY+'" r="'+AV_R+'"/>');
+      parts.push('<text class="org-avatar-txt '+avTxt+'" x="'+(avX+AV_R)+'" y="'+avY+'">'+ini+'</text>');
+      /* Name */
+      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700">'+nameStr+'</text>');
+      if (isMe) parts.push('<tspan class="org-you-tag"> (you)</tspan>');
+      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10">'+roleStr+'</text>');
+      parts.push('</g>');
     });
 
-    svgParts.push('</svg>');
-
-    el.innerHTML = '<div class="org-wrap">'+svgParts.join('')+'</div>';
+    parts.push('</svg>');
+    el.innerHTML = '<div class="org-wrap">'+parts.join('')+'</div>';
   }
 
 
@@ -1458,6 +1770,7 @@
     if (!S.isSA) return;
     renderSettingsTable();
     renderBHList();
+    renderSharedNotesList();
     renderLieuAdmin();
   }
 
@@ -1610,7 +1923,7 @@
   }
 
   function typeLabel(t) {
-    var m = {'annual-leave':'Annual Leave','annual-leave-am':'AL — Morning','annual-leave-pm':'AL — Afternoon','annual-leave-half':'Half Day AL','office-day':'Office Day','other':'Other','lieu-taken':'Lieu Taken'};
+    var m = {'annual-leave':'Annual Leave','annual-leave-am':'AL — Morning','annual-leave-pm':'AL — Afternoon','annual-leave-half':'Half Day AL','office-day':'Office Day','other':'Note','lieu-taken':'Lieu Taken'};
     return m[t]||t;
   }
 
