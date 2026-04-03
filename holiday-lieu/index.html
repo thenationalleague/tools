@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.25 (conversation turn 10)
+  Version: v1.27 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -12,6 +12,13 @@
          400 copies of the same entry. Now uses Date.UTC + getUTCDate arithmetic
          throughout. Same fix applied to isoToday(), expandEntries date check,
          and day-of-week calculations in renderMyCal and renderTeam.
+  v1.27 — Fixed renderSettingsTable: var appr was missing causing a
+         ReferenceError that silently broke the entire admin tab render.
+  v1.26 — expandEntries now passes overtimeSize/overtimeAmPm so half-day
+         overtime cells correctly show top/bottom half fill.
+         saveEntry now routes AL/lieu through requests/ when user has an
+         approver set. Superadmin still submits for approval if approverUid
+         is set. Self-approve only when approverUid is null/empty.
   v1.25 — Legend: "Worked extra" -> "Worked Extra". Shared note pill style.
          Overtime detection fixed for legacy entries without overtimeSize.
          Lieu cap: blocks submission if requested > available.
@@ -1827,7 +1834,8 @@
     uids.forEach(function(uid){
       var u=S.users[uid], ws=u.workSettings||{};
       var wdTxt = (ws.workDays||[1,2,3,4,5]).map(function(d){ return DN[d]; }).join(', ');
-      var mgr   = u.lineManagerUid && S.users[u.lineManagerUid] ? S.users[u.lineManagerUid].name : '—';
+      var mgr  = u.lineManagerUid && S.users[u.lineManagerUid] ? S.users[u.lineManagerUid].name : '—';
+      var appr = !u.approverUid ? 'Self' : (S.users[u.approverUid] ? S.users[u.approverUid].name : '—');
       h+='<tr><td class="nm">'+esc(u.name||uid)+'</td><td>'+esc(wdTxt)+'</td><td>'+(ws.alQuota||'—')+'</td><td>'+(ws.alRolloverDays||'—')+'</td><td>'+(ws.alRolloverExpiry?fmtDate(ws.alRolloverExpiry):'—')+'</td><td>'+(ws.lieuExpiryDays?ws.lieuExpiryDays+' days':'None')+'</td><td>'+esc(mgr)+'</td><td>'+esc(appr)+'</td><td><a class="a-lnk" onclick="openSettings(\''+escJ(uid)+'\')">Edit</a></td></tr>';
     });
     document.getElementById('settingsTbody').innerHTML = h||'<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No staff found.</td></tr>';
@@ -2365,18 +2373,40 @@
 
     /* Write all entries */
     var cu = firebase.auth().currentUser;
+    /* Determine if entries need approval or can be self-applied.
+       Self-approve = no approverUid set (null/empty) for this user.
+       Even superadmin goes through approval if they have an approver assigned. */
+    var myApproverUid = (S.users[S.uid]||{}).approverUid;
+    var needsApproval = !!myApproverUid; /* null/empty = self-approve */
+
     var writeAll = function() {
       var writes = [];
       if (_eState.editId && entries.length === 1) {
-        /* Editing single entry — update in place */
+        /* Editing — always update in place */
         entries[0].note = entries[0].note || note;
         writes.push(db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).set(entries[0]));
       } else {
         entries.forEach(function(entry) {
-          var ref = db.ref('holiday-lieu/entries/'+S.uid).push();
-          if (!S.entries[S.uid]) S.entries[S.uid] = {};
-          S.entries[S.uid][ref.key] = entry;
-          writes.push(ref.set(entry));
+          var isApprovalEntry = (entry.type.indexOf('annual-leave') !== -1 || entry.type.indexOf('lieu-taken') !== -1);
+
+          if (isApprovalEntry && needsApproval) {
+            /* Write to requests/ — awaits approver action */
+            var req = Object.assign({}, entry, {
+              status: 'pending',
+              submittedAt: Date.now(),
+              approverUid: myApproverUid
+            });
+            var reqRef = db.ref('holiday-lieu/requests/'+S.uid).push();
+            if (!S.requests[S.uid]) S.requests[S.uid] = {};
+            S.requests[S.uid][reqRef.key] = req;
+            writes.push(reqRef.set(req));
+          } else {
+            /* Self-approve or non-approval type — write directly to entries/ */
+            var ref = db.ref('holiday-lieu/entries/'+S.uid).push();
+            if (!S.entries[S.uid]) S.entries[S.uid] = {};
+            S.entries[S.uid][ref.key] = entry;
+            writes.push(ref.set(entry));
+          }
         });
       }
       Promise.all(writes)
@@ -2403,7 +2433,14 @@
           return Promise.all(lieuWrites);
         })
         .then(function(){
-          showToast(entries.length > 1 ? entries.length+' entries saved' : 'Entry saved');
+          var pendingCount = entries.filter(function(e){
+            return (e.type.indexOf('annual-leave')!==-1||e.type.indexOf('lieu-taken')!==-1) && needsApproval;
+          }).length;
+          if (pendingCount > 0) {
+            showToast('Request submitted — awaiting approval');
+          } else {
+            showToast(entries.length > 1 ? entries.length+' entries saved' : 'Entry saved');
+          }
           closeOv('ovEntry');
           refresh();
         })
