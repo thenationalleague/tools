@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.41 (conversation turn 10)
+  Version: v1.43 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -1308,12 +1308,16 @@
     var rollMax = parseFloat(ws.alRolloverDays)||0;
 
     /* AL card */
-    var quotaDisplay = al.rollover > 0
-      ? al.quota + ' <span style="font-size:13px;font-weight:400;color:var(--text-muted)">(incl. '+al.rollover+' rolled over)</span>'
-      : String(al.quota);
-    document.getElementById('balAL').innerHTML = al.left+' <span class="quota">/ '+quotaDisplay+'</span>';
+    document.getElementById('balAL').innerHTML = al.left+' <span class="quota">/ '+al.quota+'</span>';
     var rollNoteEl = document.getElementById('balRollNote');
-    if (rollNoteEl) rollNoteEl.style.display = 'none'; /* now shown inline above */
+    if (rollNoteEl) {
+      if (al.rollover > 0) {
+        rollNoteEl.textContent = 'Includes '+al.rollover+' day'+(al.rollover===1?'':'s')+' rolled over';
+        rollNoteEl.style.display = '';
+      } else {
+        rollNoteEl.style.display = 'none';
+      }
+    }
 
     /* Lieu card */
     var lieuPending = 0;
@@ -1674,28 +1678,31 @@
         var de = expandEntries(uid, yr, mo).filter(function(e){ return e.date===day.iso; });
         var isWD = wdArr.indexOf(day.jsD) !== -1;
 
-        var tdC = '';
-        if (day.isT)  tdC += ' is-today';
-        if (day.isWk || !isWD) tdC += ' is-wknd';
-        if (day.isBH) tdC += ' is-bh';
-
-        /* Status fills */
+        /* Status fills — determined first so we know if day-type should show */
         var tdStatus = '';
         if (de.length) {
           var te = de[0];
-          if      (te.type==='annual-leave')           tdStatus = ' t-al';
-          else if (te.type==='annual-leave-am')         tdStatus = ' t-al-am';
-          else if (te.type==='annual-leave-pm')         tdStatus = ' t-al-pm';
-          else if (te.type==='annual-leave-half')       tdStatus = ' t-al-pm';
-          else if (te.type==='lieu-taken')              tdStatus = ' t-lieu';
-          else if (te.type==='lieu-taken-am')           tdStatus = ' t-lieu-am';
-          else if (te.type==='lieu-taken-pm')           tdStatus = ' t-lieu-pm';
-          else if (te.type==='overtime' && (!te.overtimeSize || te.overtimeSize==='full')) tdStatus = ' t-worked';
-          else if (te.type==='overtime' && te.overtimeSize==='half')  tdStatus = ' t-worked';
-          else if (te.type==='other')                   tdStatus = ' t-other';
+          if      (te.type==='annual-leave')                                             tdStatus = ' t-al';
+          else if (te.type==='annual-leave-am')                                          tdStatus = ' t-al-am';
+          else if (te.type==='annual-leave-pm')                                          tdStatus = ' t-al-pm';
+          else if (te.type==='annual-leave-half')                                        tdStatus = ' t-al-pm';
+          else if (te.type==='lieu-taken')                                               tdStatus = ' t-lieu';
+          else if (te.type==='lieu-taken-am')                                            tdStatus = ' t-lieu-am';
+          else if (te.type==='lieu-taken-pm')                                            tdStatus = ' t-lieu-pm';
+          else if (te.type==='overtime' && (!te.overtimeSize||te.overtimeSize==='full')) tdStatus = ' t-worked';
+          else if (te.type==='overtime' && te.overtimeSize==='half')                     tdStatus = ' t-worked';
+          else if (te.type==='other')                                                    tdStatus = ' t-other';
         }
         var hasOff2 = de.find(function(e){ return e.type==='office-day'; });
         if (hasOff2) tdStatus += ' t-office';
+
+        /* Day-type classes — only apply if no primary status fill (matches solo calendar logic) */
+        var tdC = '';
+        if (day.isT) tdC += ' is-today';
+        if (!tdStatus) {
+          if (day.isWk || !isWD) tdC += ' is-wknd';
+          if (day.isBH)          tdC += ' is-bh';
+        }
 
         var title2 = de.length
           ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'')
@@ -2704,6 +2711,8 @@
             /* Self-approve or non-approval type (office-day, note) → entries/ */
             var ref = db.ref('holiday-lieu/entries/'+S.uid).push();
             if (!S.entries[S.uid]) S.entries[S.uid] = {};
+            /* Store with endDate always set to prevent loop issues */
+            entry.endDate = entry.endDate || entry.date;
             S.entries[S.uid][ref.key] = entry;
             writes.push(ref.set(entry));
           }
@@ -2712,10 +2721,11 @@
       Promise.all(writes)
         .then(function(){ return Promise.resolve(); })
         .then(function(){
-          var pendingCount = entries.filter(function(e){
-            return (e.type.indexOf('annual-leave')!==-1 || e.type.indexOf('lieu-taken')!==-1 || e.type==='overtime') && needsApproval;
-          }).length + entries.filter(function(e){ return e.type==='overtime'; }).length;
-          if (pendingCount > 0) {
+          var sentToApproval = entries.filter(function(e){
+            return (e.type.indexOf('annual-leave')!==-1 || e.type.indexOf('lieu-taken')!==-1) && needsApproval;
+          }).length;
+          var sentAsOT = entries.filter(function(e){ return e.type==='overtime'; }).length;
+          if (sentToApproval > 0 || sentAsOT > 0) {
             showToast('Submitted — awaiting approval');
           } else {
             showToast(entries.length > 1 ? entries.length+' entries saved' : 'Entry saved');
