@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.49 (conversation turn 10)
+  Version: v1.50 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -260,8 +260,10 @@
     .lieu-item__expiry.expired  { color: var(--text-muted); text-decoration: line-through; }
 
     /* Calendar nav */
-    .cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-    .cal-nav__title { font-size: 20px; font-weight: 800; font-variation-settings: 'wght' 800; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .cal-nav__left { display: flex; align-items: center; gap: 4px; }
+    .cal-nav__right { display: flex; align-items: center; gap: 6px; }
+    .cal-nav__title { font-size: 20px; font-weight: 800; font-variation-settings: 'wght' 800; white-space: nowrap; padding: 0 4px; }
     .cal-nav__btn { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; font-size: 12px; font-weight: 700; font-variation-settings: 'wght' 700; font-family: var(--font); color: var(--text); transition: all 0.15s; white-space: nowrap; }
     .cal-nav__arr { padding: 7px 10px; font-size: 14px; }
     .cal-nav__btn:hover { background: var(--off-white); border-color: var(--navy); }
@@ -277,13 +279,13 @@
       --cal-al:        #fde8e8; --cal-al-text:   #9e0000; /* annual leave pastel */
       --cal-al-am:     #fde8e8; /* AM leave = top half */
       --cal-al-pm:     #fde8e8; /* PM leave = bottom half */
-      --cal-bh:        #fff3db; --cal-bh-text:   #b35c00; /* bank holiday */
+      --cal-bh:        #fffbf0; --cal-bh-text:   #b45309; /* bank holiday — warm cream */
       --cal-wknd:      #f5f6f8; /* weekend / non-workday */
       --cal-other:     #f0f0f5; --cal-other-text:#4a5568; /* other - slate */
       --cal-strip-off: #b2dfbc; /* office day L-border */
       --cal-strip-lt:  #d1a8e6; /* lieu taken bottom strip */
-      --cal-worked:    #e8ecf8; /* worked weekend/BH — pastel navy */
-      --cal-worked-text: #223b7c;
+      --cal-worked:    #e3f2fd; /* worked extra — sky blue */
+      --cal-worked-text: #0d47a1;
       --cal-today-dot: #1565c0;
     }
 
@@ -374,6 +376,7 @@
     .cal-cell.is-al-pm .cal-date       { color: var(--cal-al-text); font-weight: 900; font-variation-settings: 'wght' 900; }
     .cal-cell.is-bh .cal-date          { color: var(--cal-bh-text); font-weight: 800; font-variation-settings: 'wght' 800; }
     .cal-cell.is-other .cal-date       { color: var(--cal-other-text); }
+    .cal-cell.is-today                 { box-shadow: inset 0 0 0 2px #1565c0; }
     .cal-cell.is-today .cal-date       { color: var(--cal-today-dot); font-weight: 900; font-variation-settings: 'wght' 900; }
     .cal-cell.other-mo .cal-date       { color: #c8cdd8; }
 
@@ -410,11 +413,10 @@
     }
 
     /* Add hint */
-    /* Pending request pill in cell */
+    /* Pending request pill — colour matches entry type */
     .cal-pending {
       display: block;
       font-size: 9px; font-weight: 700; font-variation-settings: 'wght' 700;
-      background: #f0f0f0; color: #5a6a82;
       border: 1.5px dashed #aab0be;
       border-radius: 3px;
       margin: 1px 5px;
@@ -422,7 +424,11 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       cursor: pointer;
     }
-    .cal-pending:hover { background: #e8ecf8; color: var(--navy); }
+    .cal-pending.pend-al   { background: #fde8e8; color: #9e0000; border-color: #9e0000; }
+    .cal-pending.pend-lieu { background: #f3e5f5; color: #6a1b9a; border-color: #6a1b9a; }
+    .cal-pending.pend-ot   { background: #e3f2fd; color: #0d47a1; border-color: #0d47a1; }
+    .cal-pending.pend-def  { background: #f0f0f0; color: #5a6a82; border-color: #aab0be; }
+    .cal-pending:hover { filter: brightness(0.95); }
 
     .cal-add-hint {
       position: absolute;
@@ -511,7 +517,7 @@
       .team-tbl td { width: 36px; min-width: 36px; max-width: 36px; height: 38px; }
     }
     .team-tbl td.name-cell.is-you { color: var(--primary); font-weight: 800; font-variation-settings: 'wght' 800; }
-    .team-tbl td.is-today { background: rgba(21,101,192,0.08); }
+    .team-tbl td.is-today { box-shadow: inset 0 0 0 2px #1565c0; }
     .team-tbl td.is-wknd  { background: var(--cal-wknd); }
     .team-tbl td.is-bh    { background: var(--cal-bh); }
     /* Team cell fills */
@@ -697,14 +703,14 @@
         <div class="bal-card al">
           <div class="bal-card__label">Annual Leave</div>
           <div class="bal-card__main" id="balAL">— <span class="quota">/ —</span></div>
-          <div class="bal-card__sub">days remaining this year</div>
+          <div class="bal-card__sub" id="balALSub">days remaining this year</div>
           <div class="bal-card__sub" id="balRollNote" style="display:none;margin-top:2px;color:var(--text-muted);font-size:11px"></div>
         </div>
         <div class="bal-card lieu">
           <div class="bal-card__label">Lieu Balance</div>
           <div class="bal-card__main" id="balLieu">—</div>
-          <div class="bal-card__sub">days available</div>
-          <div class="bal-card__warn" id="balLieuPending" style="display:none;color:var(--amber)"></div>
+          <div class="bal-card__sub" id="balLieuSub">days available</div>
+          <div class="bal-card__warn" id="balLieuPending" style="display:none"></div>
         </div>
         <div class="bal-card" style="border-top-color:var(--navy);">
           <div class="bal-card__label">Upcoming Time Off</div>
@@ -717,11 +723,15 @@
 
       <div class="card">
         <div class="cal-nav">
-          <button class="cal-nav__btn cal-nav__arr" onclick="myNav(-1)">‹</button>
-          <div class="cal-nav__title" id="myTitle"></div>
-          <button class="cal-nav__btn cal-nav__arr" onclick="myNav(1)">›</button>
-          <button class="cal-nav__btn today" onclick="myToday()">Today</button>
-          <button class="btn btn-primary btn-sm" onclick="openAdd(null)">+ Add Entry</button>
+          <div class="cal-nav__left">
+            <button class="cal-nav__btn cal-nav__arr" onclick="myNav(-1)">‹</button>
+            <div class="cal-nav__title" id="myTitle"></div>
+            <button class="cal-nav__btn cal-nav__arr" onclick="myNav(1)">›</button>
+          </div>
+          <div class="cal-nav__right">
+            <button class="cal-nav__btn today" onclick="myToday()">Today</button>
+            <button class="btn btn-primary btn-sm" onclick="openAdd(null)">+ Add Entry</button>
+          </div>
         </div>
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
@@ -1310,11 +1320,34 @@
     var rollMax = parseFloat(ws.alRolloverDays)||0;
 
     /* AL card */
-    document.getElementById('balAL').innerHTML = al.left+' <span class="quota">/ '+al.quota+'</span>';
+    /* Count pending AL requests */
+    var pendingALDays = 0;
+    Object.keys(S.requests[S.uid]||{}).forEach(function(id){
+      var r = (S.requests[S.uid]||{})[id];
+      if (!r || r.status !== 'pending') return;
+      if (!r.type || r.type.indexOf('annual-leave') === -1) return;
+      if (r.type === 'annual-leave-half' || r.type === 'annual-leave-am' || r.type === 'annual-leave-pm') {
+        pendingALDays += 0.5;
+      } else if (r.endDate && r.endDate !== r.date) {
+        pendingALDays += getWorkingDaysInRange(r.date, r.endDate).length;
+      } else {
+        pendingALDays += 1;
+      }
+    });
+    var alDisplay = al.left - pendingALDays;
+    document.getElementById('balAL').innerHTML = alDisplay+' <span class="quota">/ '+al.quota+'</span>';
+    var alSubEl = document.getElementById('balALSub');
+    if (alSubEl) {
+      if (pendingALDays > 0) {
+        alSubEl.textContent = 'days remaining · '+pendingALDays+' day'+(pendingALDays===1?'':'s')+' of annual leave pending';
+      } else {
+        alSubEl.textContent = 'days remaining this year';
+      }
+    }
     var rollNoteEl = document.getElementById('balRollNote');
     if (rollNoteEl) {
       if (al.rollover > 0) {
-        rollNoteEl.textContent = 'Includes '+al.rollover+' day'+(al.rollover===1?'':'s')+' rolled over';
+        rollNoteEl.textContent = '(includes '+al.rollover+' day'+(al.rollover===1?'':'s')+' rolled over)';
         rollNoteEl.style.display = '';
       } else {
         rollNoteEl.style.display = 'none';
@@ -1322,18 +1355,32 @@
     }
 
     /* Lieu card */
-    var lieuPending = 0;
+    /* Pending lieu-taken requests */
+    var pendingLieuReqDays = 0;
+    Object.keys(S.requests[S.uid]||{}).forEach(function(id){
+      var r = (S.requests[S.uid]||{})[id];
+      if (!r || r.status !== 'pending') return;
+      if (!r.type || r.type.indexOf('lieu-taken') === -1) return;
+      pendingLieuReqDays += (r.type.indexOf('-am')!==-1||r.type.indexOf('-pm')!==-1) ? 0.5 : 1;
+    });
+    /* Pending lieu-earned (overtime awaiting approval) */
+    var lieuEarnedPending = 0;
     Object.keys(S.lieu[S.uid]||{}).forEach(function(id){
       var r = (S.lieu[S.uid]||{})[id];
-      if (r && r.status === 'pending') lieuPending += parseFloat(r.days)||0;
+      if (r && r.status === 'pending') lieuEarnedPending += parseFloat(r.days)||0;
     });
-    var lieuStr = lieu.total%1===0 ? String(lieu.total) : lieu.total.toFixed(1);
+    var lieuDisplay = lieu.total - pendingLieuReqDays;
+    var lieuStr = lieuDisplay%1===0 ? String(lieuDisplay) : lieuDisplay.toFixed(1);
     document.getElementById('balLieu').textContent = lieuStr;
-    var lieuPendEl = document.getElementById('balLieuPending');
-    if (lieuPendEl) {
-      lieuPendEl.style.display = lieuPending > 0 ? '' : 'none';
-      lieuPendEl.textContent = lieuPending+' day'+(lieuPending===1?'':'s')+' pending approval';
+    var lieuSubEl = document.getElementById('balLieuSub');
+    if (lieuSubEl) {
+      var lieuSubParts = [];
+      if (pendingLieuReqDays > 0) lieuSubParts.push(pendingLieuReqDays+' day'+(pendingLieuReqDays===1?'':'s')+' of lieu pending');
+      if (lieuEarnedPending > 0)   lieuSubParts.push(lieuEarnedPending+' day'+(lieuEarnedPending===1?'':'s')+' awaiting approval');
+      lieuSubEl.textContent = lieuSubParts.length ? 'days available · '+lieuSubParts.join(', ') : 'days available';
     }
+    var lieuPendEl = document.getElementById('balLieuPending');
+    if (lieuPendEl) lieuPendEl.style.display = 'none'; /* replaced by sub-line */
 
     /* Upcoming time off card */
     var upcoming = nextTimeOff(S.uid);
@@ -1588,7 +1635,10 @@
         var pLabel = p.kind === 'lieu-claim'
           ? 'Pending: Overtime (' + (p.r.overtimeSize||'full') + (p.r.overtimeAmPm ? ' '+p.r.overtimeAmPm.toUpperCase() : '') + ')'
           : 'Pending: ' + typeLabel(p.r.type||'request');
-        inner += '<span class="cal-pending" data-reqid="'+escJ(p.id)+'" onclick="openPendingRequest(event,this.dataset.reqid)">'+esc(pLabel.substring(0,28))+'</span>';
+        var pCls = p.kind==='lieu-claim' ? 'pend-ot'
+          : (p.r.type&&p.r.type.indexOf('annual-leave')!==-1) ? 'pend-al'
+          : (p.r.type&&p.r.type.indexOf('lieu-taken')!==-1) ? 'pend-lieu' : 'pend-def';
+        inner += '<span class="cal-pending '+pCls+'" data-reqid="'+escJ(p.id)+'" onclick="openPendingRequest(event,this.dataset.reqid)">'+esc(pLabel.substring(0,28))+'</span>';
       });
       inner += '<span class="cal-add-hint">+ add</span>';
 
@@ -2165,6 +2215,7 @@
 
   /* ── Modals ── */
   function closeOv(id) { document.getElementById(id).classList.remove('open'); }
+  function closeEntryOv() { closeOv('ovEntry'); }
 
   /* Entry */
   /* ── Cell modal — context-aware entry point ── */
@@ -2323,12 +2374,115 @@
   }
 
     function requestChange() {
-    /* Phase 2: will submit a change request to approver.
-       For now, inform the user to contact their approver. */
     var e = (S.entries[S.uid]||{})[_eState.editId];
-    var dateStr = e ? fmtDate(e.date) : 'this entry';
-    showToast('Contact your approver to request a change to '+dateStr, 'success');
-    closeOv('ovEntry');
+    if (!e) return;
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids) ? me.approverUids : (me.approverUid ? [me.approverUid] : []);
+    var isSelf = myApproverUids.length === 0;
+    /* Build a choice modal — amend or remove */
+    document.getElementById('entryModalTitle').textContent = 'Request Change';
+    var body = document.getElementById('entryModalBody');
+    body.innerHTML = '<p style="font-size:13px;margin-bottom:16px;color:var(--text-muted)">'+fmtDate(e.date)+(e.endDate&&e.endDate!==e.date?' – '+fmtDate(e.endDate):'')+' &mdash; '+esc(typeLabel(e.type))+'</p>'
+      +'<div style="display:flex;flex-direction:column;gap:10px">'
+      +'<button class="btn btn-navy" data-act="amend" onclick="doChangeRequest(this.dataset.act)">Amend dates</button>'
+      +'<button class="btn btn-danger" data-act="remove" onclick="doChangeRequest(this.dataset.act)">Remove this entry</button>'
+      +'</div>'
+      +(isSelf ? '' : '<p style="font-size:11px;color:var(--text-muted);margin-top:12px">Your request will be sent to your approver.</p>');
+    document.getElementById('saveEntryBtn').style.display = 'none';
+    document.getElementById('delEntryBtn').style.display = 'none';
+    document.getElementById('requestChangeBtn').style.display = 'none';
+  }
+
+  function doChangeRequest(action) {
+    var e = (S.entries[S.uid]||{})[_eState.editId];
+    if (!e) return;
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids) ? me.approverUids : (me.approverUid ? [me.approverUid] : []);
+    var isSelf = myApproverUids.length === 0;
+
+    if (action === 'remove') {
+      if (!confirm('Remove this entry'+(isSelf ? '' : ' (requires approval')+'?')) return;
+      if (isSelf) {
+        /* Self-approver: delete immediately and credit AL back */
+        db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).remove()
+          .then(function(){
+            if (S.entries[S.uid]) delete S.entries[S.uid][_eState.editId];
+            showToast('Entry removed');
+            closeOv('ovEntry');
+            refresh();
+          }).catch(function(err){ showToast('Error: '+err.message,'error'); });
+      } else {
+        /* Send removal request to approver */
+        db.ref('holiday-lieu/requests/'+S.uid).push({
+          type: 'remove-entry',
+          entryId: _eState.editId,
+          entryType: e.type,
+          date: e.date,
+          endDate: e.endDate||e.date,
+          status: 'pending',
+          submittedAt: Date.now(),
+          approverUids: myApproverUids
+        }).then(function(){
+          showToast('Removal request submitted');
+          closeOv('ovEntry');
+        }).catch(function(err){ showToast('Error: '+err.message,'error'); });
+      }
+    } else {
+      /* Amend — show date pickers */
+      var body = document.getElementById('entryModalBody');
+      var isSpan = e.endDate && e.endDate !== e.date;
+      body.innerHTML = '<p style="font-size:13px;margin-bottom:12px;color:var(--text-muted)">Update dates for '+esc(typeLabel(e.type))+'</p>'
+        +'<div class="fg"><label class="fl">Start date</label><input type="date" class="fi" id="amendStart" value="'+e.date+'"></div>'
+        +(isSpan ? '<div class="fg"><label class="fl">End date</label><input type="date" class="fi" id="amendEnd" value="'+(e.endDate||e.date)+'"></div>' : '')
+        +'<div style="display:flex;gap:8px;margin-top:8px">'
+        +'<button class="btn btn-primary" data-eid="'+escJ(_eState.editId)+'" data-self="'+(isSelf?'1':'0')+'" onclick="submitAmendBtn(this)">Submit</button>'
+        +'<button class="btn btn-ghost" onclick="closeEntryOv()">Cancel</button>'
+        +'</div>';
+    }
+  }
+
+  function submitAmendBtn(btn) {
+    submitAmend(btn.dataset.eid, btn.dataset.self === '1');
+  }
+
+    function submitAmend(entryId, isSelf) {
+    var e = (S.entries[S.uid]||{})[entryId];
+    if (!e) return;
+    var newStart = document.getElementById('amendStart') && document.getElementById('amendStart').value;
+    var newEnd   = document.getElementById('amendEnd')   ? document.getElementById('amendEnd').value : newStart;
+    if (!newStart) { showToast('Select a date','error'); return; }
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids) ? me.approverUids : (me.approverUid ? [me.approverUid] : []);
+
+    if (isSelf) {
+      /* Self: update entry directly */
+      db.ref('holiday-lieu/entries/'+S.uid+'/'+entryId).update({date:newStart, endDate:newEnd||newStart})
+        .then(function(){
+          if (S.entries[S.uid] && S.entries[S.uid][entryId]) {
+            S.entries[S.uid][entryId].date = newStart;
+            S.entries[S.uid][entryId].endDate = newEnd||newStart;
+          }
+          showToast('Entry updated');
+          closeOv('ovEntry');
+          refresh();
+        }).catch(function(err){ showToast('Error: '+err.message,'error'); });
+    } else {
+      db.ref('holiday-lieu/requests/'+S.uid).push({
+        type: 'amend-entry',
+        entryId: entryId,
+        entryType: e.type,
+        date: newStart,
+        endDate: newEnd||newStart,
+        originalDate: e.date,
+        originalEndDate: e.endDate||e.date,
+        status: 'pending',
+        submittedAt: Date.now(),
+        approverUids: myApproverUids
+      }).then(function(){
+        showToast('Amendment request submitted');
+        closeOv('ovEntry');
+      }).catch(function(err){ showToast('Error: '+err.message,'error'); });
+    }
   }
 
     function typeLabel(t) {
