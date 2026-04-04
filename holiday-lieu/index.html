@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.52 (conversation turn 10)
+  Version: v1.54 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -920,13 +920,15 @@
     <div class="modal__bd" id="entryModalBody">
       <!-- Populated by JS based on cell context -->
     </div>
-    <div class="modal__ft" id="entryModalFt">
-      <button class="btn btn-danger btn-sm" id="delEntryBtn" style="display:none;margin-right:auto" onclick="deleteEntry()">Delete</button>
-      <button class="btn btn-ghost btn-sm" id="amendEntryBtn" style="display:none;margin-right:auto" onclick="entryAmend()">Amend</button>
-      <button class="btn btn-danger btn-sm" id="removeEntryBtn" style="display:none;margin-right:auto" onclick="entryRemove()">Remove</button>
-      <button class="btn btn-ghost btn-sm" id="requestChangeBtn" style="display:none;margin-right:auto" onclick="requestChange()">Request change</button>
+    <div class="modal__ft" id="entryModalFt" style="justify-content:space-between">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" id="amendEntryBtn" style="display:none" onclick="entryAmend()">Amend</button>
+        <button class="btn btn-danger btn-sm" id="removeEntryBtn" style="display:none" onclick="entryRemove()">Remove</button>
+        <button class="btn btn-danger btn-sm" id="delEntryBtn" style="display:none" onclick="deleteEntry()">Delete</button>
+        <button class="btn btn-ghost btn-sm" id="requestChangeBtn" style="display:none" onclick="requestChange()">Request change</button>
+        <button class="btn btn-primary btn-sm" id="saveEntryBtn" onclick="saveEntry()">Save</button>
+      </div>
       <button class="btn btn-ghost" onclick="closeOv('ovEntry')">Cancel</button>
-      <button class="btn btn-primary" id="saveEntryBtn" onclick="saveEntry()">Save changes</button>
     </div>
   </div>
 </div>
@@ -1914,7 +1916,15 @@
 
       var dateStr = r.date ? fmtDate(r.date) + (r.endDate && r.endDate !== r.date ? ' – '+fmtDate(r.endDate) : '') : (r.dateWorked ? fmtDate(r.dateWorked) : '—');
       var days = r.days || r.lieuDays || (r.type && r.type.indexOf('half') !== -1 ? 0.5 : 1);
-      var meta = days + ' day' + (days===1?'':'s') + ' · ' + dateStr;
+      var meta;
+      if (r.type === 'amend-entry') {
+        meta = 'Change: '+fmtDate(r.originalDate)+(r.originalEndDate&&r.originalEndDate!==r.originalDate?' – '+fmtDate(r.originalEndDate):'')
+          +' → '+fmtDate(r.date)+(r.endDate&&r.endDate!==r.date?' – '+fmtDate(r.endDate):'');
+      } else if (r.type === 'remove-entry') {
+        meta = 'Remove: '+fmtDate(r.date)+(r.endDate&&r.endDate!==r.date?' – '+fmtDate(r.endDate):'');
+      } else {
+        meta = days + ' day' + (days===1?'':'s') + ' · ' + dateStr;
+      }
       var subAt = r.submittedAt ? ' · Submitted '+fmtDate(new Date(r.submittedAt).toISOString().split('T')[0]) : '';
 
       return '<div class="appr-card" id="appr-'+item.kind+'-'+item.id+'">'
@@ -1928,8 +1938,14 @@
         +'</div>'
         +(r.note ? '<div class="appr-card__note">'+esc(r.note)+'</div>' : '')
         +'<div class="appr-card__actions">'
-        +'<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Approve</button>'
-        +'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doReject(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Reject</button>'
+        +(r.type==='amend-entry'||r.type==='remove-entry' ? (
+          '<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">'+(r.type==='remove-entry'?'Approve removal':'Approve change')+'</button>'
+          +'<button class="btn btn-ghost btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doKeepOriginal(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Keep original</button>'
+          +(r.type==='amend-entry'?'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doRemoveEntry(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Remove entry</button>':'')
+        ) : (
+          '<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Approve</button>'
+          +'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doReject(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Reject</button>'
+        ))
         +'<button class="btn btn-ghost btn-sm" data-id="'+escJ(item.id)+'" onclick="toggleApprComment(this.dataset.id)">+ Comment</button>'
         +'</div>'
         +'<div class="appr-card__comment" id="comment-'+item.id+'" style="display:none">'
@@ -1939,7 +1955,41 @@
     }).join('');
   }
 
-  function toggleApprComment(id) {
+  function doKeepOriginal(kind, uid, id, btn) {
+    /* Approver rejects amendment — mark rejected, entry unchanged */
+    btn.disabled = true; btn.textContent = 'Keeping…';
+    var comment = getComment(id);
+    db.ref('holiday-lieu/requests/'+uid+'/'+id).update({
+      status:'rejected', rejectedBy:S.uid, rejectedAt:Date.now(),
+      comment:comment||'Original entry kept'
+    }).then(function(){
+      showToast('Amendment rejected — original kept');
+      if (S.requests[uid]&&S.requests[uid][id]) S.requests[uid][id].status='rejected';
+      refresh();
+    }).catch(function(err){ btn.disabled=false; btn.textContent='Keep original'; showToast('Error: '+err.message,'error'); });
+  }
+
+  function doRemoveEntry(kind, uid, id, btn) {
+    /* Approver approves removal of the original entry from an amend request */
+    btn.disabled = true; btn.textContent = 'Removing…';
+    var comment = getComment(id);
+    var r = (S.requests[uid]||{})[id];
+    if (!r||!r.entryId){ showToast('Entry reference missing','error'); return; }
+    db.ref('holiday-lieu/entries/'+uid+'/'+r.entryId).remove()
+      .then(function(){
+        return db.ref('holiday-lieu/requests/'+uid+'/'+id).update({
+          status:'approved', approvedBy:S.uid, approvedAt:Date.now(),
+          comment:comment||'Entry removed by approver'
+        });
+      }).then(function(){
+        showToast('Entry removed');
+        if (S.entries[uid]) delete S.entries[uid][r.entryId];
+        if (S.requests[uid]&&S.requests[uid][id]) S.requests[uid][id].status='approved';
+        refresh();
+      }).catch(function(err){ btn.disabled=false; btn.textContent='Remove entry'; showToast('Error: '+err.message,'error'); });
+  }
+
+    function toggleApprComment(id) {
     var el = document.getElementById('comment-'+id);
     if (el) el.style.display = el.style.display==='none'?'':'none';
   }
@@ -2454,15 +2504,16 @@
     var body = document.getElementById('entryModalBody');
     var isSpan = e.endDate && e.endDate !== e.date;
     body.innerHTML = '<div class="fg"><label class="fl">Type</label>'
-      +'<div class="fi" style="background:var(--off-white);color:var(--text-muted)">'+typeLabel(e.type)+'</div></div>'
+      +'<div class="fi" style="background:var(--off-white);color:var(--text-muted);font-size:13px">'+typeLabel(e.type)+'</div></div>'
       +'<div class="fg"><label class="fl">Start date</label><input type="date" class="fi" id="amendStart" value="'+e.date+'"></div>'
       +(isSpan?'<div class="fg"><label class="fl">End date</label><input type="date" class="fi" id="amendEnd" value="'+(e.endDate||e.date)+'"></div>':'')
-      +(!isSelf?'<p style="font-size:11px;color:var(--text-muted);margin-top:8px">This change will be sent to your approver for review.</p>':'');
+      +(!isSelf?'<p style="font-size:11px;color:var(--text-muted);margin-top:8px">This amendment will be sent to your approver.</p>':'');
     document.getElementById('amendEntryBtn').style.display = 'none';
     document.getElementById('removeEntryBtn').style.display = 'none';
-    document.getElementById('saveEntryBtn').style.display = '';
-    document.getElementById('saveEntryBtn').textContent = isSelf ? 'Save changes' : 'Submit for approval';
-    document.getElementById('saveEntryBtn').onclick = function(){ submitAmendEntry(isSelf); };
+    var saveBtn = document.getElementById('saveEntryBtn');
+    saveBtn.style.display = '';
+    saveBtn.textContent = isSelf ? 'Save' : 'Submit for approval';
+    saveBtn.onclick = function(){ submitAmendEntry(isSelf); };
   }
 
   function submitAmendEntry(isSelf) {
@@ -2670,11 +2721,12 @@
     _eState.editId   = id;
     _eState.editType = e.type;
     _eState.iso      = e.date;
-    var entryDate = (e.endDate && e.endDate > e.date) ? e.endDate : e.date;
-    var isPast = entryDate < isoToday(); /* strictly past — today is still editable */
-    /* All confirmed entries: show details, with Amend + Remove buttons.
-       Past entries: form fields are read-only (rebuilt as display text by buildEntryModal).
-       Future entries: form fields are editable, normal Save/Delete. */
+    /* Lock if this user requires approval — self-approvers can edit directly */
+    var me2 = S.users[S.uid]||{};
+    var myApprUids = Array.isArray(me2.approverUids)?me2.approverUids:(me2.approverUid?[me2.approverUid]:[]);
+    var needsApprLock = myApprUids.length > 0;
+    /* isPastEntry now means "requires approval AND confirmed" — locks the form */
+    var isPast = needsApprLock;
     document.getElementById('entryModalTitle').textContent = typeLabel(e.type);
     document.getElementById('delEntryBtn').style.display = 'none';
     document.getElementById('saveEntryBtn').style.display = isPast ? 'none' : '';
@@ -2684,6 +2736,7 @@
     _eState.isPastEntry = isPast;
     document.getElementById('amendEntryBtn').style.display = '';
     document.getElementById('removeEntryBtn').style.display = '';
+    document.getElementById('delEntryBtn').style.display = isPast ? 'none' : '';
     document.getElementById('saveEntryBtn').style.display = isPast ? 'none' : '';
     /* Pre-populate state from entry */
     if (e.type === 'annual-leave')     { _eState.alMode = e.endDate !== e.date ? 'several' : 'single'; }
@@ -2706,6 +2759,20 @@
   function buildEntryModal(existingEntry) {
     var body = document.getElementById('entryModalBody');
     var iso  = _eState.iso;
+
+    /* Past confirmed entries — show read-only summary, no form */
+    if (_eState.isPastEntry && existingEntry) {
+      var e = existingEntry;
+      var isSpan = e.endDate && e.endDate !== e.date;
+      var dateStr = isSpan ? fmtDate(e.date)+' – '+fmtDate(e.endDate) : fmtDate(e.date);
+      body.innerHTML = '<div style="padding:4px 0">'
+        +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">'+dateStr+'</div>'
+        +(e.note?'<div style="font-size:13px;color:var(--text-muted);font-style:italic;margin-bottom:12px">'+esc(e.note)+'</div>':'')
+        +'<div style="font-size:11px;color:var(--text-muted)">Press <strong>Amend</strong> to request a change, or <strong>Remove</strong> to request deletion.</div>'
+        +'</div>';
+      return;
+    }
+
     var isSpecialDay = _eState.isBH || !_eState.isWD;
 
     /* Balance info shown at top of modal */
