@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.51 (conversation turn 10)
+  Version: v1.52 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -467,6 +467,10 @@
     }
     .cal-popover__label { flex: 1; font-size: 12px; font-weight: 600; font-variation-settings: 'wght' 600; }
     .cal-popover__note  { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .cal-popover__edit-hint {
+      font-size: 10px; color: var(--text-muted); font-style: italic;
+      margin-top: 1px;
+    }
     .cal-popover__add {
       margin-top: 8px; width: 100%; text-align: center;
       font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700;
@@ -916,11 +920,13 @@
     <div class="modal__bd" id="entryModalBody">
       <!-- Populated by JS based on cell context -->
     </div>
-    <div class="modal__ft">
+    <div class="modal__ft" id="entryModalFt">
       <button class="btn btn-danger btn-sm" id="delEntryBtn" style="display:none;margin-right:auto" onclick="deleteEntry()">Delete</button>
+      <button class="btn btn-ghost btn-sm" id="amendEntryBtn" style="display:none;margin-right:auto" onclick="entryAmend()">Amend</button>
+      <button class="btn btn-danger btn-sm" id="removeEntryBtn" style="display:none;margin-right:auto" onclick="entryRemove()">Remove</button>
       <button class="btn btn-ghost btn-sm" id="requestChangeBtn" style="display:none;margin-right:auto" onclick="requestChange()">Request change</button>
       <button class="btn btn-ghost" onclick="closeOv('ovEntry')">Cancel</button>
-      <button class="btn btn-primary" id="saveEntryBtn" onclick="saveEntry()">Save</button>
+      <button class="btn btn-primary" id="saveEntryBtn" onclick="saveEntry()">Save changes</button>
     </div>
   </div>
 </div>
@@ -2301,8 +2307,10 @@
 
     var dotColours = {
       'annual-leave':'#9e0000','annual-leave-am':'#9e0000','annual-leave-pm':'#9e0000',
-      'annual-leave-half':'#9e0000','office-day':'#1e7e34','other':'#4a5568',
-      'lieu-taken':'#6a1b9a'
+      'annual-leave-half':'#9e0000',
+      'lieu-taken':'#6a1b9a','lieu-taken-am':'#6a1b9a','lieu-taken-pm':'#6a1b9a',
+      'overtime':'#0d47a1',
+      'office-day':'#1e7e34','other':'#4a5568'
     };
 
     entries.forEach(function(e) {
@@ -2324,6 +2332,11 @@
         note.textContent = e.note;
         info.appendChild(note);
       }
+      /* Tap-to-edit hint */
+      var hint = document.createElement('div');
+      hint.className = 'cal-popover__edit-hint';
+      hint.textContent = 'Tap to view / edit';
+      info.appendChild(hint);
       row.appendChild(dot); row.appendChild(info);
       pop.appendChild(row);
     });
@@ -2351,6 +2364,8 @@
     var r = (S.requests[S.uid]||{})[reqId] || (S.lieu[S.uid]||{})[reqId];
     var isLieuClaim = !!(S.lieu[S.uid]||{})[reqId];
     if (!r) return;
+    /* Show rejection comment if present */
+    var isRejected = r.status === 'rejected';
     /* Show a simple popover with request details and retract button */
     closeCellPopover();
     var pop = document.createElement('div');
@@ -2358,7 +2373,8 @@
     _popover = pop;
     var title = document.createElement('div');
     title.className = 'cal-popover__date';
-    title.textContent = 'Pending Request';
+    title.textContent = isRejected ? 'Request Rejected' : 'Pending Request';
+    title.style.color = isRejected ? '#c0392b' : '';
     pop.appendChild(title);
     var info = document.createElement('div');
     info.style.cssText = 'font-size:13px;padding:6px 0 8px;';
@@ -2370,10 +2386,18 @@
       note.textContent = r.note;
       pop.appendChild(note);
     }
+    /* Show rejection comment if present */
+    if (isRejected && r.comment) {
+      var rejNote = document.createElement('div');
+      rejNote.style.cssText = 'font-size:11px;color:#c0392b;font-style:italic;margin-bottom:8px;padding:6px 8px;background:#fff0f0;border-radius:4px';
+      rejNote.textContent = 'Reason: ' + r.comment;
+      pop.appendChild(rejNote);
+    }
+
     var retract = document.createElement('button');
     retract.className = 'btn btn-danger btn-sm';
     retract.style.cssText = 'width:100%;margin-top:4px;';
-    retract.textContent = 'Retract request';
+    retract.textContent = isRejected ? 'Dismiss' : 'Retract request';
     retract.addEventListener('click', function(ev2){
       ev2.stopPropagation();
       if (!confirm('Retract this request?')) return;
@@ -2420,7 +2444,82 @@
     document.getElementById('requestChangeBtn').style.display = 'none';
   }
 
-  function doChangeRequest(action) {
+  function entryAmend() {
+    /* For any confirmed entry — open inline date editing in modal body */
+    var e = (S.entries[S.uid]||{})[_eState.editId];
+    if (!e) return;
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids)?me.approverUids:(me.approverUid?[me.approverUid]:[]);
+    var isSelf = myApproverUids.length === 0;
+    var body = document.getElementById('entryModalBody');
+    var isSpan = e.endDate && e.endDate !== e.date;
+    body.innerHTML = '<div class="fg"><label class="fl">Type</label>'
+      +'<div class="fi" style="background:var(--off-white);color:var(--text-muted)">'+typeLabel(e.type)+'</div></div>'
+      +'<div class="fg"><label class="fl">Start date</label><input type="date" class="fi" id="amendStart" value="'+e.date+'"></div>'
+      +(isSpan?'<div class="fg"><label class="fl">End date</label><input type="date" class="fi" id="amendEnd" value="'+(e.endDate||e.date)+'"></div>':'')
+      +(!isSelf?'<p style="font-size:11px;color:var(--text-muted);margin-top:8px">This change will be sent to your approver for review.</p>':'');
+    document.getElementById('amendEntryBtn').style.display = 'none';
+    document.getElementById('removeEntryBtn').style.display = 'none';
+    document.getElementById('saveEntryBtn').style.display = '';
+    document.getElementById('saveEntryBtn').textContent = isSelf ? 'Save changes' : 'Submit for approval';
+    document.getElementById('saveEntryBtn').onclick = function(){ submitAmendEntry(isSelf); };
+  }
+
+  function submitAmendEntry(isSelf) {
+    var e = (S.entries[S.uid]||{})[_eState.editId];
+    if (!e) return;
+    var newStart = document.getElementById('amendStart')&&document.getElementById('amendStart').value;
+    var newEnd   = document.getElementById('amendEnd')  ? document.getElementById('amendEnd').value : newStart;
+    if (!newStart){ showToast('Select a date','error'); return; }
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids)?me.approverUids:(me.approverUid?[me.approverUid]:[]);
+    if (isSelf) {
+      db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).update({date:newStart,endDate:newEnd||newStart})
+        .then(function(){
+          if (S.entries[S.uid]&&S.entries[S.uid][_eState.editId]){
+            S.entries[S.uid][_eState.editId].date=newStart;
+            S.entries[S.uid][_eState.editId].endDate=newEnd||newStart;
+          }
+          showToast('Entry updated'); closeOv('ovEntry'); refresh();
+        }).catch(function(err){ showToast('Error: '+err.message,'error'); });
+    } else {
+      db.ref('holiday-lieu/requests/'+S.uid).push({
+        type:'amend-entry', entryId:_eState.editId, entryType:e.type,
+        date:newStart, endDate:newEnd||newStart,
+        originalDate:e.date, originalEndDate:e.endDate||e.date,
+        status:'pending', submittedAt:Date.now(), approverUids:myApproverUids
+      }).then(function(){ showToast('Amendment submitted'); closeOv('ovEntry'); })
+        .catch(function(err){ showToast('Error: '+err.message,'error'); });
+    }
+  }
+
+  function entryRemove() {
+    var e = (S.entries[S.uid]||{})[_eState.editId];
+    if (!e) return;
+    var me = S.users[S.uid]||{};
+    var myApproverUids = Array.isArray(me.approverUids)?me.approverUids:(me.approverUid?[me.approverUid]:[]);
+    var isSelf = myApproverUids.length === 0;
+    var confirmMsg = isSelf
+      ? 'Remove this '+typeLabel(e.type)+' entry?'
+      : 'Request removal of this '+typeLabel(e.type)+'? Your approver will be notified.';
+    if (!confirm(confirmMsg)) return;
+    if (isSelf) {
+      db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).remove()
+        .then(function(){
+          if (S.entries[S.uid]) delete S.entries[S.uid][_eState.editId];
+          showToast('Entry removed'); closeOv('ovEntry'); refresh();
+        }).catch(function(err){ showToast('Error: '+err.message,'error'); });
+    } else {
+      db.ref('holiday-lieu/requests/'+S.uid).push({
+        type:'remove-entry', entryId:_eState.editId, entryType:e.type,
+        date:e.date, endDate:e.endDate||e.date,
+        status:'pending', submittedAt:Date.now(), approverUids:myApproverUids
+      }).then(function(){ showToast('Removal request submitted'); closeOv('ovEntry'); })
+        .catch(function(err){ showToast('Error: '+err.message,'error'); });
+    }
+  }
+
+    function doChangeRequest(action) {
     var e = (S.entries[S.uid]||{})[_eState.editId];
     if (!e) return;
     var me = S.users[S.uid]||{};
@@ -2513,8 +2612,21 @@
   }
 
     function typeLabel(t) {
-    var m = {'annual-leave':'Annual Leave','annual-leave-am':'AL — Morning','annual-leave-pm':'AL — Afternoon','annual-leave-half':'Half Day AL','office-day':'Office Day','other':'Note','lieu-taken':'Lieu Taken'};
-    return m[t]||t;
+    var m = {
+      'annual-leave':      'Annual Leave',
+      'annual-leave-am':   'Annual Leave (AM)',
+      'annual-leave-pm':   'Annual Leave (PM)',
+      'annual-leave-half': 'Annual Leave (Half Day)',
+      'lieu-taken':        'Lieu Taken',
+      'lieu-taken-am':     'Lieu Taken (AM)',
+      'lieu-taken-pm':     'Lieu Taken (PM)',
+      'office-day':        'Office Day',
+      'overtime':          'Worked Extra',
+      'other':             'Note',
+      'remove-entry':      'Request: Remove Entry',
+      'amend-entry':       'Request: Amend Entry'
+    };
+    return m[t] || (t ? t.charAt(0).toUpperCase() + t.slice(1).replace(/-/g,' ') : '—');
   }
 
     /* ── Entry modal state ── */
@@ -2558,15 +2670,21 @@
     _eState.editId   = id;
     _eState.editType = e.type;
     _eState.iso      = e.date;
-    /* Lock past entries — use endDate if set, otherwise date */
     var entryDate = (e.endDate && e.endDate > e.date) ? e.endDate : e.date;
-    var isPastEntry = entryDate <= isoToday();
-    document.getElementById('entryModalTitle').textContent = isPastEntry ? 'View Entry' : 'Edit Entry';
-    document.getElementById('delEntryBtn').style.display = isPastEntry ? 'none' : '';
-    document.getElementById('saveEntryBtn').style.display = isPastEntry ? 'none' : '';
-    /* Show request-to-change button for past entries */
+    var isPast = entryDate < isoToday(); /* strictly past — today is still editable */
+    /* All confirmed entries: show details, with Amend + Remove buttons.
+       Past entries: form fields are read-only (rebuilt as display text by buildEntryModal).
+       Future entries: form fields are editable, normal Save/Delete. */
+    document.getElementById('entryModalTitle').textContent = typeLabel(e.type);
+    document.getElementById('delEntryBtn').style.display = 'none';
+    document.getElementById('saveEntryBtn').style.display = isPast ? 'none' : '';
+    document.getElementById('saveEntryBtn').textContent = 'Save changes';
     var reqBtn = document.getElementById('requestChangeBtn');
-    if (reqBtn) reqBtn.style.display = isPastEntry ? '' : 'none';
+    if (reqBtn) reqBtn.style.display = 'none';
+    _eState.isPastEntry = isPast;
+    document.getElementById('amendEntryBtn').style.display = '';
+    document.getElementById('removeEntryBtn').style.display = '';
+    document.getElementById('saveEntryBtn').style.display = isPast ? 'none' : '';
     /* Pre-populate state from entry */
     if (e.type === 'annual-leave')     { _eState.alMode = e.endDate !== e.date ? 'several' : 'single'; }
     if (e.type === 'annual-leave-am')  { _eState.alMode = 'half'; _eState.alAmPm = 'am'; }
