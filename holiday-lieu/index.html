@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.45 (conversation turn 10)
+  Version: v1.47 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -2050,6 +2050,11 @@
       parts.push('<path class="org-line" d="M'+e.x1+','+e.y1+' L'+e.x2+','+e.y2+'"/>');
     });
 
+    /* Clippath per node to hard-clip text within box bounds */
+    allNodes.forEach(function(n) {
+      parts.push('<clipPath id="clip'+n.uid.replace(/[^a-z0-9]/gi,'_')+'"><rect x="'+(n.x+1)+'" y="'+n.y+'" width="'+(BOX_W-2)+'" height="'+BOX_H+'"/></clipPath>');
+    });
+
     allNodes.forEach(function(n) {
       var u = S.users[n.uid]||{};
       var isMe   = n.uid === S.uid;
@@ -2060,20 +2065,20 @@
       var nameCls= 'org-name'+(isRoot?' org-name-root':'')+(isMe?' org-name-you':'');
       var ini    = initials(u.name);
       var nameStr= esc(u.name||n.uid);
-      var roleStr= esc(roleLabel(u.role));
       var avX = n.x + 14, avY = n.y + BOX_H/2;
       var textX = n.x + 14 + AV_R*2 + 10;
+      var clipId = 'clip'+n.uid.replace(/[^a-z0-9]/gi,'_');
+      var jobStr = esc(u.jobTitle||roleLabel(u.role));
 
       parts.push('<g class="org-node-g" filter="url(#orgShadow)">');
       parts.push('<rect class="'+boxCls+'" x="'+n.x+'" y="'+n.y+'" width="'+BOX_W+'" height="'+BOX_H+'" rx="8"/>');
-      /* Avatar circle */
       parts.push('<circle class="'+avBg+'" cx="'+(avX+AV_R)+'" cy="'+avY+'" r="'+AV_R+'"/>');
       parts.push('<text class="org-avatar-txt '+avTxt+'" x="'+(avX+AV_R)+'" y="'+avY+'">'+ini+'</text>');
-      /* Name */
-      var maxTxtW = BOX_W - (textX - n.x) - 10;
-      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700" textLength="'+maxTxtW+'" lengthAdjust="spacingAndGlyphs">'+nameStr+(isMe?' (you)':'')+'</text>');
-      var jobStr = esc((u.jobTitle||roleLabel(u.role)).substring(0,28));
-      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10" textLength="'+maxTxtW+'" lengthAdjust="spacingAndGlyphs">'+jobStr+'</text>');
+      /* Text clipped to box — no stretching */
+      parts.push('<g clip-path="url(#'+clipId+')">');
+      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700">'+nameStr+(isMe?' (you)':'')+'</text>');
+      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10">'+jobStr+'</text>');
+      parts.push('</g>');
       parts.push('</g>');
     });
 
