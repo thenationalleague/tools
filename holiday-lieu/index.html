@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.47 (conversation turn 10)
+  Version: v1.49 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -531,8 +531,8 @@
     .org-wrap { overflow-x: auto; padding: 16px 8px; min-height: 120px; }
     .org-svg { font-family: var(--font); }
     .org-node-g { cursor: default; }
-    .org-node-g:hover .org-box { filter: drop-shadow(0 4px 12px rgba(10,22,40,0.15)); }
-    .org-box { fill: white; stroke: #dde3ed; stroke-width: 1.5; }
+    .org-box { fill: white; stroke: #dde3ed; stroke-width: 1.5; filter: drop-shadow(0 1px 3px rgba(10,22,40,0.08)); transition: filter 0.15s; }
+    .org-node-g:hover .org-box { filter: drop-shadow(0 3px 8px rgba(10,22,40,0.18)); }
     .org-box-root { stroke: #223b7c; stroke-width: 2; }
     .org-box-you  { stroke: #9e0000; stroke-width: 2; }
     .org-avatar { }
@@ -766,8 +766,10 @@
         </div>
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
+          <div class="legend-item"><div class="legend-swatch annual-leave-half"></div>Half Day</div>
           <div class="legend-item"><div class="legend-swatch office-day"></div>Office Day</div>
           <div class="legend-item"><div class="legend-swatch lieu-taken"></div>Lieu Taken</div>
+          <div class="legend-item"><div class="legend-swatch worked"></div>Worked Extra</div>
           <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
         <div class="team-wrap">
@@ -1697,10 +1699,11 @@
         var hasWkPM2 = de.find(function(e){ return e.type==='overtime' && e.overtimeSize==='half' && e.overtimeAmPm==='pm'; });
 
         /* Day-type always first (sets CSS vars) */
+        /* is-wknd based on THIS person's work schedule, not global Sat/Sun */
         var tdC = '';
-        if (day.isT)         tdC += ' is-today';
-        if (day.isBH)        tdC += ' is-bh';
-        else if (day.isWk || !isWD) tdC += ' is-wknd';
+        if (day.isT)  tdC += ' is-today';
+        if (day.isBH) tdC += ' is-bh';
+        else if (!isWD) tdC += ' is-wknd';
 
         /* Status fill — same precedence as solo */
         var tdStatus = '';
@@ -1998,7 +2001,7 @@
       return;
     }
 
-    var BOX_W = 200, BOX_H = 64, H_GAP = 28, V_GAP = 56, AV_R = 18;
+    var BOX_W = 200, BOX_H = 72, H_GAP = 28, V_GAP = 56, AV_R = 18;
 
     function initials(name) {
       var parts = (name||'?').trim().split(' ');
@@ -2044,7 +2047,7 @@
     var parts = ['<svg class="org-svg" width="'+maxX+'" height="'+maxY+'" viewBox="0 0 '+maxX+' '+maxY+'" xmlns="http://www.w3.org/2000/svg">'];
 
     /* Defs: drop shadow filter */
-    parts.push('<defs><filter id="orgShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(10,22,40,0.10)"/></filter></defs>');
+    parts.push('<defs></defs>');
 
     allEdges.forEach(function(e){
       parts.push('<path class="org-line" d="M'+e.x1+','+e.y1+' L'+e.x2+','+e.y2+'"/>');
@@ -2070,14 +2073,26 @@
       var clipId = 'clip'+n.uid.replace(/[^a-z0-9]/gi,'_');
       var jobStr = esc(u.jobTitle||roleLabel(u.role));
 
-      parts.push('<g class="org-node-g" filter="url(#orgShadow)">');
+      parts.push('<g class="org-node-g">');
       parts.push('<rect class="'+boxCls+'" x="'+n.x+'" y="'+n.y+'" width="'+BOX_W+'" height="'+BOX_H+'" rx="8"/>');
       parts.push('<circle class="'+avBg+'" cx="'+(avX+AV_R)+'" cy="'+avY+'" r="'+AV_R+'"/>');
       parts.push('<text class="org-avatar-txt '+avTxt+'" x="'+(avX+AV_R)+'" y="'+avY+'">'+ini+'</text>');
       /* Text clipped to box — no stretching */
+      /* Split job title into up to 2 lines at ~24 chars */
+      var jobWords = jobStr.split(' ');
+      var jobLine1 = '', jobLine2 = '';
+      jobWords.forEach(function(w) {
+        if ((jobLine1 + ' ' + w).trim().length <= 24) jobLine1 = (jobLine1 + ' ' + w).trim();
+        else jobLine2 = (jobLine2 + ' ' + w).trim();
+      });
+      var nameY = jobLine2 ? n.y + 20 : n.y + 24;
+      var job1Y  = jobLine2 ? n.y + 34 : n.y + 40;
+      var job2Y  = n.y + 46;
+
       parts.push('<g clip-path="url(#'+clipId+')">');
-      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+(n.y+24)+'" font-size="12" font-weight="700">'+nameStr+(isMe?' (you)':'')+'</text>');
-      parts.push('<text class="org-role" x="'+textX+'" y="'+(n.y+40)+'" font-size="10">'+jobStr+'</text>');
+      parts.push('<text class="'+nameCls+'" x="'+textX+'" y="'+nameY+'" font-size="12" font-weight="700">'+nameStr+(isMe?' (you)':'')+'</text>');
+      parts.push('<text class="org-role" x="'+textX+'" y="'+job1Y+'" font-size="10">'+jobLine1+'</text>');
+      if (jobLine2) parts.push('<text class="org-role" x="'+textX+'" y="'+job2Y+'" font-size="10">'+jobLine2+'</text>');
       parts.push('</g>');
       parts.push('</g>');
     });
