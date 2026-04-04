@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.50 (conversation turn 10)
+  Version: v1.51 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -517,7 +517,7 @@
       .team-tbl td { width: 36px; min-width: 36px; max-width: 36px; height: 38px; }
     }
     .team-tbl td.name-cell.is-you { color: var(--primary); font-weight: 800; font-variation-settings: 'wght' 800; }
-    .team-tbl td.is-today { box-shadow: inset 0 0 0 2px #1565c0; }
+    .team-tbl td.is-today { }
     .team-tbl td.is-wknd  { background: var(--cal-wknd); }
     .team-tbl td.is-bh    { background: var(--cal-bh); }
     /* Team cell fills */
@@ -769,10 +769,14 @@
     <div class="tab-panel" id="tab-team">
       <div class="card">
         <div class="cal-nav">
-          <div class="cal-nav__title" id="teamTitle"></div>
-          <button class="cal-nav__btn" onclick="teamNav(-7)">‹ Prev week</button>
-          <button class="cal-nav__btn today" onclick="teamToday()">Today</button>
-          <button class="cal-nav__btn" onclick="teamNav(7)">Next week ›</button>
+          <div class="cal-nav__left">
+            <button class="cal-nav__btn cal-nav__arr" onclick="teamNav(-7)">‹</button>
+            <div class="cal-nav__title" id="teamTitle"></div>
+            <button class="cal-nav__btn cal-nav__arr" onclick="teamNav(7)">›</button>
+          </div>
+          <div class="cal-nav__right">
+            <button class="cal-nav__btn today" onclick="teamToday()">Today</button>
+          </div>
         </div>
         <div class="legend">
           <div class="legend-item"><div class="legend-swatch annual-leave"></div>Annual Leave</div>
@@ -782,11 +786,12 @@
           <div class="legend-item"><div class="legend-swatch worked"></div>Worked Extra</div>
           <div class="legend-item"><div class="legend-swatch bank-hol"></div>Bank Holiday</div>
         </div>
-        <div class="team-wrap">
-          <table class="team-tbl">
+        <div class="team-wrap" style="position:relative">
+          <table class="team-tbl" id="teamTbl">
             <thead id="teamHead"></thead>
             <tbody id="teamBody"></tbody>
           </table>
+          <div id="teamTodayOverlay" style="display:none;position:absolute;top:0;pointer-events:none;border:2px solid #1565c0;border-radius:3px;z-index:2"></div>
         </div>
       </div>
     </div>
@@ -1508,7 +1513,27 @@
       + ('0'+(d.getUTCMonth()+1)).slice(-2) + '-'
       + ('0'+d.getUTCDate()).slice(-2);
   }
-  function teamNav(d) {
+  function positionTodayOverlay() {
+    var overlay = document.getElementById('teamTodayOverlay');
+    var tbl     = document.getElementById('teamTbl');
+    if (!overlay || !tbl) return;
+    /* Find the th with is-today */
+    var ths = tbl.querySelectorAll('thead th');
+    var todayIdx = -1;
+    ths.forEach(function(th, i){ if (th.classList.contains('is-today')) todayIdx = i; });
+    if (todayIdx === -1) { overlay.style.display = 'none'; return; }
+    /* Get bounding rects relative to the table */
+    var tblRect = tbl.getBoundingClientRect();
+    var th = ths[todayIdx];
+    var thRect = th.getBoundingClientRect();
+    overlay.style.display = '';
+    overlay.style.left   = (thRect.left - tblRect.left - 1) + 'px';
+    overlay.style.width  = (thRect.width + 2) + 'px';
+    overlay.style.top    = '0px';
+    overlay.style.height = tbl.offsetHeight + 'px';
+  }
+
+    function teamNav(d) {
     if (!S.tmWeekStart) S.tmWeekStart = getMonOfWeek(isoToday());
     var next = addDays(S.tmWeekStart, d);
     var minIso = getMonOfWeek(addDays(isoToday(), -365));
@@ -1785,6 +1810,8 @@
     if (!thead || !tbody) return;
     thead.innerHTML = hdr;
     tbody.innerHTML = rows;
+    /* Position today overlay after DOM updates */
+    setTimeout(function() { positionTodayOverlay(); }, 0);
   }
 
 
@@ -3097,6 +3124,8 @@
     var end   = document.getElementById('eEnd').value;
     if (!end || end < start) document.getElementById('eEnd').value = start;
   });
+
+  window.addEventListener('resize', function(){ positionTodayOverlay(); });
 
   /* Close overlays on bg click */
   document.querySelectorAll('.ov').forEach(function(ov){
