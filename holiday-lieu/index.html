@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.54 (conversation turn 10)
+  Version: v1.55 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -921,11 +921,14 @@
       <!-- Populated by JS based on cell context -->
     </div>
     <div class="modal__ft" id="entryModalFt" style="justify-content:space-between">
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost btn-sm" id="amendEntryBtn" style="display:none" onclick="entryAmend()">Amend</button>
-        <button class="btn btn-danger btn-sm" id="removeEntryBtn" style="display:none" onclick="entryRemove()">Remove</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <!-- Self-approver confirmed entry -->
+        <button class="btn btn-ghost btn-sm" id="editDirectBtn" style="display:none" onclick="entryEditDirect()">Edit</button>
         <button class="btn btn-danger btn-sm" id="delEntryBtn" style="display:none" onclick="deleteEntry()">Delete</button>
-        <button class="btn btn-ghost btn-sm" id="requestChangeBtn" style="display:none" onclick="requestChange()">Request change</button>
+        <!-- Needs-approval confirmed entry -->
+        <button class="btn btn-ghost btn-sm" id="reqChangeBtn" style="display:none" onclick="entryAmend()">Request change</button>
+        <button class="btn btn-ghost btn-sm" id="reqRemoveBtn" style="display:none" onclick="entryRemove()">Request removal</button>
+        <!-- Editing/new entry save -->
         <button class="btn btn-primary btn-sm" id="saveEntryBtn" onclick="saveEntry()">Save</button>
       </div>
       <button class="btn btn-ghost" onclick="closeOv('ovEntry')">Cancel</button>
@@ -2494,7 +2497,20 @@
     document.getElementById('requestChangeBtn').style.display = 'none';
   }
 
-  function entryAmend() {
+  function entryEditDirect() {
+    /* Self-approver: re-render modal body as full editable form */
+    var e = (S.entries[S.uid]||{})[_eState.editId];
+    if (!e) return;
+    _eState.isPastEntry = false; /* unlock form */
+    buildEntryModal(e);
+    document.getElementById('editDirectBtn').style.display = 'none';
+    document.getElementById('delEntryBtn').style.display = 'none';
+    document.getElementById('saveEntryBtn').style.display = '';
+    document.getElementById('saveEntryBtn').textContent = 'Save changes';
+    document.getElementById('saveEntryBtn').onclick = saveEntry;
+  }
+
+    function entryAmend() {
     /* For any confirmed entry — open inline date editing in modal body */
     var e = (S.entries[S.uid]||{})[_eState.editId];
     if (!e) return;
@@ -2508,12 +2524,12 @@
       +'<div class="fg"><label class="fl">Start date</label><input type="date" class="fi" id="amendStart" value="'+e.date+'"></div>'
       +(isSpan?'<div class="fg"><label class="fl">End date</label><input type="date" class="fi" id="amendEnd" value="'+(e.endDate||e.date)+'"></div>':'')
       +(!isSelf?'<p style="font-size:11px;color:var(--text-muted);margin-top:8px">This amendment will be sent to your approver.</p>':'');
-    document.getElementById('amendEntryBtn').style.display = 'none';
-    document.getElementById('removeEntryBtn').style.display = 'none';
+    document.getElementById('reqChangeBtn').style.display = 'none';
+    document.getElementById('reqRemoveBtn').style.display = 'none';
     var saveBtn = document.getElementById('saveEntryBtn');
     saveBtn.style.display = '';
-    saveBtn.textContent = isSelf ? 'Save' : 'Submit for approval';
-    saveBtn.onclick = function(){ submitAmendEntry(isSelf); };
+    saveBtn.textContent = 'Submit for approval';
+    saveBtn.onclick = function(){ submitAmendEntry(false); };
   }
 
   function submitAmendEntry(isSelf) {
@@ -2570,53 +2586,7 @@
     }
   }
 
-    function doChangeRequest(action) {
-    var e = (S.entries[S.uid]||{})[_eState.editId];
-    if (!e) return;
-    var me = S.users[S.uid]||{};
-    var myApproverUids = Array.isArray(me.approverUids) ? me.approverUids : (me.approverUid ? [me.approverUid] : []);
-    var isSelf = myApproverUids.length === 0;
-
-    if (action === 'remove') {
-      if (!confirm('Remove this entry'+(isSelf ? '' : ' (requires approval')+'?')) return;
-      if (isSelf) {
-        /* Self-approver: delete immediately and credit AL back */
-        db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).remove()
-          .then(function(){
-            if (S.entries[S.uid]) delete S.entries[S.uid][_eState.editId];
-            showToast('Entry removed');
-            closeOv('ovEntry');
-            refresh();
-          }).catch(function(err){ showToast('Error: '+err.message,'error'); });
-      } else {
-        /* Send removal request to approver */
-        db.ref('holiday-lieu/requests/'+S.uid).push({
-          type: 'remove-entry',
-          entryId: _eState.editId,
-          entryType: e.type,
-          date: e.date,
-          endDate: e.endDate||e.date,
-          status: 'pending',
-          submittedAt: Date.now(),
-          approverUids: myApproverUids
-        }).then(function(){
-          showToast('Removal request submitted');
-          closeOv('ovEntry');
-        }).catch(function(err){ showToast('Error: '+err.message,'error'); });
-      }
-    } else {
-      /* Amend — show date pickers */
-      var body = document.getElementById('entryModalBody');
-      var isSpan = e.endDate && e.endDate !== e.date;
-      body.innerHTML = '<p style="font-size:13px;margin-bottom:12px;color:var(--text-muted)">Update dates for '+esc(typeLabel(e.type))+'</p>'
-        +'<div class="fg"><label class="fl">Start date</label><input type="date" class="fi" id="amendStart" value="'+e.date+'"></div>'
-        +(isSpan ? '<div class="fg"><label class="fl">End date</label><input type="date" class="fi" id="amendEnd" value="'+(e.endDate||e.date)+'"></div>' : '')
-        +'<div style="display:flex;gap:8px;margin-top:8px">'
-        +'<button class="btn btn-primary" data-eid="'+escJ(_eState.editId)+'" data-self="'+(isSelf?'1':'0')+'" onclick="submitAmendBtn(this)">Submit</button>'
-        +'<button class="btn btn-ghost" onclick="closeEntryOv()">Cancel</button>'
-        +'</div>';
-    }
-  }
+  /* doChangeRequest removed — replaced by entryAmend/entryRemove */
 
   function submitAmendBtn(btn) {
     submitAmend(btn.dataset.eid, btn.dataset.self === '1');
@@ -2734,10 +2704,12 @@
     var reqBtn = document.getElementById('requestChangeBtn');
     if (reqBtn) reqBtn.style.display = 'none';
     _eState.isPastEntry = isPast;
-    document.getElementById('amendEntryBtn').style.display = '';
-    document.getElementById('removeEntryBtn').style.display = '';
-    document.getElementById('delEntryBtn').style.display = isPast ? 'none' : '';
-    document.getElementById('saveEntryBtn').style.display = isPast ? 'none' : '';
+    /* Show correct button set depending on whether approval is required */
+    document.getElementById('editDirectBtn').style.display  = (isPast ? 'none' : (!needsApprLock ? '' : 'none'));
+    document.getElementById('delEntryBtn').style.display    = (isPast ? 'none' : (!needsApprLock ? '' : 'none'));
+    document.getElementById('reqChangeBtn').style.display   = needsApprLock ? '' : 'none';
+    document.getElementById('reqRemoveBtn').style.display   = needsApprLock ? '' : 'none';
+    document.getElementById('saveEntryBtn').style.display   = 'none'; /* shown after Edit pressed */
     /* Pre-populate state from entry */
     if (e.type === 'annual-leave')     { _eState.alMode = e.endDate !== e.date ? 'several' : 'single'; }
     if (e.type === 'annual-leave-am')  { _eState.alMode = 'half'; _eState.alAmPm = 'am'; }
