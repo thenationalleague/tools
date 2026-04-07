@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.43 (conversation turn 145)
+  Version: v5.44 (conversation turn 146)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1831,7 +1831,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.43';
+var PORTAL_VERSION = 'v5.44';
 
 var STATE = {
   uid:      null,
@@ -3435,10 +3435,14 @@ function buildAccordionItem(uid, u, depts, deptMap) {
   var pillStack = document.createElement('div');
   pillStack.className = 'uacc-pill-stack';
 
+  /* Row wrapper for pill + change role button */
+  var pillRow = document.createElement('div');
+  pillRow.style.cssText = 'display:flex;align-items:center;gap:6px;justify-content:flex-end;';
   var rolePill = document.createElement('span');
   rolePill.className = 'user-role-pill role-' + (u.pending ? 'pending' : (u.role || 'staff'));
   rolePill.textContent = u.pending ? 'Pending' : (u.role || 'staff');
-  pillStack.appendChild(rolePill);
+  pillRow.appendChild(rolePill);
+  pillStack.appendChild(pillRow);
 
   /* Context line below pill */
   var context = document.createElement('div');
@@ -3461,10 +3465,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     context.appendChild(orgText);
   }
 
-  pillStack.appendChild(context);
-  header.appendChild(pillStack);
-
-  /* Change role button in header -- only for active non-superadmin users */
+  /* Change role button -- injected into pill stack inline with pill */
   if (u.role !== 'superadmin' && !u.pending) {
     var headerRoleBtn = document.createElement('button');
     headerRoleBtn.className = 'uacc-header-role-btn';
@@ -3474,7 +3475,6 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       var picker = body.querySelector('.inline-role-picker');
       if (picker) {
         var isOpen = picker.classList.contains('open');
-        /* Close edit mode if open */
         if (_editUid === uid) {
           var cancelBtn = footer.querySelector('.uacc-cancel-edit-btn');
           if (cancelBtn) cancelBtn.click();
@@ -3482,8 +3482,12 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         picker.classList.toggle('open', !isOpen);
       }
     });
-    header.appendChild(headerRoleBtn);
+    /* Insert into pill row alongside role pill */
+    pillRow.appendChild(headerRoleBtn);
   }
+
+  pillStack.appendChild(context);
+  header.appendChild(pillStack);
 
   var chevron = document.createElement('span');
   chevron.className = 'uacc-chevron';
