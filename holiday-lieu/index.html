@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.58 (conversation turn 10)
+  Version: v1.59 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -2688,51 +2688,63 @@
 
   function openEdit(id, ev) {
     if (ev) ev.stopPropagation();
-    var e = (S.entries[S.uid]||{})[id]; if (!e) return;
-    _eState.editId   = id;
-    _eState.editType = e.type;
-    _eState.iso      = e.date;
-    /* Lock if this user requires approval — self-approvers can edit directly */
-    var me2 = S.users[S.uid]||{};
-    var myApprUids = Array.isArray(me2.approverUids)?me2.approverUids:(me2.approverUid?[me2.approverUid]:[]);
-    var needsApprLock = myApprUids.length > 0;
-    /* isPastEntry now means "requires approval AND confirmed" — locks the form */
-    var isPast = needsApprLock;
-    document.getElementById('entryModalTitle').textContent = typeLabel(e.type);
-    document.getElementById('delEntryBtn').style.display = 'none';
-    document.getElementById('saveEntryBtn').style.display = isPast ? 'none' : '';
-    document.getElementById('saveEntryBtn').textContent = 'Save changes';
-    var reqBtn = document.getElementById('requestChangeBtn');
-    if (reqBtn) reqBtn.style.display = 'none';
+    var e = (S.entries[S.uid]||{})[id];
+    if (!e) return;
 
-    _eState.isPastEntry = isPast;
-    /* Show correct button set depending on whether approval is required */
-    document.getElementById('editDirectBtn').style.display  = (isPast ? 'none' : (!needsApprLock ? '' : 'none'));
-    document.getElementById('delEntryBtn').style.display    = (isPast ? 'none' : (!needsApprLock ? '' : 'none'));
-    document.getElementById('reqChangeBtn').style.display   = needsApprLock ? '' : 'none';
-    document.getElementById('reqRemoveBtn').style.display   = needsApprLock ? '' : 'none';
-    document.getElementById('saveEntryBtn').style.display   = 'none'; /* shown after Edit pressed */
-    /* Pre-populate state from entry */
-    if (e.type === 'annual-leave')     { _eState.alMode = e.endDate !== e.date ? 'several' : 'single'; }
-    if (e.type === 'annual-leave-am')  { _eState.alMode = 'half'; _eState.alAmPm = 'am'; }
-    if (e.type === 'annual-leave-pm' || e.type === 'annual-leave-half')
-                                       { _eState.alMode = 'half'; _eState.alAmPm = 'pm'; }
-    if (e.type === 'lieu-taken')       { _eState.lieuMode = e.endDate !== e.date ? 'several' : 'single'; }
-    if (e.type === 'lieu-taken-am')    { _eState.lieuMode = 'half'; _eState.lieuAmPm = 'am'; }
-    if (e.type === 'lieu-taken-pm')    { _eState.lieuMode = 'half'; _eState.lieuAmPm = 'pm'; }
-    if (e.type === 'office-day')       { _eState.otOffice = true; }
-    if (e.type === 'overtime')         { _eState.otOvertime = true; _eState.otOvertimeSize = e.overtimeSize||'full'; }
-    if (e.type === 'other')            { _eState.otNote = true; }
-    _eState.isWD  = true; _eState.isBH = false;
+    /* Determine approval requirement */
+    var me2 = S.users[S.uid]||{};
+    var myApprUids = Array.isArray(me2.approverUids) ? me2.approverUids : (me2.approverUid ? [me2.approverUid] : []);
+    var needsApproval = myApprUids.length > 0;
+
+    /* Pre-populate _eState from entry */
+    _eState = {
+      editId: id, editType: e.type, iso: e.date,
+      isPastEntry: needsApproval,
+      isBH: false, isWD: true, bhLabel: '',
+      alMode: null, alAmPm: null,
+      lieuMode: null, lieuAmPm: null,
+      otOffice: false, otOvertime: false,
+      otOvertimeSize: e.overtimeSize || 'full',
+      otAmPm: e.overtimeAmPm || null,
+      otNote: false
+    };
+    if (e.type==='annual-leave')      { _eState.alMode = (e.endDate&&e.endDate!==e.date)?'several':'single'; }
+    if (e.type==='annual-leave-am')   { _eState.alMode='half'; _eState.alAmPm='am'; }
+    if (e.type==='annual-leave-pm'||e.type==='annual-leave-half') { _eState.alMode='half'; _eState.alAmPm='pm'; }
+    if (e.type==='lieu-taken')        { _eState.lieuMode=(e.endDate&&e.endDate!==e.date)?'several':'single'; }
+    if (e.type==='lieu-taken-am')     { _eState.lieuMode='half'; _eState.lieuAmPm='am'; }
+    if (e.type==='lieu-taken-pm')     { _eState.lieuMode='half'; _eState.lieuAmPm='pm'; }
+    if (e.type==='office-day')        { _eState.otOffice=true; }
+    if (e.type==='overtime')          { _eState.otOvertime=true; }
+    if (e.type==='other')             { _eState.otNote=true; }
     var cell = document.querySelector('[data-iso="'+_eState.iso+'"]');
-    if (cell) { _eState.isBH = cell.dataset.bh==='1'; _eState.isWD = cell.dataset.wd==='1'; }
-    if (isPast) {
-      buildLockedView(e);
-    } else {
+    if (cell) { _eState.isBH=cell.dataset.bh==='1'; _eState.isWD=cell.dataset.wd==='1'; }
+
+    /* ── SELF-APPROVER: show full editable form immediately ── */
+    if (!needsApproval) {
+      document.getElementById('entryModalTitle').textContent = typeLabel(e.type);
+      document.getElementById('editDirectBtn').style.display = 'none';
+      document.getElementById('reqChangeBtn').style.display  = 'none';
+      document.getElementById('reqRemoveBtn').style.display  = 'none';
+      document.getElementById('delEntryBtn').style.display   = '';
+      var sv = document.getElementById('saveEntryBtn');
+      sv.style.display = ''; sv.textContent = 'Save changes'; sv.onclick = saveEntry;
       buildEntryModal(e);
+
+    /* ── NEEDS APPROVAL: show static locked view ── */
+    } else {
+      document.getElementById('entryModalTitle').textContent = typeLabel(e.type);
+      document.getElementById('editDirectBtn').style.display = 'none';
+      document.getElementById('delEntryBtn').style.display   = 'none';
+      document.getElementById('saveEntryBtn').style.display  = 'none';
+      document.getElementById('reqChangeBtn').style.display  = '';
+      document.getElementById('reqRemoveBtn').style.display  = '';
+      buildLockedView(e);
     }
+
     document.getElementById('ovEntry').classList.add('open');
   }
+
 
   /* ── Locked read-only view — shown before Edit is pressed ── */
   function buildLockedView(e) {
