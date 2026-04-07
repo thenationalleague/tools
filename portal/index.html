@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.39 (conversation turn 141)
+  Version: v5.40 (conversation turn 142)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1810,7 +1810,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.39';
+var PORTAL_VERSION = 'v5.40';
 
 var STATE = {
   uid:      null,
@@ -3556,6 +3556,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         if (prevCancel) prevCancel.click();
       }
     }
+    /* Close role picker if open */
+    var openPicker = body.querySelector('.inline-role-picker.open');
+    if (openPicker) openPicker.classList.remove('open');
     _editUid = uid;
     editBar.classList.add('active');
     editAccessBtn.style.display = 'none';
@@ -3755,7 +3758,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
   } else {
     /* Active user -- change role button + inline role picker */
     var changeRoleBtn = document.createElement('button');
-    changeRoleBtn.className = 'change-role-btn';
+    changeRoleBtn.className = 'btn btn--ghost btn--sm';
     changeRoleBtn.textContent = 'Change role';
 
     var rolePicker = document.createElement('div');
@@ -4110,11 +4113,43 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     rolePicker.appendChild(applyRow);
 
     changeRoleBtn.addEventListener('click', function() {
+      /* Close edit mode if open */
+      if (_editUid === uid) {
+        var cancelBtn = footer.querySelector('.uacc-cancel-edit-btn');
+        if (cancelBtn) cancelBtn.click();
+      }
       rolePicker.classList.toggle('open');
     });
 
+    /* Role summary -- read-only display above Change role */
+    var roleSummary = document.createElement('div');
+    roleSummary.style.cssText = 'width:100%;font-size:11px;color:var(--text-muted);padding:4px 0 2px;line-height:1.5;';
+    function updateRoleSummary() {
+      var ud = STATE.allUsers[uid] || u;
+      var parts = [];
+      if (ud.role === 'club' && ud.club) {
+        parts.push(ud.club);
+        if (ud.clubRole || ud.jobTitle) parts.push(ud.clubRole || ud.jobTitle);
+        parts.push('Club');
+      } else {
+        parts.push(ud.org || 'National League');
+        if (ud.jobTitle || ud.clubRole) parts.push(ud.jobTitle || ud.clubRole);
+        parts.push(capitalise(ud.role || 'staff'));
+      }
+      roleSummary.textContent = parts.join('  ·  ');
+    }
+    updateRoleSummary();
+
+    footer.appendChild(roleSummary);
     footer.appendChild(changeRoleBtn);
     footer.appendChild(rolePicker);
+  }
+
+  /* Divider between role section and access section */
+  if (u.role !== 'superadmin' && !u.pending) {
+    var footerDivider = document.createElement('div');
+    footerDivider.style.cssText = 'width:100%;height:1px;background:var(--border);margin:4px 0;';
+    footer.appendChild(footerDivider);
   }
 
   /* Edit access / Save / Cancel -- shown for all non-superadmin, non-pending users */
