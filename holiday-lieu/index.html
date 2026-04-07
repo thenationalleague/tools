@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.57 (conversation turn 10)
+  Version: v1.58 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -602,16 +602,7 @@
     .ov { position: fixed; inset: 0; background: rgba(10,22,40,0.55); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
     .ov.open { display: flex; }
     .modal { background: var(--white); border-radius: var(--radius); box-shadow: 0 8px 40px rgba(10,22,40,0.25); width: 100%; max-width: 500px; display: flex; flex-direction: column; max-height: calc(100vh - 40px); }
-    /* Locked state — form visible but non-interactive */
-    .modal-locked .fi, .modal-locked .fsel, .modal-locked .fta,
-    .modal-locked input, .modal-locked select, .modal-locked textarea {
-      background: var(--off-white) !important; color: var(--text-muted) !important;
-      pointer-events: none; user-select: none;
-    }
-    .modal-locked .eopt, .modal-locked .ampm-btn, .modal-locked .otog {
-      pointer-events: none; opacity: 0.55;
-    }
-    .modal-locked .entry-section__head span { opacity: 0.55; }
+
     .modal.wide { max-width: 640px; }
     .modal__hd { background: var(--primary); color: var(--white); padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
     .modal__hd h3 { font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -2508,12 +2499,11 @@
   }
 
   function entryEditDirect() {
-    /* Self-approver: unlock the form — just remove the locked class */
     var e = (S.entries[S.uid]||{})[_eState.editId];
     if (!e) return;
     _eState.isPastEntry = false;
-    var modalEl = document.querySelector('#ovEntry .modal');
-    if (modalEl) modalEl.classList.remove('modal-locked');
+    /* Build the real interactive form, pre-populated with existing values */
+    buildEntryModal(e);
     document.getElementById('editDirectBtn').style.display = 'none';
     document.getElementById('delEntryBtn').style.display = 'none';
     document.getElementById('saveEntryBtn').style.display = '';
@@ -2525,8 +2515,6 @@
     var e = (S.entries[S.uid]||{})[_eState.editId];
     if (!e) return;
     _eState.isPastEntry = false;
-    var modalEl = document.querySelector('#ovEntry .modal');
-    if (modalEl) modalEl.classList.remove('modal-locked');
     buildEntryModal(e);
     document.getElementById('reqChangeBtn').style.display = 'none';
     document.getElementById('reqRemoveBtn').style.display = 'none';
@@ -2534,7 +2522,7 @@
     var saveBtn = document.getElementById('saveEntryBtn');
     saveBtn.textContent = 'Submit for approval';
     saveBtn.onclick = function(){ submitAmendEntry(false); };
-    document.getElementById('entryModalTitle').textContent = 'Request Change — '+typeLabel(e.type);
+    document.getElementById('entryModalTitle').textContent = 'Request Change';
   }
 
   function submitAmendEntry(isSelf) {
@@ -2686,8 +2674,6 @@
     }
     document.getElementById('entryModalTitle').textContent = 'Add Entry';
     /* Reset all footer buttons to clean add state */
-    var modalEl2 = document.querySelector('#ovEntry .modal');
-    if (modalEl2) modalEl2.classList.remove('modal-locked');
     document.getElementById('delEntryBtn').style.display    = 'none';
     document.getElementById('editDirectBtn').style.display  = 'none';
     document.getElementById('reqChangeBtn').style.display   = 'none';
@@ -2718,11 +2704,7 @@
     document.getElementById('saveEntryBtn').textContent = 'Save changes';
     var reqBtn = document.getElementById('requestChangeBtn');
     if (reqBtn) reqBtn.style.display = 'none';
-    /* Lock/unlock modal body */
-    var modalEl = document.querySelector('#ovEntry .modal');
-    if (modalEl) modalEl.classList.toggle('modal-locked', isPast);
-    var modalEl = document.querySelector('#ovEntry .modal');
-    if (modalEl) modalEl.classList.toggle('modal-locked', isPast);
+
     _eState.isPastEntry = isPast;
     /* Show correct button set depending on whether approval is required */
     document.getElementById('editDirectBtn').style.display  = (isPast ? 'none' : (!needsApprLock ? '' : 'none'));
@@ -2744,8 +2726,35 @@
     _eState.isWD  = true; _eState.isBH = false;
     var cell = document.querySelector('[data-iso="'+_eState.iso+'"]');
     if (cell) { _eState.isBH = cell.dataset.bh==='1'; _eState.isWD = cell.dataset.wd==='1'; }
-    buildEntryModal(e);
+    if (isPast) {
+      buildLockedView(e);
+    } else {
+      buildEntryModal(e);
+    }
     document.getElementById('ovEntry').classList.add('open');
+  }
+
+  /* ── Locked read-only view — shown before Edit is pressed ── */
+  function buildLockedView(e) {
+    var isSpan = e.endDate && e.endDate !== e.date;
+    var dateStr = isSpan ? fmtDate(e.date)+' – '+fmtDate(e.endDate) : fmtDate(e.date);
+    var dot = {'annual-leave':'#9e0000','annual-leave-am':'#9e0000','annual-leave-pm':'#9e0000',
+               'lieu-taken':'#6a1b9a','lieu-taken-am':'#6a1b9a','lieu-taken-pm':'#6a1b9a',
+               'overtime':'#0d47a1','office-day':'#1e7e34','other':'#4a5568'}[e.type]||'#888';
+    var body = document.getElementById('entryModalBody');
+    body.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px 0 16px">'
+      +'<div style="width:10px;height:10px;border-radius:50%;background:'+dot+';flex-shrink:0"></div>'
+      +'<div style="font-size:15px;font-weight:700;color:var(--text)">'+typeLabel(e.type)+'</div>'
+      +'</div>'
+      +'<div style="background:var(--off-white);border-radius:6px;padding:14px 16px">'
+      +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;font-size:10px;font-weight:700">Date</div>'
+      +'<div style="font-size:15px;font-weight:600;color:var(--text)">'+dateStr+'</div>'
+      +(e.note?'<div style="font-size:12px;color:var(--text-muted);margin-top:8px;font-style:italic">'+esc(e.note)+'</div>':'')
+      +'</div>'
+      +'<div style="font-size:11px;color:var(--text-muted);margin-top:14px;padding:10px 12px;background:#f8f8fb;border-radius:6px;border-left:3px solid var(--border)">'
+      +'Press <strong>Edit</strong> to change this entry, or <strong>Request removal</strong> to ask for it to be deleted.'
+      +'</div>';
   }
 
   function buildEntryModal(existingEntry) {
@@ -3182,12 +3191,7 @@
     });
   }
 
-  function prefillApprover() {
-    var lm = document.getElementById('sLM').value;
-    var apr = document.getElementById('sApprover');
-    /* Only prefill if approver hasn't been manually set */
-    if (apr && !apr.dataset.manuallySet) apr.value = lm;
-  }
+
 
   function saveSettings() {
     var uid=document.getElementById('sUid').value; if(!uid){ showToast('Select a staff member','error'); return; }
