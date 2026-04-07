@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v1.56 (conversation turn 10)
+  Version: v1.57 (conversation turn 10)
   Date: 02/04/2026
   File: /tools/holiday-lieu/index.html
 
@@ -602,6 +602,16 @@
     .ov { position: fixed; inset: 0; background: rgba(10,22,40,0.55); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
     .ov.open { display: flex; }
     .modal { background: var(--white); border-radius: var(--radius); box-shadow: 0 8px 40px rgba(10,22,40,0.25); width: 100%; max-width: 500px; display: flex; flex-direction: column; max-height: calc(100vh - 40px); }
+    /* Locked state — form visible but non-interactive */
+    .modal-locked .fi, .modal-locked .fsel, .modal-locked .fta,
+    .modal-locked input, .modal-locked select, .modal-locked textarea {
+      background: var(--off-white) !important; color: var(--text-muted) !important;
+      pointer-events: none; user-select: none;
+    }
+    .modal-locked .eopt, .modal-locked .ampm-btn, .modal-locked .otog {
+      pointer-events: none; opacity: 0.55;
+    }
+    .modal-locked .entry-section__head span { opacity: 0.55; }
     .modal.wide { max-width: 640px; }
     .modal__hd { background: var(--primary); color: var(--white); padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
     .modal__hd h3 { font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -2498,11 +2508,12 @@
   }
 
   function entryEditDirect() {
-    /* Self-approver: re-render modal body as full editable form */
+    /* Self-approver: unlock the form — just remove the locked class */
     var e = (S.entries[S.uid]||{})[_eState.editId];
     if (!e) return;
-    _eState.isPastEntry = false; /* unlock form */
-    buildEntryModal(e);
+    _eState.isPastEntry = false;
+    var modalEl = document.querySelector('#ovEntry .modal');
+    if (modalEl) modalEl.classList.remove('modal-locked');
     document.getElementById('editDirectBtn').style.display = 'none';
     document.getElementById('delEntryBtn').style.display = 'none';
     document.getElementById('saveEntryBtn').style.display = '';
@@ -2511,25 +2522,19 @@
   }
 
     function entryAmend() {
-    /* For any confirmed entry — open inline date editing in modal body */
     var e = (S.entries[S.uid]||{})[_eState.editId];
     if (!e) return;
-    var me = S.users[S.uid]||{};
-    var myApproverUids = Array.isArray(me.approverUids)?me.approverUids:(me.approverUid?[me.approverUid]:[]);
-    var isSelf = myApproverUids.length === 0;
-    var body = document.getElementById('entryModalBody');
-    var isSpan = e.endDate && e.endDate !== e.date;
-    body.innerHTML = '<div class="fg"><label class="fl">Type</label>'
-      +'<div class="fi" style="background:var(--off-white);color:var(--text-muted);font-size:13px">'+typeLabel(e.type)+'</div></div>'
-      +'<div class="fg"><label class="fl">Start date</label><input type="date" class="fi" id="amendStart" value="'+e.date+'"></div>'
-      +(isSpan?'<div class="fg"><label class="fl">End date</label><input type="date" class="fi" id="amendEnd" value="'+(e.endDate||e.date)+'"></div>':'')
-      +(!isSelf?'<p style="font-size:11px;color:var(--text-muted);margin-top:8px">This amendment will be sent to your approver.</p>':'');
+    _eState.isPastEntry = false;
+    var modalEl = document.querySelector('#ovEntry .modal');
+    if (modalEl) modalEl.classList.remove('modal-locked');
+    buildEntryModal(e);
     document.getElementById('reqChangeBtn').style.display = 'none';
     document.getElementById('reqRemoveBtn').style.display = 'none';
+    document.getElementById('saveEntryBtn').style.display = '';
     var saveBtn = document.getElementById('saveEntryBtn');
-    saveBtn.style.display = '';
     saveBtn.textContent = 'Submit for approval';
     saveBtn.onclick = function(){ submitAmendEntry(false); };
+    document.getElementById('entryModalTitle').textContent = 'Request Change — '+typeLabel(e.type);
   }
 
   function submitAmendEntry(isSelf) {
@@ -2681,6 +2686,8 @@
     }
     document.getElementById('entryModalTitle').textContent = 'Add Entry';
     /* Reset all footer buttons to clean add state */
+    var modalEl2 = document.querySelector('#ovEntry .modal');
+    if (modalEl2) modalEl2.classList.remove('modal-locked');
     document.getElementById('delEntryBtn').style.display    = 'none';
     document.getElementById('editDirectBtn').style.display  = 'none';
     document.getElementById('reqChangeBtn').style.display   = 'none';
@@ -2711,6 +2718,11 @@
     document.getElementById('saveEntryBtn').textContent = 'Save changes';
     var reqBtn = document.getElementById('requestChangeBtn');
     if (reqBtn) reqBtn.style.display = 'none';
+    /* Lock/unlock modal body */
+    var modalEl = document.querySelector('#ovEntry .modal');
+    if (modalEl) modalEl.classList.toggle('modal-locked', isPast);
+    var modalEl = document.querySelector('#ovEntry .modal');
+    if (modalEl) modalEl.classList.toggle('modal-locked', isPast);
     _eState.isPastEntry = isPast;
     /* Show correct button set depending on whether approval is required */
     document.getElementById('editDirectBtn').style.display  = (isPast ? 'none' : (!needsApprLock ? '' : 'none'));
@@ -2740,19 +2752,7 @@
     var body = document.getElementById('entryModalBody');
     var iso  = _eState.iso;
 
-    /* Past confirmed entries — show read-only summary, no form */
-    if (_eState.isPastEntry && existingEntry) {
-      var e = existingEntry;
-      var isSpan = e.endDate && e.endDate !== e.date;
-      var dateStr = isSpan ? fmtDate(e.date)+' – '+fmtDate(e.endDate) : fmtDate(e.date);
-      body.innerHTML = '<div style="padding:4px 0">'
-        +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">'+dateStr+'</div>'
-        +(e.note?'<div style="font-size:13px;color:var(--text-muted);font-style:italic;margin-bottom:12px">'+esc(e.note)+'</div>':'')
-        +'<div style="font-size:11px;color:var(--text-muted)">Press <strong>Amend</strong> to request a change, or <strong>Remove</strong> to request deletion.</div>'
-        +'</div>';
-      return;
-    }
-
+        /* isPastEntry: form locked via .modal-locked CSS */
     var isSpecialDay = _eState.isBH || !_eState.isWD;
 
     /* Balance info shown at top of modal */
