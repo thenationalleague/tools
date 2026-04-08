@@ -3,10 +3,20 @@
 <head>
 <!--
   NL Tools — Vacancies
-  Version: 1.1
+  Version: 1.2
   Date: 08/04/2026
 
   CHANGELOG
+  v1.2 (08/04/2026)
+    - GAS URL updated to portal consolidated script
+    - Submissions fully migrated to Firebase RTDB at /submissions/{id}
+    - loadSubs() now reads from Firebase directly (no GAS)
+    - saveSub/approveSub/rejectSub all write to Firebase directly
+    - Approve copies vacancy fields to /vacancies/ as new job
+    - reviewSubIndex replaced with reviewSubId (Firebase push ID)
+    - getSubData() uses Firebase camelCase field names
+    - GAS only used for email verification (vacancies_requestCode/validateCode/submit)
+
   v1.1 (08/04/2026)
     - Admin: removed Submit Vacancy button — admins use Add Vacancy only
     - Access users: no email verification needed — already authenticated
@@ -426,12 +436,12 @@ var db           = firebase.database();
 var FALLBACK     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
 var CREST_BASE   = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
 var CLUBS_URL    = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-var GAS_URL      = 'https://script.google.com/macros/s/AKfycbz3aXu7-7Gp8_Sn33_ILnwTqV7vezItcZrJIV6cylJJ8SQbN7J1XooH75R8qfyVDWhW/exec';
+var GAS_URL      = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
 
 var STATE = {
   session: null, isAdmin: false,
   clubs: [], allVacancies: [], allSubs: [],
-  currentTab: 'live', editId: null, reviewSubIndex: null,
+  currentTab: 'live', editId: null, reviewSubId: null,
   pendingAction: null, pendingId: null, pendingTitle: null,
   submitCodeVerified: false, submitCountdownInt: null,
 };
@@ -523,15 +533,21 @@ function startVacanciesListener() {
   });
 }
 
-/* ── Submissions (GAS) ── */
+/* ── Submissions (Firebase) ── */
 function loadSubs() {
-  fetch(GAS_URL + '?action=submissions&cb=' + Date.now(), { cache:'no-store' })
-    .then(function(r){return r.json();})
-    .then(function(d){
-      STATE.allSubs = d.submissions || [];
-      updateSubStats();
-      if (STATE.currentTab === 'submissions') renderSubsTable();
-    }).catch(function(){});
+  db.ref('submissions').orderByChild('submittedAt').once('value', function(snap) {
+    var raw = snap.val() || {};
+    STATE.allSubs = Object.keys(raw).map(function(id) {
+      var s = raw[id]; s.id = id;
+      s.crestUrl = CREST_BASE + encodeURIComponent(s.club || '') + '.png';
+      return s;
+    }).sort(function(a,b) {
+      // Newest first
+      return (b.submittedAt||'') > (a.submittedAt||'') ? 1 : -1;
+    });
+    updateSubStats();
+    if (STATE.currentTab === 'submissions') renderSubsTable();
+  });
 }
 
 /* ── Stats ── */
@@ -647,7 +663,7 @@ function renderSubsTable() {
       +'<td style="font-size:12px;white-space:nowrap;">'+when+'</td>'
       +'<td style="font-size:12px;">'+esc(s.submitterName)+'<br><span style="color:var(--text-muted);font-size:11px;">'+esc(s.submitterRole)+' · '+esc(s.submitterEmail)+'</span></td>'
       +'<td><span class="pill pill--'+pillCls+'">'+esc(approvedLabel)+'</span></td>'
-      +'<td><button class="btn btn--ghost btn--sm" onclick="openSubModal('+s.rowIndex+')">Review</button></td>'
+      +'<td><button class="btn btn--ghost btn--sm" onclick="openSubModal(\''+s.id+'\')">Review</button></td>'
       +'</tr>';
   }).join('');
 }
@@ -747,24 +763,24 @@ function confirmAction(){
 }
 
 /* ── Submission review (admin) ── */
-function openSubModal(rowIndex) {
-  var sub=STATE.allSubs.find(function(s){return s.rowIndex===rowIndex;}); if(!sub) return;
-  STATE.reviewSubIndex=rowIndex;
+function openSubModal(id) {
+  var sub=STATE.allSubs.find(function(s){return s.id===id;}); if(!sub) return;
+  STATE.reviewSubId=id;
   document.getElementById('subBanner').innerHTML=
     '<strong>'+esc(sub.submitterName)+'</strong> — '+esc(sub.submitterRole)
     +'<br><a href="mailto:'+esc(sub.submitterEmail)+'" style="color:var(--navy)">'+esc(sub.submitterEmail)+'</a>'
     +(sub.liveListingUrl?'&nbsp;·&nbsp;<a href="'+esc(sub.liveListingUrl)+'" target="_blank" style="color:var(--navy)">View live listing ↗</a>':'')
     +'<br><span style="color:var(--text-muted);font-size:11px;">Submitted '+esc(sub.submittedAt?fmtDT(new Date(sub.submittedAt)):'—')+'</span>';
-  document.getElementById('sClub').value=sub.club||'';
-  document.getElementById('sJobTitle').value=sub.jobTitle||'';
-  document.getElementById('sLocation').value=sub.location||'';
-  document.getElementById('sVacancyType').value=sub.vacancyType||'';
-  document.getElementById('sDept').value=sub.position||'';
-  document.getElementById('sSalary').value=sub.salary||'';
-  document.getElementById('sDesc').value=sub.description||'';
-  document.getElementById('sLiveUrl').value=sub.liveListingUrl||'';
-  document.getElementById('sNotes').value=sub.notes||'';
-  document.getElementById('sApprovedBy').value=STATE.session?STATE.session.name:'';
+  document.getElementById('sClub').value       = sub.club||'';
+  document.getElementById('sJobTitle').value   = sub.jobTitle||'';
+  document.getElementById('sLocation').value   = sub.location||'';
+  document.getElementById('sVacancyType').value= sub.vacancyType||'';
+  document.getElementById('sDept').value       = sub.department||'';
+  document.getElementById('sSalary').value     = sub.salary||'';
+  document.getElementById('sDesc').value       = sub.description||'';
+  document.getElementById('sLiveUrl').value    = sub.liveListingUrl||'';
+  document.getElementById('sNotes').value      = sub.notes||'';
+  document.getElementById('sApprovedBy').value = STATE.session?STATE.session.name:'';
   updatePickerCrest('subPickerCrest',sub.crestUrl||'');
   setClosingFields('sClosingDate','sClosingTime',null,sub.closingDate||'');
   document.getElementById('subModalTitle').textContent=sub.status==='Pending'?'Review Submission':'Submission — '+sub.status;
@@ -774,16 +790,16 @@ function openSubModal(rowIndex) {
 }
 function getSubData(){
   return {
-    'Club':document.getElementById('sClub').value.trim(),
-    'Job Title':document.getElementById('sJobTitle').value.trim(),
-    'Location':document.getElementById('sLocation').value.trim(),
-    'Vacancy Type':document.getElementById('sVacancyType').value,
-    'Department':document.getElementById('sDept').value.trim(),
-    'Salary':document.getElementById('sSalary').value.trim(),
-    'Description':document.getElementById('sDesc').value.trim(),
-    'Live Listing URL':document.getElementById('sLiveUrl').value.trim(),
-    'Closing Date':buildClosingStr('sClosingDate','sClosingTime',null),
-    'Notes':document.getElementById('sNotes').value.trim(),
+    club:           document.getElementById('sClub').value.trim(),
+    jobTitle:       document.getElementById('sJobTitle').value.trim(),
+    location:       document.getElementById('sLocation').value.trim(),
+    vacancyType:    document.getElementById('sVacancyType').value,
+    department:     document.getElementById('sDept').value.trim(),
+    salary:         document.getElementById('sSalary').value.trim(),
+    description:    document.getElementById('sDesc').value.trim(),
+    liveListingUrl: document.getElementById('sLiveUrl').value.trim(),
+    closingDate:    buildClosingStr('sClosingDate','sClosingTime',null),
+    notes:          document.getElementById('sNotes').value.trim(),
   };
 }
 function setSubModalBtns(loading,which){
@@ -804,8 +820,9 @@ function gasPost(payload){
 }
 function saveSub(){
   setSubModalBtns(true,'subSaveBtn');
-  gasPost({action:'updateSubmission',password:'',rowIndex:STATE.reviewSubIndex,data:getSubData()})
-    .then(function(r){if(r.error)throw new Error(r.error);showToast('Saved.','success');loadSubs();})
+  var data=getSubData();
+  db.ref('submissions/'+STATE.reviewSubId).update(data)
+    .then(function(){showToast('Saved.','success');loadSubs();})
     .catch(function(e){showToast(e.message,'error');})
     .finally(function(){setSubModalBtns(false);});
 }
@@ -813,15 +830,42 @@ function approveSub(){
   var approvedBy=document.getElementById('sApprovedBy').value.trim();
   if(!approvedBy){showToast('Please enter your name in Approved By.','error');return;}
   setSubModalBtns(true,'subApproveBtn');
-  gasPost({action:'updateSubmission',password:'',rowIndex:STATE.reviewSubIndex,data:getSubData()})
-    .then(function(){return gasPost({action:'approveSubmission',password:'',rowIndex:STATE.reviewSubIndex,approvedBy:approvedBy,notes:document.getElementById('sNotes').value.trim()});})
-    .then(function(r){if(r.error)throw new Error(r.error);closeModal('subModal');showToast('Approved and published.','success');loadSubs();startVacanciesListener();})
+  var data=getSubData();
+  data.status='Approved';
+  data.approvedBy=approvedBy;
+  // Save edits + mark approved on submission
+  db.ref('submissions/'+STATE.reviewSubId).update(data)
+    .then(function(){
+      // Copy to vacancies
+      var sub=STATE.allSubs.find(function(s){return s.id===STATE.reviewSubId;});
+      if(!sub) return;
+      return vacRef.push({
+        club:        data.club        || sub.club,
+        jobTitle:    data.jobTitle    || sub.jobTitle,
+        location:    data.location    || sub.location,
+        vacancyType: data.vacancyType || sub.vacancyType,
+        department:  data.department  || sub.department,
+        salary:      data.salary      || sub.salary,
+        description: data.description || sub.description,
+        applyUrl:    data.liveListingUrl || sub.liveListingUrl,
+        closingDate: data.closingDate || sub.closingDate,
+        addedBy:     approvedBy,
+        createdAt:   Date.now(),
+        deleted:     false,
+      });
+    })
+    .then(function(){
+      closeModal('subModal');
+      showToast('Approved and published.','success');
+      loadSubs();
+    })
     .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
 }
 function rejectSub(){
   setSubModalBtns(true,'subRejectBtn');
-  gasPost({action:'rejectSubmission',password:'',rowIndex:STATE.reviewSubIndex,notes:document.getElementById('sNotes').value.trim()})
-    .then(function(r){if(r.error)throw new Error(r.error);closeModal('subModal');showToast('Rejected.','success');loadSubs();})
+  var notes=document.getElementById('sNotes').value.trim();
+  db.ref('submissions/'+STATE.reviewSubId).update({status:'Rejected',notes:notes})
+    .then(function(){closeModal('subModal');showToast('Rejected.','success');loadSubs();})
     .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
 }
 
@@ -940,7 +984,7 @@ function sendSubmitCode(){
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showToast('Please enter a valid email address.','error');return;}
   var btn=document.getElementById('sfSendCodeBtn');
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending…';
-  gasPost({action:'requestCode',email:email})
+  gasPost({action:'vacancies_requestCode',email:email})
     .then(function(r){
       if(r.error) throw new Error(r.error);
       document.getElementById('sfCodeGroup').style.display='';
@@ -995,7 +1039,7 @@ function doSubmit(){
   // For authed portal users we bypass GAS verification — write directly
   // submitterRole uses jobTitle from session for portal users
   var payload={
-    action:'submitVacancy',
+    action:'vacancies_submit',
     'Club':club,'Job Title':title,
     'Location':document.getElementById('sfLocation').value.trim(),
     'Vacancy Type':document.getElementById('sfType').value,
