@@ -3,10 +3,18 @@
 <head>
 <!--
   NL Tools — Vacancies
-  Version: 1.0
+  Version: 1.1
   Date: 08/04/2026
 
   CHANGELOG
+  v1.1 (08/04/2026)
+    - Admin: removed Submit Vacancy button — admins use Add Vacancy only
+    - Access users: no email verification needed — already authenticated
+      Session name/email/role pre-filled and locked, submit unlocked immediately
+    - Club users: club picker locked to session.club, cannot submit for other clubs
+    - submitVacancyAuthed GAS action used for portal users (no code check)
+    - External users (non-portal): still require 4-digit email verification
+
   v1.0 (08/04/2026)
     - Initial build
     - Portal tool at /tools/vacancies/
@@ -465,10 +473,8 @@ function adminHTML() {
     + '</div>'
     + '<div class="section-head">'
     + '<h2 id="sectionTitle">Vacancies</h2>'
-    + '<div style="display:flex;gap:8px;">'
-    + '<button class="btn btn--ghost btn--sm" onclick="openSubmitModal()">+ Submit Vacancy</button>'
     + '<button class="btn btn--accent" id="btnAdd" onclick="openAddModal()">+ Add Vacancy</button>'
-    + '</div></div>'
+    + '</div>'
     + '<div class="tabs">'
     + '<button class="tab active" id="tabLive" onclick="switchTab(\'live\')">Live</button>'
     + '<button class="tab" id="tabExpired" onclick="switchTab(\'expired\')">Expired</button>'
@@ -821,22 +827,68 @@ function rejectSub(){
 
 /* ── Submit modal (access + admin) ── */
 function openSubmitModal(){
-  STATE.submitCodeVerified=false;
+  STATE.submitCodeVerified = false;
   if(STATE.submitCountdownInt) clearInterval(STATE.submitCountdownInt);
+  // Portal users are already authenticated — no code needed
+  STATE.submitIsAuthed = !!(STATE.session && STATE.session.uid);
+  if(STATE.submitIsAuthed) STATE.submitCodeVerified = true;
   renderSubmitStep1();
   openModal('submitModal');
 }
 function renderSubmitStep1(){
   var body=document.getElementById('submitModalBody');
+  var session=STATE.session||{};
+  var isClubUser = !!(session.club && session.club.trim());
+  var clubVal = isClubUser ? session.club.trim() : '';
+  var clubCrest = isClubUser ? (CREST_BASE+encodeURIComponent(clubVal)+'.png') : FALLBACK;
+
+  // Club picker — locked for club users, open for NL staff
+  var clubField = isClubUser
+    ? '<div class="form-group span2"><label>Club</label>'
+      +'<div class="club-picker__wrap" style="opacity:0.75;pointer-events:none;cursor:default;">'
+      +'<img class="club-picker__crest" src="'+esc(clubCrest)+'" alt="" onerror="this.src=\''+FALLBACK+'\'" style="width:28px;height:28px;object-fit:contain;">'
+      +'<span style="font-size:13px;font-weight:600;font-variation-settings:\'wght\' 600;padding:0;flex:1;">'+esc(clubVal)+'</span>'
+      +'</div>'
+      +'<input type="hidden" id="sfClub" value="'+esc(clubVal)+'">'
+      +'<span class="form-hint">Your club is set by your portal account</span></div>'
+    : '<div class="form-group span2"><label>Club <span class="req">*</span></label>'
+      +'<div class="club-picker"><div class="club-picker__wrap">'
+      +'<img class="club-picker__crest" id="subFormCrest" src="'+FALLBACK+'" alt="">'
+      +'<input class="club-picker__input" id="sfClub" type="text" placeholder="Search or type club name…" autocomplete="off"'
+      +' oninput="onClubInput(\'sfClub\',\'sfClubDrop\',\'subFormCrest\',this.value)"'
+      +' onblur="setTimeout(function(){closeDropdown(\'sfClubDrop\');},150)">'
+      +'</div><div class="club-picker__dropdown" id="sfClubDrop"></div></div></div>';
+
+  // Submitter section — authed users see locked display, external users see form + code
+  var submitterSection = STATE.submitIsAuthed
+    ? '<div class="form-group span2">'
+      +'<label>Submitting as</label>'
+      +'<div style="background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:13px;line-height:1.6;">'
+      +'<strong style="font-variation-settings:\'wght\' 700">'+esc(session.name||'')+'</strong>'
+      +(session.jobTitle?' — '+esc(session.jobTitle):'')
+      +'<br><span style="color:var(--text-muted);">'+esc(session.email||'')+'</span>'
+      +'</div>'
+      +'<input type="hidden" id="sfName" value="'+esc(session.name||'')+'"><input type="hidden" id="sfRole" value="'+esc(session.jobTitle||'')+'"><input type="hidden" id="sfEmail" value="'+esc(session.email||'')+'">'
+      +'</div>'
+    : '<div class="form-group"><label>Your Name <span class="req">*</span></label><input type="text" id="sfName" placeholder="Full name"></div>'
+      +'<div class="form-group"><label>Your Role at Club <span class="req">*</span></label><input type="text" id="sfRole" placeholder="e.g. Head of HR"></div>'
+      +'<div class="form-group span2"><label>Your Email <span class="req">*</span></label>'
+      +'<div class="email-row">'
+      +'<div class="form-group" style="margin:0"><input type="email" id="sfEmail" placeholder="you@yourclub.co.uk"></div>'
+      +'<button class="btn-send-code" id="sfSendCodeBtn" onclick="sendSubmitCode()">Send Code</button>'
+      +'</div><span class="form-hint">A 4-digit code will be sent to verify your email</span></div>'
+      +'<div class="form-group span2" id="sfCodeGroup" style="display:none;">'
+      +'<label>Verification Code <span class="req">*</span></label>'
+      +'<div style="display:flex;gap:10px;align-items:flex-end;">'
+      +'<input type="text" id="sfCode" class="code-input" maxlength="4" placeholder="0000" inputmode="numeric">'
+      +'</div>'
+      +'<div id="sfCountdown" style="font-size:11px;color:var(--text-muted);margin-top:4px;display:none;"></div>'
+      +'<div class="code-status" id="sfCodeStatus"></div>'
+      +'</div>';
+
   body.innerHTML='<div class="submit-note">Your vacancy must already be listed on your club\'s own website before submitting. Submissions are reviewed by NL staff before going live. 1,000 character limit on description.</div>'
     +'<div class="form-grid">'
-    +'<div class="form-group span2"><label>Club <span class="req">*</span></label>'
-    +'<div class="club-picker"><div class="club-picker__wrap">'
-    +'<img class="club-picker__crest" id="subFormCrest" src="'+FALLBACK+'" alt="">'
-    +'<input class="club-picker__input" id="sfClub" type="text" placeholder="Search or type club name…" autocomplete="off"'
-    +' oninput="onClubInput(\'sfClub\',\'sfClubDrop\',\'subFormCrest\',this.value)"'
-    +' onblur="setTimeout(function(){closeDropdown(\'sfClubDrop\');},150)">'
-    +'</div><div class="club-picker__dropdown" id="sfClubDrop"></div></div></div>'
+    +clubField
     +'<div class="form-group span2"><label>Job Title <span class="req">*</span></label><input type="text" id="sfTitle" placeholder="e.g. First Team Physiotherapist"></div>'
     +'<div class="form-group"><label>Location</label><input type="text" id="sfLocation" placeholder="e.g. Training ground"></div>'
     +'<div class="form-group"><label>Vacancy Type</label><select id="sfType"><option value="">— Select —</option><option>Permanent</option><option>Fixed Term</option><option>Contract</option><option>Casual</option><option>Part Time</option><option>Voluntary</option></select></div>'
@@ -852,35 +904,23 @@ function renderSubmitStep1(){
     +'<div class="datetime-row"><input type="date" id="sfClosingDate"><input type="time" id="sfClosingTime" value="17:00"></div>'
     +'<label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;">'
     +'<input type="checkbox" id="sfNoTime" onchange="onNoTimeToggle(\'sfClosingTime\',this.checked)"> No specific time — expires end of day</label></div>'
-    +'<div class="form-group"><label>Your Name <span class="req">*</span></label><input type="text" id="sfName" placeholder="Full name" value="'+esc(STATE.session?STATE.session.name:'')+'"></div>'
-    +'<div class="form-group"><label>Your Role at Club <span class="req">*</span></label><input type="text" id="sfRole" placeholder="e.g. Head of HR" value="'+esc(STATE.session?STATE.session.jobTitle:'')+'"></div>'
-    +'<div class="form-group span2"><label>Your Email <span class="req">*</span></label>'
-    +'<div class="email-row">'
-    +'<div class="form-group" style="margin:0"><input type="email" id="sfEmail" placeholder="you@yourclub.co.uk" value="'+esc(STATE.session?STATE.session.email:'')+'"></div>'
-    +'<button class="btn-send-code" id="sfSendCodeBtn" onclick="sendSubmitCode()">Send Code</button>'
-    +'</div><span class="form-hint">A 4-digit code will be sent to verify your email</span></div>'
-    +'<div class="form-group span2" id="sfCodeGroup" style="display:none;">'
-    +'<label>Verification Code <span class="req">*</span></label>'
-    +'<div style="display:flex;gap:10px;align-items:flex-end;">'
-    +'<input type="text" id="sfCode" class="code-input" maxlength="4" placeholder="0000" inputmode="numeric">'
-    +'</div>'
-    +'<div id="sfCountdown" style="font-size:11px;color:var(--text-muted);margin-top:4px;display:none;"></div>'
-    +'<div class="code-status" id="sfCodeStatus"></div>'
-    +'</div>'
+    +submitterSection
     +'</div>'
     +'<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">'
     +'<button class="btn btn--ghost" onclick="closeModal(\'submitModal\')">Cancel</button>'
-    +'<button class="btn btn--accent" id="sfSubmitBtn" onclick="doSubmit()" disabled>Submit Vacancy</button>'
+    +'<button class="btn btn--accent" id="sfSubmitBtn" onclick="doSubmit()"'+(STATE.submitIsAuthed?'':' disabled')+'>Submit Vacancy</button>'
     +'</div>';
 
-  // Wire up code input auto-verify
-  setTimeout(function(){
-    var ci=document.getElementById('sfCode');
-    if(ci) ci.addEventListener('input',function(){
-      this.value=this.value.replace(/\D/g,'').slice(0,4);
-      if(this.value.length===4) verifySubmitCode(this.value);
-    });
-  },50);
+  // Wire up code input for external users
+  if(!STATE.submitIsAuthed){
+    setTimeout(function(){
+      var ci=document.getElementById('sfCode');
+      if(ci) ci.addEventListener('input',function(){
+        this.value=this.value.replace(/\D/g,'').slice(0,4);
+        if(this.value.length===4) verifySubmitCode(this.value);
+      });
+    },50);
+  }
 }
 
 function updateDescCount(){
@@ -940,15 +980,20 @@ function doSubmit(){
   var title=document.getElementById('sfTitle').value.trim();
   var liveUrl=document.getElementById('sfLiveUrl').value.trim();
   var email=document.getElementById('sfEmail').value.trim();
-  var code=document.getElementById('sfCode').value.trim();
   var name=document.getElementById('sfName').value.trim();
   var role=document.getElementById('sfRole').value.trim();
   if(!club){showToast('Club is required.','error');return;}
   if(!title){showToast('Job title is required.','error');return;}
   if(!liveUrl){showToast('Live listing URL is required.','error');return;}
-  if(!STATE.submitCodeVerified||code.length!==4){showToast('Please verify your email first.','error');return;}
+  if(!STATE.submitIsAuthed){
+    var code=document.getElementById('sfCode').value.trim();
+    if(!STATE.submitCodeVerified||code.length!==4){showToast('Please verify your email first.','error');return;}
+  }
   var btn=document.getElementById('sfSubmitBtn');
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Submitting…';
+
+  // For authed portal users we bypass GAS verification — write directly
+  // submitterRole uses jobTitle from session for portal users
   var payload={
     action:'submitVacancy',
     'Club':club,'Job Title':title,
@@ -959,8 +1004,17 @@ function doSubmit(){
     'Description':document.getElementById('sfDesc').value.trim(),
     'Closing Date':buildClosingStr('sfClosingDate','sfClosingTime','sfNoTime'),
     'Live Listing URL':liveUrl,
-    submitterName:name,submitterEmail:email,submitterRole:role,code:code,
+    submitterName:name, submitterEmail:email, submitterRole:role,
   };
+
+  if(STATE.submitIsAuthed){
+    // Authed users skip code — GAS action uses submitVacancyAuthed which skips code check
+    payload.action = 'submitVacancyAuthed';
+    payload.uid    = STATE.session.uid;
+  } else {
+    payload.code = document.getElementById('sfCode').value.trim();
+  }
+
   gasPost(payload)
     .then(function(r){
       if(r.error) throw new Error(r.error);
@@ -969,9 +1023,9 @@ function doSubmit(){
         '<div class="success-screen">'
         +'<div class="success-screen__icon">✅</div>'
         +'<h2>Submission Received</h2>'
-        +'<p>Thank you — your vacancy has been submitted for review. NL staff will be in touch at <strong>'+esc(email)+'</strong> if needed.</p>'
+        +'<p>Thank you — your vacancy has been submitted for review by NL staff.</p>'
         +'</div>';
-      if(STATE.isAdmin){loadSubs();}
+      if(STATE.isAdmin) loadSubs();
     })
     .catch(function(e){showToast(e.message,'error');btn.disabled=false;btn.textContent='Submit Vacancy';STATE.submitCodeVerified=false;});
 }
