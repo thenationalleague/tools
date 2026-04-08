@@ -3,10 +3,23 @@
 <head>
 <!--
   NL Tools — Vacancies
-  Version: 1.2
+  Version: 1.4
   Date: 08/04/2026
 
   CHANGELOG
+  v1.4 (08/04/2026)
+    - Fixed permission_denied: ensureAuth() now always waits for
+      onAuthStateChanged and never trusts currentUser synchronously
+      (currentUser is null at page load even when session is valid)
+    - Fixed submit action name mismatch: was 'submitVacancyAuthed',
+      now correctly 'vacancies_submitAuthed' to match GAS router
+
+  v1.3 (08/04/2026)
+    - Added ensureAuth() wrapper on all Firebase writes
+      Fixes permission_denied when auth-guard uses cached session
+      (Firebase Auth not yet live despite valid session — same fix as
+      judgements page v1.4)
+
   v1.2 (08/04/2026)
     - GAS URL updated to portal consolidated script
     - Submissions fully migrated to Firebase RTDB at /submissions/{id}
@@ -705,6 +718,18 @@ function clearForm() {
   onNoTimeToggle('fClosingTime',false);
   updatePickerCrest('adminPickerCrest','');
 }
+/* ── Ensure Firebase Auth is live ── */
+// Never trust currentUser synchronously — auth-guard cached session means
+// Firebase Auth resolves async. Always wait for onAuthStateChanged.
+function ensureAuth() {
+  return new Promise(function(resolve, reject) {
+    var unsub = firebase.auth().onAuthStateChanged(function(u) {
+      unsub();
+      if (u) resolve(u); else reject(new Error('Not authenticated — please reload and try again.'));
+    });
+  });
+}
+
 function saveJob() {
   var club=document.getElementById('fClub').value.trim();
   var title=document.getElementById('fJobTitle').value.trim();
@@ -727,10 +752,13 @@ function saveJob() {
   if(isNew){data.addedBy=addedBy;data.createdAt=Date.now();}
   var btn=document.getElementById('saveBtn');
   btn.disabled=true;btn.textContent='Saving…';
-  var p=isNew?vacRef.push(data):db.ref('vacancies/'+STATE.editId).update(data);
-  p.then(function(){closeModal('formModal');showToast(isNew?'Vacancy added.':'Vacancy updated.','success');})
-   .catch(function(e){showToast(e.message,'error');})
-   .finally(function(){btn.disabled=false;btn.textContent=isNew?'Save Vacancy':'Update Vacancy';});
+  ensureAuth().then(function(){
+    var p=isNew?vacRef.push(data):db.ref('vacancies/'+STATE.editId).update(data);
+    return p;
+  })
+  .then(function(){closeModal('formModal');showToast(isNew?'Vacancy added.':'Vacancy updated.','success');})
+  .catch(function(e){showToast(e.message,'error');})
+  .finally(function(){btn.disabled=false;btn.textContent=isNew?'Save Vacancy':'Update Vacancy';});
 }
 
 /* ── Delete/Restore ── */
@@ -756,10 +784,12 @@ function confirmAction(){
   var btn=document.getElementById('confirmBtn');
   btn.disabled=true;btn.textContent=STATE.pendingAction==='delete'?'Deleting…':'Restoring…';
   closeModal('confirmModal');
-  db.ref('vacancies/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'})
-    .then(function(){showToast(STATE.pendingAction==='delete'?'Deleted.':'Restored.','success');})
-    .catch(function(e){showToast(e.message,'error');})
-    .finally(function(){btn.disabled=false;btn.textContent='Confirm';});
+  ensureAuth().then(function(){
+    return db.ref('vacancies/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'});
+  })
+  .then(function(){showToast(STATE.pendingAction==='delete'?'Deleted.':'Restored.','success');})
+  .catch(function(e){showToast(e.message,'error');})
+  .finally(function(){btn.disabled=false;btn.textContent='Confirm';});
 }
 
 /* ── Submission review (admin) ── */
@@ -821,10 +851,12 @@ function gasPost(payload){
 function saveSub(){
   setSubModalBtns(true,'subSaveBtn');
   var data=getSubData();
-  db.ref('submissions/'+STATE.reviewSubId).update(data)
-    .then(function(){showToast('Saved.','success');loadSubs();})
-    .catch(function(e){showToast(e.message,'error');})
-    .finally(function(){setSubModalBtns(false);});
+  ensureAuth().then(function(){
+    return db.ref('submissions/'+STATE.reviewSubId).update(data);
+  })
+  .then(function(){showToast('Saved.','success');loadSubs();})
+  .catch(function(e){showToast(e.message,'error');})
+  .finally(function(){setSubModalBtns(false);});
 }
 function approveSub(){
   var approvedBy=document.getElementById('sApprovedBy').value.trim();
@@ -833,40 +865,39 @@ function approveSub(){
   var data=getSubData();
   data.status='Approved';
   data.approvedBy=approvedBy;
-  // Save edits + mark approved on submission
-  db.ref('submissions/'+STATE.reviewSubId).update(data)
-    .then(function(){
-      // Copy to vacancies
+  ensureAuth().then(function(){
+    return db.ref('submissions/'+STATE.reviewSubId).update(data);
+  }).then(function(){
       var sub=STATE.allSubs.find(function(s){return s.id===STATE.reviewSubId;});
       if(!sub) return;
-      return vacRef.push({
-        club:        data.club        || sub.club,
-        jobTitle:    data.jobTitle    || sub.jobTitle,
-        location:    data.location    || sub.location,
-        vacancyType: data.vacancyType || sub.vacancyType,
-        department:  data.department  || sub.department,
-        salary:      data.salary      || sub.salary,
-        description: data.description || sub.description,
-        applyUrl:    data.liveListingUrl || sub.liveListingUrl,
-        closingDate: data.closingDate || sub.closingDate,
-        addedBy:     approvedBy,
-        createdAt:   Date.now(),
-        deleted:     false,
+      return ensureAuth().then(function(){
+        return vacRef.push({
+          club:        data.club        ||sub.club,
+          jobTitle:    data.jobTitle    ||sub.jobTitle,
+          location:    data.location    ||sub.location,
+          vacancyType: data.vacancyType ||sub.vacancyType,
+          department:  data.department  ||sub.department,
+          salary:      data.salary      ||sub.salary,
+          description: data.description ||sub.description,
+          applyUrl:    data.liveListingUrl||sub.liveListingUrl,
+          closingDate: data.closingDate ||sub.closingDate,
+          addedBy:     approvedBy,
+          createdAt:   Date.now(),
+          deleted:     false,
+        });
       });
-    })
-    .then(function(){
-      closeModal('subModal');
-      showToast('Approved and published.','success');
-      loadSubs();
-    })
-    .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
+  })
+  .then(function(){closeModal('subModal');showToast('Approved and published.','success');loadSubs();})
+  .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
 }
 function rejectSub(){
   setSubModalBtns(true,'subRejectBtn');
   var notes=document.getElementById('sNotes').value.trim();
-  db.ref('submissions/'+STATE.reviewSubId).update({status:'Rejected',notes:notes})
-    .then(function(){closeModal('subModal');showToast('Rejected.','success');loadSubs();})
-    .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
+  ensureAuth().then(function(){
+    return db.ref('submissions/'+STATE.reviewSubId).update({status:'Rejected',notes:notes});
+  })
+  .then(function(){closeModal('subModal');showToast('Rejected.','success');loadSubs();})
+  .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
 }
 
 /* ── Submit modal (access + admin) ── */
@@ -1039,7 +1070,6 @@ function doSubmit(){
   // For authed portal users we bypass GAS verification — write directly
   // submitterRole uses jobTitle from session for portal users
   var payload={
-    action:'vacancies_submit',
     'Club':club,'Job Title':title,
     'Location':document.getElementById('sfLocation').value.trim(),
     'Vacancy Type':document.getElementById('sfType').value,
@@ -1052,11 +1082,11 @@ function doSubmit(){
   };
 
   if(STATE.submitIsAuthed){
-    // Authed users skip code — GAS action uses submitVacancyAuthed which skips code check
-    payload.action = 'submitVacancyAuthed';
+    payload.action = 'vacancies_submitAuthed';
     payload.uid    = STATE.session.uid;
   } else {
-    payload.code = document.getElementById('sfCode').value.trim();
+    payload.action = 'vacancies_submit';
+    payload.code   = document.getElementById('sfCode').value.trim();
   }
 
   gasPost(payload)
