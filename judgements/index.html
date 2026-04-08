@@ -3,8 +3,11 @@
 <head>
 <!--
   Judgements & Decisions — NL Tools Portal
-  v1.3 | 08/04/2026
+  v1.4 | 08/04/2026
   Changelog:
+    v1.4 — Fixed write permission_denied. When auth guard uses cached session,
+           Firebase Auth isn't signed in yet. Added ensureAuth() wrapper that
+           waits for onAuthStateChanged before any write operation.
     v1.3 — Fixed permission_denied crash. nlAuthReady now reads role/tools
            from the session object passed by auth guard instead of making
            a redundant Firebase read (which fails when using cached session).
@@ -551,6 +554,20 @@ function closeForm() {
   document.getElementById('editId').value = '';
 }
 
+/* ── Ensure Firebase Auth is ready (cached session may not have live auth) ── */
+function ensureAuth() {
+  return new Promise(function(resolve, reject) {
+    var user = firebase.auth().currentUser;
+    if (user) { resolve(user); return; }
+    // Wait for auth state to resolve
+    var unsubscribe = firebase.auth().onAuthStateChanged(function(u) {
+      unsubscribe();
+      if (u) { resolve(u); }
+      else { reject(new Error('Not authenticated')); }
+    });
+  });
+}
+
 /* ── Save record ── */
 function saveRecord() {
   var club = document.getElementById('clubInput').value.trim();
@@ -572,18 +589,20 @@ function saveRecord() {
     updatedBy: STATE.uid
   };
 
-  var db = firebase.database();
-  var promise;
+  ensureAuth().then(function() {
+    var db = firebase.database();
+    var promise;
 
-  if (editId) {
-    promise = db.ref('judgements/' + editId).update(data);
-  } else {
-    data.createdAt = new Date().toISOString();
-    data.createdBy = STATE.uid;
-    promise = db.ref('judgements').push(data);
-  }
+    if (editId) {
+      promise = db.ref('judgements/' + editId).update(data);
+    } else {
+      data.createdAt = new Date().toISOString();
+      data.createdBy = STATE.uid;
+      promise = db.ref('judgements').push(data);
+    }
 
-  promise.then(function() {
+    return promise;
+  }).then(function() {
     showToast(editId ? 'Record updated' : 'Record added', 'success');
     closeForm();
   }).catch(function(err) {
@@ -611,8 +630,10 @@ function closeDeleteModal() {
 
 function confirmDelete() {
   if (!STATE.deleteId) return;
-  var db = firebase.database();
-  db.ref('judgements/' + STATE.deleteId).remove().then(function() {
+  var id = STATE.deleteId;
+  ensureAuth().then(function() {
+    return firebase.database().ref('judgements/' + id).remove();
+  }).then(function() {
     showToast('Record deleted', 'success');
     closeDeleteModal();
   }).catch(function(err) {
