@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.44 (conversation turn 146)
+  Version: v5.45 (conversation turn 147)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1831,7 +1831,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.44';
+var PORTAL_VERSION = 'v5.45';
 
 var STATE = {
   uid:      null,
@@ -3611,19 +3611,50 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     saveAccessBtn.style.display = '';
     cancelAccessBtn.style.display = '';
 
-    /* Unlock all non-staff-locked sliders */
-    var constraints = getRoleConstraints();
+    /* Always reset slider values from RTDB before unlocking --
+       prevents stale visual state left by role picker preview/cancel */
+    var storedTools = (STATE.allUsers[uid] || {}).tools || {};
+    var currentU    = STATE.allUsers[uid] || u;
+    var constraints = getRoleConstraints(currentU.role, currentU.orgKey);
+
     body.querySelectorAll('.uacc-tool-row').forEach(function(row) {
       var slider = row.querySelector('.acc-slider');
-      if (!slider) return;
+      if (!slider || !slider.dataset.toolkey) return;
       var toolKey = slider.dataset.toolkey;
       var tool    = STATE.tools[toolKey];
       var deptKey = tool && tool.department;
+
+      if (isSuperUser) return;
       if (constraints.isStaffLocked(deptKey)) return; /* staff stays locked */
-      if (isSuperUser) return; /* superadmin sliders always locked */
+
+      /* Reset to stored RTDB value */
+      var level = storedTools[toolKey] || getDefaultLevel(toolKey, currentU);
+      var idx   = ACC_LEVELS.indexOf(level);
+      if (idx === -1) idx = 0;
+
+      var fill = slider.querySelector('.acc-slider__track-fill');
+      if (fill) fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+
+      slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
+        stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
+        var node = stop.querySelector('.acc-slider__node');
+        var lbl  = stop.querySelector('.acc-slider__label');
+        var isClub = currentU.role === 'club';
+        if (isClub && ACC_LEVELS[si] === 'admin') {
+          stop.classList.add('acc-slider__stop--padlocked');
+          if (node) { node.textContent = String.fromCodePoint(0x1F512); node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;'; }
+          if (lbl) lbl.style.color = 'var(--border)';
+        } else {
+          if (node) { node.textContent = ''; node.style.cssText = ''; }
+          if (lbl) lbl.style.color = '';
+          if (si < idx)  stop.classList.add('acc-slider__stop--filled');
+          if (si === idx) stop.classList.add('acc-slider__stop--active');
+        }
+      });
+      delete slider.dataset.previewLevel;
+
       /* Remove locked class to enable interaction */
       slider.classList.remove('acc-slider--locked');
-      /* Re-enable stop clicks */
       slider.querySelectorAll('.acc-slider__stop').forEach(function(stop) {
         if (!stop.classList.contains('acc-slider__stop--padlocked')) {
           stop.style.pointerEvents = '';
