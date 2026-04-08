@@ -3,8 +3,10 @@
 <head>
 <!--
   Judgements & Decisions — NL Tools Portal
-  v1.1 | 08/04/2026
+  v1.2 | 08/04/2026
   Changelog:
+    v1.2 — Fixed Firebase init order. initializeApp() now called before
+           auth-guard.js loads. Was causing "No Firebase App" crash.
     v1.1 — Fixed tool key to ops-judgements (was ao-judgements).
            Admin check now handles both access formats: object {access,admin}
            and flat string ("admin"/"access"/"hidden"/"off").
@@ -18,6 +20,19 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+    authDomain:        "nl-tools.firebaseapp.com",
+    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:         "nl-tools",
+    storageBucket:     "nl-tools.firebasestorage.app",
+    messagingSenderId: "801354670005",
+    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+  });
+  var NL_TOOL_KEY = 'ops-judgements';
+</script>
+<script src="/tools/auth-guard.js"></script>
 <style>
 @font-face {
   font-family: "carbona-variable";
@@ -240,30 +255,10 @@ body {
 .modal p { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; }
 .modal .form-actions { justify-content: center; }
 
-/* Spinner overlay */
-.loading-overlay {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: var(--primary); z-index: 9999;
-  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
-}
-.loading-overlay .spinner {
-  display: inline-block; width: 40px; height: 40px;
-  border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--white);
-  border-radius: 50%; animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-overlay p { color: rgba(255,255,255,0.7); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
-
 #pageWrap { display: none; }
 </style>
 </head>
 <body>
-
-<!-- Loading overlay (auth guard shows this) -->
-<div class="loading-overlay" id="loadingOverlay">
-  <div class="spinner"></div>
-  <p>Checking access…</p>
-</div>
 
 <div id="pageWrap">
   <div class="topbar">
@@ -383,9 +378,6 @@ body {
 <div class="toast" id="toast"></div>
 
 <script>
-/* ── Tool config ── */
-var NL_TOOL_KEY = 'ops-judgements';
-
 /* ── State ── */
 var STATE = {
   uid: null,
@@ -402,8 +394,6 @@ var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/
 /* ── Auth callback — called by auth-guard.js once access is confirmed ── */
 window.nlAuthReady = function(user) {
   STATE.uid = user.uid;
-  document.getElementById('loadingOverlay').style.display = 'none';
-  document.getElementById('pageWrap').style.display = 'block';
 
   // Check admin status
   var db = firebase.database();
@@ -700,6 +690,5 @@ function doLogout() {
   });
 }
 </script>
-<script src="/tools/auth-guard.js"></script>
 </body>
 </html>
