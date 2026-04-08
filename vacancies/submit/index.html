@@ -3,32 +3,30 @@
 <head>
 <!--
   National League Vacancy Submission Form
-  Version: 1.1
-  Date: 30/03/2026
+  Version: 2.1
+  Date: 08/04/2026
 
   CHANGELOG
-  v1.1 (30/03/2026)
-    - Description field: 1,000 character limit with live counter
-    - Counter turns amber at 800 chars, red at 950
-    - Subheader note added above description field
-    - Location placeholder: "e.g. Training ground"
-    - Department placeholder: "e.g. Marketing"
+  v2.1 (08/04/2026)
+    - Fixed submit never firing: code input listener was attached in
+      DOMContentLoaded before codeGroup was visible — moved to sendCode
+      success callback so listener attaches when field actually appears
+    - Submit button no longer starts disabled — validates on click instead
+    - submitForm reads code field directly as fallback if codeVerified flag missed
 
+  v2.0 (08/04/2026)
+    - API_URL updated to portal consolidated GAS deployment
+    - Clubs loaded directly from clubs-meta.json on GitHub (no GAS call)
+    - action 'requestCode'  -> 'vacancies_requestCode'
+    - action 'submitVacancy' -> 'vacancies_submit'
+    - Submissions now write to Firebase RTDB via GAS rtdbWrite
+    - Error handling updated: checks res.success not res.error
+    - Deploy at /tools/vacancies/submit/index.html
+
+  v1.1 (30/03/2026)
+    - Description 1,000 char limit with live counter
   v1.0 (26/03/2026)
     - Initial build
-    - Club picker with NL autocomplete + freetext override
-    - All vacancy fields matching Jobs sheet columns
-    - Mandatory live listing URL field
-    - Submitter details: name, email, role at club
-    - Email verification: 4-digit code via GAS MailApp, 10 min expiry
-    - Multi-step form: Details → Verify → Confirm
-    - NL brand colours (red #9e0000, navy #223b7c)
-    - carbona-variable font
-
-  SETUP
-  -----
-  Set API_URL below to your Apps Script deployment URL.
-  Host at thenationalleague.github.io/tools/submit/
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -40,309 +38,90 @@
       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
   font-display:swap;font-style:normal;font-weight:200 900;
 }
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --primary:     #9e0000;
-  --primary-dim: #7a0000;
-  --navy:        #223b7c;
-  --navy-light:  #2a4a8c;
-  --white:       #ffffff;
-  --off-white:   #f4f6f9;
-  --text:        #1a2a44;
-  --text-muted:  #5a6a82;
-  --border:      #dde3ed;
-  --green:       #1e7e34;
-  --green-light: #edf7ee;
-  --red:         #c0392b;
-  --red-light:   #fdf0ef;
-  --radius:      8px;
-  --shadow:      0 2px 16px rgba(10,22,40,0.10);
-  --font:        'carbona-variable','carbona',sans-serif;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --primary:#9e0000;--primary-dim:#7a0000;
+  --navy:#223b7c;--navy-light:#2a4a8c;
+  --white:#ffffff;--off-white:#f4f6f9;
+  --text:#1a2a44;--text-muted:#5a6a82;--border:#dde3ed;
+  --green:#1e7e34;--green-light:#edf7ee;
+  --red:#c0392b;--red-light:#fdf0ef;
+  --radius:8px;--shadow:0 2px 16px rgba(10,22,40,0.10);
+  --font:'carbona-variable','carbona',sans-serif;
 }
-
-body {
-  font-family: var(--font);
-  background: var(--off-white);
-  color: var(--text);
-  font-size: 16px;
-  line-height: 1.5;
-  min-height: 100vh;
-  font-variation-settings: 'wght' 400;
-}
-
-/* ── Header ── */
-.header {
-  background: var(--primary);
-  border-bottom: 7px solid var(--navy);
-  padding: 0 24px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.header img { height: 42px; }
-.header__title {
-  font-size: 20px;
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--white);
-}
-.header__title span { color: rgba(255,255,255,0.5); }
-
-/* ── Page ── */
-.page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 40px 20px 80px;
-}
-
-.intro {
-  margin-bottom: 32px;
-}
-.intro h1 {
-  font-size: 26px;
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  color: var(--navy);
-  text-transform: uppercase;
-  letter-spacing: -0.01em;
-  margin-bottom: 10px;
-}
-.intro p {
-  font-size: 15px;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-.intro strong { color: var(--text); font-variation-settings: 'wght' 700; }
-
-/* ── Progress steps ── */
-.steps {
-  display: flex;
-  gap: 0;
-  margin-bottom: 32px;
-  border-radius: var(--radius);
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.step {
-  flex: 1;
-  text-align: center;
-  padding: 12px 8px;
-  font-size: 11px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-  background: var(--white);
-  border-right: 1px solid var(--border);
-  transition: all 0.2s;
-}
-.step:last-child { border-right: none; }
-.step.active { background: var(--navy); color: var(--white); }
-.step.done   { background: var(--green-light); color: var(--green); }
-
-/* ── Card ── */
-.card {
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-.card__head {
-  background: var(--navy);
-  color: var(--white);
-  padding: 16px 22px;
-  border-bottom: 4px solid var(--primary);
-}
-.card__head h2 {
-  font-size: 13px;
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-.card__body { padding: 24px 22px; }
-
-/* ── Form grid ── */
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-@media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
-.form-group { display: flex; flex-direction: column; gap: 6px; }
-.form-group.span2 { grid-column: 1 / -1; }
-
-.form-group label {
-  font-size: 11px;
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  color: var(--navy);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-.form-group label .req { color: var(--primary); margin-left: 2px; }
-
-.form-group input,
-.form-group select,
-.form-group textarea {
-  padding: 11px 13px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 15px;
-  font-family: var(--font);
-  font-variation-settings: 'wght' 400;
-  color: var(--text);
-  background: var(--white);
-  transition: border-color 0.15s;
-  -webkit-appearance: none;
-  width: 100%;
-}
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
-}
-.form-group textarea { resize: vertical; min-height: 120px; }
-.form-hint { font-size: 12px; color: var(--text-muted); }
-
-.datetime-row { display: flex; gap: 8px; }
-.datetime-row input[type="date"] { flex: 1; }
-.datetime-row input[type="time"] { flex: 0 0 130px; }
-input[type="checkbox"] {
-  width: 16px !important; height: 16px !important;
-  padding: 0 !important; border: 1px solid var(--border) !important;
-  border-radius: 3px !important; box-shadow: none !important;
-  cursor: pointer; flex-shrink: 0; accent-color: var(--primary);
-  -webkit-appearance: checkbox; appearance: checkbox;
-}
-
-/* ── Club picker ── */
-.club-picker { position: relative; }
-.club-picker__wrap {
-  display: flex; align-items: center; gap: 10px;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 7px 12px; background: var(--white); transition: border-color 0.15s;
-}
-.club-picker__wrap:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
-}
-.club-picker__crest { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
-.club-picker__input {
-  flex: 1; border: none !important; padding: 0 !important; font-size: 15px;
-  outline: none; background: transparent; font-family: var(--font);
-  font-variation-settings: 'wght' 400;
-}
-.club-picker__dropdown {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
-  background: var(--white); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow);
-  max-height: 240px; overflow-y: auto; display: none; margin-top: 2px;
-}
-.club-picker__dropdown.open { display: block; }
-.club-picker__option {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; cursor: pointer; font-size: 14px;
-  border-bottom: 1px solid var(--border);
-}
-.club-picker__option:last-child { border-bottom: none; }
-.club-picker__option:hover { background: var(--off-white); }
-.club-picker__option img { width: 28px; height: 28px; object-fit: contain; }
-.club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
-.club-picker__option-div { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
-.club-picker__freetext {
-  padding: 10px 14px; font-size: 13px; color: var(--text-muted);
-  font-style: italic; cursor: pointer; border-top: 1px solid var(--border); background: var(--off-white);
-}
-.club-picker__freetext:hover { background: #eaeef4; }
-
-/* ── Verification ── */
-.verify-section { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
-.verify-section h3 {
-  font-size: 12px; font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; letter-spacing: 0.1em; color: var(--navy); margin-bottom: 14px;
-}
-.email-row { display: flex; gap: 10px; align-items: flex-end; }
-.email-row .form-group { flex: 1; }
-.btn-send-code {
-  padding: 11px 18px; background: var(--navy); color: var(--white);
-  border: none; border-radius: var(--radius); font-size: 13px;
-  font-weight: 800; font-variation-settings: 'wght' 800;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  cursor: pointer; white-space: nowrap; font-family: var(--font);
-  transition: background 0.15s; flex-shrink: 0;
-}
-.btn-send-code:hover { background: var(--navy-light); }
-.btn-send-code:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.code-row { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
-.code-input {
-  width: 140px !important;
-  font-size: 22px !important;
-  font-weight: 900 !important;
-  font-variation-settings: 'wght' 900 !important;
-  letter-spacing: 0.3em !important;
-  text-align: center;
-}
-.code-status {
-  font-size: 13px; font-weight: 600; padding: 8px 0;
-  display: none;
-}
-.code-status.success { color: var(--green); display: block; }
-.code-status.error   { color: var(--red);   display: block; }
-
-/* ── Alert / info box ── */
-.alert {
-  padding: 14px 16px; border-radius: var(--radius);
-  font-size: 14px; line-height: 1.5; margin-bottom: 20px;
-}
-.alert--info { background: #e8f0fe; color: var(--navy); border: 1px solid #c5d5ef; }
-.alert--error { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
-.alert--success { background: var(--green-light); color: var(--green); border: 1px solid #b8e6c0; }
-
-/* ── Submit button ── */
-.submit-row {
-  display: flex; justify-content: flex-end; gap: 12px;
-  margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--border);
-}
-.btn-submit {
-  padding: 14px 32px; background: var(--primary); color: var(--white);
-  border: none; border-radius: var(--radius); font-size: 15px;
-  font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  cursor: pointer; font-family: var(--font); transition: background 0.15s;
-}
-.btn-submit:hover { background: var(--primary-dim); }
-.btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* ── Success screen ── */
-.success-screen {
-  text-align: center; padding: 60px 20px;
-  background: var(--white); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow);
-}
-.success-screen__icon { font-size: 56px; margin-bottom: 20px; }
-.success-screen h2 {
-  font-size: 24px; font-weight: 900; font-variation-settings: 'wght' 900;
-  color: var(--navy); text-transform: uppercase; margin-bottom: 12px;
-}
-.success-screen p { font-size: 15px; color: var(--text-muted); max-width: 460px; margin: 0 auto; line-height: 1.7; }
-
-.spinner {
-  display: inline-block; width: 18px; height: 18px;
-  border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--white);
-  border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.countdown { font-size: 12px; color: var(--text-muted); margin-top: 6px; display: none; }
-.countdown.show { display: block; }
+body{font-family:var(--font);background:var(--off-white);color:var(--text);font-size:16px;line-height:1.5;min-height:100vh;font-variation-settings:'wght' 400;}
+.header{background:var(--primary);border-bottom:7px solid var(--navy);padding:0 24px;height:72px;display:flex;align-items:center;gap:16px;}
+.header img{height:42px;}
+.header__title{font-size:20px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.03em;color:var(--white);}
+.header__title span{color:rgba(255,255,255,0.5);}
+.page{max-width:720px;margin:0 auto;padding:40px 20px 80px;}
+.intro{margin-bottom:32px;}
+.intro h1{font-size:26px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;letter-spacing:-0.01em;margin-bottom:10px;}
+.intro p{font-size:15px;color:var(--text-muted);line-height:1.6;}
+.intro strong{color:var(--text);font-variation-settings:'wght' 700;}
+.steps{display:flex;margin-bottom:32px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);}
+.step{flex:1;text-align:center;padding:12px 8px;font-size:11px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);background:var(--white);border-right:1px solid var(--border);transition:all 0.2s;}
+.step:last-child{border-right:none;}
+.step.active{background:var(--navy);color:var(--white);}
+.step.done{background:var(--green-light);color:var(--green);}
+.card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:20px;}
+.card__head{background:var(--navy);color:var(--white);padding:16px 22px;border-bottom:4px solid var(--primary);}
+.card__head h2{font-size:13px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.1em;}
+.card__body{padding:24px 22px;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:560px){.form-grid{grid-template-columns:1fr;}}
+.form-group{display:flex;flex-direction:column;gap:6px;}
+.form-group.span2{grid-column:1/-1;}
+.form-group label{font-size:11px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;letter-spacing:0.1em;}
+.form-group label .req{color:var(--primary);margin-left:2px;}
+.form-group input,.form-group select,.form-group textarea{padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius);font-size:15px;font-family:var(--font);font-variation-settings:'wght' 400;color:var(--text);background:var(--white);transition:border-color 0.15s;-webkit-appearance:none;width:100%;}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(158,0,0,0.10);}
+.form-group textarea{resize:vertical;min-height:120px;}
+.form-hint{font-size:12px;color:var(--text-muted);}
+.datetime-row{display:flex;gap:8px;}
+.datetime-row input[type="date"]{flex:1;}
+.datetime-row input[type="time"]{flex:0 0 130px;}
+input[type="checkbox"]{width:16px!important;height:16px!important;padding:0!important;border:1px solid var(--border)!important;border-radius:3px!important;box-shadow:none!important;cursor:pointer;flex-shrink:0;accent-color:var(--primary);-webkit-appearance:checkbox;appearance:checkbox;}
+.club-picker{position:relative;}
+.club-picker__wrap{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:7px 12px;background:var(--white);transition:border-color 0.15s;}
+.club-picker__wrap:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(158,0,0,0.10);}
+.club-picker__crest{width:32px;height:32px;object-fit:contain;flex-shrink:0;}
+.club-picker__input{flex:1;border:none!important;padding:0!important;font-size:15px;outline:none;background:transparent;font-family:var(--font);font-variation-settings:'wght' 400;}
+.club-picker__dropdown{position:absolute;top:100%;left:0;right:0;z-index:50;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);max-height:240px;overflow-y:auto;display:none;margin-top:2px;}
+.club-picker__dropdown.open{display:block;}
+.club-picker__option{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);}
+.club-picker__option:last-child{border-bottom:none;}
+.club-picker__option:hover{background:var(--off-white);}
+.club-picker__option img{width:28px;height:28px;object-fit:contain;}
+.club-picker__option-name{flex:1;font-weight:600;font-variation-settings:'wght' 600;}
+.club-picker__option-div{font-size:11px;color:var(--text-muted);text-transform:uppercase;}
+.club-picker__freetext{padding:10px 14px;font-size:13px;color:var(--text-muted);font-style:italic;cursor:pointer;border-top:1px solid var(--border);background:var(--off-white);}
+.club-picker__freetext:hover{background:#eaeef4;}
+.email-row{display:flex;gap:10px;align-items:flex-end;}
+.email-row .form-group{flex:1;}
+.btn-send-code{padding:11px 18px;background:var(--navy);color:var(--white);border:none;border-radius:var(--radius);font-size:13px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;white-space:nowrap;font-family:var(--font);transition:background 0.15s;flex-shrink:0;}
+.btn-send-code:hover{background:var(--navy-light);}
+.btn-send-code:disabled{opacity:0.5;cursor:not-allowed;}
+.code-row{display:flex;gap:10px;align-items:flex-end;margin-top:14px;}
+.code-input{width:140px!important;font-size:22px!important;font-weight:900!important;font-variation-settings:'wght' 900!important;letter-spacing:0.3em!important;text-align:center;}
+.code-status{font-size:13px;font-weight:600;padding:8px 0;display:none;}
+.code-status.success{color:var(--green);display:block;}
+.code-status.error{color:var(--red);display:block;}
+.alert{padding:14px 16px;border-radius:var(--radius);font-size:14px;line-height:1.5;margin-bottom:20px;}
+.alert--info{background:#e8f0fe;color:var(--navy);border:1px solid #c5d5ef;}
+.alert--error{background:var(--red-light);color:var(--red);border:1px solid #f5c6c2;}
+.submit-row{display:flex;justify-content:flex-end;gap:12px;margin-top:28px;padding-top:22px;border-top:1px solid var(--border);}
+.btn-submit{padding:14px 32px;background:var(--primary);color:var(--white);border:none;border-radius:var(--radius);font-size:15px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;font-family:var(--font);transition:background 0.15s;}
+.btn-submit:hover:not(:disabled){background:var(--primary-dim);}
+.btn-submit:disabled{opacity:0.4;cursor:not-allowed;}
+.success-screen{text-align:center;padding:60px 20px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);}
+.success-screen__icon{font-size:56px;margin-bottom:20px;}
+.success-screen h2{font-size:24px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;margin-bottom:12px;}
+.success-screen p{font-size:15px;color:var(--text-muted);max-width:460px;margin:0 auto;line-height:1.7;}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:var(--white);border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.countdown{font-size:12px;color:var(--text-muted);margin-top:6px;display:none;}
+.countdown.show{display:block;}
 </style>
 </head>
 <body>
@@ -370,9 +149,8 @@ input[type="checkbox"] {
 
   <div id="alertBox"></div>
 
-  <!-- ── Step 1: Vacancy Details ── -->
+  <!-- Step 1 -->
   <div id="sectionVacancy">
-
     <div class="card">
       <div class="card__head"><h2>Club &amp; Role</h2></div>
       <div class="card__body">
@@ -387,7 +165,7 @@ input[type="checkbox"] {
                 <input class="club-picker__input" id="clubInput" type="text"
                   placeholder="Search or type your club name…" autocomplete="off"
                   oninput="onClubInput(this.value)"
-                  onblur="setTimeout(closeDropdown, 150)">
+                  onblur="setTimeout(closeDropdown,150)">
               </div>
               <div class="club-picker__dropdown" id="clubDropdown"></div>
             </div>
@@ -407,12 +185,8 @@ input[type="checkbox"] {
             <label>Vacancy Type</label>
             <select id="fVacancyType">
               <option value="">— Select —</option>
-              <option>Permanent</option>
-              <option>Fixed Term</option>
-              <option>Contract</option>
-              <option>Casual</option>
-              <option>Part Time</option>
-              <option>Voluntary</option>
+              <option>Permanent</option><option>Fixed Term</option><option>Contract</option>
+              <option>Casual</option><option>Part Time</option><option>Voluntary</option>
             </select>
           </div>
 
@@ -428,18 +202,19 @@ input[type="checkbox"] {
 
           <div class="form-group span2">
             <label>Job Description</label>
-            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;font-style:italic;">Please note that there is a 1,000-character limit for the job description. Use this for a high-level overview of the role, with the full advert listed on your own site.</p>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;font-style:italic;">1,000 character limit. Use this for a high-level overview — the full advert should be on your own site.</p>
             <div style="position:relative;">
-              <textarea id="fDescription" maxlength="1000" oninput="updateDescCount()" placeholder="High-level overview of the role and key requirements…" style="padding-bottom:28px;"></textarea>
+              <textarea id="fDescription" maxlength="1000" oninput="updateDescCount()"
+                placeholder="High-level overview of the role and key requirements…"
+                style="padding-bottom:28px;"></textarea>
               <span id="descCount" style="position:absolute;bottom:10px;right:12px;font-size:11px;color:var(--text-muted);pointer-events:none;">0 / 1,000</span>
             </div>
           </div>
 
-
           <div class="form-group span2">
             <label>Closing Date &amp; Time</label>
             <div class="datetime-row">
-              <input type="date" id="fClosingDate" oninput="onClosingDateChange()">
+              <input type="date" id="fClosingDate">
               <input type="time" id="fClosingTime" value="17:00">
             </div>
             <label style="display:flex;align-items:center;gap:7px;margin-top:7px;font-size:13px;font-weight:600;font-variation-settings:'wght' 600;text-transform:none;letter-spacing:0;cursor:pointer;">
@@ -458,16 +233,13 @@ input[type="checkbox"] {
         </div>
       </div>
     </div>
-
     <div class="submit-row">
       <button class="btn-submit" onclick="goToStep2()">Continue →</button>
     </div>
-
   </div>
 
-  <!-- ── Step 2: Submitter Details ── -->
+  <!-- Step 2 -->
   <div id="sectionSubmitter" style="display:none;">
-
     <div class="card">
       <div class="card__head"><h2>Your Details</h2></div>
       <div class="card__body">
@@ -510,15 +282,13 @@ input[type="checkbox"] {
         </div>
       </div>
     </div>
-
     <div class="submit-row">
       <button class="btn-submit" style="background:var(--off-white);color:var(--text);border:1px solid var(--border);" onclick="goToStep1()">← Back</button>
-      <button class="btn-submit" id="btnSubmit" onclick="submitForm()" disabled>Submit Vacancy</button>
+      <button class="btn-submit" id="btnSubmit" onclick="submitForm()">Submit Vacancy</button>
     </div>
-
   </div>
 
-  <!-- ── Step 3: Success ── -->
+  <!-- Step 3: Success -->
   <div id="sectionSuccess" style="display:none;">
     <div class="success-screen">
       <div class="success-screen__icon">✅</div>
@@ -531,17 +301,18 @@ input[type="checkbox"] {
 </div>
 
 <script>
-var API_URL      = 'https://script.google.com/macros/s/AKfycbz3aXu7-7Gp8_Sn33_ILnwTqV7vezItcZrJIV6cylJJ8SQbN7J1XooH75R8qfyVDWhW/exec';
+var API_URL        = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
 var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
 var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var CLUBS_URL      = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
 
 var clubs        = [];
 var codeVerified = false;
 var countdownInt = null;
 
-/* ── Load clubs on page load ── */
+/* ── Load clubs from GitHub ── */
 window.addEventListener('load', function() {
-  fetch(API_URL + '?action=clubs&cb=' + Date.now(), { cache: 'no-store' })
+  fetch(CLUBS_URL + '?cb=' + Date.now(), { cache: 'no-store' })
     .then(function(r) { return r.json(); })
     .then(function(d) { clubs = d.clubs || []; })
     .catch(function() {});
@@ -555,7 +326,6 @@ function onClubInput(val) {
   var matches = clubs.filter(function(c) {
     return c.name.toLowerCase().indexOf(lower) !== -1 || (c.short && c.short.toLowerCase().indexOf(lower) !== -1);
   }).slice(0, 10);
-
   var html = matches.map(function(c) {
     var cr = CREST_BASE + encodeURIComponent(c.name) + '.png';
     return '<div class="club-picker__option" onmousedown="selectClub(\'' + escJ(c.name) + '\',\'' + escJ(cr) + '\')">'
@@ -568,30 +338,24 @@ function onClubInput(val) {
   dd.innerHTML = html;
   dd.classList.add('open');
 }
-
 function selectClub(name, cr) {
   document.getElementById('clubInput').value = name;
   updateCrest(cr || (CREST_BASE + encodeURIComponent(name) + '.png'));
   closeDropdown();
 }
-
 function updateCrest(url) {
   var img = document.getElementById('pickerCrest');
   img.src = url || FALLBACK_CREST;
   img.onerror = function() { this.src = FALLBACK_CREST; };
 }
-
 function closeDropdown() { document.getElementById('clubDropdown').classList.remove('open'); }
 
-/* ── Date/time helpers ── */
+/* ── Helpers ── */
 function onNoTimeToggle(checked) {
   var ti = document.getElementById('fClosingTime');
   ti.disabled = checked;
   ti.style.opacity = checked ? '0.35' : '1';
 }
-
-function onClosingDateChange() {}
-
 function buildClosingDateString() {
   var dv = document.getElementById('fClosingDate').value;
   if (!dv) return '';
@@ -600,13 +364,12 @@ function buildClosingDateString() {
   var p = dv.split('-');
   return p[2] + '/' + p[1] + '/' + p[0] + ' ' + tv;
 }
-
 function updateDescCount() {
-  var ta  = document.getElementById('fDescription');
-  var el  = document.getElementById('descCount');
-  var len = ta.value.length;
-  el.textContent = len.toLocaleString() + ' / 1,000';
-  el.style.color = len >= 950 ? 'var(--red)' : len >= 800 ? 'var(--amber)' : 'var(--text-muted)';
+  var ta = document.getElementById('fDescription');
+  var el = document.getElementById('descCount');
+  var n  = ta.value.length;
+  el.textContent = n.toLocaleString() + ' / 1,000';
+  el.style.color = n >= 950 ? 'var(--red)' : n >= 800 ? '#e67e22' : 'var(--text-muted)';
 }
 
 /* ── Step navigation ── */
@@ -614,22 +377,20 @@ function setStep(n) {
   document.getElementById('step1').className = 'step' + (n > 1 ? ' done' : n === 1 ? ' active' : '');
   document.getElementById('step2').className = 'step' + (n > 2 ? ' done' : n === 2 ? ' active' : '');
   document.getElementById('step3').className = 'step' + (n === 3 ? ' active' : '');
-  document.getElementById('sectionVacancy').style.display  = n === 1 ? '' : 'none';
+  document.getElementById('sectionVacancy').style.display   = n === 1 ? '' : 'none';
   document.getElementById('sectionSubmitter').style.display = n === 2 ? '' : 'none';
   document.getElementById('sectionSuccess').style.display   = n === 3 ? '' : 'none';
   clearAlert();
   window.scrollTo(0, 0);
 }
-
 function goToStep1() { setStep(1); }
-
 function goToStep2() {
   var club  = document.getElementById('clubInput').value.trim();
   var title = document.getElementById('fJobTitle').value.trim();
   var live  = document.getElementById('fLiveUrl').value.trim();
-  if (!club)  { showAlert('Club name is required.', 'error'); return; }
-  if (!title) { showAlert('Job title is required.', 'error'); return; }
-  if (!live)  { showAlert('Live listing URL is required — the vacancy must be on your club\'s website first.', 'error'); return; }
+  if (!club)        { showAlert('Club name is required.', 'error'); return; }
+  if (!title)       { showAlert('Job title is required.', 'error'); return; }
+  if (!live)        { showAlert('Live listing URL is required — the vacancy must be on your club\'s website first.', 'error'); return; }
   if (!isUrl(live)) { showAlert('Please enter a valid URL for the live listing.', 'error'); return; }
   setStep(2);
 }
@@ -639,23 +400,30 @@ function sendCode() {
   var email = document.getElementById('fSubEmail').value.trim();
   var name  = document.getElementById('fSubName').value.trim();
   var role  = document.getElementById('fSubRole').value.trim();
-  if (!name)          { showAlert('Please enter your name first.', 'error'); return; }
-  if (!role)          { showAlert('Please enter your role at the club.', 'error'); return; }
-  if (!isEmail(email)){ showAlert('Please enter a valid email address.', 'error'); return; }
-
+  if (!name)           { showAlert('Please enter your name first.', 'error'); return; }
+  if (!role)           { showAlert('Please enter your role at the club.', 'error'); return; }
+  if (!isEmail(email)) { showAlert('Please enter a valid email address.', 'error'); return; }
   var btn = document.getElementById('btnSendCode');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Sending…';
-
-  apiPost({ action: 'requestCode', email: email })
+  apiPost({ action: 'vacancies_requestCode', email: email })
     .then(function(res) {
-      if (res.error) throw new Error(res.error);
+      if (!res.success) throw new Error(res.message || 'Could not send code.');
       document.getElementById('codeGroup').style.display = '';
-      showCodeCountdown(600); // 10 min
+      showCodeCountdown(600);
       clearAlert();
       showAlert('Code sent to ' + email + '. Check your inbox — it may take a minute.', 'info');
       btn.textContent = 'Resend Code';
       btn.disabled = false;
+      /* Attach input listener now that field is visible */
+      var ci = document.getElementById('fCode');
+      if (ci) {
+        ci.addEventListener('input', function() {
+          var val = this.value.replace(/\D/g, '').slice(0, 4);
+          this.value = val;
+          if (val.length === 4) verifyCode(val);
+        });
+      }
     })
     .catch(function(err) {
       showAlert(err.message, 'error');
@@ -678,33 +446,18 @@ function showCodeCountdown(seconds) {
       return;
     }
     var m = Math.floor(seconds / 60), s = seconds % 60;
-    el.textContent = 'Code expires in ' + m + ':' + String(s).padStart(2,'0');
+    el.textContent = 'Code expires in ' + m + ':' + String(s).padStart(2, '0');
     seconds--;
   }
   tick();
   countdownInt = setInterval(tick, 1000);
 }
 
-// Auto-verify when 4 digits entered
-document.addEventListener('DOMContentLoaded', function() {
-  var codeInput = document.getElementById('fCode');
-  if (codeInput) {
-    codeInput.addEventListener('input', function() {
-      var val = this.value.replace(/\D/g,'').slice(0,4);
-      this.value = val;
-      if (val.length === 4) verifyCode(val);
-    });
-  }
-});
-
 function verifyCode(code) {
   var email  = document.getElementById('fSubEmail').value.trim();
   var status = document.getElementById('codeStatus');
-
-  // We verify server-side on submit — client side just unlocks the button
-  // if the code looks complete. The real check is in submitVacancy on GAS.
   if (code.length === 4 && isEmail(email)) {
-    status.className  = 'code-status success';
+    status.className   = 'code-status success';
     status.textContent = '✓ Code entered — submit when ready.';
     codeVerified = true;
     document.getElementById('btnSubmit').disabled = false;
@@ -717,17 +470,16 @@ function submitForm() {
   var code  = document.getElementById('fCode').value.trim();
   var name  = document.getElementById('fSubName').value.trim();
   var role  = document.getElementById('fSubRole').value.trim();
-
+  /* Belt-and-braces: also accept if code field has 4 digits even if flag missed */
+  if (code.length === 4 && isEmail(email)) codeVerified = true;
   if (!codeVerified || code.length !== 4) {
     showAlert('Please enter your verification code.', 'error'); return;
   }
-
   var btn = document.getElementById('btnSubmit');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Submitting…';
-
   var payload = {
-    action:             'submitVacancy',
+    action:             'vacancies_submit',
     'Club':             document.getElementById('clubInput').value.trim(),
     'Job Title':        document.getElementById('fJobTitle').value.trim(),
     'Location':         document.getElementById('fLocation').value.trim(),
@@ -742,10 +494,9 @@ function submitForm() {
     submitterRole:      role,
     code:               code,
   };
-
   apiPost(payload)
     .then(function(res) {
-      if (res.error) throw new Error(res.error);
+      if (!res.success) throw new Error(res.message || 'Submission failed. Please try again.');
       if (countdownInt) clearInterval(countdownInt);
       document.getElementById('confirmedEmail').textContent = email;
       setStep(3);
@@ -761,8 +512,7 @@ function submitForm() {
 /* ── API ── */
 function apiPost(payload) {
   return fetch(API_URL + '?cb=' + Date.now(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
+    method: 'POST', headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload),
   }).then(function(r) { return r.json(); });
 }
@@ -775,13 +525,10 @@ function showAlert(msg, type) {
 }
 function clearAlert() { document.getElementById('alertBox').innerHTML = ''; }
 
-/* ── Validation helpers ── */
 function isUrl(s)   { try { new URL(s); return true; } catch(e) { return false; } }
 function isEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
-
-/* ── Escape helpers ── */
-function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function esc(s)     { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJ(s)    { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 </script>
 </body>
 </html>
