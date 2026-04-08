@@ -3,10 +3,16 @@
 <head>
 <!--
   NL Tools — Vacancies
-  Version: 1.4
+  Version: 1.5
   Date: 08/04/2026
 
   CHANGELOG
+  v1.5 (08/04/2026)
+    - loadSubs now waits for ensureAuth() before reading /submissions
+      (was firing before Firebase Auth resolved — silent permission denied)
+    - Switched from once() to on() — submissions update in real time
+      so new submissions appear in admin without page refresh
+
   v1.4 (08/04/2026)
     - Fixed permission_denied: ensureAuth() now always waits for
       onAuthStateChanged and never trusts currentUser synchronously
@@ -548,18 +554,22 @@ function startVacanciesListener() {
 
 /* ── Submissions (Firebase) ── */
 function loadSubs() {
-  db.ref('submissions').orderByChild('submittedAt').once('value', function(snap) {
-    var raw = snap.val() || {};
-    STATE.allSubs = Object.keys(raw).map(function(id) {
-      var s = raw[id]; s.id = id;
-      s.crestUrl = CREST_BASE + encodeURIComponent(s.club || '') + '.png';
-      return s;
-    }).sort(function(a,b) {
-      // Newest first
-      return (b.submittedAt||'') > (a.submittedAt||'') ? 1 : -1;
+  ensureAuth().then(function() {
+    db.ref('submissions').orderByChild('submittedAt').on('value', function(snap) {
+      var raw = snap.val() || {};
+      STATE.allSubs = Object.keys(raw).map(function(id) {
+        var s = raw[id]; s.id = id;
+        s.crestUrl = CREST_BASE + encodeURIComponent(s.club || '') + '.png';
+        return s;
+      }).sort(function(a,b) {
+        // Newest first
+        return (b.submittedAt||'') > (a.submittedAt||'') ? 1 : -1;
+      });
+      updateSubStats();
+      if (STATE.currentTab === 'submissions') renderSubsTable();
     });
-    updateSubStats();
-    if (STATE.currentTab === 'submissions') renderSubsTable();
+  }).catch(function(e) {
+    console.warn('[loadSubs] auth error:', e.message);
   });
 }
 
