@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.46 (conversation turn 148)
+  Version: v5.47 (conversation turn 149)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1138,18 +1138,17 @@ body {
 
 /* Default ring removed */
 
-/* Locked (superadmin) */
+/* Locked -- interaction disabled but value still visible */
 .acc-slider--locked .acc-slider__stop { cursor: default; pointer-events: none; }
-.acc-slider--locked .acc-slider__node { opacity: 0.35; }
-.acc-slider--locked .acc-slider__stop--active .acc-slider__node {
-  background: var(--border); border-color: var(--border); box-shadow: none;
-}
-.acc-slider--locked .acc-slider__stop--filled .acc-slider__node {
-  background: var(--border); border-color: var(--border);
-}
-.acc-slider--locked .acc-slider__stop--active .acc-slider__label { color: var(--border); }
-.acc-slider--locked .acc-slider__stop--filled .acc-slider__label { color: var(--border); }
-.acc-slider--locked .acc-slider__track-fill { background: var(--border); }
+/* Dimmed track fill when locked */
+.acc-slider--locked .acc-slider__track-fill { opacity: 0.45; }
+/* Active/filled stops: show value but slightly muted */
+.acc-slider--locked .acc-slider__stop--active .acc-slider__node { opacity: 0.6; }
+.acc-slider--locked .acc-slider__stop--filled .acc-slider__node { opacity: 0.45; }
+.acc-slider--locked .acc-slider__stop--active .acc-slider__label { opacity: 0.6; }
+.acc-slider--locked .acc-slider__stop--filled .acc-slider__label { opacity: 0.45; }
+/* Truly padlocked stops (superadmin, staff-locked) */
+.acc-slider--locked .acc-slider__stop--padlocked .acc-slider__node { opacity: 0.35; }
 
 /* Dept header set-all buttons */
 .uacc-dept-header {
@@ -1812,7 +1811,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.46';
+var PORTAL_VERSION = 'v5.47';
 
 var STATE = {
   uid:      null,
@@ -3615,14 +3614,8 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       });
       delete slider.dataset.previewLevel;
 
-      /* Remove locked class to enable interaction */
+      /* Remove locked class -- CSS handles pointer-events, handlers already wired */
       slider.classList.remove('acc-slider--locked');
-      slider.querySelectorAll('.acc-slider__stop').forEach(function(stop) {
-        if (!stop.classList.contains('acc-slider__stop--padlocked')) {
-          stop.style.pointerEvents = '';
-          stop.style.cursor = 'pointer';
-        }
-      });
     });
 
     /* Unlock set-all sliders */
@@ -3642,10 +3635,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
     body.querySelectorAll('.acc-slider').forEach(function(slider) {
       slider.classList.add('acc-slider--locked');
-      slider.querySelectorAll('.acc-slider__stop').forEach(function(stop) {
-        stop.style.pointerEvents = 'none';
-        stop.style.cursor = 'default';
-      });
+      /* CSS class handles pointer-events -- no inline style needed */
     });
 
     /* Lock set-all sliders */
@@ -3743,20 +3733,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       if (fill) fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
 
       slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
-        stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
-        var node = stop.querySelector('.acc-slider__node');
-        var lbl  = stop.querySelector('.acc-slider__label');
-        var isClub = u.role === 'club';
-        if (isClub && ACC_LEVELS[si] === 'admin') {
-          stop.classList.add('acc-slider__stop--padlocked');
-          if (node) { node.textContent = String.fromCodePoint(0x1F512); node.style.cssText = 'font-size:8px;background:var(--off-white);border-color:var(--border);display:flex;align-items:center;justify-content:center;'; }
-          if (lbl) lbl.style.color = 'var(--border)';
-        } else {
-          if (node) { node.textContent = ''; node.style.cssText = ''; }
-          if (lbl) lbl.style.color = '';
-          if (si < idx)  stop.classList.add('acc-slider__stop--filled');
-          if (si === idx) stop.classList.add('acc-slider__stop--active');
-        }
+        stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
+        if (si < idx)  stop.classList.add('acc-slider__stop--filled');
+        if (si === idx) stop.classList.add('acc-slider__stop--active');
       });
       delete slider.dataset.previewLevel;
     });
@@ -4395,29 +4374,26 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
     stop.appendChild(node);
     stop.appendChild(label);
 
-    if (!locked && !isPadlocked) {
+    if (!isPadlocked) {
       stop.addEventListener('click', function(e) {
         e.stopPropagation();
+        /* Only act if this user is in edit mode */
+        if (_editUid !== uid) return;
         if (uid === STATE.uid && STATE.isSuperAdmin && level !== 'admin') {
           showToast('You cannot reduce your own access', 'error');
           return;
         }
-        var prevLevel = currentLevel;
-        currentLevel  = level;
-        currentIdx    = idx;
+        currentLevel = level;
+        currentIdx   = idx;
         wrap.querySelectorAll('.acc-slider__stop').forEach(function(s, si) {
           s.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
           if (si < idx)  s.classList.add('acc-slider__stop--filled');
           if (si === idx) s.classList.add('acc-slider__stop--active');
         });
         updateFill(idx);
-        var targetUser = STATE.allUsers[uid] || {};
-        writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
-          'access_changed', toolKey + ': ' + prevLevel + ' -> ' + level);
-        /* Reset dept set-all slider to neutral -- this tool now differs */
+        /* Reset dept set-all slider to neutral */
         if (dept && bodyEl) resetSetAllSlider(bodyEl, dept);
-        db.ref('users/' + uid + '/tools/' + toolKey).set(level)
-          .catch(function() { showToast('Failed to update', 'error'); });
+        /* No RTDB write here -- deferred to Save button */
       });
     }
     wrap.appendChild(stop);
