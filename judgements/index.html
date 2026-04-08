@@ -2,712 +2,1174 @@
 <html lang="en">
 <head>
 <!--
-  Judgements & Decisions — NL Tools Portal
-  v1.4 | 08/04/2026
-  Changelog:
-    v1.4 — Fixed write permission_denied. When auth guard uses cached session,
-           Firebase Auth isn't signed in yet. Added ensureAuth() wrapper that
-           waits for onAuthStateChanged before any write operation.
-    v1.3 — Fixed permission_denied crash. nlAuthReady now reads role/tools
-           from the session object passed by auth guard instead of making
-           a redundant Firebase read (which fails when using cached session).
-    v1.2 — Fixed Firebase init order. initializeApp() now called before
-           auth-guard.js loads. Was causing "No Firebase App" crash.
-    v1.1 — Fixed tool key to ops-judgements (was ao-judgements).
-           Admin check now handles both access formats: object {access,admin}
-           and flat string ("admin"/"access"/"hidden"/"off").
-    v1.0 — Initial build. Admin add/edit/delete + read-only portal view.
-           Club picker with autocomplete. Firebase RTDB backend.
-           Auth guard integration. Type 3 tool (staff publish, clubs read).
+  NL Tools — Vacancies
+  Version: 1.3
+  Date: 08/04/2026
+
+  CHANGELOG
+  v1.3 (08/04/2026)
+    - Added ensureAuth() wrapper on all Firebase writes
+      Fixes permission_denied when auth-guard uses cached session
+      (Firebase Auth not yet live despite valid session — same fix as
+      judgements page v1.4)
+
+  v1.2 (08/04/2026)
+    - GAS URL updated to portal consolidated script
+    - Submissions fully migrated to Firebase RTDB at /submissions/{id}
+    - loadSubs() now reads from Firebase directly (no GAS)
+    - saveSub/approveSub/rejectSub all write to Firebase directly
+    - Approve copies vacancy fields to /vacancies/ as new job
+    - reviewSubIndex replaced with reviewSubId (Firebase push ID)
+    - getSubData() uses Firebase camelCase field names
+    - GAS only used for email verification (vacancies_requestCode/validateCode/submit)
+
+  v1.1 (08/04/2026)
+    - Admin: removed Submit Vacancy button — admins use Add Vacancy only
+    - Access users: no email verification needed — already authenticated
+      Session name/email/role pre-filled and locked, submit unlocked immediately
+    - Club users: club picker locked to session.club, cannot submit for other clubs
+    - submitVacancyAuthed GAS action used for portal users (no code check)
+    - External users (non-portal): still require 4-digit email verification
+
+  v1.0 (08/04/2026)
+    - Initial build
+    - Portal tool at /tools/vacancies/
+    - Auth via auth-guard.js + NL_TOOL_KEY = 'ops-vacancies'
+    - admin level: full CRUD + submissions tab + approve/reject
+    - access level: read-only listings + submit vacancy form
+    - Firebase Realtime Database at /vacancies
+    - Real-time listener — updates instantly on data change
+    - Submission form uses GAS email verification (4-digit code)
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Judgements & Decisions — NL Tools</title>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<title>Vacancies — NL Tools</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script>
-  firebase.initializeApp({
-    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
-    authDomain:        "nl-tools.firebaseapp.com",
-    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId:         "nl-tools",
-    storageBucket:     "nl-tools.firebasestorage.app",
-    messagingSenderId: "801354670005",
-    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
-  });
-  var NL_TOOL_KEY = 'ops-judgements';
+var firebaseConfig = {
+  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:        'nl-tools.firebaseapp.com',
+  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'nl-tools',
+  storageBucket:     'nl-tools.firebasestorage.app',
+  messagingSenderId: '801354670005',
+  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc',
+};
+firebase.initializeApp(firebaseConfig);
 </script>
+<script>var NL_TOOL_KEY = 'ops-vacancies';</script>
 <script src="/tools/auth-guard.js"></script>
+
 <style>
 @font-face {
-  font-family: "carbona-variable";
-  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+  font-family:"carbona-variable";
+  src:url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+      url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display:swap;font-style:normal;font-weight:200 900;font-stretch:normal;
 }
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --primary: #9e0000;
-  --primary-dim: #7a0000;
-  --navy: #223b7c;
-  --navy-mid: #1a2f63;
-  --navy-light: #2a4a8c;
-  --red: #c0392b;
-  --red-light: #fdf0ef;
-  --green: #1e7e34;
-  --green-light: #edf7ee;
-  --amber: #e67e22;
-  --amber-light: #fef6ec;
-  --white: #ffffff;
-  --off-white: #f4f6f9;
-  --text: #1a2a44;
-  --text-muted: #5a6a82;
-  --border: #dde3ed;
-  --radius: 6px;
-  --shadow: 0 2px 12px rgba(10,22,40,0.10);
-  --font: 'carbona-variable','carbona',sans-serif;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --primary:#9e0000;--primary-dim:#7a0000;
+  --navy:#223b7c;--navy-mid:#1a2f63;--navy-light:#2a4a8c;
+  --red:#c0392b;--red-light:#fdf0ef;
+  --green:#1e7e34;--green-light:#edf7ee;
+  --amber:#e67e22;--amber-light:#fef6ec;
+  --white:#ffffff;--off-white:#f4f6f9;
+  --text:#1a2a44;--text-muted:#5a6a82;--border:#dde3ed;
+  --radius:6px;--shadow:0 2px 12px rgba(10,22,40,0.10);
+  --font:'carbona-variable','carbona',sans-serif;
 }
-body {
-  font-family: var(--font);
-  font-size: 17px;
-  line-height: 1.5;
-  font-variation-settings: 'wght' 400;
-  color: var(--text);
-  background: var(--off-white);
-}
+body{font-family:var(--font);background:var(--off-white);color:var(--text);font-size:16px;line-height:1.5;min-height:100vh;font-variation-settings:'wght' 400;}
 
-/* Topbar */
-.topbar {
-  background: var(--primary); color: var(--white);
-  padding: 0 28px; height: 72px;
-  display: flex; align-items: center; gap: 18px;
-  position: sticky; top: 0; z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-}
-.topbar img { height: 42px; }
-.topbar__title {
-  font-weight: 900; font-variation-settings: 'wght' 900;
-  font-size: 20px; flex: 1; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--white);
-}
-.topbar__title .word-primary { color: var(--white); }
-.topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
-.topbar__btn-ghost {
-  background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
-  padding: 8px 18px; border-radius: var(--radius); font-size: 12px;
-  font-weight: 700; font-variation-settings: 'wght' 700;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  cursor: pointer; transition: all 0.15s; font-family: var(--font);
-}
-.topbar__btn-ghost:hover { background: rgba(255,255,255,0.12); }
+/* ── Topbar ── */
+.topbar{background:var(--primary);color:var(--white);padding:0 28px;height:72px;display:flex;align-items:center;gap:18px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.3);border-bottom:7px solid var(--navy);}
+.topbar img{height:42px;}
+.topbar__title{font-weight:900;font-variation-settings:'wght' 900;font-size:20px;flex:1;text-transform:uppercase;letter-spacing:0.04em;color:var(--white);}
+.topbar__title span{color:rgba(255,255,255,0.55);}
+.topbar__user{font-size:12px;color:rgba(255,255,255,0.75);font-weight:600;font-variation-settings:'wght' 600;white-space:nowrap;}
+.topbar__back{background:none;border:1px solid rgba(255,255,255,0.3);color:var(--white);padding:8px 18px;border-radius:var(--radius);font-size:12px;font-weight:700;font-variation-settings:'wght' 700;text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;transition:all 0.15s;font-family:var(--font);text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
+.topbar__back:hover{background:rgba(255,255,255,0.12);}
 
-/* Main container */
-.main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 70px; }
+.main{max-width:1200px;margin:0 auto;padding:32px 20px 70px;}
 
-/* Buttons */
-.btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 8px 16px; border-radius: var(--radius);
-  font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  cursor: pointer; border: none; font-family: var(--font);
-  transition: background 0.15s; white-space: nowrap;
-}
-.btn--primary { background: var(--primary); color: var(--white); }
-.btn--navy { background: var(--navy); color: var(--white); }
-.btn--danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
-.btn--ghost { background: none; border: 1px solid var(--border); color: var(--text-muted); }
-.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
-.btn--navy:hover:not(:disabled) { background: var(--navy-mid); }
-.btn--danger:hover:not(:disabled) { background: #fae0de; }
-.btn--ghost:hover:not(:disabled) { background: var(--off-white); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn--sm { padding: 5px 12px; font-size: 10px; }
+/* ── Stats (admin only) ── */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:28px;}
+@media(max-width:700px){.stats{grid-template-columns:repeat(3,1fr);}}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center;box-shadow:var(--shadow);}
+.stat__num{font-size:40px;font-weight:900;font-variation-settings:'wght' 900;line-height:1;margin-bottom:4px;}
+.stat__label{font-size:10px;color:var(--text-muted);font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.1em;}
+.stat--live .stat__num{color:var(--green);}
+.stat--soon .stat__num{color:var(--amber);}
+.stat--expired .stat__num{color:var(--red);}
+.stat--deleted .stat__num{color:var(--text-muted);}
+.stat--pending .stat__num{color:var(--amber);}
 
-/* Pills */
-.pill {
-  display: inline-block; padding: 3px 8px; border-radius: 12px;
-  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
-  white-space: nowrap; text-transform: uppercase; letter-spacing: 0.06em;
-}
-.pill--live { background: var(--green-light); color: var(--green); }
-.pill--expired { background: var(--red-light); color: var(--red); }
-.pill--soon { background: var(--amber-light); color: var(--amber); }
+/* ── Section head ── */
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap;}
+.section-head h2{font-size:13px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;letter-spacing:0.1em;}
 
-/* Table */
-.table-wrap { overflow-x: auto; }
-.table {
-  width: 100%; border-collapse: collapse; background: var(--white);
-  border-radius: var(--radius); overflow: hidden;
-  box-shadow: var(--shadow); border: 1px solid var(--border); font-size: 15px;
-}
-.table th {
-  background: var(--navy); color: var(--white);
-  font-weight: 800; font-variation-settings: 'wght' 800;
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
-  padding: 14px 16px; text-align: left; white-space: nowrap;
-}
-.table td { padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.table tr:last-child td { border-bottom: none; }
-.table tr:hover td { background: var(--off-white); }
-.table .actions { display: flex; gap: 6px; }
+/* ── Tabs ── */
+.tabs{display:flex;gap:4px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:3px;margin-bottom:16px;}
+.tab{flex:1;text-align:center;padding:8px 12px;border-radius:4px;font-size:11px;font-weight:800;font-variation-settings:'wght' 800;cursor:pointer;color:var(--text-muted);border:none;background:none;transition:all 0.15s;text-transform:uppercase;letter-spacing:0.08em;font-family:var(--font);}
+.tab.active{background:var(--primary);color:var(--white);}
 
-/* Stats */
-.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 28px; }
-@media (max-width: 600px) { .stats { grid-template-columns: 1fr; } }
-.stat {
-  background: var(--white); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 16px;
-  text-align: center; box-shadow: var(--shadow);
-}
-.stat__num { font-size: 44px; font-weight: 900; font-variation-settings: 'wght' 900; line-height: 1; margin-bottom: 6px; }
-.stat__label { font-size: 10px; color: var(--text-muted); font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; }
+/* ── Table ── */
+.table-wrap{overflow-x:auto;}
+.table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--border);font-size:15px;}
+.table th{background:var(--navy);color:var(--white);font-weight:800;font-variation-settings:'wght' 800;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;padding:12px 16px;text-align:left;white-space:nowrap;}
+.table td{padding:12px 16px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.table tr:last-child td{border-bottom:none;}
+.table tr:hover td{background:var(--off-white);}
+.table tr.is-deleted td{opacity:0.45;}
+.job-crest{width:36px;height:36px;object-fit:contain;display:block;}
+.pill{display:inline-block;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:800;font-variation-settings:'wght' 800;white-space:nowrap;text-transform:uppercase;letter-spacing:0.06em;}
+.pill--live{background:var(--green-light);color:var(--green);}
+.pill--soon{background:var(--amber-light);color:var(--amber);}
+.pill--expired{background:var(--red-light);color:var(--red);}
+.pill--deleted{background:var(--off-white);color:var(--text-muted);border:1px solid var(--border);}
+.pill--pending{background:var(--amber-light);color:var(--amber);}
+.pill--approved{background:var(--green-light);color:var(--green);}
+.pill--rejected{background:var(--red-light);color:var(--red);}
 
-/* Header row */
-.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; gap: 16px; flex-wrap: wrap; }
-.page-header h2 { font-size: 22px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.02em; }
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:var(--radius);font-size:11px;font-weight:900;font-variation-settings:'wght' 900;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none;white-space:nowrap;text-transform:uppercase;letter-spacing:0.08em;font-family:var(--font);}
+.btn--primary{background:var(--navy);color:var(--white);}
+.btn--primary:hover{background:var(--navy-light);}
+.btn--accent{background:var(--primary);color:var(--white);}
+.btn--accent:hover{background:var(--primary-dim);color:var(--white);}
+.btn--ghost{background:var(--white);color:var(--text);border:1px solid var(--border);}
+.btn--ghost:hover{background:var(--off-white);}
+.btn--danger{background:var(--red-light);color:var(--red);border:1px solid #f5c6c2;}
+.btn--danger:hover{background:#fbe4e2;}
+.btn--restore{background:var(--green-light);color:var(--green);border:1px solid #b8e6c0;}
+.btn--restore:hover{background:#d8f0dc;}
+.btn--sm{padding:5px 10px;font-size:10px;}
 
-/* Form panel */
-.form-panel {
-  background: var(--white); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 28px; margin-bottom: 28px;
-  box-shadow: var(--shadow); display: none;
-}
-.form-panel.open { display: block; }
-.form-panel h3 {
-  font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px;
-}
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-.form-row--full { grid-template-columns: 1fr; }
-@media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
-.form-group label {
-  display: block; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
-  text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);
-  margin-bottom: 6px;
-}
-.form-group input, .form-group select, .form-group textarea {
-  width: 100%; padding: 10px 14px; border: 1px solid var(--border);
-  border-radius: var(--radius); font-size: 15px; font-family: var(--font);
-  font-variation-settings: 'wght' 400; color: var(--text);
-  transition: border-color 0.15s;
-}
-.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
-  outline: none; border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
-}
-.form-actions { display: flex; gap: 10px; margin-top: 20px; }
+/* ── Access view: listings ── */
+.access-header{margin-bottom:24px;}
+.access-header h1{font-size:22px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;margin-bottom:6px;}
+.access-header p{font-size:14px;color:var(--text-muted);}
+.submit-banner{background:var(--white);border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px;box-shadow:var(--shadow);}
+.submit-banner p{font-size:14px;color:var(--text);line-height:1.5;}
+.submit-banner strong{font-variation-settings:'wght' 700;}
 
-/* Club picker */
-.club-picker { position: relative; }
-.club-picker__wrap {
-  display: flex; align-items: center; gap: 10px;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 7px 12px; background: var(--white); transition: border-color 0.15s;
-}
-.club-picker__wrap:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.10); }
-.club-picker__crest { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
-.club-picker__input { flex: 1; border: none !important; padding: 0 !important; font-size: 15px; outline: none; background: transparent; font-family: var(--font); font-variation-settings: 'wght' 400; }
-.club-picker__dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); max-height: 240px; overflow-y: auto; display: none; margin-top: 2px; }
-.club-picker__dropdown.open { display: block; }
-.club-picker__option { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--border); }
-.club-picker__option:last-child { border-bottom: none; }
-.club-picker__option:hover { background: var(--off-white); }
-.club-picker__option img { width: 28px; height: 28px; object-fit: contain; }
-.club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
-.club-picker__option-div { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
-.club-picker__freetext { padding: 10px 14px; font-size: 13px; color: var(--text-muted); font-style: italic; cursor: pointer; border-top: 1px solid var(--border); background: var(--off-white); }
-.club-picker__freetext:hover { background: #eaeef4; }
+/* ── Submit form (inline, access users) ── */
+.submit-section{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-top:28px;}
+.submit-section__head{background:var(--navy);color:var(--white);padding:16px 20px;border-bottom:5px solid var(--primary);}
+.submit-section__head h2{font-size:14px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.1em;}
+.submit-section__body{padding:24px;}
+.submit-note{font-size:13px;color:var(--text-muted);background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:20px;line-height:1.5;}
 
-/* Empty state */
-.empty-state {
-  text-align: center; padding: 60px 20px; color: var(--text-muted);
-}
-.empty-state__icon { font-size: 48px; margin-bottom: 12px; }
-.empty-state__msg { font-size: 14px; font-weight: 600; font-variation-settings: 'wght' 600; }
+/* ── Modal ── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(10,22,40,0.65);z-index:200;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;display:none;}
+.modal-backdrop.open{display:flex;}
+.modal{background:var(--white);border-radius:10px;width:100%;max-width:640px;box-shadow:0 16px 60px rgba(0,0,0,0.3);overflow:hidden;margin:auto;}
+.modal--wide{max-width:740px;}
+.modal__head{background:var(--primary);color:var(--white);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:7px solid var(--navy);}
+.modal__head h3{color:var(--white);font-size:14px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.1em;}
+.modal__close{background:none;border:none;color:rgba(255,255,255,0.6);font-size:26px;cursor:pointer;line-height:1;padding:2px 6px;font-family:var(--font);}
+.modal__close:hover{color:var(--white);}
+.modal__body{padding:24px;}
+.modal__footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:var(--off-white);}
+.modal__footer--split{justify-content:space-between;}
 
-/* Toast */
-.toast {
-  position: fixed; bottom: 24px; right: 24px;
-  background: var(--navy); color: var(--white);
-  padding: 12px 18px; border-radius: var(--radius);
-  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-  z-index: 999; transform: translateY(80px); opacity: 0;
-  transition: all 0.25s ease; max-width: 300px; pointer-events: none;
-}
-.toast.show { transform: translateY(0); opacity: 1; }
-.toast.success { border-left: 4px solid var(--green); }
-.toast.error { border-left: 4px solid var(--red); }
+/* ── Form ── */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media(max-width:500px){.form-grid{grid-template-columns:1fr;}}
+.form-group{display:flex;flex-direction:column;gap:5px;}
+.form-group.span2{grid-column:1/-1;}
+.form-group label{font-size:10px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;letter-spacing:0.1em;}
+.form-group label .req{color:var(--primary);margin-left:2px;}
+.form-group input,.form-group select,.form-group textarea{padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:var(--font);font-variation-settings:'wght' 400;color:var(--text);background:var(--white);transition:border-color 0.15s;-webkit-appearance:none;width:100%;}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(158,0,0,0.10);}
+.form-group textarea{resize:vertical;min-height:100px;}
+.form-hint{font-size:11px;color:var(--text-muted);}
+.char-count{font-size:11px;color:var(--text-muted);text-align:right;}
+.datetime-row{display:flex;gap:8px;}
+.datetime-row input[type="date"]{flex:1;}
+.datetime-row input[type="time"]{flex:0 0 120px;}
+input[type="checkbox"]{width:16px!important;height:16px!important;padding:0!important;border:1px solid var(--border)!important;border-radius:3px!important;box-shadow:none!important;cursor:pointer;flex-shrink:0;accent-color:var(--primary);-webkit-appearance:checkbox;appearance:checkbox;}
 
-/* Confirm modal */
-.modal-overlay {
-  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center;
-}
-.modal-overlay.open { display: flex; }
-.modal {
-  background: var(--white); border-radius: 12px; padding: 32px;
-  max-width: 440px; width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,0.3);
-  text-align: center;
-}
-.modal h3 {
-  font-size: 18px; font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; margin-bottom: 12px;
-}
-.modal p { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; }
-.modal .form-actions { justify-content: center; }
+/* ── Club picker ── */
+.club-picker{position:relative;}
+.club-picker__wrap{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:7px 12px;background:var(--white);transition:border-color 0.15s;}
+.club-picker__wrap:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(158,0,0,0.10);}
+.club-picker__crest{width:28px;height:28px;object-fit:contain;flex-shrink:0;}
+.club-picker__input{flex:1;border:none!important;padding:0!important;font-size:13px;outline:none;background:transparent;font-family:var(--font);font-variation-settings:'wght' 400;}
+.club-picker__dropdown{position:absolute;top:100%;left:0;right:0;z-index:50;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);max-height:220px;overflow-y:auto;display:none;margin-top:2px;}
+.club-picker__dropdown.open{display:block;}
+.club-picker__option{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);}
+.club-picker__option:last-child{border-bottom:none;}
+.club-picker__option:hover{background:var(--off-white);}
+.club-picker__option img{width:24px;height:24px;object-fit:contain;}
+.club-picker__option-name{flex:1;font-weight:600;font-variation-settings:'wght' 600;}
+.club-picker__option-div{font-size:11px;color:var(--text-muted);text-transform:uppercase;}
+.club-picker__freetext{padding:9px 12px;font-size:12px;color:var(--text-muted);font-style:italic;cursor:pointer;border-top:1px solid var(--border);background:var(--off-white);}
+.club-picker__freetext:hover{background:#eaeef4;}
 
-#pageWrap { display: none; }
+/* ── Verify / code ── */
+.email-row{display:flex;gap:10px;align-items:flex-end;}
+.email-row .form-group{flex:1;margin:0;}
+.btn-send-code{padding:9px 16px;background:var(--navy);color:var(--white);border:none;border-radius:var(--radius);font-size:12px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;white-space:nowrap;font-family:var(--font);transition:background 0.15s;flex-shrink:0;}
+.btn-send-code:hover{background:var(--navy-light);}
+.btn-send-code:disabled{opacity:0.5;cursor:not-allowed;}
+.code-input{font-size:20px!important;font-weight:900!important;font-variation-settings:'wght' 900!important;letter-spacing:0.3em!important;text-align:center;width:140px!important;}
+.code-status{font-size:12px;font-weight:600;padding:6px 0;display:none;}
+.code-status.ok{color:var(--green);display:block;}
+.code-status.err{color:var(--red);display:block;}
+
+/* ── Sub modal banner ── */
+.sub-banner{background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;line-height:1.6;}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:var(--white);padding:12px 18px;border-radius:var(--radius);font-size:11px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.08em;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:999;transform:translateY(80px);opacity:0;transition:all 0.25s ease;max-width:300px;}
+.toast.show{transform:translateY(0);opacity:1;}
+.toast.success{border-left:4px solid #4caf50;}
+.toast.error{border-left:4px solid var(--red);}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:var(--white);border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:4px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading-row td,.empty-row td{text-align:center;padding:40px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700;}
+.confirm-text{font-size:14px;line-height:1.6;color:var(--text);}
+.confirm-job{font-weight:800;font-variation-settings:'wght' 800;color:var(--navy);margin-top:8px;}
+
+/* ── Success screen ── */
+.success-screen{text-align:center;padding:48px 24px;}
+.success-screen__icon{font-size:48px;margin-bottom:16px;}
+.success-screen h2{font-size:22px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;margin-bottom:10px;}
+.success-screen p{font-size:14px;color:var(--text-muted);max-width:420px;margin:0 auto;line-height:1.7;}
 </style>
 </head>
 <body>
 
-<div id="pageWrap">
-  <div class="topbar">
-    <img
-      src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-      alt="National League"
-      onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-    <span class="topbar__title">
-      <span class="word-primary">Judgements</span>
-      <span class="word-secondary">& Decisions</span>
-    </span>
-    <button class="topbar__btn-ghost" onclick="location.href='/tools/portal/'">Portal</button>
-    <button class="topbar__btn-ghost" onclick="doLogout()">Sign out</button>
-  </div>
+<div id="pageWrap" style="display:none;">
 
-  <div class="main">
-    <!-- Stats (admin only) -->
-    <div class="stats" id="statsPanel" style="display:none;">
-      <div class="stat">
-        <div class="stat__num" id="statActive">0</div>
-        <div class="stat__label">Active breaches</div>
-      </div>
-      <div class="stat">
-        <div class="stat__num" id="statTotal">0</div>
-        <div class="stat__label">Total records</div>
-      </div>
-      <div class="stat">
-        <div class="stat__num" id="statClubs">0</div>
-        <div class="stat__label">Clubs affected</div>
-      </div>
+<!-- Topbar -->
+<div class="topbar">
+  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png" alt="NL"
+    onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+  <span class="topbar__title">Vacancies <span id="topbarSubtitle"></span></span>
+  <span class="topbar__user" id="topbarUser"></span>
+  <a href="/tools/portal/" class="topbar__back">← Portal</a>
+</div>
+
+<div class="main" id="mainContent"></div>
+
+</div><!-- /pageWrap -->
+
+<!-- ── Admin: Add/Edit Modal ── -->
+<div class="modal-backdrop" id="formModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3 id="modalTitle">Add Vacancy</h3>
+      <button class="modal__close" onclick="closeModal('formModal')">×</button>
     </div>
-
-    <!-- Header + Add button -->
-    <div class="page-header">
-      <h2>All records</h2>
-      <button class="btn btn--primary" id="btnAdd" style="display:none;" onclick="openForm()">+ Add record</button>
-    </div>
-
-    <!-- Add/Edit form panel (admin only) -->
-    <div class="form-panel" id="formPanel">
-      <h3 id="formTitle">Add new record</h3>
-      <input type="hidden" id="editId" value="">
-
-      <div class="form-row">
+    <div class="modal__body">
+      <div class="form-grid">
+        <div class="form-group span2">
+          <label>Club <span class="req">*</span></label>
+          <div class="club-picker" id="adminPicker">
+            <div class="club-picker__wrap">
+              <img class="club-picker__crest" id="adminPickerCrest"
+                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="">
+              <input class="club-picker__input" id="fClub" type="text"
+                placeholder="Search or type club name…" autocomplete="off"
+                oninput="onClubInput('fClub','fClubDrop','adminPickerCrest',this.value)"
+                onblur="setTimeout(function(){closeDropdown('fClubDrop');},150)">
+            </div>
+            <div class="club-picker__dropdown" id="fClubDrop"></div>
+          </div>
+        </div>
+        <div class="form-group span2">
+          <label>Job Title <span class="req">*</span></label>
+          <input type="text" id="fJobTitle">
+        </div>
         <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="fLocation" placeholder="e.g. Training ground">
+        </div>
+        <div class="form-group">
+          <label>Vacancy Type</label>
+          <select id="fVacancyType">
+            <option value="">— Select —</option>
+            <option>Permanent</option><option>Fixed Term</option><option>Contract</option>
+            <option>Casual</option><option>Part Time</option><option>Voluntary</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Department</label>
+          <input type="text" id="fDept" placeholder="e.g. Marketing">
+        </div>
+        <div class="form-group">
+          <label>Salary</label>
+          <input type="text" id="fSalary" placeholder="e.g. £28,000 per year">
+        </div>
+        <div class="form-group span2">
+          <label>Description</label>
+          <textarea id="fDesc"></textarea>
+        </div>
+        <div class="form-group span2">
+          <label>Apply URL</label>
+          <input type="url" id="fApplyUrl" placeholder="https://…">
+        </div>
+        <div class="form-group span2">
+          <label>Closing Date &amp; Time</label>
+          <div class="datetime-row">
+            <input type="date" id="fClosingDate">
+            <input type="time" id="fClosingTime" value="17:00">
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;">
+            <input type="checkbox" id="fNoTime" onchange="onNoTimeToggle('fClosingTime',this.checked)">
+            No specific time — expires end of closing day
+          </label>
+          <span class="form-hint">Leave blank for no closing date</span>
+        </div>
+        <div class="form-group span2" id="addedByGroup">
+          <label>Added By <span class="req">*</span></label>
+          <input type="text" id="fAddedBy">
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('formModal')">Cancel</button>
+      <button class="btn btn--accent" id="saveBtn" onclick="saveJob()">Save Vacancy</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Admin: Confirm Modal ── -->
+<div class="modal-backdrop" id="confirmModal">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal__head">
+      <h3 id="confirmTitle">Confirm</h3>
+      <button class="modal__close" onclick="closeModal('confirmModal')">×</button>
+    </div>
+    <div class="modal__body">
+      <p class="confirm-text" id="confirmText"></p>
+      <p class="confirm-job" id="confirmJob"></p>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('confirmModal')">Cancel</button>
+      <button class="btn btn--danger" id="confirmBtn" onclick="confirmAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Admin: Submission Review Modal ── -->
+<div class="modal-backdrop" id="subModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3 id="subModalTitle">Review Submission</h3>
+      <button class="modal__close" onclick="closeModal('subModal')">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="sub-banner" id="subBanner"></div>
+      <div class="form-grid">
+        <div class="form-group span2">
           <label>Club</label>
           <div class="club-picker">
             <div class="club-picker__wrap">
-              <img class="club-picker__crest" id="pickerCrest"
-                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
-                alt="">
-              <input class="club-picker__input" id="clubInput" type="text"
-                placeholder="Search or type club name…" autocomplete="off"
-                oninput="onClubInput(this.value)"
-                onblur="setTimeout(closeDropdown, 150)">
+              <img class="club-picker__crest" id="subPickerCrest"
+                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="">
+              <input class="club-picker__input" id="sClub" type="text" autocomplete="off"
+                oninput="onClubInput('sClub','sClubDrop','subPickerCrest',this.value)"
+                onblur="setTimeout(function(){closeDropdown('sClubDrop');},150)">
             </div>
-            <div class="club-picker__dropdown" id="clubDropdown"></div>
+            <div class="club-picker__dropdown" id="sClubDrop"></div>
           </div>
         </div>
+        <div class="form-group span2"><label>Job Title</label><input type="text" id="sJobTitle"></div>
+        <div class="form-group"><label>Location</label><input type="text" id="sLocation"></div>
         <div class="form-group">
-          <label>Rule breached</label>
-          <input type="text" id="ruleInput" placeholder="e.g. Non-compliance with League Financial Regulations">
+          <label>Vacancy Type</label>
+          <select id="sVacancyType">
+            <option value="">— Select —</option>
+            <option>Permanent</option><option>Fixed Term</option><option>Contract</option>
+            <option>Casual</option><option>Part Time</option><option>Voluntary</option>
+          </select>
         </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label>Start date</label>
-          <input type="date" id="startInput">
+        <div class="form-group"><label>Department</label><input type="text" id="sDept"></div>
+        <div class="form-group"><label>Salary</label><input type="text" id="sSalary"></div>
+        <div class="form-group span2"><label>Description</label><textarea id="sDesc" style="min-height:110px;"></textarea></div>
+        <div class="form-group span2"><label>Live Listing URL</label><input type="url" id="sLiveUrl"></div>
+        <div class="form-group span2">
+          <label>Closing Date &amp; Time</label>
+          <div class="datetime-row">
+            <input type="date" id="sClosingDate">
+            <input type="time" id="sClosingTime" value="17:00">
+          </div>
         </div>
-        <div class="form-group">
-          <label>End date <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-muted);">(leave blank if unresolved)</span></label>
-          <input type="date" id="endInput">
+        <div class="form-group span2">
+          <label>Approved By <span class="req">*</span></label>
+          <input type="text" id="sApprovedBy" placeholder="Your name — required before approving">
         </div>
-      </div>
-
-      <div class="form-actions">
-        <button class="btn btn--navy" id="btnSave" onclick="saveRecord()">Save record</button>
-        <button class="btn btn--ghost" onclick="closeForm()">Cancel</button>
+        <div class="form-group span2">
+          <label>Internal Notes</label>
+          <input type="text" id="sNotes" placeholder="Optional">
+        </div>
       </div>
     </div>
-
-    <!-- Table -->
-    <div class="table-wrap">
-      <table class="table" id="mainTable">
-        <thead>
-          <tr>
-            <th>Club</th>
-            <th>Rule breached</th>
-            <th>Start date</th>
-            <th>End date</th>
-            <th>Status</th>
-            <th id="colActions" style="display:none;">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody">
-          <tr><td colspan="6" class="empty-state"><div class="empty-state__icon">⚖️</div><div class="empty-state__msg">Loading records…</div></td></tr>
-        </tbody>
-      </table>
+    <div class="modal__footer modal__footer--split">
+      <button class="btn btn--danger" id="subRejectBtn" onclick="rejectSub()">Reject</button>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn--ghost" onclick="closeModal('subModal')">Cancel</button>
+        <button class="btn btn--ghost" id="subSaveBtn" onclick="saveSub()">Save Changes</button>
+        <button class="btn btn--accent" id="subApproveBtn" onclick="approveSub()">✓ Approve &amp; Publish</button>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- Delete confirmation modal -->
-<div class="modal-overlay" id="deleteModal">
-  <div class="modal">
-    <h3>Delete record</h3>
-    <p id="deleteMsg">Are you sure you want to delete this record?</p>
-    <div class="form-actions">
-      <button class="btn btn--danger" onclick="confirmDelete()">Delete</button>
-      <button class="btn btn--ghost" onclick="closeDeleteModal()">Cancel</button>
+<!-- ── Inline Submit Form (access users + admins) ── -->
+<div class="modal-backdrop" id="submitModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3>Submit a Vacancy</h3>
+      <button class="modal__close" onclick="closeModal('submitModal')">×</button>
+    </div>
+    <div class="modal__body" id="submitModalBody">
+      <!-- Steps rendered by JS -->
     </div>
   </div>
 </div>
 
-<!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
-/* ── State ── */
+var db           = firebase.database();
+var FALLBACK     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
+var CREST_BASE   = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var CLUBS_URL    = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+var GAS_URL      = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+
 var STATE = {
-  uid: null,
-  isAdmin: false,
-  clubs: [],
-  records: [],
-  deleteId: null
+  session: null, isAdmin: false,
+  clubs: [], allVacancies: [], allSubs: [],
+  currentTab: 'live', editId: null, reviewSubId: null,
+  pendingAction: null, pendingId: null, pendingTitle: null,
+  submitCodeVerified: false, submitCountdownInt: null,
 };
+var vacRef = db.ref('vacancies');
+var vacListener = null;
 
-var CREST_BASE = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
-var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
-var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-
-/* ── Auth callback — called by auth-guard.js once access is confirmed ── */
+/* ── Auth ready callback from guard ── */
 window.nlAuthReady = function(session) {
-  STATE.uid = session.uid;
+  STATE.session = session;
+  var toolLevel = (session.tools && session.tools['ops-vacancies']) || 'access';
+  STATE.isAdmin = (toolLevel === 'admin' || session.role === 'superadmin');
 
-  // Determine admin status from session data (already loaded by auth guard)
-  var role = session.role || '';
-  var toolEntry = session.tools && session.tools[NL_TOOL_KEY];
-  var toolAdmin = false;
-  if (toolEntry && typeof toolEntry === 'object') {
-    toolAdmin = !!toolEntry.admin;
-  } else if (typeof toolEntry === 'string') {
-    toolAdmin = (toolEntry === 'admin');
-  }
-  STATE.isAdmin = (role === 'superadmin' || role === 'admin' || toolAdmin);
-
-  if (STATE.isAdmin) {
-    document.getElementById('btnAdd').style.display = '';
-    document.getElementById('colActions').style.display = '';
-    document.getElementById('statsPanel').style.display = '';
-  }
+  document.getElementById('topbarUser').textContent   = session.name || session.email || '';
+  document.getElementById('topbarSubtitle').textContent = STATE.isAdmin ? '' : '';
 
   loadClubs();
-  listenForRecords();
+  startVacanciesListener();
+  if (STATE.isAdmin) loadSubs();
+  renderPage();
 };
 
-/* ── Load clubs meta ── */
-function loadClubs() {
-  fetch(CLUBS_META_URL + '?cb=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      STATE.clubs = data.clubs || [];
-    })
-    .catch(function(err) {
-      console.warn('Failed to load clubs-meta:', err);
-    });
-}
-
-/* ── Listen for records (realtime) ── */
-function listenForRecords() {
-  var db = firebase.database();
-  db.ref('judgements').on('value', function(snap) {
-    var val = snap.val();
-    STATE.records = [];
-    if (val && typeof val === 'object') {
-      Object.keys(val).forEach(function(key) {
-        var r = val[key];
-        r.id = key;
-        STATE.records.push(r);
-      });
-    }
-    // Sort by start date descending (newest first) for admin view
-    STATE.records.sort(function(a, b) {
-      return (b.startDate || '').localeCompare(a.startDate || '');
-    });
-    renderTable();
-    renderStats();
-  });
-}
-
-/* ── Render table ── */
-function renderTable() {
-  var tbody = document.getElementById('tableBody');
-  if (STATE.records.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="empty-state__icon">⚖️</div><div class="empty-state__msg">No records yet</div></td></tr>';
-    return;
-  }
-
-  var today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  var html = STATE.records.map(function(r) {
-    var status = getStatus(r, today);
-    var pillClass = status === 'Active' ? 'pill--live' : 'pill--expired';
-
-    var endDisplay = r.endDate ? formatDate(r.endDate) : '<span style="color:var(--amber);font-weight:700;">Unresolved</span>';
-
-    var actionsHtml = '';
-    if (STATE.isAdmin) {
-      actionsHtml = '<td><div class="actions">'
-        + '<button class="btn btn--ghost btn--sm" onclick="editRecord(\'' + esc(r.id) + '\')">Edit</button>'
-        + '<button class="btn btn--danger btn--sm" onclick="openDeleteModal(\'' + esc(r.id) + '\')">Delete</button>'
-        + '</div></td>';
-    }
-
-    return '<tr>'
-      + '<td style="font-weight:700;">' + esc(r.club || '') + '</td>'
-      + '<td>' + esc(r.rule || '') + '</td>'
-      + '<td style="white-space:nowrap;">' + formatDate(r.startDate) + '</td>'
-      + '<td style="white-space:nowrap;">' + endDisplay + '</td>'
-      + '<td><span class="pill ' + pillClass + '">' + esc(status) + '</span></td>'
-      + actionsHtml
-      + '</tr>';
-  }).join('');
-
-  tbody.innerHTML = html;
-}
-
-/* ── Status helper ── */
-function getStatus(r, today) {
-  if (!r.endDate) return 'Active';
-  var end = parseDate(r.endDate);
-  return end >= today ? 'Active' : 'Resolved';
-}
-
-/* ── Render stats ── */
-function renderStats() {
-  if (!STATE.isAdmin) return;
-  var today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  var active = 0;
-  var clubSet = {};
-  STATE.records.forEach(function(r) {
-    if (getStatus(r, today) === 'Active') active++;
-    if (r.club) clubSet[r.club] = true;
-  });
-
-  document.getElementById('statActive').textContent = active;
-  document.getElementById('statTotal').textContent = STATE.records.length;
-  document.getElementById('statClubs').textContent = Object.keys(clubSet).length;
-}
-
-/* ── Form open/close ── */
-function openForm(id) {
-  var panel = document.getElementById('formPanel');
-  panel.classList.add('open');
-
-  if (id) {
-    // Edit mode
-    var r = STATE.records.find(function(rec) { return rec.id === id; });
-    if (!r) return;
-    document.getElementById('formTitle').textContent = 'Edit record';
-    document.getElementById('editId').value = id;
-    document.getElementById('clubInput').value = r.club || '';
-    document.getElementById('ruleInput').value = r.rule || '';
-    document.getElementById('startInput').value = r.startDate || '';
-    document.getElementById('endInput').value = r.endDate || '';
-    updatePickerCrest(r.club ? (CREST_BASE + encodeURIComponent(r.club) + '.png') : '');
+/* ── Page render (role-aware) ── */
+function renderPage() {
+  var main = document.getElementById('mainContent');
+  if (STATE.isAdmin) {
+    main.innerHTML = adminHTML();
   } else {
-    // Add mode
-    document.getElementById('formTitle').textContent = 'Add new record';
-    document.getElementById('editId').value = '';
-    document.getElementById('clubInput').value = '';
-    document.getElementById('ruleInput').value = '';
-    document.getElementById('startInput').value = '';
-    document.getElementById('endInput').value = '';
-    updatePickerCrest('');
+    main.innerHTML = accessHTML();
   }
-
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function closeForm() {
-  document.getElementById('formPanel').classList.remove('open');
-  document.getElementById('editId').value = '';
+function adminHTML() {
+  return '<div class="stats">'
+    + '<div class="stat stat--live"><div class="stat__num" id="statLive">—</div><div class="stat__label">Live</div></div>'
+    + '<div class="stat stat--soon"><div class="stat__num" id="statSoon">—</div><div class="stat__label">Closing Soon</div></div>'
+    + '<div class="stat stat--expired"><div class="stat__num" id="statExpired">—</div><div class="stat__label">Expired</div></div>'
+    + '<div class="stat stat--deleted"><div class="stat__num" id="statDeleted">—</div><div class="stat__label">Deleted</div></div>'
+    + '<div class="stat stat--pending" style="border-left:4px solid var(--amber);"><div class="stat__num" id="statPending" style="color:var(--amber);">—</div><div class="stat__label">Pending</div></div>'
+    + '</div>'
+    + '<div class="section-head">'
+    + '<h2 id="sectionTitle">Vacancies</h2>'
+    + '<button class="btn btn--accent" id="btnAdd" onclick="openAddModal()">+ Add Vacancy</button>'
+    + '</div>'
+    + '<div class="tabs">'
+    + '<button class="tab active" id="tabLive" onclick="switchTab(\'live\')">Live</button>'
+    + '<button class="tab" id="tabExpired" onclick="switchTab(\'expired\')">Expired</button>'
+    + '<button class="tab" id="tabDeleted" onclick="switchTab(\'deleted\')">Deleted</button>'
+    + '<button class="tab" id="tabSubmissions" onclick="switchTab(\'submissions\')">'
+    + 'Submissions <span id="pendingBadge" style="display:none;background:var(--amber);color:#000;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px;"></span>'
+    + '</button></div>'
+    + '<div id="vacTableWrap" class="table-wrap"><table class="table">'
+    + '<thead><tr><th style="width:36px"></th><th>Club</th><th>Role</th><th>Type</th><th>Closing</th><th>Status</th><th style="width:140px"></th></tr></thead>'
+    + '<tbody id="vacTableBody"><tr class="loading-row"><td colspan="7">Loading…</td></tr></tbody>'
+    + '</table></div>'
+    + '<div id="subsTableWrap" class="table-wrap" style="display:none;"><table class="table">'
+    + '<thead><tr><th style="width:36px"></th><th>Club</th><th>Role</th><th>Submitted</th><th>Submitter</th><th>Status</th><th style="width:160px"></th></tr></thead>'
+    + '<tbody id="subTableBody"><tr class="loading-row"><td colspan="7">Loading…</td></tr></tbody>'
+    + '</table></div>';
 }
 
-/* ── Ensure Firebase Auth is ready (cached session may not have live auth) ── */
+function accessHTML() {
+  return '<div class="access-header"><h1>Vacancies</h1><p>Live job listings across the National League.</p></div>'
+    + '<div class="submit-banner">'
+    + '<p><strong>Got a vacancy to share?</strong> Submit it for review and it\'ll appear on the public jobs board once approved.</p>'
+    + '<button class="btn btn--accent" onclick="openSubmitModal()">Submit a Vacancy</button>'
+    + '</div>'
+    + '<div class="table-wrap"><table class="table">'
+    + '<thead><tr><th style="width:36px"></th><th>Club</th><th>Role</th><th>Type</th><th>Closing</th><th>Status</th></tr></thead>'
+    + '<tbody id="vacTableBody"><tr class="loading-row"><td colspan="6">Loading…</td></tr></tbody>'
+    + '</table></div>';
+}
+
+/* ── Real-time vacancies ── */
+function startVacanciesListener() {
+  if (vacListener) vacRef.off('value', vacListener);
+  vacListener = vacRef.on('value', function(snap) {
+    var raw = snap.val() || {};
+    STATE.allVacancies = Object.keys(raw).map(function(id) {
+      var v = raw[id]; v.id = id;
+      v.crestUrl = CREST_BASE + encodeURIComponent(v.club || '') + '.png';
+      return v;
+    }).sort(function(a,b) {
+      var da=parseDate(a.closingDate), db2=parseDate(b.closingDate);
+      if (!da&&!db2) return 0; if (!da) return 1; if (!db2) return -1;
+      return da-db2;
+    });
+    if (STATE.isAdmin) { updateStats(); renderVacTable(); }
+    else { renderAccessTable(); }
+  });
+}
+
+/* ── Submissions (Firebase) ── */
+function loadSubs() {
+  db.ref('submissions').orderByChild('submittedAt').once('value', function(snap) {
+    var raw = snap.val() || {};
+    STATE.allSubs = Object.keys(raw).map(function(id) {
+      var s = raw[id]; s.id = id;
+      s.crestUrl = CREST_BASE + encodeURIComponent(s.club || '') + '.png';
+      return s;
+    }).sort(function(a,b) {
+      // Newest first
+      return (b.submittedAt||'') > (a.submittedAt||'') ? 1 : -1;
+    });
+    updateSubStats();
+    if (STATE.currentTab === 'submissions') renderSubsTable();
+  });
+}
+
+/* ── Stats ── */
+function updateStats() {
+  var now=new Date(), soon=new Date(now.getTime()+3*86400000);
+  var live=0,soonC=0,expired=0,deleted=0;
+  STATE.allVacancies.forEach(function(v) {
+    if (v.deleted){deleted++;return;}
+    var d=parseDate(v.closingDate);
+    if (d&&d<now){expired++;return;}
+    if (d&&d<=soon) soonC++;
+    live++;
+  });
+  function s(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
+  s('statLive',live);s('statSoon',soonC);s('statExpired',expired);s('statDeleted',deleted);
+}
+function updateSubStats() {
+  var n=STATE.allSubs.filter(function(s){return s.status==='Pending';}).length;
+  var el=document.getElementById('statPending'); if(el) el.textContent=n;
+  var b=document.getElementById('pendingBadge');
+  if(b){b.textContent=n;b.style.display=n>0?'inline':'none';}
+}
+
+/* ── Tabs (admin) ── */
+function switchTab(tab) {
+  STATE.currentTab=tab;
+  ['live','expired','deleted','submissions'].forEach(function(t){
+    var el=document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(el) el.classList.toggle('active',t===tab);
+  });
+  var isSubs=tab==='submissions';
+  var vw=document.getElementById('vacTableWrap'), sw=document.getElementById('subsTableWrap');
+  var ba=document.getElementById('btnAdd'), st=document.getElementById('sectionTitle');
+  if(vw) vw.style.display=isSubs?'none':'';
+  if(sw) sw.style.display=isSubs?'':'none';
+  if(ba) ba.style.display=isSubs?'none':'';
+  if(st) st.textContent=isSubs?'Submissions':'Vacancies';
+  if(isSubs) renderSubsTable(); else renderVacTable();
+}
+
+/* ── Admin table ── */
+function renderVacTable() {
+  var tbody=document.getElementById('vacTableBody'); if(!tbody) return;
+  var now=new Date();
+  var filtered=STATE.allVacancies.filter(function(v){
+    var d=parseDate(v.closingDate);
+    if(STATE.currentTab==='deleted') return v.deleted;
+    if(v.deleted) return false;
+    return STATE.currentTab==='expired'?(d&&d<now):!(d&&d<now);
+  });
+  if(!filtered.length){tbody.innerHTML='<tr class="empty-row"><td colspan="7">No vacancies in this category.</td></tr>';return;}
+  var soon=new Date(now.getTime()+3*86400000);
+  tbody.innerHTML=filtered.map(function(v){
+    var d=parseDate(v.closingDate),status,pillCls;
+    if(v.deleted){status='Deleted';pillCls='deleted';}
+    else if(d&&d<now){status='Expired';pillCls='expired';}
+    else if(d&&d<=soon){status='Closing Soon';pillCls='soon';}
+    else{status='Live';pillCls='live';}
+    var closing=d?fmtDT(d):'—';
+    var btns=v.deleted
+      ?'<button class="btn btn--restore btn--sm" onclick="confirmRestore(\''+v.id+'\',\''+escJ(v.jobTitle)+'\')">Restore</button>'
+      :'<button class="btn btn--ghost btn--sm" onclick="openEditModal(\''+v.id+'\')">Edit</button> '
+        +'<button class="btn btn--danger btn--sm" onclick="confirmDelete(\''+v.id+'\',\''+escJ(v.jobTitle)+'\')">Delete</button>';
+    return '<tr class="'+(v.deleted?'is-deleted':'')+'">'
+      +'<td><img class="job-crest" src="'+esc(v.crestUrl)+'" alt="" onerror="this.src=\''+FALLBACK+'\'"></td>'
+      +'<td><strong style="font-variation-settings:\'wght\' 700">'+esc(v.club)+'</strong></td>'
+      +'<td>'+esc(v.jobTitle)+'</td>'
+      +'<td>'+esc(v.vacancyType||'—')+'</td>'
+      +'<td style="white-space:nowrap;font-size:12px;">'+closing+'</td>'
+      +'<td><span class="pill pill--'+pillCls+'">'+status+'</span></td>'
+      +'<td style="white-space:nowrap;">'+btns+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+/* ── Access table (read only) ── */
+function renderAccessTable() {
+  var tbody=document.getElementById('vacTableBody'); if(!tbody) return;
+  var now=new Date();
+  var live=STATE.allVacancies.filter(function(v){
+    if(v.deleted) return false;
+    var d=parseDate(v.closingDate); return !(d&&d<now);
+  });
+  if(!live.length){tbody.innerHTML='<tr class="empty-row"><td colspan="6">No vacancies currently listed.</td></tr>';return;}
+  var soon=new Date(now.getTime()+3*86400000);
+  tbody.innerHTML=live.map(function(v){
+    var d=parseDate(v.closingDate),pillCls;
+    if(d&&d<=soon) pillCls='soon'; else pillCls='live';
+    var closing=d?fmtDT(d):'—';
+    return '<tr>'
+      +'<td><img class="job-crest" src="'+esc(v.crestUrl)+'" alt="" onerror="this.src=\''+FALLBACK+'\'"></td>'
+      +'<td><strong style="font-variation-settings:\'wght\' 700">'+esc(v.club)+'</strong></td>'
+      +'<td>'+esc(v.jobTitle)+'</td>'
+      +'<td>'+esc(v.vacancyType||'—')+'</td>'
+      +'<td style="white-space:nowrap;font-size:12px;">'+closing+'</td>'
+      +'<td><span class="pill pill--'+pillCls+'">'+(pillCls==='soon'?'Closing Soon':'Live')+'</span></td>'
+      +'</tr>';
+  }).join('');
+}
+
+/* ── Submissions table ── */
+function renderSubsTable() {
+  var tbody=document.getElementById('subTableBody'); if(!tbody) return;
+  if(!STATE.allSubs.length){tbody.innerHTML='<tr class="empty-row"><td colspan="7">No submissions yet.</td></tr>';return;}
+  tbody.innerHTML=STATE.allSubs.map(function(s){
+    var when=s.submittedAt?fmtDT(new Date(s.submittedAt)):'—';
+    var pillCls=s.status==='Approved'?'approved':s.status==='Rejected'?'rejected':'pending';
+    var approvedLabel=s.status==='Approved'&&s.approvedBy?'Approved: '+s.approvedBy:s.status;
+    return '<tr>'
+      +'<td><img class="job-crest" src="'+esc(s.crestUrl||FALLBACK)+'" alt="" onerror="this.src=\''+FALLBACK+'\'"></td>'
+      +'<td><strong style="font-variation-settings:\'wght\' 700">'+esc(s.club)+'</strong></td>'
+      +'<td>'+esc(s.jobTitle)+'</td>'
+      +'<td style="font-size:12px;white-space:nowrap;">'+when+'</td>'
+      +'<td style="font-size:12px;">'+esc(s.submitterName)+'<br><span style="color:var(--text-muted);font-size:11px;">'+esc(s.submitterRole)+' · '+esc(s.submitterEmail)+'</span></td>'
+      +'<td><span class="pill pill--'+pillCls+'">'+esc(approvedLabel)+'</span></td>'
+      +'<td><button class="btn btn--ghost btn--sm" onclick="openSubModal(\''+s.id+'\')">Review</button></td>'
+      +'</tr>';
+  }).join('');
+}
+
+/* ── Add/Edit ── */
+function openAddModal() {
+  STATE.editId=null;
+  document.getElementById('modalTitle').textContent='Add Vacancy';
+  document.getElementById('saveBtn').textContent='Save Vacancy';
+  document.getElementById('addedByGroup').style.display='';
+  clearForm();
+  document.getElementById('fAddedBy').value=STATE.session?STATE.session.name:'';
+  openModal('formModal');
+}
+function openEditModal(id) {
+  var v=STATE.allVacancies.find(function(x){return x.id===id;}); if(!v) return;
+  STATE.editId=id;
+  document.getElementById('modalTitle').textContent='Edit Vacancy';
+  document.getElementById('saveBtn').textContent='Update Vacancy';
+  document.getElementById('addedByGroup').style.display='none';
+  document.getElementById('fClub').value=v.club||'';
+  document.getElementById('fJobTitle').value=v.jobTitle||'';
+  document.getElementById('fLocation').value=v.location||'';
+  document.getElementById('fVacancyType').value=v.vacancyType||'';
+  document.getElementById('fDept').value=v.department||'';
+  document.getElementById('fSalary').value=v.salary||'';
+  document.getElementById('fDesc').value=v.description||'';
+  document.getElementById('fApplyUrl').value=v.applyUrl||'';
+  updatePickerCrest('adminPickerCrest',v.crestUrl||'');
+  setClosingFields('fClosingDate','fClosingTime','fNoTime',v.closingDate||'');
+  openModal('formModal');
+}
+function clearForm() {
+  ['fClub','fJobTitle','fLocation','fDept','fSalary','fDesc','fApplyUrl','fAddedBy'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('fVacancyType').value='';
+  document.getElementById('fClosingDate').value='';
+  document.getElementById('fClosingTime').value='17:00';
+  document.getElementById('fNoTime').checked=false;
+  onNoTimeToggle('fClosingTime',false);
+  updatePickerCrest('adminPickerCrest','');
+}
+/* ── Ensure Firebase Auth is live (cached session may not have signed in yet) ── */
 function ensureAuth() {
   return new Promise(function(resolve, reject) {
     var user = firebase.auth().currentUser;
     if (user) { resolve(user); return; }
-    // Wait for auth state to resolve
-    var unsubscribe = firebase.auth().onAuthStateChanged(function(u) {
-      unsubscribe();
-      if (u) { resolve(u); }
-      else { reject(new Error('Not authenticated')); }
+    var unsub = firebase.auth().onAuthStateChanged(function(u) {
+      unsub();
+      if (u) resolve(u); else reject(new Error('Not authenticated'));
     });
   });
 }
 
-/* ── Save record ── */
-function saveRecord() {
-  var club = document.getElementById('clubInput').value.trim();
-  var rule = document.getElementById('ruleInput').value.trim();
-  var startDate = document.getElementById('startInput').value;
-  var endDate = document.getElementById('endInput').value;
-  var editId = document.getElementById('editId').value;
+function saveJob() {
+  var club=document.getElementById('fClub').value.trim();
+  var title=document.getElementById('fJobTitle').value.trim();
+  if(!club){showToast('Club is required.','error');return;}
+  if(!title){showToast('Job title is required.','error');return;}
+  var isNew=!STATE.editId;
+  var addedBy=isNew?document.getElementById('fAddedBy').value.trim():undefined;
+  if(isNew&&!addedBy){showToast('Please enter your name in Added By.','error');return;}
+  var data={
+    club:club,jobTitle:title,
+    location:document.getElementById('fLocation').value.trim(),
+    vacancyType:document.getElementById('fVacancyType').value,
+    department:document.getElementById('fDept').value.trim(),
+    salary:document.getElementById('fSalary').value.trim(),
+    description:document.getElementById('fDesc').value.trim(),
+    applyUrl:document.getElementById('fApplyUrl').value.trim(),
+    closingDate:buildClosingStr('fClosingDate','fClosingTime','fNoTime'),
+    deleted:false,
+  };
+  if(isNew){data.addedBy=addedBy;data.createdAt=Date.now();}
+  var btn=document.getElementById('saveBtn');
+  btn.disabled=true;btn.textContent='Saving…';
+  ensureAuth().then(function(){
+    var p=isNew?vacRef.push(data):db.ref('vacancies/'+STATE.editId).update(data);
+    return p;
+  })
+  .then(function(){closeModal('formModal');showToast(isNew?'Vacancy added.':'Vacancy updated.','success');})
+  .catch(function(e){showToast(e.message,'error');})
+  .finally(function(){btn.disabled=false;btn.textContent=isNew?'Save Vacancy':'Update Vacancy';});
+}
 
-  if (!club) { showToast('Please select a club', 'error'); return; }
-  if (!rule) { showToast('Please enter the rule breached', 'error'); return; }
-  if (!startDate) { showToast('Please enter a start date', 'error'); return; }
+/* ── Delete/Restore ── */
+function confirmDelete(id,title){
+  STATE.pendingAction='delete';STATE.pendingId=id;STATE.pendingTitle=title;
+  document.getElementById('confirmTitle').textContent='Delete Vacancy';
+  document.getElementById('confirmText').textContent='Are you sure you want to delete this vacancy?';
+  document.getElementById('confirmJob').textContent=title;
+  document.getElementById('confirmBtn').className='btn btn--danger';
+  document.getElementById('confirmBtn').textContent='Delete';
+  openModal('confirmModal');
+}
+function confirmRestore(id,title){
+  STATE.pendingAction='restore';STATE.pendingId=id;STATE.pendingTitle=title;
+  document.getElementById('confirmTitle').textContent='Restore Vacancy';
+  document.getElementById('confirmText').textContent='Restore this vacancy to the live board?';
+  document.getElementById('confirmJob').textContent=title;
+  document.getElementById('confirmBtn').className='btn btn--restore';
+  document.getElementById('confirmBtn').textContent='Restore';
+  openModal('confirmModal');
+}
+function confirmAction(){
+  var btn=document.getElementById('confirmBtn');
+  btn.disabled=true;btn.textContent=STATE.pendingAction==='delete'?'Deleting…':'Restoring…';
+  closeModal('confirmModal');
+  ensureAuth().then(function(){
+    return db.ref('vacancies/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'});
+  })
+  .then(function(){showToast(STATE.pendingAction==='delete'?'Deleted.':'Restored.','success');})
+  .catch(function(e){showToast(e.message,'error');})
+  .finally(function(){btn.disabled=false;btn.textContent='Confirm';});
+}
 
-  var data = {
-    club: club,
-    rule: rule,
-    startDate: startDate,
-    endDate: endDate || '',
-    updatedAt: new Date().toISOString(),
-    updatedBy: STATE.uid
+/* ── Submission review (admin) ── */
+function openSubModal(id) {
+  var sub=STATE.allSubs.find(function(s){return s.id===id;}); if(!sub) return;
+  STATE.reviewSubId=id;
+  document.getElementById('subBanner').innerHTML=
+    '<strong>'+esc(sub.submitterName)+'</strong> — '+esc(sub.submitterRole)
+    +'<br><a href="mailto:'+esc(sub.submitterEmail)+'" style="color:var(--navy)">'+esc(sub.submitterEmail)+'</a>'
+    +(sub.liveListingUrl?'&nbsp;·&nbsp;<a href="'+esc(sub.liveListingUrl)+'" target="_blank" style="color:var(--navy)">View live listing ↗</a>':'')
+    +'<br><span style="color:var(--text-muted);font-size:11px;">Submitted '+esc(sub.submittedAt?fmtDT(new Date(sub.submittedAt)):'—')+'</span>';
+  document.getElementById('sClub').value       = sub.club||'';
+  document.getElementById('sJobTitle').value   = sub.jobTitle||'';
+  document.getElementById('sLocation').value   = sub.location||'';
+  document.getElementById('sVacancyType').value= sub.vacancyType||'';
+  document.getElementById('sDept').value       = sub.department||'';
+  document.getElementById('sSalary').value     = sub.salary||'';
+  document.getElementById('sDesc').value       = sub.description||'';
+  document.getElementById('sLiveUrl').value    = sub.liveListingUrl||'';
+  document.getElementById('sNotes').value      = sub.notes||'';
+  document.getElementById('sApprovedBy').value = STATE.session?STATE.session.name:'';
+  updatePickerCrest('subPickerCrest',sub.crestUrl||'');
+  setClosingFields('sClosingDate','sClosingTime',null,sub.closingDate||'');
+  document.getElementById('subModalTitle').textContent=sub.status==='Pending'?'Review Submission':'Submission — '+sub.status;
+  document.getElementById('subRejectBtn').style.display=sub.status==='Rejected'?'none':'';
+  setSubModalBtns(false);
+  openModal('subModal');
+}
+function getSubData(){
+  return {
+    club:           document.getElementById('sClub').value.trim(),
+    jobTitle:       document.getElementById('sJobTitle').value.trim(),
+    location:       document.getElementById('sLocation').value.trim(),
+    vacancyType:    document.getElementById('sVacancyType').value,
+    department:     document.getElementById('sDept').value.trim(),
+    salary:         document.getElementById('sSalary').value.trim(),
+    description:    document.getElementById('sDesc').value.trim(),
+    liveListingUrl: document.getElementById('sLiveUrl').value.trim(),
+    closingDate:    buildClosingStr('sClosingDate','sClosingTime',null),
+    notes:          document.getElementById('sNotes').value.trim(),
+  };
+}
+function setSubModalBtns(loading,which){
+  ['subRejectBtn','subSaveBtn','subApproveBtn'].forEach(function(id){
+    var el=document.getElementById(id);if(!el)return;
+    el.disabled=loading;el.style.opacity=loading?'0.6':'';
+  });
+  if(!loading){
+    var a=document.getElementById('subApproveBtn');var r=document.getElementById('subRejectBtn');var s=document.getElementById('subSaveBtn');
+    if(a)a.textContent='✓ Approve & Publish';if(r)r.textContent='Reject';if(s)s.textContent='Save Changes';
+  } else {
+    var btn=document.getElementById(which);
+    if(btn) btn.textContent=which==='subApproveBtn'?'Publishing…':which==='subRejectBtn'?'Rejecting…':'Saving…';
+  }
+}
+function gasPost(payload){
+  return fetch(GAS_URL+'?cb='+Date.now(),{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(payload)}).then(function(r){return r.json();});
+}
+function saveSub(){
+  setSubModalBtns(true,'subSaveBtn');
+  var data=getSubData();
+  ensureAuth().then(function(){
+    return db.ref('submissions/'+STATE.reviewSubId).update(data);
+  })
+  .then(function(){showToast('Saved.','success');loadSubs();})
+  .catch(function(e){showToast(e.message,'error');})
+  .finally(function(){setSubModalBtns(false);});
+}
+function approveSub(){
+  var approvedBy=document.getElementById('sApprovedBy').value.trim();
+  if(!approvedBy){showToast('Please enter your name in Approved By.','error');return;}
+  setSubModalBtns(true,'subApproveBtn');
+  var data=getSubData();
+  data.status='Approved';
+  data.approvedBy=approvedBy;
+  ensureAuth().then(function(){
+    return db.ref('submissions/'+STATE.reviewSubId).update(data);
+  }).then(function(){
+      var sub=STATE.allSubs.find(function(s){return s.id===STATE.reviewSubId;});
+      if(!sub) return;
+      return ensureAuth().then(function(){
+        return vacRef.push({
+          club:        data.club        ||sub.club,
+          jobTitle:    data.jobTitle    ||sub.jobTitle,
+          location:    data.location    ||sub.location,
+          vacancyType: data.vacancyType ||sub.vacancyType,
+          department:  data.department  ||sub.department,
+          salary:      data.salary      ||sub.salary,
+          description: data.description ||sub.description,
+          applyUrl:    data.liveListingUrl||sub.liveListingUrl,
+          closingDate: data.closingDate ||sub.closingDate,
+          addedBy:     approvedBy,
+          createdAt:   Date.now(),
+          deleted:     false,
+        });
+      });
+  })
+  .then(function(){closeModal('subModal');showToast('Approved and published.','success');loadSubs();})
+  .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
+}
+function rejectSub(){
+  setSubModalBtns(true,'subRejectBtn');
+  var notes=document.getElementById('sNotes').value.trim();
+  ensureAuth().then(function(){
+    return db.ref('submissions/'+STATE.reviewSubId).update({status:'Rejected',notes:notes});
+  })
+  .then(function(){closeModal('subModal');showToast('Rejected.','success');loadSubs();})
+  .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
+}
+
+/* ── Submit modal (access + admin) ── */
+function openSubmitModal(){
+  STATE.submitCodeVerified = false;
+  if(STATE.submitCountdownInt) clearInterval(STATE.submitCountdownInt);
+  // Portal users are already authenticated — no code needed
+  STATE.submitIsAuthed = !!(STATE.session && STATE.session.uid);
+  if(STATE.submitIsAuthed) STATE.submitCodeVerified = true;
+  renderSubmitStep1();
+  openModal('submitModal');
+}
+function renderSubmitStep1(){
+  var body=document.getElementById('submitModalBody');
+  var session=STATE.session||{};
+  var isClubUser = !!(session.club && session.club.trim());
+  var clubVal = isClubUser ? session.club.trim() : '';
+  var clubCrest = isClubUser ? (CREST_BASE+encodeURIComponent(clubVal)+'.png') : FALLBACK;
+
+  // Club picker — locked for club users, open for NL staff
+  var clubField = isClubUser
+    ? '<div class="form-group span2"><label>Club</label>'
+      +'<div class="club-picker__wrap" style="opacity:0.75;pointer-events:none;cursor:default;">'
+      +'<img class="club-picker__crest" src="'+esc(clubCrest)+'" alt="" onerror="this.src=\''+FALLBACK+'\'" style="width:28px;height:28px;object-fit:contain;">'
+      +'<span style="font-size:13px;font-weight:600;font-variation-settings:\'wght\' 600;padding:0;flex:1;">'+esc(clubVal)+'</span>'
+      +'</div>'
+      +'<input type="hidden" id="sfClub" value="'+esc(clubVal)+'">'
+      +'<span class="form-hint">Your club is set by your portal account</span></div>'
+    : '<div class="form-group span2"><label>Club <span class="req">*</span></label>'
+      +'<div class="club-picker"><div class="club-picker__wrap">'
+      +'<img class="club-picker__crest" id="subFormCrest" src="'+FALLBACK+'" alt="">'
+      +'<input class="club-picker__input" id="sfClub" type="text" placeholder="Search or type club name…" autocomplete="off"'
+      +' oninput="onClubInput(\'sfClub\',\'sfClubDrop\',\'subFormCrest\',this.value)"'
+      +' onblur="setTimeout(function(){closeDropdown(\'sfClubDrop\');},150)">'
+      +'</div><div class="club-picker__dropdown" id="sfClubDrop"></div></div></div>';
+
+  // Submitter section — authed users see locked display, external users see form + code
+  var submitterSection = STATE.submitIsAuthed
+    ? '<div class="form-group span2">'
+      +'<label>Submitting as</label>'
+      +'<div style="background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:13px;line-height:1.6;">'
+      +'<strong style="font-variation-settings:\'wght\' 700">'+esc(session.name||'')+'</strong>'
+      +(session.jobTitle?' — '+esc(session.jobTitle):'')
+      +'<br><span style="color:var(--text-muted);">'+esc(session.email||'')+'</span>'
+      +'</div>'
+      +'<input type="hidden" id="sfName" value="'+esc(session.name||'')+'"><input type="hidden" id="sfRole" value="'+esc(session.jobTitle||'')+'"><input type="hidden" id="sfEmail" value="'+esc(session.email||'')+'">'
+      +'</div>'
+    : '<div class="form-group"><label>Your Name <span class="req">*</span></label><input type="text" id="sfName" placeholder="Full name"></div>'
+      +'<div class="form-group"><label>Your Role at Club <span class="req">*</span></label><input type="text" id="sfRole" placeholder="e.g. Head of HR"></div>'
+      +'<div class="form-group span2"><label>Your Email <span class="req">*</span></label>'
+      +'<div class="email-row">'
+      +'<div class="form-group" style="margin:0"><input type="email" id="sfEmail" placeholder="you@yourclub.co.uk"></div>'
+      +'<button class="btn-send-code" id="sfSendCodeBtn" onclick="sendSubmitCode()">Send Code</button>'
+      +'</div><span class="form-hint">A 4-digit code will be sent to verify your email</span></div>'
+      +'<div class="form-group span2" id="sfCodeGroup" style="display:none;">'
+      +'<label>Verification Code <span class="req">*</span></label>'
+      +'<div style="display:flex;gap:10px;align-items:flex-end;">'
+      +'<input type="text" id="sfCode" class="code-input" maxlength="4" placeholder="0000" inputmode="numeric">'
+      +'</div>'
+      +'<div id="sfCountdown" style="font-size:11px;color:var(--text-muted);margin-top:4px;display:none;"></div>'
+      +'<div class="code-status" id="sfCodeStatus"></div>'
+      +'</div>';
+
+  body.innerHTML='<div class="submit-note">Your vacancy must already be listed on your club\'s own website before submitting. Submissions are reviewed by NL staff before going live. 1,000 character limit on description.</div>'
+    +'<div class="form-grid">'
+    +clubField
+    +'<div class="form-group span2"><label>Job Title <span class="req">*</span></label><input type="text" id="sfTitle" placeholder="e.g. First Team Physiotherapist"></div>'
+    +'<div class="form-group"><label>Location</label><input type="text" id="sfLocation" placeholder="e.g. Training ground"></div>'
+    +'<div class="form-group"><label>Vacancy Type</label><select id="sfType"><option value="">— Select —</option><option>Permanent</option><option>Fixed Term</option><option>Contract</option><option>Casual</option><option>Part Time</option><option>Voluntary</option></select></div>'
+    +'<div class="form-group"><label>Department</label><input type="text" id="sfDept" placeholder="e.g. Marketing"></div>'
+    +'<div class="form-group"><label>Salary</label><input type="text" id="sfSalary" placeholder="e.g. £28,000 per year"></div>'
+    +'<div class="form-group span2"><label>Description</label>'
+    +'<div style="position:relative;">'
+    +'<textarea id="sfDesc" maxlength="1000" oninput="updateDescCount()" style="padding-bottom:26px;" placeholder="High-level overview of the role…"></textarea>'
+    +'<span id="sfDescCount" style="position:absolute;bottom:8px;right:10px;font-size:11px;color:var(--text-muted);pointer-events:none;">0 / 1,000</span>'
+    +'</div></div>'
+    +'<div class="form-group span2"><label>Live Listing URL <span class="req">*</span></label><input type="url" id="sfLiveUrl" placeholder="https://…"><span class="form-hint">Must be live on your club\'s own site before submitting</span></div>'
+    +'<div class="form-group span2"><label>Closing Date &amp; Time</label>'
+    +'<div class="datetime-row"><input type="date" id="sfClosingDate"><input type="time" id="sfClosingTime" value="17:00"></div>'
+    +'<label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;">'
+    +'<input type="checkbox" id="sfNoTime" onchange="onNoTimeToggle(\'sfClosingTime\',this.checked)"> No specific time — expires end of day</label></div>'
+    +submitterSection
+    +'</div>'
+    +'<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">'
+    +'<button class="btn btn--ghost" onclick="closeModal(\'submitModal\')">Cancel</button>'
+    +'<button class="btn btn--accent" id="sfSubmitBtn" onclick="doSubmit()"'+(STATE.submitIsAuthed?'':' disabled')+'>Submit Vacancy</button>'
+    +'</div>';
+
+  // Wire up code input for external users
+  if(!STATE.submitIsAuthed){
+    setTimeout(function(){
+      var ci=document.getElementById('sfCode');
+      if(ci) ci.addEventListener('input',function(){
+        this.value=this.value.replace(/\D/g,'').slice(0,4);
+        if(this.value.length===4) verifySubmitCode(this.value);
+      });
+    },50);
+  }
+}
+
+function updateDescCount(){
+  var ta=document.getElementById('sfDesc'), el=document.getElementById('sfDescCount');
+  if(!ta||!el) return;
+  var n=ta.value.length;
+  el.textContent=n.toLocaleString()+' / 1,000';
+  el.style.color=n>=950?'var(--red)':n>=800?'var(--amber)':'var(--text-muted)';
+}
+
+function sendSubmitCode(){
+  var email=document.getElementById('sfEmail').value.trim();
+  var name=document.getElementById('sfName').value.trim();
+  var role=document.getElementById('sfRole').value.trim();
+  if(!name){showToast('Please enter your name first.','error');return;}
+  if(!role){showToast('Please enter your role.','error');return;}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showToast('Please enter a valid email address.','error');return;}
+  var btn=document.getElementById('sfSendCodeBtn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending…';
+  gasPost({action:'vacancies_requestCode',email:email})
+    .then(function(r){
+      if(r.error) throw new Error(r.error);
+      document.getElementById('sfCodeGroup').style.display='';
+      startCodeCountdown();
+      btn.textContent='Resend Code';btn.disabled=false;
+    })
+    .catch(function(e){showToast(e.message,'error');btn.textContent='Send Code';btn.disabled=false;});
+}
+
+function startCodeCountdown(){
+  var el=document.getElementById('sfCountdown'); if(!el) return;
+  el.style.display='block';el.style.color='var(--text-muted)';
+  var secs=600;
+  if(STATE.submitCountdownInt) clearInterval(STATE.submitCountdownInt);
+  function tick(){
+    if(!document.getElementById('sfCountdown')){clearInterval(STATE.submitCountdownInt);return;}
+    if(secs<=0){clearInterval(STATE.submitCountdownInt);el.textContent='Code expired — request a new one.';el.style.color='var(--red)';STATE.submitCodeVerified=false;var sb=document.getElementById('sfSubmitBtn');if(sb)sb.disabled=true;return;}
+    var m=Math.floor(secs/60),s=secs%60;
+    el.textContent='Code expires in '+m+':'+String(s).padStart(2,'0');
+    secs--;
+  }
+  tick();STATE.submitCountdownInt=setInterval(tick,1000);
+}
+
+function verifySubmitCode(code){
+  var email=document.getElementById('sfEmail').value.trim();
+  var status=document.getElementById('sfCodeStatus');
+  if(code.length===4&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    status.className='code-status ok';status.textContent='✓ Code entered — submit when ready.';
+    STATE.submitCodeVerified=true;
+    var btn=document.getElementById('sfSubmitBtn');if(btn)btn.disabled=false;
+  }
+}
+
+function doSubmit(){
+  var club=document.getElementById('sfClub').value.trim();
+  var title=document.getElementById('sfTitle').value.trim();
+  var liveUrl=document.getElementById('sfLiveUrl').value.trim();
+  var email=document.getElementById('sfEmail').value.trim();
+  var name=document.getElementById('sfName').value.trim();
+  var role=document.getElementById('sfRole').value.trim();
+  if(!club){showToast('Club is required.','error');return;}
+  if(!title){showToast('Job title is required.','error');return;}
+  if(!liveUrl){showToast('Live listing URL is required.','error');return;}
+  if(!STATE.submitIsAuthed){
+    var code=document.getElementById('sfCode').value.trim();
+    if(!STATE.submitCodeVerified||code.length!==4){showToast('Please verify your email first.','error');return;}
+  }
+  var btn=document.getElementById('sfSubmitBtn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Submitting…';
+
+  // For authed portal users we bypass GAS verification — write directly
+  // submitterRole uses jobTitle from session for portal users
+  var payload={
+    action:'vacancies_submit',
+    'Club':club,'Job Title':title,
+    'Location':document.getElementById('sfLocation').value.trim(),
+    'Vacancy Type':document.getElementById('sfType').value,
+    'Department':document.getElementById('sfDept').value.trim(),
+    'Salary':document.getElementById('sfSalary').value.trim(),
+    'Description':document.getElementById('sfDesc').value.trim(),
+    'Closing Date':buildClosingStr('sfClosingDate','sfClosingTime','sfNoTime'),
+    'Live Listing URL':liveUrl,
+    submitterName:name, submitterEmail:email, submitterRole:role,
   };
 
-  ensureAuth().then(function() {
-    var db = firebase.database();
-    var promise;
+  if(STATE.submitIsAuthed){
+    // Authed users skip code — GAS action uses submitVacancyAuthed which skips code check
+    payload.action = 'submitVacancyAuthed';
+    payload.uid    = STATE.session.uid;
+  } else {
+    payload.code = document.getElementById('sfCode').value.trim();
+  }
 
-    if (editId) {
-      promise = db.ref('judgements/' + editId).update(data);
-    } else {
-      data.createdAt = new Date().toISOString();
-      data.createdBy = STATE.uid;
-      promise = db.ref('judgements').push(data);
-    }
-
-    return promise;
-  }).then(function() {
-    showToast(editId ? 'Record updated' : 'Record added', 'success');
-    closeForm();
-  }).catch(function(err) {
-    showToast('Error: ' + err.message, 'error');
-  });
+  gasPost(payload)
+    .then(function(r){
+      if(r.error) throw new Error(r.error);
+      if(STATE.submitCountdownInt) clearInterval(STATE.submitCountdownInt);
+      document.getElementById('submitModalBody').innerHTML=
+        '<div class="success-screen">'
+        +'<div class="success-screen__icon">✅</div>'
+        +'<h2>Submission Received</h2>'
+        +'<p>Thank you — your vacancy has been submitted for review by NL staff.</p>'
+        +'</div>';
+      if(STATE.isAdmin) loadSubs();
+    })
+    .catch(function(e){showToast(e.message,'error');btn.disabled=false;btn.textContent='Submit Vacancy';STATE.submitCodeVerified=false;});
 }
 
-/* ── Edit record ── */
-function editRecord(id) {
-  openForm(id);
+/* ── Club picker (generic, takes IDs) ── */
+function loadClubs(){
+  fetch(CLUBS_URL).then(function(r){return r.json();}).then(function(d){STATE.clubs=d.clubs||[];}).catch(function(){});
 }
-
-/* ── Delete record ── */
-function openDeleteModal(id) {
-  STATE.deleteId = id;
-  var r = STATE.records.find(function(rec) { return rec.id === id; });
-  document.getElementById('deleteMsg').textContent = 'Delete the record for ' + (r ? r.club : 'this club') + '?';
-  document.getElementById('deleteModal').classList.add('open');
-}
-
-function closeDeleteModal() {
-  document.getElementById('deleteModal').classList.remove('open');
-  STATE.deleteId = null;
-}
-
-function confirmDelete() {
-  if (!STATE.deleteId) return;
-  var id = STATE.deleteId;
-  ensureAuth().then(function() {
-    return firebase.database().ref('judgements/' + id).remove();
-  }).then(function() {
-    showToast('Record deleted', 'success');
-    closeDeleteModal();
-  }).catch(function(err) {
-    showToast('Error: ' + err.message, 'error');
-    closeDeleteModal();
-  });
-}
-
-/* ── Club picker ── */
-function onClubInput(val) {
-  var dd = document.getElementById('clubDropdown');
-  if (!val.trim()) { dd.classList.remove('open'); updatePickerCrest(''); return; }
-  var lower = val.toLowerCase();
-  var matches = STATE.clubs.filter(function(c) {
-    return c.name.toLowerCase().indexOf(lower) !== -1 || (c.short && c.short.toLowerCase().indexOf(lower) !== -1);
-  }).slice(0, 10);
-  var html = matches.map(function(c) {
-    var cr = CREST_BASE + encodeURIComponent(c.name) + '.png';
-    return '<div class="club-picker__option" onmousedown="selectClub(\'' + escJ(c.name) + '\',\'' + escJ(cr) + '\')">'
-      + '<img src="' + esc(cr) + '" onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'">'
-      + '<span class="club-picker__option-name">' + esc(c.name) + '</span>'
-      + '<span class="club-picker__option-div">' + esc(c.division || '') + '</span>'
-      + '</div>';
+function onClubInput(inputId,dropId,crestId,val){
+  var dd=document.getElementById(dropId);if(!dd)return;
+  if(!val.trim()){dd.classList.remove('open');updatePickerCrest(crestId,'');return;}
+  var lower=val.toLowerCase();
+  var matches=STATE.clubs.filter(function(c){return c.name.toLowerCase().indexOf(lower)!==-1||(c.short&&c.short.toLowerCase().indexOf(lower)!==-1);}).slice(0,10);
+  var html=matches.map(function(c){
+    var cr=CREST_BASE+encodeURIComponent(c.name)+'.png';
+    return '<div class="club-picker__option" onmousedown="selectClub(\''+inputId+'\',\''+dropId+'\',\''+crestId+'\',\''+escJ(c.name)+'\',\''+escJ(cr)+'\')">'
+      +'<img src="'+esc(cr)+'" onerror="this.src=\''+FALLBACK+'\'">'
+      +'<span class="club-picker__option-name">'+esc(c.name)+'</span>'
+      +'<span class="club-picker__option-div">'+esc(c.division||'')+'</span></div>';
   }).join('');
-  html += '<div class="club-picker__freetext" onmousedown="selectClub(\'' + escJ(val) + '\',\'\')">Use "' + esc(val) + '" as entered</div>';
-  dd.innerHTML = html; dd.classList.add('open');
+  html+='<div class="club-picker__freetext" onmousedown="selectClub(\''+inputId+'\',\''+dropId+'\',\''+crestId+'\',\''+escJ(val)+'\',\'\')">Use "'+esc(val)+'" as entered</div>';
+  dd.innerHTML=html;dd.classList.add('open');
 }
-
-function selectClub(name, cr) {
-  document.getElementById('clubInput').value = name;
-  updatePickerCrest(cr || (CREST_BASE + encodeURIComponent(name) + '.png'));
-  closeDropdown();
+function selectClub(inputId,dropId,crestId,name,cr){
+  var el=document.getElementById(inputId);if(el)el.value=name;
+  updatePickerCrest(crestId,cr||(CREST_BASE+encodeURIComponent(name)+'.png'));
+  closeDropdown(dropId);
 }
-
-function updatePickerCrest(url) {
-  var img = document.getElementById('pickerCrest');
-  img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-  img.src = url || FALLBACK_CREST;
+function updatePickerCrest(id,url){
+  var img=document.getElementById(id);if(!img)return;
+  img.src=url||FALLBACK;img.onerror=function(){this.src=FALLBACK;};
 }
-
-function closeDropdown() { document.getElementById('clubDropdown').classList.remove('open'); }
+function closeDropdown(id){var el=document.getElementById(id);if(el)el.classList.remove('open');}
 
 /* ── Date helpers ── */
-function parseDate(str) {
-  var parts = str.split('-');
-  return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+function parseDate(str){
+  if(!str||!str.trim())return null;
+  var s=str.trim();
+  if(/^\d{1,2}\/\d{1,2}\/\d{4}/.test(s)){
+    var p=s.split(' '),dp=p[0].split('/'),tp=(p[1]||'00:00').split(':');
+    var d=new Date(+dp[2],+dp[1]-1,+dp[0],+(tp[0]||0),+(tp[1]||0));
+    return isNaN(d.getTime())?null:d;
+  }
+  var a=new Date(s);return isNaN(a.getTime())?null:a;
+}
+function fmtDT(d){
+  var dy=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return dy[d.getDay()]+' '+d.getDate()+' '+mo[d.getMonth()]+' '+d.getFullYear()+', '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function onNoTimeToggle(timeId,checked){var ti=document.getElementById(timeId);if(!ti)return;ti.disabled=checked;ti.style.opacity=checked?'0.35':'1';}
+function buildClosingStr(dateId,timeId,noTimeId){
+  var dv=document.getElementById(dateId);if(!dv||!dv.value)return '';
+  var noTime=noTimeId&&document.getElementById(noTimeId)&&document.getElementById(noTimeId).checked;
+  var tv=noTime?'23:59':(document.getElementById(timeId).value||'23:59');
+  var p=dv.value.split('-');return p[2]+'/'+p[1]+'/'+p[0]+' '+tv;
+}
+function setClosingFields(dateId,timeId,noTimeId,str){
+  var di=document.getElementById(dateId),ti=document.getElementById(timeId);
+  if(!di)return;
+  if(!str){di.value='';if(ti)ti.value='17:00';if(noTimeId){document.getElementById(noTimeId).checked=false;onNoTimeToggle(timeId,false);}return;}
+  var d=parseDate(str);if(!d){di.value='';if(ti)ti.value='17:00';return;}
+  di.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  var eod=d.getHours()===23&&d.getMinutes()===59;
+  if(noTimeId){
+    document.getElementById(noTimeId).checked=eod;
+    onNoTimeToggle(timeId,eod);
+  }
+  if(!eod&&ti) ti.value=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
 
-function formatDate(str) {
-  if (!str) return '—';
-  var d = parseDate(str);
-  var day = d.getDate();
-  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  return day + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
-}
-
-/* ── Toast ── */
-function showToast(msg, type) {
-  var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast ' + (type || 'success') + ' show';
-  setTimeout(function() { t.classList.remove('show'); }, 3500);
-}
-
-/* ── Escape helpers ── */
-function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function escJ(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
-
-/* ── Logout ── */
-function doLogout() {
-  firebase.auth().signOut().then(function() {
-    window.location.href = '/tools/';
-  });
-}
+/* ── Modals / Toast / Helpers ── */
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function showToast(msg,type){var t=document.getElementById('toast');t.textContent=msg;t.className='toast '+(type||'success')+' show';setTimeout(function(){t.classList.remove('show');},3000);}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escJ(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 </script>
 </body>
 </html>
