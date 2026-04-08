@@ -3,10 +3,16 @@
 <head>
 <!--
   NL Tools — Vacancies
-  Version: 1.5
+  Version: 1.6
   Date: 08/04/2026
 
   CHANGELOG
+  v1.6 (08/04/2026)
+    - Added click tracking — Clicks column in admin table
+    - loadAnalytics() reads /analytics/vacancies in real time
+    - Clicks column shows navy count if >0, muted if 0
+    - analytics node added to Firebase rules (public write, admin read)
+
   v1.5 (08/04/2026)
     - loadSubs now waits for ensureAuth() before reading /submissions
       (was firing before Firebase Auth resolved — silent permission denied)
@@ -459,7 +465,7 @@ var GAS_URL      = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLX
 
 var STATE = {
   session: null, isAdmin: false,
-  clubs: [], allVacancies: [], allSubs: [],
+  clubs: [], allVacancies: [], allSubs: [], analytics: {},
   currentTab: 'live', editId: null, reviewSubId: null,
   pendingAction: null, pendingId: null, pendingTitle: null,
   submitCodeVerified: false, submitCountdownInt: null,
@@ -478,7 +484,7 @@ window.nlAuthReady = function(session) {
 
   loadClubs();
   startVacanciesListener();
-  if (STATE.isAdmin) loadSubs();
+  if (STATE.isAdmin) { loadSubs(); loadAnalytics(); }
   renderPage();
 };
 
@@ -512,8 +518,8 @@ function adminHTML() {
     + 'Submissions <span id="pendingBadge" style="display:none;background:var(--amber);color:#000;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px;"></span>'
     + '</button></div>'
     + '<div id="vacTableWrap" class="table-wrap"><table class="table">'
-    + '<thead><tr><th style="width:36px"></th><th>Club</th><th>Role</th><th>Type</th><th>Closing</th><th>Status</th><th style="width:140px"></th></tr></thead>'
-    + '<tbody id="vacTableBody"><tr class="loading-row"><td colspan="7">Loading…</td></tr></tbody>'
+    + '<thead><tr><th style="width:36px"></th><th>Club</th><th>Role</th><th>Type</th><th>Closing</th><th>Status</th><th style="width:60px;text-align:center;">Clicks</th><th style="width:140px"></th></tr></thead>'
+    + '<tbody id="vacTableBody"><tr class="loading-row"><td colspan="8">Loading…</td></tr></tbody>'
     + '</table></div>'
     + '<div id="subsTableWrap" class="table-wrap" style="display:none;"><table class="table">'
     + '<thead><tr><th style="width:36px"></th><th>Club</th><th>Role</th><th>Submitted</th><th>Submitter</th><th>Status</th><th style="width:160px"></th></tr></thead>'
@@ -573,7 +579,14 @@ function loadSubs() {
   });
 }
 
-/* ── Stats ── */
+/* ── Analytics ── */
+function loadAnalytics() {
+  // Public read — no auth needed, but listen for real-time updates
+  db.ref('analytics/vacancies').on('value', function(snap) {
+    STATE.analytics = snap.val() || {};
+    if (STATE.currentTab !== 'submissions') renderVacTable();
+  });
+}
 function updateStats() {
   var now=new Date(), soon=new Date(now.getTime()+3*86400000);
   var live=0,soonC=0,expired=0,deleted=0;
@@ -621,7 +634,7 @@ function renderVacTable() {
     if(v.deleted) return false;
     return STATE.currentTab==='expired'?(d&&d<now):!(d&&d<now);
   });
-  if(!filtered.length){tbody.innerHTML='<tr class="empty-row"><td colspan="7">No vacancies in this category.</td></tr>';return;}
+  if(!filtered.length){tbody.innerHTML='<tr class="empty-row"><td colspan="8">No vacancies in this category.</td></tr>';return;}
   var soon=new Date(now.getTime()+3*86400000);
   tbody.innerHTML=filtered.map(function(v){
     var d=parseDate(v.closingDate),status,pillCls;
@@ -630,6 +643,7 @@ function renderVacTable() {
     else if(d&&d<=soon){status='Closing Soon';pillCls='soon';}
     else{status='Live';pillCls='live';}
     var closing=d?fmtDT(d):'—';
+    var clicks=(STATE.analytics[v.id]&&STATE.analytics[v.id].clicks)||0;
     var btns=v.deleted
       ?'<button class="btn btn--restore btn--sm" onclick="confirmRestore(\''+v.id+'\',\''+escJ(v.jobTitle)+'\')">Restore</button>'
       :'<button class="btn btn--ghost btn--sm" onclick="openEditModal(\''+v.id+'\')">Edit</button> '
@@ -641,6 +655,7 @@ function renderVacTable() {
       +'<td>'+esc(v.vacancyType||'—')+'</td>'
       +'<td style="white-space:nowrap;font-size:12px;">'+closing+'</td>'
       +'<td><span class="pill pill--'+pillCls+'">'+status+'</span></td>'
+      +'<td style="text-align:center;font-weight:700;font-variation-settings:\'wght\' 700;color:'+(clicks>0?'var(--navy)':'var(--text-muted)')+';">'+clicks+'</td>'
       +'<td style="white-space:nowrap;">'+btns+'</td>'
       +'</tr>';
   }).join('');
