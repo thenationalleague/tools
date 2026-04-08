@@ -67,7 +67,7 @@
           org:      userData.org      || '',
           orgKey:   userData.orgKey   || '',
           club:     userData.club     || '',
-          clubRole: userData.clubRole || '',
+          jobTitle: userData.jobTitle || '',
           pending:  userData.pending  || false,
           tools:    userData.tools    || {},
           cachedAt: Date.now()
