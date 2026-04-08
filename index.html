@@ -374,7 +374,7 @@ body {
           Your request is being reviewed by The National League.<br><br>
           You will receive an email once a decision has been made. If you have any questions
           in the meantime, please email
-          <a href="mailto:media@thenationalleague.org.uk">media&#64;thenationalleague.org.uk</a>
+          <a href="/cdn-cgi/l/email-protection#0a676f6e636b4a7e626f646b7e6365646b66666f6b6d7f6f2465786d247f61">media&#64;thenationalleague.org.uk</a>
         </div>
         <div class="pending-check">
           <div class="pending-check__dot"></div>
@@ -394,7 +394,7 @@ body {
         <div class="state-panel__body">
           Unfortunately your request for access to NL Tools has not been approved at this time.<br><br>
           If you believe this is an error or would like to discuss your application, please email
-          <a href="mailto:media@thenationalleague.org.uk">media&#64;thenationalleague.org.uk</a>
+          <a href="/cdn-cgi/l/email-protection#88e5edece1e9c8fce0ede6e9fce1e7e6e9e4e4ede9effdeda6e7faefa6fde3">media&#64;thenationalleague.org.uk</a>
         </div>
         <div class="state-panel__actions">
           <button class="btn btn--ghost" id="rejectedSignOutBtn">Sign out</button>
@@ -405,7 +405,7 @@ body {
   </div>
 </div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 var firebaseConfig = {
   apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
   authDomain:        'nl-tools.firebaseapp.com',
@@ -643,8 +643,7 @@ function doSetPassword() {
           updates['users/' + uid + '/org']      = invite.org      || '';
           updates['users/' + uid + '/orgKey']   = invite.orgKey   || '';
           updates['users/' + uid + '/club']     = invite.club     || '';
-          updates['users/' + uid + '/clubRole'] = invite.clubRole || '';
-          updates['users/' + uid + '/jobTitle'] = invite.jobTitle || invite.clubRole || '';
+          updates['users/' + uid + '/jobTitle'] = invite.jobTitle || '';
           updates['users/' + uid + '/pending']  = false;
           updates['users/' + uid + '/tools']    = invite.tools    || {};
           return db.ref().update(updates);
@@ -672,8 +671,8 @@ function goReqStep2() {
   var email = document.getElementById('reqEmail').value.trim();
   var pass = document.getElementById('reqPassword').value;
   var club = document.getElementById('reqClub').value.trim();
-  var clubRole = document.getElementById('reqClubRole').value.trim();
-  if (!name || !email || !clubRole) { showMsg('reqMsg1', 'Please fill in all fields.', 'error'); return; }
+  var jobTitle = document.getElementById('reqClubRole').value.trim();
+  if (!name || !email || !jobTitle) { showMsg('reqMsg1', 'Please fill in all fields.', 'error'); return; }
   if (!club) { showMsg('reqMsg1', 'Please select your club from the dropdown.', 'error'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showMsg('reqMsg1', 'Please enter a valid email address.', 'error'); return; }
   if (pass.length < 8) { showMsg('reqMsg1', 'Password must be at least 8 characters.', 'error'); return; }
@@ -691,7 +690,7 @@ function doSubmitRequest() {
   var email    = document.getElementById('reqEmail').value.trim();
   var pass     = document.getElementById('reqPassword').value;
   var club     = document.getElementById('reqClub').value.trim();
-  var clubRole = document.getElementById('reqClubRole').value.trim();
+  var jobTitle = document.getElementById('reqClubRole').value.trim();
   var selectedTools = {};
   document.querySelectorAll('#reqToolContainer input[name="reqTool"]:checked').forEach(function(cb) { selectedTools[cb.value] = 'access'; });
   setBtnLoading('reqSubmitBtn', true);
@@ -707,7 +706,7 @@ function doSubmitRequest() {
       updates['users/' + uid + '/org']      = '';
       updates['users/' + uid + '/orgKey']   = 'club';
       updates['users/' + uid + '/club']     = club;
-      updates['users/' + uid + '/clubRole'] = clubRole;
+      updates['users/' + uid + '/jobTitle'] = jobTitle;
       updates['users/' + uid + '/pending']  = true;
       updates['users/' + uid + '/tools']    = selectedTools;
       var reqKey = db.ref('requests').push().key;
@@ -715,7 +714,7 @@ function doSubmitRequest() {
       updates['requests/' + reqKey + '/name']      = name;
       updates['requests/' + reqKey + '/email']     = email;
       updates['requests/' + reqKey + '/club']      = club;
-      updates['requests/' + reqKey + '/clubRole']  = clubRole;
+      updates['requests/' + reqKey + '/jobTitle']  = jobTitle;
       updates['requests/' + reqKey + '/tools']     = selectedTools;
       updates['requests/' + reqKey + '/role']      = 'club';
       updates['requests/' + reqKey + '/status']    = 'pending';
@@ -724,7 +723,7 @@ function doSubmitRequest() {
     })
     .then(function(uid) {
       var portalUrl = window.location.origin + '/tools/portal/';
-      fetch(NL_GAS_URL + '?cb=' + Date.now(), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'notifyAdmin', name: name, email: email, club: club, clubRole: clubRole, tools: selectedTools, portalUrl: portalUrl }) }).catch(function() {});
+      fetch(NL_GAS_URL + '?cb=' + Date.now(), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'notifyAdmin', name: name, email: email, club: club, jobTitle: jobTitle, tools: selectedTools, portalUrl: portalUrl }) }).catch(function() {});
       fetch(NL_GAS_URL + '?cb=' + Date.now(), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'confirmRequest', name: name, email: email, club: club }) }).catch(function() {});
       showPanel('panelPending');
       startPendingListener(uid);
@@ -883,10 +882,4 @@ function loadReqTools() {
 function reqSelectAll(deptId) {
   var c = document.getElementById('reqDept_' + deptId);
   if (!c) return;
-  var boxes = c.querySelectorAll('input[type="checkbox"]');
-  var all = Array.prototype.every.call(boxes, function(b) { return b.checked; });
-  boxes.forEach(function(b) { b.checked = !all; });
-}
-</script>
-</body>
-</html>
+  var bo
