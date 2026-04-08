@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools - Login Page
-  Version: v3.1 (conversation turn 134)
-  Date: 03/04/2026
+  Version: v3.2 (conversation turn 152)
+  Date: 08/04/2026
   File: /tools/index.html
 
   Changelog:
+  v3.2 - clubRole -> jobTitle migration. All RTDB writes now use jobTitle.
+         Form field id kept as reqClubRole for HTML compatibility but variable
+         renamed to jobTitle throughout JS.
   v3.1 - On invite acceptance, delete matching invites-pending/ entry by email
          so Pending Invites tab clears automatically.
   v3.0 - Full auth flow rebuild.
@@ -374,7 +377,7 @@ body {
           Your request is being reviewed by The National League.<br><br>
           You will receive an email once a decision has been made. If you have any questions
           in the meantime, please email
-          <a href="/cdn-cgi/l/email-protection#0a676f6e636b4a7e626f646b7e6365646b66666f6b6d7f6f2465786d247f61">media&#64;thenationalleague.org.uk</a>
+          <a href="mailto:media@thenationalleague.org.uk">media&#64;thenationalleague.org.uk</a>
         </div>
         <div class="pending-check">
           <div class="pending-check__dot"></div>
@@ -394,7 +397,7 @@ body {
         <div class="state-panel__body">
           Unfortunately your request for access to NL Tools has not been approved at this time.<br><br>
           If you believe this is an error or would like to discuss your application, please email
-          <a href="/cdn-cgi/l/email-protection#88e5edece1e9c8fce0ede6e9fce1e7e6e9e4e4ede9effdeda6e7faefa6fde3">media&#64;thenationalleague.org.uk</a>
+          <a href="mailto:media@thenationalleague.org.uk">media&#64;thenationalleague.org.uk</a>
         </div>
         <div class="state-panel__actions">
           <button class="btn btn--ghost" id="rejectedSignOutBtn">Sign out</button>
@@ -405,7 +408,7 @@ body {
   </div>
 </div>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script>
 var firebaseConfig = {
   apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
   authDomain:        'nl-tools.firebaseapp.com',
@@ -483,7 +486,6 @@ function doSignOut() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  /* Wire up all buttons via addEventListener - no inline onclick */
   document.getElementById('signinBtn').addEventListener('click', doSignIn);
   document.getElementById('toForgotBtn').addEventListener('click', function() { showPanel('panelForgot'); });
   document.getElementById('toRequestBtn').addEventListener('click', function() { showPanel('panelRequest'); });
@@ -499,7 +501,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('pendingSignOutBtn').addEventListener('click', doSignOut);
   document.getElementById('rejectedSignOutBtn').addEventListener('click', doSignOut);
 
-  /* Keyboard enter */
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Enter') return;
     var active = document.querySelector('.panel.active');
@@ -510,7 +511,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (active.id === 'panelSetPassword')   doSetPassword();
   });
 
-  /* Password reset flow */
   if (IS_RESET) {
     auth.verifyPasswordResetCode(OOB_CODE)
       .then(function() {
@@ -524,7 +524,6 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
 
-  /* Invite flow */
   if (IS_INVITE) {
     showPanel('panelSetPassword');
     var emailInput = document.getElementById('setPwEmail');
@@ -667,10 +666,10 @@ function doSetPassword() {
 }
 
 function goReqStep2() {
-  var name = document.getElementById('reqName').value.trim();
-  var email = document.getElementById('reqEmail').value.trim();
-  var pass = document.getElementById('reqPassword').value;
-  var club = document.getElementById('reqClub').value.trim();
+  var name     = document.getElementById('reqName').value.trim();
+  var email    = document.getElementById('reqEmail').value.trim();
+  var pass     = document.getElementById('reqPassword').value;
+  var club     = document.getElementById('reqClub').value.trim();
   var jobTitle = document.getElementById('reqClubRole').value.trim();
   if (!name || !email || !jobTitle) { showMsg('reqMsg1', 'Please fill in all fields.', 'error'); return; }
   if (!club) { showMsg('reqMsg1', 'Please select your club from the dropdown.', 'error'); return; }
@@ -882,4 +881,10 @@ function loadReqTools() {
 function reqSelectAll(deptId) {
   var c = document.getElementById('reqDept_' + deptId);
   if (!c) return;
-  var bo
+  var boxes = c.querySelectorAll('input[type="checkbox"]');
+  var all = Array.prototype.every.call(boxes, function(b) { return b.checked; });
+  boxes.forEach(function(b) { b.checked = !all; });
+}
+</script>
+</body>
+</html>
