@@ -3,8 +3,11 @@
 <head>
 <!--
   Judgements & Decisions — NL Tools Portal
-  v1.0 | 08/04/2026
+  v1.1 | 08/04/2026
   Changelog:
+    v1.1 — Fixed tool key to ops-judgements (was ao-judgements).
+           Admin check now handles both access formats: object {access,admin}
+           and flat string ("admin"/"access"/"hidden"/"off").
     v1.0 — Initial build. Admin add/edit/delete + read-only portal view.
            Club picker with autocomplete. Firebase RTDB backend.
            Auth guard integration. Type 3 tool (staff publish, clubs read).
@@ -381,7 +384,7 @@ body {
 
 <script>
 /* ── Tool config ── */
-var NL_TOOL_KEY = 'ao-judgements';
+var NL_TOOL_KEY = 'ops-judgements';
 
 /* ── State ── */
 var STATE = {
@@ -407,7 +410,14 @@ window.nlAuthReady = function(user) {
   db.ref('users/' + user.uid).once('value').then(function(snap) {
     var u = snap.val() || {};
     var role = u.role || '';
-    var toolAdmin = u.tools && u.tools[NL_TOOL_KEY] && u.tools[NL_TOOL_KEY].admin;
+    // Handle both access formats: object {access:true, admin:true} and flat string ("admin")
+    var toolEntry = u.tools && u.tools[NL_TOOL_KEY];
+    var toolAdmin = false;
+    if (toolEntry && typeof toolEntry === 'object') {
+      toolAdmin = !!toolEntry.admin;
+    } else if (typeof toolEntry === 'string') {
+      toolAdmin = (toolEntry === 'admin');
+    }
     STATE.isAdmin = (role === 'superadmin' || role === 'admin' || toolAdmin);
 
     if (STATE.isAdmin) {
