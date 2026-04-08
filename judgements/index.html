@@ -3,8 +3,11 @@
 <head>
 <!--
   Judgements & Decisions — NL Tools Portal
-  v1.2 | 08/04/2026
+  v1.3 | 08/04/2026
   Changelog:
+    v1.3 — Fixed permission_denied crash. nlAuthReady now reads role/tools
+           from the session object passed by auth guard instead of making
+           a redundant Firebase read (which fails when using cached session).
     v1.2 — Fixed Firebase init order. initializeApp() now called before
            auth-guard.js loads. Was causing "No Firebase App" crash.
     v1.1 — Fixed tool key to ops-judgements (was ao-judgements).
@@ -392,33 +395,28 @@ var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/
 var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
 
 /* ── Auth callback — called by auth-guard.js once access is confirmed ── */
-window.nlAuthReady = function(user) {
-  STATE.uid = user.uid;
+window.nlAuthReady = function(session) {
+  STATE.uid = session.uid;
 
-  // Check admin status
-  var db = firebase.database();
-  db.ref('users/' + user.uid).once('value').then(function(snap) {
-    var u = snap.val() || {};
-    var role = u.role || '';
-    // Handle both access formats: object {access:true, admin:true} and flat string ("admin")
-    var toolEntry = u.tools && u.tools[NL_TOOL_KEY];
-    var toolAdmin = false;
-    if (toolEntry && typeof toolEntry === 'object') {
-      toolAdmin = !!toolEntry.admin;
-    } else if (typeof toolEntry === 'string') {
-      toolAdmin = (toolEntry === 'admin');
-    }
-    STATE.isAdmin = (role === 'superadmin' || role === 'admin' || toolAdmin);
+  // Determine admin status from session data (already loaded by auth guard)
+  var role = session.role || '';
+  var toolEntry = session.tools && session.tools[NL_TOOL_KEY];
+  var toolAdmin = false;
+  if (toolEntry && typeof toolEntry === 'object') {
+    toolAdmin = !!toolEntry.admin;
+  } else if (typeof toolEntry === 'string') {
+    toolAdmin = (toolEntry === 'admin');
+  }
+  STATE.isAdmin = (role === 'superadmin' || role === 'admin' || toolAdmin);
 
-    if (STATE.isAdmin) {
-      document.getElementById('btnAdd').style.display = '';
-      document.getElementById('colActions').style.display = '';
-      document.getElementById('statsPanel').style.display = '';
-    }
+  if (STATE.isAdmin) {
+    document.getElementById('btnAdd').style.display = '';
+    document.getElementById('colActions').style.display = '';
+    document.getElementById('statsPanel').style.display = '';
+  }
 
-    loadClubs();
-    listenForRecords();
-  });
+  loadClubs();
+  listenForRecords();
 };
 
 /* ── Load clubs meta ── */
