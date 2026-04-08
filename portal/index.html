@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.50 (conversation turn 151)
+  Version: v5.51 (conversation turn 153)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -1588,8 +1588,6 @@ body {
           </div>
           <input type="hidden" id="wmEditingKey">
         </div>
-        <!-- Existing messages list (admin/superadmin only) -->
-        <div id="wmList" style="display:none"></div>
         <div class="welcome-slides" id="welcomeSlides"></div>
         <div class="welcome-nav" id="welcomeNav" style="display:none">
           <button class="welcome-nav__btn" id="wNavPrev">&#8592; Prev</button>
@@ -1811,7 +1809,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.50';
+var PORTAL_VERSION = 'v5.51';
 
 var STATE = {
   uid:      null,
@@ -2087,18 +2085,48 @@ function renderWelcomeSlides() {
     slide.className = 'welcome-slide' + (i === 0 ? ' active' : '');
     slide.dataset.idx = i;
 
+    /* Title + admin actions row */
+    var titleRow = document.createElement('div');
+    titleRow.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px;';
+
     var title = document.createElement('div');
     title.className = 'welcome-slide__title';
+    title.style.flex = '1';
     title.textContent = m.title || '';
+    titleRow.appendChild(title);
 
-    var content = document.createElement('div');
-    content.className = 'welcome-slide__content';
+    /* Admin Edit/Delete buttons inline */
+    if (STATE.isAdmin) {
+      var adminActions = document.createElement('div');
+      adminActions.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
+      var editBtn = document.createElement('button');
+      editBtn.className = 'btn btn--ghost btn--sm';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', function(e) { e.stopPropagation(); loadWmIntoEditor(m._key, m); document.getElementById('wmInlineEditor').style.display = 'block'; });
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn--danger btn--sm';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteWmMessage(m._key, delBtn); });
+      adminActions.appendChild(editBtn);
+      adminActions.appendChild(delBtn);
+      titleRow.appendChild(adminActions);
+    }
+
+    /* Date line -- shown to everyone */
+    var dateLine = document.createElement('div');
+    dateLine.style.cssText = 'font-size:11px;color:var(--text-muted);margin-bottom:10px;';
+    dateLine.textContent = 'By ' + (m.author || 'The National League') +
+      (m.createdAt ? '  —  ' + new Date(m.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+
+    var msgContent = document.createElement('div');
+    msgContent.className = 'welcome-slide__content';
     /* content is stored as HTML from Quill — safe to set as innerHTML
        since only admins can write it */
-    content.innerHTML = m.content || '';
+    msgContent.innerHTML = m.content || '';
 
-    slide.appendChild(title);
-    slide.appendChild(content);
+    slide.appendChild(titleRow);
+    slide.appendChild(dateLine);
+    slide.appendChild(msgContent);
     slides.appendChild(slide);
 
     var dot = document.createElement('button');
@@ -5053,68 +5081,11 @@ function initWelcomeEditor() {
 }
 
 function loadWmList() {
-  if (!STATE.isAdmin) return;
-  db.ref('welcome-messages').once('value').then(function(snap) {
-    var list = document.getElementById('wmList');
-    list.innerHTML = '';
-    var val = snap.val();
-    if (!val || typeof val !== 'object') {
-      list.style.display = 'none';
-      return;
-    }
-    var keys = Object.keys(val);
-    if (keys.length === 0) { list.style.display = 'none'; return; }
-    list.style.display = 'block';
-    /* Header row */
-    var hdr = document.createElement('div');
-    hdr.style.cssText = "font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);padding:12px 24px 6px;";
-    hdr.textContent = 'Existing messages';
-    list.appendChild(hdr);
-    keys.forEach(function(k) {
-      var m = val[k];
-      list.appendChild(buildWmItem(k, m));
-    });
-  });
+  /* Reload the carousel slides so inline Edit/Delete reflect current state */
+  loadWelcomeMessages();
 }
 
-function buildWmItem(key, m) {
-  var item = document.createElement('div');
-  item.className = 'wm-item';
-
-  var body = document.createElement('div');
-  body.className = 'wm-item__body';
-
-  var title = document.createElement('div');
-  title.className = 'wm-item__title';
-  title.textContent = m.title || '(no title)';
-
-  var meta = document.createElement('div');
-  meta.className = 'wm-item__meta';
-  meta.textContent = 'By ' + (m.author || 'unknown') +
-    (m.createdAt ? '  —  ' + new Date(m.createdAt).toLocaleDateString('en-GB') : '');
-
-  body.appendChild(title);
-  body.appendChild(meta);
-
-  var actions = document.createElement('div');
-  actions.className = 'wm-item__actions';
-
-  var editBtn = document.createElement('button');
-  editBtn.className = 'btn btn--ghost btn--sm';
-  editBtn.textContent = 'Edit';
-  editBtn.addEventListener('click', function() { loadWmIntoEditor(key, m); });
-
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn btn--danger btn--sm';
-  delBtn.textContent = 'Delete';
-  delBtn.addEventListener('click', function() { deleteWmMessage(key, delBtn); });
-
-  actions.appendChild(editBtn);
-  actions.appendChild(delBtn);
-  item.appendChild(body);
-  item.appendChild(actions);
-  return item;
-}
+/* buildWmItem removed -- Edit/Delete now inline on carousel slides */
 
 function loadWmIntoEditor(key, m) {
   document.getElementById('wmTitle').value     = m.title || '';
