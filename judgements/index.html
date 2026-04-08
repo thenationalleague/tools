@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+  Judgements & Decisions — NL Tools Portal
+  v1.0 | 08/04/2026
+  Changelog:
+    v1.0 — Initial build. Admin add/edit/delete + read-only portal view.
+           Club picker with autocomplete. Firebase RTDB backend.
+           Auth guard integration. Type 3 tool (staff publish, clubs read).
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Judgements & Decisions — NL Tools</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<style>
+@font-face {
+  font-family: "carbona-variable";
+  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #9e0000;
+  --primary-dim: #7a0000;
+  --navy: #223b7c;
+  --navy-mid: #1a2f63;
+  --navy-light: #2a4a8c;
+  --red: #c0392b;
+  --red-light: #fdf0ef;
+  --green: #1e7e34;
+  --green-light: #edf7ee;
+  --amber: #e67e22;
+  --amber-light: #fef6ec;
+  --white: #ffffff;
+  --off-white: #f4f6f9;
+  --text: #1a2a44;
+  --text-muted: #5a6a82;
+  --border: #dde3ed;
+  --radius: 6px;
+  --shadow: 0 2px 12px rgba(10,22,40,0.10);
+  --font: 'carbona-variable','carbona',sans-serif;
+}
+body {
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.5;
+  font-variation-settings: 'wght' 400;
+  color: var(--text);
+  background: var(--off-white);
+}
+
+/* Topbar */
+.topbar {
+  background: var(--primary); color: var(--white);
+  padding: 0 28px; height: 72px;
+  display: flex; align-items: center; gap: 18px;
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border-bottom: 7px solid var(--navy);
+}
+.topbar img { height: 42px; }
+.topbar__title {
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  font-size: 20px; flex: 1; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--white);
+}
+.topbar__title .word-primary { color: var(--white); }
+.topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
+.topbar__btn-ghost {
+  background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
+  padding: 8px 18px; border-radius: var(--radius); font-size: 12px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer; transition: all 0.15s; font-family: var(--font);
+}
+.topbar__btn-ghost:hover { background: rgba(255,255,255,0.12); }
+
+/* Main container */
+.main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 70px; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 8px 16px; border-radius: var(--radius);
+  font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer; border: none; font-family: var(--font);
+  transition: background 0.15s; white-space: nowrap;
+}
+.btn--primary { background: var(--primary); color: var(--white); }
+.btn--navy { background: var(--navy); color: var(--white); }
+.btn--danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
+.btn--ghost { background: none; border: 1px solid var(--border); color: var(--text-muted); }
+.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
+.btn--navy:hover:not(:disabled) { background: var(--navy-mid); }
+.btn--danger:hover:not(:disabled) { background: #fae0de; }
+.btn--ghost:hover:not(:disabled) { background: var(--off-white); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--sm { padding: 5px 12px; font-size: 10px; }
+
+/* Pills */
+.pill {
+  display: inline-block; padding: 3px 8px; border-radius: 12px;
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  white-space: nowrap; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.pill--live { background: var(--green-light); color: var(--green); }
+.pill--expired { background: var(--red-light); color: var(--red); }
+.pill--soon { background: var(--amber-light); color: var(--amber); }
+
+/* Table */
+.table-wrap { overflow-x: auto; }
+.table {
+  width: 100%; border-collapse: collapse; background: var(--white);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow); border: 1px solid var(--border); font-size: 15px;
+}
+.table th {
+  background: var(--navy); color: var(--white);
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  padding: 14px 16px; text-align: left; white-space: nowrap;
+}
+.table td { padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.table tr:last-child td { border-bottom: none; }
+.table tr:hover td { background: var(--off-white); }
+.table .actions { display: flex; gap: 6px; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 28px; }
+@media (max-width: 600px) { .stats { grid-template-columns: 1fr; } }
+.stat {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 16px;
+  text-align: center; box-shadow: var(--shadow);
+}
+.stat__num { font-size: 44px; font-weight: 900; font-variation-settings: 'wght' 900; line-height: 1; margin-bottom: 6px; }
+.stat__label { font-size: 10px; color: var(--text-muted); font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; }
+
+/* Header row */
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; gap: 16px; flex-wrap: wrap; }
+.page-header h2 { font-size: 22px; font-weight: 900; font-variation-settings: 'wght' 900; text-transform: uppercase; letter-spacing: 0.02em; }
+
+/* Form panel */
+.form-panel {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px; margin-bottom: 28px;
+  box-shadow: var(--shadow); display: none;
+}
+.form-panel.open { display: block; }
+.form-panel h3 {
+  font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900;
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px;
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.form-row--full { grid-template-columns: 1fr; }
+@media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+.form-group label {
+  display: block; font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%; padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 15px; font-family: var(--font);
+  font-variation-settings: 'wght' 400; color: var(--text);
+  transition: border-color 0.15s;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
+}
+.form-actions { display: flex; gap: 10px; margin-top: 20px; }
+
+/* Club picker */
+.club-picker { position: relative; }
+.club-picker__wrap {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 7px 12px; background: var(--white); transition: border-color 0.15s;
+}
+.club-picker__wrap:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.10); }
+.club-picker__crest { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
+.club-picker__input { flex: 1; border: none !important; padding: 0 !important; font-size: 15px; outline: none; background: transparent; font-family: var(--font); font-variation-settings: 'wght' 400; }
+.club-picker__dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); max-height: 240px; overflow-y: auto; display: none; margin-top: 2px; }
+.club-picker__dropdown.open { display: block; }
+.club-picker__option { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--border); }
+.club-picker__option:last-child { border-bottom: none; }
+.club-picker__option:hover { background: var(--off-white); }
+.club-picker__option img { width: 28px; height: 28px; object-fit: contain; }
+.club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
+.club-picker__option-div { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+.club-picker__freetext { padding: 10px 14px; font-size: 13px; color: var(--text-muted); font-style: italic; cursor: pointer; border-top: 1px solid var(--border); background: var(--off-white); }
+.club-picker__freetext:hover { background: #eaeef4; }
+
+/* Empty state */
+.empty-state {
+  text-align: center; padding: 60px 20px; color: var(--text-muted);
+}
+.empty-state__icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state__msg { font-size: 14px; font-weight: 600; font-variation-settings: 'wght' 600; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--navy); color: var(--white);
+  padding: 12px 18px; border-radius: var(--radius);
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  z-index: 999; transform: translateY(80px); opacity: 0;
+  transition: all 0.25s ease; max-width: 300px; pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 4px solid var(--green); }
+.toast.error { border-left: 4px solid var(--red); }
+
+/* Confirm modal */
+.modal-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--white); border-radius: 12px; padding: 32px;
+  max-width: 440px; width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+  text-align: center;
+}
+.modal h3 {
+  font-size: 18px; font-weight: 900; font-variation-settings: 'wght' 900;
+  text-transform: uppercase; margin-bottom: 12px;
+}
+.modal p { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; }
+.modal .form-actions { justify-content: center; }
+
+/* Spinner overlay */
+.loading-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--primary); z-index: 9999;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+}
+.loading-overlay .spinner {
+  display: inline-block; width: 40px; height: 40px;
+  border: 4px solid rgba(255,255,255,0.3); border-top-color: var(--white);
+  border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-overlay p { color: rgba(255,255,255,0.7); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+
+#pageWrap { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay (auth guard shows this) -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p>Checking access…</p>
+</div>
+
+<div id="pageWrap">
+  <div class="topbar">
+    <img
+      src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+      alt="National League"
+      onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <span class="topbar__title">
+      <span class="word-primary">Judgements</span>
+      <span class="word-secondary">& Decisions</span>
+    </span>
+    <button class="topbar__btn-ghost" onclick="location.href='/tools/portal/'">Portal</button>
+    <button class="topbar__btn-ghost" onclick="doLogout()">Sign out</button>
+  </div>
+
+  <div class="main">
+    <!-- Stats (admin only) -->
+    <div class="stats" id="statsPanel" style="display:none;">
+      <div class="stat">
+        <div class="stat__num" id="statActive">0</div>
+        <div class="stat__label">Active breaches</div>
+      </div>
+      <div class="stat">
+        <div class="stat__num" id="statTotal">0</div>
+        <div class="stat__label">Total records</div>
+      </div>
+      <div class="stat">
+        <div class="stat__num" id="statClubs">0</div>
+        <div class="stat__label">Clubs affected</div>
+      </div>
+    </div>
+
+    <!-- Header + Add button -->
+    <div class="page-header">
+      <h2>All records</h2>
+      <button class="btn btn--primary" id="btnAdd" style="display:none;" onclick="openForm()">+ Add record</button>
+    </div>
+
+    <!-- Add/Edit form panel (admin only) -->
+    <div class="form-panel" id="formPanel">
+      <h3 id="formTitle">Add new record</h3>
+      <input type="hidden" id="editId" value="">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Club</label>
+          <div class="club-picker">
+            <div class="club-picker__wrap">
+              <img class="club-picker__crest" id="pickerCrest"
+                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
+                alt="">
+              <input class="club-picker__input" id="clubInput" type="text"
+                placeholder="Search or type club name…" autocomplete="off"
+                oninput="onClubInput(this.value)"
+                onblur="setTimeout(closeDropdown, 150)">
+            </div>
+            <div class="club-picker__dropdown" id="clubDropdown"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Rule breached</label>
+          <input type="text" id="ruleInput" placeholder="e.g. Non-compliance with League Financial Regulations">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start date</label>
+          <input type="date" id="startInput">
+        </div>
+        <div class="form-group">
+          <label>End date <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-muted);">(leave blank if unresolved)</span></label>
+          <input type="date" id="endInput">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn--navy" id="btnSave" onclick="saveRecord()">Save record</button>
+        <button class="btn btn--ghost" onclick="closeForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <table class="table" id="mainTable">
+        <thead>
+          <tr>
+            <th>Club</th>
+            <th>Rule breached</th>
+            <th>Start date</th>
+            <th>End date</th>
+            <th>Status</th>
+            <th id="colActions" style="display:none;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="6" class="empty-state"><div class="empty-state__icon">⚖️</div><div class="empty-state__msg">Loading records…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <h3>Delete record</h3>
+    <p id="deleteMsg">Are you sure you want to delete this record?</p>
+    <div class="form-actions">
+      <button class="btn btn--danger" onclick="confirmDelete()">Delete</button>
+      <button class="btn btn--ghost" onclick="closeDeleteModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── Tool config ── */
+var NL_TOOL_KEY = 'ao-judgements';
+
+/* ── State ── */
+var STATE = {
+  uid: null,
+  isAdmin: false,
+  clubs: [],
+  records: [],
+  deleteId: null
+};
+
+var CREST_BASE = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
+var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+
+/* ── Auth callback — called by auth-guard.js once access is confirmed ── */
+window.nlAuthReady = function(user) {
+  STATE.uid = user.uid;
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.getElementById('pageWrap').style.display = 'block';
+
+  // Check admin status
+  var db = firebase.database();
+  db.ref('users/' + user.uid).once('value').then(function(snap) {
+    var u = snap.val() || {};
+    var role = u.role || '';
+    var toolAdmin = u.tools && u.tools[NL_TOOL_KEY] && u.tools[NL_TOOL_KEY].admin;
+    STATE.isAdmin = (role === 'superadmin' || role === 'admin' || toolAdmin);
+
+    if (STATE.isAdmin) {
+      document.getElementById('btnAdd').style.display = '';
+      document.getElementById('colActions').style.display = '';
+      document.getElementById('statsPanel').style.display = '';
+    }
+
+    loadClubs();
+    listenForRecords();
+  });
+};
+
+/* ── Load clubs meta ── */
+function loadClubs() {
+  fetch(CLUBS_META_URL + '?cb=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      STATE.clubs = data.clubs || [];
+    })
+    .catch(function(err) {
+      console.warn('Failed to load clubs-meta:', err);
+    });
+}
+
+/* ── Listen for records (realtime) ── */
+function listenForRecords() {
+  var db = firebase.database();
+  db.ref('judgements').on('value', function(snap) {
+    var val = snap.val();
+    STATE.records = [];
+    if (val && typeof val === 'object') {
+      Object.keys(val).forEach(function(key) {
+        var r = val[key];
+        r.id = key;
+        STATE.records.push(r);
+      });
+    }
+    // Sort by start date descending (newest first) for admin view
+    STATE.records.sort(function(a, b) {
+      return (b.startDate || '').localeCompare(a.startDate || '');
+    });
+    renderTable();
+    renderStats();
+  });
+}
+
+/* ── Render table ── */
+function renderTable() {
+  var tbody = document.getElementById('tableBody');
+  if (STATE.records.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="empty-state__icon">⚖️</div><div class="empty-state__msg">No records yet</div></td></tr>';
+    return;
+  }
+
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  var html = STATE.records.map(function(r) {
+    var status = getStatus(r, today);
+    var pillClass = status === 'Active' ? 'pill--live' : 'pill--expired';
+
+    var endDisplay = r.endDate ? formatDate(r.endDate) : '<span style="color:var(--amber);font-weight:700;">Unresolved</span>';
+
+    var actionsHtml = '';
+    if (STATE.isAdmin) {
+      actionsHtml = '<td><div class="actions">'
+        + '<button class="btn btn--ghost btn--sm" onclick="editRecord(\'' + esc(r.id) + '\')">Edit</button>'
+        + '<button class="btn btn--danger btn--sm" onclick="openDeleteModal(\'' + esc(r.id) + '\')">Delete</button>'
+        + '</div></td>';
+    }
+
+    return '<tr>'
+      + '<td style="font-weight:700;">' + esc(r.club || '') + '</td>'
+      + '<td>' + esc(r.rule || '') + '</td>'
+      + '<td style="white-space:nowrap;">' + formatDate(r.startDate) + '</td>'
+      + '<td style="white-space:nowrap;">' + endDisplay + '</td>'
+      + '<td><span class="pill ' + pillClass + '">' + esc(status) + '</span></td>'
+      + actionsHtml
+      + '</tr>';
+  }).join('');
+
+  tbody.innerHTML = html;
+}
+
+/* ── Status helper ── */
+function getStatus(r, today) {
+  if (!r.endDate) return 'Active';
+  var end = parseDate(r.endDate);
+  return end >= today ? 'Active' : 'Resolved';
+}
+
+/* ── Render stats ── */
+function renderStats() {
+  if (!STATE.isAdmin) return;
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  var active = 0;
+  var clubSet = {};
+  STATE.records.forEach(function(r) {
+    if (getStatus(r, today) === 'Active') active++;
+    if (r.club) clubSet[r.club] = true;
+  });
+
+  document.getElementById('statActive').textContent = active;
+  document.getElementById('statTotal').textContent = STATE.records.length;
+  document.getElementById('statClubs').textContent = Object.keys(clubSet).length;
+}
+
+/* ── Form open/close ── */
+function openForm(id) {
+  var panel = document.getElementById('formPanel');
+  panel.classList.add('open');
+
+  if (id) {
+    // Edit mode
+    var r = STATE.records.find(function(rec) { return rec.id === id; });
+    if (!r) return;
+    document.getElementById('formTitle').textContent = 'Edit record';
+    document.getElementById('editId').value = id;
+    document.getElementById('clubInput').value = r.club || '';
+    document.getElementById('ruleInput').value = r.rule || '';
+    document.getElementById('startInput').value = r.startDate || '';
+    document.getElementById('endInput').value = r.endDate || '';
+    updatePickerCrest(r.club ? (CREST_BASE + encodeURIComponent(r.club) + '.png') : '');
+  } else {
+    // Add mode
+    document.getElementById('formTitle').textContent = 'Add new record';
+    document.getElementById('editId').value = '';
+    document.getElementById('clubInput').value = '';
+    document.getElementById('ruleInput').value = '';
+    document.getElementById('startInput').value = '';
+    document.getElementById('endInput').value = '';
+    updatePickerCrest('');
+  }
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeForm() {
+  document.getElementById('formPanel').classList.remove('open');
+  document.getElementById('editId').value = '';
+}
+
+/* ── Save record ── */
+function saveRecord() {
+  var club = document.getElementById('clubInput').value.trim();
+  var rule = document.getElementById('ruleInput').value.trim();
+  var startDate = document.getElementById('startInput').value;
+  var endDate = document.getElementById('endInput').value;
+  var editId = document.getElementById('editId').value;
+
+  if (!club) { showToast('Please select a club', 'error'); return; }
+  if (!rule) { showToast('Please enter the rule breached', 'error'); return; }
+  if (!startDate) { showToast('Please enter a start date', 'error'); return; }
+
+  var data = {
+    club: club,
+    rule: rule,
+    startDate: startDate,
+    endDate: endDate || '',
+    updatedAt: new Date().toISOString(),
+    updatedBy: STATE.uid
+  };
+
+  var db = firebase.database();
+  var promise;
+
+  if (editId) {
+    promise = db.ref('judgements/' + editId).update(data);
+  } else {
+    data.createdAt = new Date().toISOString();
+    data.createdBy = STATE.uid;
+    promise = db.ref('judgements').push(data);
+  }
+
+  promise.then(function() {
+    showToast(editId ? 'Record updated' : 'Record added', 'success');
+    closeForm();
+  }).catch(function(err) {
+    showToast('Error: ' + err.message, 'error');
+  });
+}
+
+/* ── Edit record ── */
+function editRecord(id) {
+  openForm(id);
+}
+
+/* ── Delete record ── */
+function openDeleteModal(id) {
+  STATE.deleteId = id;
+  var r = STATE.records.find(function(rec) { return rec.id === id; });
+  document.getElementById('deleteMsg').textContent = 'Delete the record for ' + (r ? r.club : 'this club') + '?';
+  document.getElementById('deleteModal').classList.add('open');
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('open');
+  STATE.deleteId = null;
+}
+
+function confirmDelete() {
+  if (!STATE.deleteId) return;
+  var db = firebase.database();
+  db.ref('judgements/' + STATE.deleteId).remove().then(function() {
+    showToast('Record deleted', 'success');
+    closeDeleteModal();
+  }).catch(function(err) {
+    showToast('Error: ' + err.message, 'error');
+    closeDeleteModal();
+  });
+}
+
+/* ── Club picker ── */
+function onClubInput(val) {
+  var dd = document.getElementById('clubDropdown');
+  if (!val.trim()) { dd.classList.remove('open'); updatePickerCrest(''); return; }
+  var lower = val.toLowerCase();
+  var matches = STATE.clubs.filter(function(c) {
+    return c.name.toLowerCase().indexOf(lower) !== -1 || (c.short && c.short.toLowerCase().indexOf(lower) !== -1);
+  }).slice(0, 10);
+  var html = matches.map(function(c) {
+    var cr = CREST_BASE + encodeURIComponent(c.name) + '.png';
+    return '<div class="club-picker__option" onmousedown="selectClub(\'' + escJ(c.name) + '\',\'' + escJ(cr) + '\')">'
+      + '<img src="' + esc(cr) + '" onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'">'
+      + '<span class="club-picker__option-name">' + esc(c.name) + '</span>'
+      + '<span class="club-picker__option-div">' + esc(c.division || '') + '</span>'
+      + '</div>';
+  }).join('');
+  html += '<div class="club-picker__freetext" onmousedown="selectClub(\'' + escJ(val) + '\',\'\')">Use "' + esc(val) + '" as entered</div>';
+  dd.innerHTML = html; dd.classList.add('open');
+}
+
+function selectClub(name, cr) {
+  document.getElementById('clubInput').value = name;
+  updatePickerCrest(cr || (CREST_BASE + encodeURIComponent(name) + '.png'));
+  closeDropdown();
+}
+
+function updatePickerCrest(url) {
+  var img = document.getElementById('pickerCrest');
+  img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+  img.src = url || FALLBACK_CREST;
+}
+
+function closeDropdown() { document.getElementById('clubDropdown').classList.remove('open'); }
+
+/* ── Date helpers ── */
+function parseDate(str) {
+  var parts = str.split('-');
+  return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+}
+
+function formatDate(str) {
+  if (!str) return '—';
+  var d = parseDate(str);
+  var day = d.getDate();
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return day + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+/* ── Toast ── */
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type || 'success') + ' show';
+  setTimeout(function() { t.classList.remove('show'); }, 3500);
+}
+
+/* ── Escape helpers ── */
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function escJ(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+
+/* ── Logout ── */
+function doLogout() {
+  firebase.auth().signOut().then(function() {
+    window.location.href = '/tools/';
+  });
+}
+</script>
+<script src="/tools/auth-guard.js"></script>
+</body>
+</html>
