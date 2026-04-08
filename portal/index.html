@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.45 (conversation turn 147)
+  Version: v5.46 (conversation turn 148)
   Date: 31/03/2026
   File: /tools/portal/index.html
 
@@ -758,26 +758,7 @@ body {
 }
 .uacc-header.open .uacc-chevron { transform: rotate(180deg); }
 
-.uacc-header-role-btn {
-  display: none;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 9px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  font-family: var(--font);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 3px 8px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.uacc-header-role-btn:hover { border-color: var(--navy); color: var(--navy); }
-.uacc-header.open .uacc-header-role-btn { display: inline-flex; }
+
 
 /* Mobile: two-row stacked layout */
 @media (max-width: 600px) {
@@ -1831,7 +1812,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.45';
+var PORTAL_VERSION = 'v5.46';
 
 var STATE = {
   uid:      null,
@@ -3465,26 +3446,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     context.appendChild(orgText);
   }
 
-  /* Change role button -- injected into pill stack inline with pill */
-  if (u.role !== 'superadmin' && !u.pending) {
-    var headerRoleBtn = document.createElement('button');
-    headerRoleBtn.className = 'uacc-header-role-btn';
-    headerRoleBtn.textContent = 'Change role';
-    headerRoleBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      var picker = body.querySelector('.inline-role-picker');
-      if (picker) {
-        var isOpen = picker.classList.contains('open');
-        if (_editUid === uid) {
-          var cancelBtn = footer.querySelector('.uacc-cancel-edit-btn');
-          if (cancelBtn) cancelBtn.click();
-        }
-        picker.classList.toggle('open', !isOpen);
-      }
-    });
-    /* Insert into pill row alongside role pill */
-    pillRow.appendChild(headerRoleBtn);
-  }
+
 
   pillStack.appendChild(context);
   header.appendChild(pillStack);
@@ -3602,10 +3564,10 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         if (prevCancel) prevCancel.click();
       }
     }
-    /* Close role picker if open */
-    var openPicker = body.querySelector('.inline-role-picker.open');
-    if (openPicker) openPicker.classList.remove('open');
     _editUid = uid;
+    /* Open role picker as part of edit mode */
+    var picker = body.querySelector('.inline-role-picker');
+    if (picker) picker.classList.add('open');
     editBar.classList.add('active');
     editAccessBtn.style.display = 'none';
     saveAccessBtn.style.display = '';
@@ -3730,9 +3692,26 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     saveAccessBtn.disabled = true;
     saveAccessBtn.textContent = 'Saving…';
 
+    /* Also write role fields from current picker state */
+    var isClubSave  = selectedOrgKey === 'club';
+    var saveRole    = isClubSave ? 'club' : selectedRole;
+    var saveOrg     = isClubSave ? '' : (selectedOrg || u.org || '');
+    var saveOrgKey  = isClubSave ? 'club' : selectedOrgKey;
+    var saveJobTitle = body.querySelector('.inline-role-picker') &&
+                       body.querySelector('[placeholder="e.g. Media Manager, Operations Director"]') ?
+                       body.querySelector('[placeholder="e.g. Media Manager, Operations Director"]').value.trim() :
+                       (u.jobTitle || u.clubRole || '');
+    updates['users/' + uid + '/role']     = saveRole;
+    updates['users/' + uid + '/org']      = saveOrg;
+    updates['users/' + uid + '/orgKey']   = saveOrgKey;
+    updates['users/' + uid + '/jobTitle'] = saveJobTitle;
+    updates['users/' + uid + '/clubRole'] = saveJobTitle;
+
     var targetUser = STATE.allUsers[uid] || {};
+    var roleChanged = saveRole !== (targetUser.role || '');
     writeAuditFor(uid, targetUser.name || '', targetUser.email || '',
-      'access_changed', 'Batch access update for ' + (targetUser.name || targetUser.email || uid));
+      'access_changed', (roleChanged ? 'Role: ' + (targetUser.role||'?') + ' -> ' + saveRole + '. ' : '') +
+      'Access update for ' + (targetUser.name || targetUser.email || uid));
 
     db.ref().update(updates)
       .then(function() {
@@ -3742,7 +3721,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       })
       .catch(function(err) {
         saveAccessBtn.disabled = false;
-        saveAccessBtn.textContent = 'Save access';
+        saveAccessBtn.textContent = 'Save';
         showToast('Failed to save: ' + err.message, 'error');
       });
   }
@@ -3780,6 +3759,21 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         }
       });
       delete slider.dataset.previewLevel;
+    });
+
+    /* Close and reset role picker */
+    var picker = body.querySelector('.inline-role-picker');
+    if (picker) picker.classList.remove('open');
+    /* Reset org/role buttons to stored state */
+    selectedOrgKey = storedOrgKey;
+    selectedRole   = storedRole;
+    selectedOrg    = u.org || 'National League';
+    body.querySelectorAll('.invite-org-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset && b.dataset.orgkey === storedOrgKey ||
+        (!b.dataset.orgkey && storedOrgKey === 'nl'));
+    });
+    body.querySelectorAll('.invite-role-btn').forEach(function(b) {
+      b.classList.toggle('active', b.textContent.toLowerCase() === storedRole);
     });
 
     exitEditMode();
@@ -3844,6 +3838,9 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     var selectedOrg    = u.org    || 'National League';
     var selectedOrgKey = u.orgKey || (u.role === 'club' ? 'club' : 'nl');
     var selectedRole   = (u.role === 'club') ? 'staff' : (u.role || 'staff');
+    /* Track original stored role for preview restore logic */
+    var storedOrgKey   = selectedOrgKey;
+    var storedRole     = selectedRole;
 
     /* ── Live preview: update tool sliders in body when role changes ────── */
     function previewRoleSliders(newOrgKey, newRole) {
@@ -3872,21 +3869,23 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         var storedLevel  = storedTools[toolKey];
         if (storedLevel === undefined || storedLevel === null) storedLevel = defaultLevel;
 
-        /* Point 2: preserve stored unless default is hidden (tool restricted)
-           or stored exceeds what role allows */
+        /* Decide level:
+           - If returning to the original stored role -> restore stored value
+           - If switching to a different role -> use defaults for new role
+           - Always enforce role constraints (staff lock, club admin cap) */
+        var isOriginalRole = (newOrgKey === storedOrgKey && newRole === storedRole);
         var useLevel;
         if (isStaffLocked || defaultLevel === 'hidden') {
-          /* Tool restricted for this role -- force hidden */
           useLevel = 'hidden';
-        } else if (isClub && (storedLevel === 'admin' || defaultLevel === 'admin')) {
-          /* Club can't have admin */
-          useLevel = 'access';
-        } else if (levelRank[storedLevel] > levelRank[defaultLevel]) {
-          /* Stored exceeds what role allows -- drop to default */
-          useLevel = defaultLevel;
-        } else {
-          /* Preserve stored */
+        } else if (isOriginalRole) {
+          /* Returning to original role -- restore stored value, cap if needed */
           useLevel = storedLevel;
+          if (isClub && levelRank[useLevel] > levelRank['access']) useLevel = 'access';
+          if (levelRank[useLevel] > levelRank[defaultLevel] && defaultLevel === 'hidden') useLevel = 'hidden';
+        } else {
+          /* Different role -- use defaults, enforce constraints */
+          useLevel = defaultLevel;
+          if (isClub && useLevel === 'admin') useLevel = 'access';
         }
 
         var useIdx = ACC_LEVELS.indexOf(useLevel);
@@ -4185,9 +4184,8 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       revertSliders();
       rolePicker.classList.remove('open');
     });
-    applyRow.appendChild(applyBtn);
-    applyRow.appendChild(cancelRoleBtn);
-    rolePicker.appendChild(applyRow);
+    /* Confirm/Cancel handled by footer Save/Cancel in unified edit mode */
+    /* applyRow hidden -- kept for structure but not appended */
 
     /* changeRoleBtn now in header -- no footer click handler needed */
 
@@ -4222,15 +4220,14 @@ function buildAccordionItem(uid, u, depts, deptMap) {
 
     /* Insert role picker at top of body -- pushing toggles down */
     body.insertBefore(rolePicker, body.firstChild);
-    /* Stash summary for footer */
-    footer._roleSummary = roleSummary;
+    /* Role summary not needed in footer -- header pill shows current role */
   }
 
   /* Edit access / Save / Cancel -- shown for all non-superadmin, non-pending users */
   if (u.role !== 'superadmin' && !u.pending) {
     var editAccessBtn = document.createElement('button');
     editAccessBtn.className = 'btn btn--ghost btn--sm';
-    editAccessBtn.textContent = 'Edit access';
+    editAccessBtn.textContent = 'Edit';
     editAccessBtn.addEventListener('click', function(e) { e.stopPropagation(); enterEditMode(); });
 
     var saveAccessBtn = document.createElement('button');
@@ -4249,13 +4246,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
     footer.appendChild(saveAccessBtn);
     footer.appendChild(cancelAccessBtn);
 
-    /* Divider then role summary + change role below edit buttons */
-    if (footer._roleSummary) {
-      var fd = document.createElement('div');
-      fd.style.cssText = 'width:100%;height:1px;background:var(--border);margin:6px 0 4px;';
-      footer.appendChild(fd);
-      footer.appendChild(footer._roleSummary);
-    }
+
   }
 
   /* Remove user button -- shown for all non-superadmin users */
