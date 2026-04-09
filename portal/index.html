@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.51 (conversation turn 153)
-  Date: 31/03/2026
+  Version: v5.52 (conversation turn 1)
+  Date: 08/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.52 -- Fixed duplicate 'No announcements' in welcome carousel. Clear
+           previous content before rendering. Guard against multiple appends.
   v2.0 -- Audit log tab: paginated 20-at-a-time chronological feed with
          cursor-based Load More. Search by name/email/action reads full
          per-user history from audit-by-user/{uid}. All meaningful actions
@@ -1809,7 +1811,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.51';
+var PORTAL_VERSION = 'v5.52';
 
 var STATE = {
   uid:      null,
@@ -2041,6 +2043,15 @@ function renderTopbar() {
 function loadWelcomeMessages() {
   db.ref('welcome-messages').once('value').then(function(snap) {
     var val = snap.val();
+    /* v5.52: Clear previous slides and empty-state divs (prevents duplicates on reload) */
+    var wmBody = document.getElementById('welcomeBody');
+    var oldEmpties = wmBody.querySelectorAll('.welcome-empty');
+    for (var ei = 0; ei < oldEmpties.length; ei++) oldEmpties[ei].parentNode.removeChild(oldEmpties[ei]);
+    document.getElementById('welcomeSlides').innerHTML = '';
+    document.getElementById('wNavDots').innerHTML = '';
+    document.getElementById('welcomeNav').style.display = 'none';
+    var wmCountEl = document.getElementById('welcomeCount');
+    if (wmCountEl) wmCountEl.textContent = '';
     /* Firebase returns "" for an empty node created in console */
     if (!val || typeof val !== 'object') {
       renderWelcomeEmpty();
@@ -2059,11 +2070,12 @@ function loadWelcomeMessages() {
 
 function renderWelcomeEmpty() {
   var body = document.getElementById('welcomeBody');
+  /* Guard: do not append if one already exists (prevents duplicate on double-call) */
+  if (body.querySelector('.welcome-empty')) return;
   var div  = document.createElement('div');
   div.className = 'welcome-empty';
   div.textContent = 'No announcements at the moment.';
   body.appendChild(div);
-
 }
 
 function renderWelcomeSlides() {
