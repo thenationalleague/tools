@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.54 (conversation turn 3)
+  Version: v5.55 (conversation turn 4)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.55 -- Save button now detects job title and role/org changes, not just
+           slider changes. Previously changing only the job title would silently
+           discard the edit because hasChanges only checked tool sliders.
   v5.54 -- Pending Invites tab now filters out users who have already accepted.
            Stale pending records auto-cleaned from RTDB on load.
   v5.53 -- Fixed bold text not rendering in welcome messages. Added
@@ -1820,7 +1823,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.54';
+var PORTAL_VERSION = 'v5.55';
 
 var STATE = {
   uid:      null,
@@ -3093,15 +3096,12 @@ function loadPendingInvites() {
       });
     }
 
-    /* v5.54: Build set of active user emails for cross-reference */
+    /* v5.54: Filter out invites where user already accepted */
     var activeEmails = {};
     Object.keys(STATE.allUsers).forEach(function(uid) {
       var u = STATE.allUsers[uid];
       if (u.email && !u.pending) activeEmails[u.email.toLowerCase()] = uid;
     });
-
-    /* Filter out invites where the user has already accepted (has an active account).
-       Also auto-clean stale records from RTDB so they don't accumulate. */
     var items = [];
     var staleKeys = [];
     allItems.forEach(function(inv) {
@@ -3112,8 +3112,6 @@ function loadPendingInvites() {
         items.push(inv);
       }
     });
-
-    /* Silently remove stale pending records */
     if (staleKeys.length) {
       var cleanUpdates = {};
       staleKeys.forEach(function(k) { cleanUpdates['invites-pending/' + k] = null; });
@@ -3756,15 +3754,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       updates['users/' + uid + '/tools/' + toolKey] = level;
     });
 
-    if (!hasChanges) {
-      exitEditMode();
-      return;
-    }
-
-    saveAccessBtn.disabled = true;
-    saveAccessBtn.textContent = 'Saving…';
-
-    /* Also write role fields from current picker state */
+    /* v5.55: Also check role/org/jobTitle changes — not just tool sliders */
     var isClubSave  = selectedOrgKey === 'club';
     var saveRole    = isClubSave ? 'club' : selectedRole;
     var saveOrg     = isClubSave ? '' : (selectedOrg || u.org || '');
@@ -3773,6 +3763,21 @@ function buildAccordionItem(uid, u, depts, deptMap) {
                        body.querySelector('[placeholder="e.g. Media Manager, Operations Director"]') ?
                        body.querySelector('[placeholder="e.g. Media Manager, Operations Director"]').value.trim() :
                        (u.jobTitle || '');
+
+    var storedUser = STATE.allUsers[uid] || {};
+    if (saveRole     !== (storedUser.role     || '')) hasChanges = true;
+    if (saveOrg      !== (storedUser.org      || '')) hasChanges = true;
+    if (saveOrgKey   !== (storedUser.orgKey   || '')) hasChanges = true;
+    if (saveJobTitle !== (storedUser.jobTitle || '')) hasChanges = true;
+
+    if (!hasChanges) {
+      exitEditMode();
+      return;
+    }
+
+    saveAccessBtn.disabled = true;
+    saveAccessBtn.textContent = 'Saving…';
+
     updates['users/' + uid + '/role']     = saveRole;
     updates['users/' + uid + '/org']      = saveOrg;
     updates['users/' + uid + '/orgKey']   = saveOrgKey;
