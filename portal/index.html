@@ -1,11 +1,15 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.52 (conversation turn 1)
-  Date: 08/04/2026
+  Version: v5.54 (conversation turn 3)
+  Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.54 -- Pending Invites tab now filters out users who have already accepted.
+           Stale pending records auto-cleaned from RTDB on load.
+  v5.53 -- Fixed bold text not rendering in welcome messages. Added
+           font-variation-settings rule for <strong> inside carbona-variable.
   v5.52 -- Fixed duplicate 'No announcements' in welcome carousel. Clear
            previous content before rendering. Guard against multiple appends.
   v2.0 -- Audit log tab: paginated 20-at-a-time chronological feed with
@@ -319,6 +323,11 @@ body {
 .welcome-slide__content { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
 .welcome-slide__content p { margin-bottom: 8px; }
 .welcome-slide__content p:last-child { margin-bottom: 0; }
+.welcome-slide__content strong,
+.welcome-slide__content b {
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+}
 
 .welcome-nav {
   display: flex;
@@ -1811,7 +1820,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.52';
+var PORTAL_VERSION = 'v5.54';
 
 var STATE = {
   uid:      null,
@@ -2043,7 +2052,6 @@ function renderTopbar() {
 function loadWelcomeMessages() {
   db.ref('welcome-messages').once('value').then(function(snap) {
     var val = snap.val();
-    /* v5.52: Clear previous slides and empty-state divs (prevents duplicates on reload) */
     var wmBody = document.getElementById('welcomeBody');
     var oldEmpties = wmBody.querySelectorAll('.welcome-empty');
     for (var ei = 0; ei < oldEmpties.length; ei++) oldEmpties[ei].parentNode.removeChild(oldEmpties[ei]);
@@ -2070,7 +2078,6 @@ function loadWelcomeMessages() {
 
 function renderWelcomeEmpty() {
   var body = document.getElementById('welcomeBody');
-  /* Guard: do not append if one already exists (prevents duplicate on double-call) */
   if (body.querySelector('.welcome-empty')) return;
   var div  = document.createElement('div');
   div.className = 'welcome-empty';
@@ -3077,13 +3084,40 @@ function loadPendingInvites() {
   container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>';
 
   db.ref('invites-pending').once('value').then(function(snap) {
-    var items = [];
+    var allItems = [];
     if (snap.exists()) {
       snap.forEach(function(child) {
         var inv = child.val();
         inv._key = child.key;
-        items.push(inv);
+        allItems.push(inv);
       });
+    }
+
+    /* v5.54: Build set of active user emails for cross-reference */
+    var activeEmails = {};
+    Object.keys(STATE.allUsers).forEach(function(uid) {
+      var u = STATE.allUsers[uid];
+      if (u.email && !u.pending) activeEmails[u.email.toLowerCase()] = uid;
+    });
+
+    /* Filter out invites where the user has already accepted (has an active account).
+       Also auto-clean stale records from RTDB so they don't accumulate. */
+    var items = [];
+    var staleKeys = [];
+    allItems.forEach(function(inv) {
+      var email = (inv.email || '').toLowerCase();
+      if (email && activeEmails[email]) {
+        staleKeys.push(inv._key);
+      } else {
+        items.push(inv);
+      }
+    });
+
+    /* Silently remove stale pending records */
+    if (staleKeys.length) {
+      var cleanUpdates = {};
+      staleKeys.forEach(function(k) { cleanUpdates['invites-pending/' + k] = null; });
+      db.ref().update(cleanUpdates).catch(function() {});
     }
 
     /* Sort newest first */
