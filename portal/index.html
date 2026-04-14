@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.55 (conversation turn 4)
+  Version: v5.56 (conversation turn 5)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.56 -- Deploy tool button on tiles (superadmin only). Seeds default access
+           to all existing users who don't have an explicit entry for the tool.
+           Re-deploy option for tools already deployed. Writes deployedAt to RTDB.
   v5.55 -- Save button now detects job title and role/org changes, not just
            slider changes. Previously changing only the job title would silently
            discard the edit because hasChanges only checked tool sliders.
@@ -451,6 +454,41 @@ body {
   padding: 2px 6px;
   align-self: flex-start;
 }
+
+/* Deploy button -- superadmin only, shown on undeployed tool tiles */
+.tool-tile__deploy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.tool-tile__deploy-btn {
+  font-family: var(--font);
+  font-size: 9px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.tool-tile__deploy-btn--deploy {
+  background: var(--navy);
+  color: var(--white);
+}
+.tool-tile__deploy-btn--deploy:hover { background: var(--navy-mid); }
+.tool-tile__deploy-btn--redeploy {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 8px;
+  padding: 3px 8px;
+}
+.tool-tile__deploy-btn--redeploy:hover { border-color: var(--navy); color: var(--navy); }
 
 /* -- Available tools ------------------------------------------------------- */
 .available-grid {
@@ -1823,7 +1861,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.55';
+var PORTAL_VERSION = 'v5.56';
 
 var STATE = {
   uid:      null,
@@ -2281,6 +2319,37 @@ function buildToolTile(key, t, level) {
     tile.appendChild(soon);
   }
 
+  /* Deploy button -- superadmin only */
+  if (STATE.isSuperAdmin && !t.placeholder) {
+    var deployWrap = document.createElement('div');
+    deployWrap.className = 'tool-tile__deploy';
+
+    var deployBtn = document.createElement('button');
+    deployBtn.className = 'tool-tile__deploy-btn';
+
+    var isDeployed = !!(t.deployedAt);
+
+    if (!isDeployed) {
+      deployBtn.className += ' tool-tile__deploy-btn--deploy';
+      deployBtn.textContent = 'Deploy';
+      deployBtn.title = 'Seed default access to all existing users';
+    } else {
+      deployBtn.className += ' tool-tile__deploy-btn--redeploy';
+      deployBtn.textContent = 'Re-deploy';
+      deployBtn.dataset.isRedeployed = '1';
+      deployBtn.title = 'Re-run deployment to catch any users added since last deploy';
+    }
+
+    deployBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      deployTool(t._key, deployBtn);
+    });
+
+    deployWrap.appendChild(deployBtn);
+    tile.appendChild(deployWrap);
+  }
+
   return tile;
 }
 
@@ -2368,6 +2437,55 @@ function requestToolAccess(key, label, btn) {
     btn.disabled = false;
     btn.textContent = 'Request';
     showToast('Could not send request', 'error');
+  });
+}
+
+/* ---- Deploy tool to existing users (superadmin only) -------------------- */
+function deployTool(toolKey, btn) {
+  if (!STATE.isSuperAdmin) return;
+  var tool = STATE.tools[toolKey];
+  if (!tool) { showToast('Tool not found', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Deploying…';
+
+  db.ref('users').once('value').then(function(snap) {
+    var allUsers = snap.val() || {};
+    var updates  = {};
+    var count    = 0;
+
+    Object.keys(allUsers).forEach(function(uid) {
+      var u = allUsers[uid];
+      if (u.tools && u.tools[toolKey] !== undefined) return;
+      if (u.pending || u.rejected) return;
+
+      var gk = getGroupKey(u);
+      var defaultLevel = (tool.defaults && tool.defaults[gk]) || 'hidden';
+      if (u.role === 'club' && defaultLevel === 'admin') defaultLevel = 'access';
+
+      updates['users/' + uid + '/tools/' + toolKey] = defaultLevel;
+      count++;
+    });
+
+    if (count === 0) {
+      showToast('All users already have ' + (tool.label || toolKey) + ' configured', 'info');
+      btn.disabled = false;
+      btn.textContent = btn.dataset.isRedeployed ? 'Re-deploy' : 'Deploy';
+      return Promise.resolve();
+    }
+
+    updates['tools/' + toolKey + '/deployedAt'] = Date.now();
+
+    return db.ref().update(updates).then(function() {
+      writeAudit('tool_deployed',
+        (tool.label || toolKey) + ' deployed to ' + count + ' user' + (count === 1 ? '' : 's'));
+      showToast((tool.label || toolKey) + ' deployed to ' + count + ' user' + (count === 1 ? '' : 's'), 'success');
+      loadTools().then(function() { renderToolGrid(); });
+    });
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.isRedeployed ? 'Re-deploy' : 'Deploy';
+    showToast('Deploy failed: ' + err.message, 'error');
   });
 }
 
