@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tasks — NL Tools
-  Version: 4.0
+  Version: 4.1
   Date: 14/04/2026
 
   CHANGELOG
@@ -20,6 +20,17 @@
     - Panels slide up from bottom on mobile
     - Gantt per project with dependency arrows and conflict flags
     - My Day pin — add any task to today's focus view
+  v4.1 (14/04/2026)
+    - FIXED: Tags — unique IDs per panel (task vs project) prevent
+      ID collision when both panels exist in DOM
+    - FIXED: Tags — S.projTags separate from S.createTags
+    - FIXED: People picker results now positioned inside relative
+      parent wrapper, renders correctly on all screen sizes
+    - FIXED: People picker — users loaded async, search works once
+      S.users is populated
+    - FIXED: Mobile nav — "More" drawer replaces missing views
+      (Assigned to Me, I've Assigned, project list all accessible)
+    - Mobile bottom nav reduced to 4 main tabs + More button
 -->
 <html lang="en">
 <head>
@@ -500,24 +511,41 @@ body {
   <!-- BOTTOM NAV (mobile) -->
   <div class="bottom-nav">
     <div class="bottom-nav__items">
-      <button class="bottom-nav__item active" data-view="myday">
+      <button class="bottom-nav__item active" data-view="myday" id="bn-myday">
         <span class="bottom-nav__icon">☀️</span>My Day
         <span class="bottom-nav__badge" id="bnb-myday"></span>
       </button>
-      <button class="bottom-nav__item" data-view="upcoming">
+      <button class="bottom-nav__item" data-view="upcoming" id="bn-upcoming">
         <span class="bottom-nav__icon">📅</span>Upcoming
       </button>
-      <button class="bottom-nav__item" data-view="all">
+      <button class="bottom-nav__item" data-view="all" id="bn-all">
         <span class="bottom-nav__icon">✅</span>All
       </button>
-      <button class="bottom-nav__item" data-view="assigned-me">
-        <span class="bottom-nav__icon">👤</span>Mine
-        <span class="bottom-nav__badge" id="bnb-assigned"></span>
-      </button>
-      <button class="bottom-nav__item" data-view="projects">
+      <button class="bottom-nav__item" data-view="projects" id="bn-projects">
         <span class="bottom-nav__icon">📁</span>Projects
       </button>
+      <button class="bottom-nav__item" id="bn-more" onclick="toggleMoreDrawer()">
+        <span class="bottom-nav__icon">☰</span>More
+      </button>
     </div>
+  </div>
+
+  <!-- MORE DRAWER (mobile) -->
+  <div id="moreDrawerOverlay" style="display:none;position:fixed;inset:0;background:rgba(10,22,40,0.5);z-index:250;" onclick="toggleMoreDrawer()"></div>
+  <div id="moreDrawer" style="display:none;position:fixed;bottom:var(--bottombar-h);left:0;right:0;background:var(--navy);border-radius:16px 16px 0 0;z-index:251;padding:8px 0 12px;">
+    <div style="text-align:center;padding:6px 0 10px;"><div style="width:36px;height:4px;background:rgba(255,255,255,0.3);border-radius:4px;margin:0 auto;"></div></div>
+    <button class="nav-item" data-view="assigned-me" onclick="setViewFromDrawer('assigned-me')" style="color:rgba(255,255,255,0.85)">
+      <span class="nav-item__icon">👤</span> Assigned to Me
+    </button>
+    <button class="nav-item" data-view="assigned-others" onclick="setViewFromDrawer('assigned-others')" style="color:rgba(255,255,255,0.85)">
+      <span class="nav-item__icon">👥</span> I've Assigned
+    </button>
+    <div style="height:1px;background:rgba(255,255,255,0.1);margin:8px 0;"></div>
+    <div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.14em;color:rgba(255,255,255,0.4);padding:4px 18px 8px;">Projects</div>
+    <div id="moreDrawerProjects"></div>
+    <button class="nav-item" onclick="openProjCreate();toggleMoreDrawer();" style="color:rgba(255,255,255,0.5);font-size:12px">
+      <span class="nav-item__icon">＋</span> New project
+    </button>
   </div>
 
 </div>
@@ -576,7 +604,7 @@ var SESSION = null;
 var S = {
   view: 'myday',
   tasks: {}, projects: {}, users: {},
-  createTags: [], createAssignees: [], createFollowers: [],
+  createTags: [], projTags: [], createAssignees: [], createFollowers: [],
   detailId: null,
   projView: 'board', activeProjId: null,
   ganttExpanded: {}
@@ -725,11 +753,16 @@ function setView(view) {
   document.querySelectorAll('.nav-item').forEach(function(el){
     el.classList.toggle('active', el.dataset.view === view || (view.startsWith('proj:') && el.dataset.view === view));
   });
-  /* Bottom nav */
-  document.querySelectorAll('.bottom-nav__item').forEach(function(el){
-    var match = el.dataset.view === view || (view==='projects' && el.dataset.view==='projects') || (view.startsWith('proj:') && el.dataset.view==='projects');
-    el.classList.toggle('active', match);
+  /* Bottom nav — only toggle the 4 main items */
+  var bnMap = {'myday':'bn-myday','upcoming':'bn-upcoming','all':'bn-all','projects':'bn-projects'};
+  ['bn-myday','bn-upcoming','bn-all','bn-projects'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.classList.remove('active');
   });
+  var activeKey = view.startsWith('proj:') ? 'projects' : view;
+  if (bnMap[activeKey]) {
+    var el = document.getElementById(bnMap[activeKey]);
+    if (el) el.classList.add('active');
+  }
   renderView();
 }
 
@@ -1240,7 +1273,7 @@ function buildCreateForm(projectId) {
   body.appendChild(makeFg('Followers (view + comment)', buildPeoplePicker('followers', S.createFollowers)));
 
   /* Tags */
-  body.appendChild(makeFg('Tags', buildTagsInput()));
+  body.appendChild(makeFg('Tags', buildTagsInput('task')));
 
   /* Project (optional, pre-set if opened from project) */
   var projOpts = [{v:'',l:'None (standalone task)'}].concat(Object.values(S.projects).map(function(p){ return {v:p._id,l:p.title}; }));
@@ -1263,9 +1296,9 @@ function buildPeoplePicker(type, arr) {
   var chips = document.createElement('div'); chips.className = 'people-chips'; chips.id = type+'Chips';
   var input = document.createElement('input'); input.className = 'people-input'; input.id = type+'Input'; input.placeholder = 'Search staff\u2026'; input.setAttribute('autocomplete','off');
   var results = document.createElement('div'); results.className = 'people-results'; results.id = type+'Results';
-  var pw = document.createElement('div'); pw.className = 'people-wrap';
-  pw.appendChild(chips); pw.appendChild(input);
-  wrap.appendChild(pw); wrap.appendChild(results);
+  var pw = document.createElement('div'); pw.className = 'people-wrap'; pw.style.position='relative';
+  pw.appendChild(chips); pw.appendChild(input); pw.appendChild(results);
+  wrap.appendChild(pw);
 
   input.addEventListener('input', function(){ searchPeople(type, input.value, arr, results, chips); });
   return wrap;
@@ -1311,14 +1344,17 @@ function renderPeopleChips(type, arr, chipsEl) {
   });
 }
 
-function buildTagsInput() {
-  var wrap = document.createElement('div'); wrap.className = 'tags-wrap'; wrap.id = 'tagsWrap';
-  var input = document.createElement('input'); input.className = 'tag-text-input'; input.id = 'tagInput'; input.placeholder = 'Type tag, press Enter\u2026';
+function buildTagsInput(prefix) {
+  prefix = prefix || 'task';
+  var arr = prefix === 'proj' ? S.projTags : S.createTags;
+  var wrapId = prefix + 'TagsWrap'; var inputId = prefix + 'TagInput';
+  var wrap = document.createElement('div'); wrap.className = 'tags-wrap'; wrap.id = wrapId;
+  var input = document.createElement('input'); input.className = 'tag-text-input'; input.id = inputId; input.placeholder = 'Type tag, press Enter\u2026';
   input.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault(); e.stopPropagation();
       var val = input.value.replace(/,/g,'').trim();
-      if (val && S.createTags.indexOf(val) === -1) { S.createTags.push(val); renderTagChips(); }
+      if (val && arr.indexOf(val) === -1) { arr.push(val); renderTagChipsFor(wrapId, inputId, arr); }
       input.value = '';
     }
   });
@@ -1576,6 +1612,7 @@ function saveNote() {
    CREATE PROJECT
 ══════════════════════════════════════════════════════════ */
 function openProjCreate() {
+  S.projTags = [];
   buildProjCreateForm();
   document.getElementById('projCreateOv').classList.add('open');
   document.getElementById('projCreatePanel').classList.add('open');
@@ -1597,7 +1634,7 @@ function buildProjCreateForm() {
   row2.appendChild(makeFg('Start Date', makeEl('input','pStart','datetime-local','')));
   row2.appendChild(makeFg('Due Date',   makeEl('input','pDeadline','datetime-local','')));
   body.appendChild(row2);
-  body.appendChild(makeFg('Tags', buildTagsInput()));
+  body.appendChild(makeFg('Tags', buildTagsInput('proj')));
   setTimeout(function(){ document.getElementById('pTitle')&&document.getElementById('pTitle').focus(); },100);
 }
 
@@ -1657,6 +1694,37 @@ function metaItem(label,value){ return '<div class="meta-item"><label>'+esc(labe
 function makeFg(lbl, inputEl) { var fg=document.createElement('div'); fg.className='fg'; var l=document.createElement('label'); l.textContent=lbl; fg.appendChild(l); fg.appendChild(inputEl); return fg; }
 function makeEl(tag,id,type,placeholder){ var el=document.createElement(tag); el.id=id; if(type) el.type=type; if(placeholder) el.placeholder=placeholder; return el; }
 function makeSel(id,opts){ var el=document.createElement('select'); if(id) el.id=id; opts.forEach(function(o){ var op=document.createElement('option'); op.value=o.v; op.textContent=o.l; el.appendChild(op); }); return el; }
+
+
+/* ══════════════════════════════════════════════════════════
+   MORE DRAWER (mobile)
+══════════════════════════════════════════════════════════ */
+function toggleMoreDrawer() {
+  var drawer = document.getElementById('moreDrawer');
+  var overlay = document.getElementById('moreDrawerOverlay');
+  if (!drawer) return;
+  var open = drawer.style.display !== 'none';
+  drawer.style.display = open ? 'none' : 'block';
+  overlay.style.display = open ? 'none' : 'block';
+  if (!open) renderMoreDrawerProjects();
+}
+
+function renderMoreDrawerProjects() {
+  var el = document.getElementById('moreDrawerProjects'); if (!el) return;
+  el.innerHTML = '';
+  Object.values(S.projects).forEach(function(p) {
+    var btn = document.createElement('button');
+    btn.className = 'nav-item nav-item--proj';
+    btn.innerHTML = '<span class="nav-item__icon">📁</span>' + esc(p.title);
+    btn.addEventListener('click', function(){ setViewFromDrawer('proj:'+p._id); });
+    el.appendChild(btn);
+  });
+}
+
+function setViewFromDrawer(view) {
+  toggleMoreDrawer();
+  setView(view);
+}
 
 /* ══════════════════════════════════════════════════════════
    BIND UI
