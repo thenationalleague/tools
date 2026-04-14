@@ -1,0 +1,1430 @@
+<!--
+  NL Tasks — NL Tools
+  Version: 1.0
+  Date: 14/04/2026
+
+  CHANGELOG
+  v1.0 (14/04/2026)
+    - Initial build
+    - My Work view with list/kanban toggle
+    - Create task and create project panels (slide-in)
+    - Task detail panel with notes thread
+    - Project detail panel with subtasks and notes
+    - Member search (NL staff only)
+    - Archive / delete with confirmation
+    - Status + priority on all items
+    - Free-text tags with filter bar
+    - Auth guard integration (staff-tasks tool key)
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tasks — NL Tools</title>
+
+<style>
+@font-face {
+  font-family: "carbona-variable";
+  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display: swap; font-style: normal; font-weight: 200 900;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary:     #9e0000;
+  --primary-dim: #7a0000;
+  --navy:        #223b7c;
+  --navy-mid:    #1a2f63;
+  --navy-light:  #2a4a8c;
+  --red:         #c0392b;
+  --red-light:   #fdf0ef;
+  --green:       #1e7e34;
+  --green-light: #edf7ee;
+  --amber:       #e67e22;
+  --amber-light: #fef6ec;
+  --white:       #ffffff;
+  --off-white:   #f4f6f9;
+  --text:        #1a2a44;
+  --text-muted:  #5a6a82;
+  --border:      #dde3ed;
+  --radius:      6px;
+  --shadow:      0 2px 12px rgba(10,22,40,0.10);
+  --font:        'carbona-variable','carbona',sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  font-variation-settings: 'wght' 400;
+  color: var(--text);
+  background: var(--off-white);
+  min-height: 100vh;
+}
+
+/* TOPBAR */
+.topbar {
+  background: var(--primary); color: var(--white);
+  padding: 0 24px; height: 72px;
+  display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 200;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border-bottom: 7px solid var(--navy);
+}
+.topbar img { height: 40px; }
+.topbar__title {
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  font-size: 18px; flex: 1; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--white);
+}
+.topbar__title span { color: rgba(255,255,255,0.55); }
+.topbar__btn {
+  background: none; border: 1px solid rgba(255,255,255,0.35);
+  color: var(--white); padding: 7px 14px; border-radius: var(--radius);
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer; font-family: var(--font); transition: all 0.15s;
+}
+.topbar__btn:hover { background: rgba(255,255,255,0.12); }
+.topbar__btn--solid {
+  background: var(--navy); border-color: var(--navy);
+}
+.topbar__btn--solid:hover { background: var(--navy-mid); }
+
+/* MAIN */
+.main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 80px; }
+
+/* VIEW TOGGLE + TOOLBAR */
+.toolbar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.view-toggle {
+  display: flex; background: var(--white);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; flex-shrink: 0;
+}
+.view-toggle__btn {
+  padding: 7px 14px; font-size: 11px; font-weight: 800;
+  font-variation-settings: 'wght' 800; text-transform: uppercase;
+  letter-spacing: 0.07em; cursor: pointer; border: none;
+  background: none; font-family: var(--font); color: var(--text-muted);
+  transition: all 0.15s;
+}
+.view-toggle__btn.active { background: var(--navy); color: var(--white); }
+
+.filter-row {
+  display: flex; gap: 8px; flex: 1; flex-wrap: wrap;
+}
+.filter-select, .filter-input {
+  padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-family: var(--font);
+  font-size: 13px; background: var(--white); color: var(--text);
+  font-variation-settings: 'wght' 400;
+}
+.filter-input { flex: 1; min-width: 120px; }
+
+/* SECTION HEADER */
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 24px 0 12px;
+}
+.section-head h2 {
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted);
+}
+.section-head__count {
+  background: var(--border); color: var(--text-muted);
+  font-size: 10px; font-weight: 800; padding: 2px 7px;
+  border-radius: 20px; margin-left: 8px;
+}
+
+/* LIST VIEW */
+.task-list { display: flex; flex-direction: column; gap: 8px; }
+
+.task-card {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  cursor: pointer; transition: all 0.15s;
+  display: flex; align-items: flex-start; gap: 12px;
+  box-shadow: var(--shadow);
+}
+.task-card:hover { border-color: var(--navy); box-shadow: 0 4px 16px rgba(34,59,124,0.12); }
+.task-card--overdue { border-left: 3px solid var(--red); }
+.task-card--done { opacity: 0.6; }
+
+.task-card__left { flex: 1; min-width: 0; }
+.task-card__title {
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  font-size: 15px; margin-bottom: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.task-card--done .task-card__title { text-decoration: line-through; }
+.task-card__meta {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  font-size: 12px; color: var(--text-muted);
+}
+.task-card__tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.tag {
+  background: var(--off-white); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 10px; font-weight: 700;
+  font-variation-settings: 'wght' 700; padding: 2px 7px;
+  border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+.task-card__right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+
+/* PILLS */
+.pill {
+  display: inline-block; font-size: 10px; font-weight: 800;
+  font-variation-settings: 'wght' 800; text-transform: uppercase;
+  letter-spacing: 0.07em; padding: 3px 9px; border-radius: 20px;
+}
+.pill--todo     { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
+.pill--inprogress { background: var(--amber-light); color: var(--amber); }
+.pill--done     { background: var(--green-light); color: var(--green); }
+.pill--low      { background: #f0f4ff; color: var(--navy); }
+.pill--medium   { background: var(--amber-light); color: var(--amber); }
+.pill--high     { background: var(--red-light); color: var(--red); }
+.pill--project  { background: #ede9ff; color: #5b21b6; }
+.pill--task     { background: #e0f2fe; color: #0369a1; }
+
+/* PROGRESS BAR */
+.progress-bar { height: 4px; background: var(--border); border-radius: 4px; overflow: hidden; width: 80px; }
+.progress-bar__fill { height: 100%; background: var(--green); border-radius: 4px; transition: width 0.3s; }
+
+/* KANBAN */
+.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 700px) { .kanban { grid-template-columns: 1fr; } }
+
+.kanban-col {
+  background: var(--off-white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+}
+.kanban-col__head {
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: 10px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.kanban-col__cards { display: flex; flex-direction: column; gap: 8px; }
+
+.kanban-card {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+  cursor: pointer; transition: all 0.15s; box-shadow: var(--shadow);
+}
+.kanban-card:hover { border-color: var(--navy); }
+.kanban-card__title {
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  font-size: 13px; margin-bottom: 6px;
+}
+.kanban-card__meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* EMPTY STATE */
+.empty {
+  text-align: center; padding: 48px 20px; color: var(--text-muted);
+}
+.empty__icon { font-size: 40px; margin-bottom: 12px; }
+.empty__text { font-size: 14px; }
+
+/* SLIDE PANEL */
+.panel-overlay {
+  position: fixed; inset: 0; background: rgba(10,22,40,0.45);
+  z-index: 300; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.panel-overlay.open { opacity: 1; pointer-events: all; }
+
+.panel {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 100%; max-width: 560px;
+  background: var(--white); z-index: 301;
+  transform: translateX(100%); transition: transform 0.25s ease;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.panel.open { transform: translateX(0); }
+
+.panel__head {
+  background: var(--navy); color: var(--white);
+  padding: 18px 20px; display: flex; align-items: center; gap: 12px;
+  flex-shrink: 0;
+}
+.panel__title {
+  flex: 1; font-weight: 900; font-variation-settings: 'wght' 900;
+  font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.panel__close {
+  background: none; border: none; color: var(--white);
+  font-size: 22px; cursor: pointer; line-height: 1; padding: 2px 6px;
+  font-family: var(--font);
+}
+.panel__body { flex: 1; overflow-y: auto; padding: 20px; }
+.panel__foot {
+  padding: 16px 20px; border-top: 1px solid var(--border);
+  display: flex; gap: 10px; flex-shrink: 0;
+}
+
+/* FORMS */
+.form-group { margin-bottom: 16px; }
+.form-label {
+  display: block; font-size: 11px; font-weight: 800;
+  font-variation-settings: 'wght' 800; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 6px;
+}
+.form-input, .form-textarea, .form-select {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-family: var(--font); font-size: 14px;
+  color: var(--text); font-variation-settings: 'wght' 400;
+  background: var(--white); transition: border-color 0.15s;
+}
+.form-input:focus, .form-textarea:focus, .form-select:focus {
+  outline: none; border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(34,59,124,0.1);
+}
+.form-textarea { resize: vertical; min-height: 80px; }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* BUTTONS */
+.btn {
+  padding: 10px 18px; border-radius: var(--radius); border: none;
+  font-family: var(--font); font-size: 12px; font-weight: 800;
+  font-variation-settings: 'wght' 800; text-transform: uppercase;
+  letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s;
+}
+.btn--primary { background: var(--navy); color: var(--white); }
+.btn--primary:hover { background: var(--navy-mid); }
+.btn--danger { background: var(--red); color: var(--white); }
+.btn--danger:hover { background: #a93226; }
+.btn--ghost {
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.btn--ghost:hover { border-color: var(--navy); color: var(--navy); }
+.btn--full { width: 100%; }
+
+/* TAGS INPUT */
+.tags-input-wrap {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 6px 10px; background: var(--white);
+  display: flex; flex-wrap: wrap; gap: 5px; cursor: text;
+  min-height: 40px; align-items: center;
+}
+.tags-input-wrap:focus-within { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(34,59,124,0.1); }
+.tag-chip {
+  background: var(--off-white); border: 1px solid var(--border);
+  color: var(--text); font-size: 12px; padding: 2px 8px 2px 8px;
+  border-radius: 20px; display: flex; align-items: center; gap: 4px;
+}
+.tag-chip__remove { cursor: pointer; color: var(--text-muted); font-size: 14px; line-height: 1; }
+.tag-chip__remove:hover { color: var(--red); }
+.tags-input {
+  border: none; outline: none; font-family: var(--font);
+  font-size: 13px; font-variation-settings: 'wght' 400;
+  min-width: 80px; flex: 1; background: transparent;
+}
+
+/* MEMBER SEARCH */
+.member-search-wrap { position: relative; }
+.member-results {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  max-height: 200px; overflow-y: auto; display: none; margin-top: 2px;
+}
+.member-results.open { display: block; }
+.member-option {
+  padding: 10px 14px; cursor: pointer; font-size: 13px;
+  border-bottom: 1px solid var(--border); display: flex;
+  align-items: center; gap: 8px;
+}
+.member-option:last-child { border-bottom: none; }
+.member-option:hover { background: var(--off-white); }
+.member-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--navy); color: var(--white);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  flex-shrink: 0;
+}
+
+.members-selected { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.member-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--off-white); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 10px 4px 6px; font-size: 12px;
+}
+.member-chip__remove { cursor: pointer; color: var(--text-muted); }
+.member-chip__remove:hover { color: var(--red); }
+
+/* NOTES */
+.notes-thread { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.note {
+  background: var(--off-white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+}
+.note__head {
+  display: flex; justify-content: space-between;
+  margin-bottom: 6px; font-size: 11px;
+}
+.note__author { font-weight: 700; font-variation-settings: 'wght' 700; color: var(--navy); }
+.note__time { color: var(--text-muted); }
+.note__text { font-size: 13px; line-height: 1.5; }
+
+.note-input-row {
+  display: flex; gap: 8px; margin-top: 12px; align-items: flex-end;
+}
+.note-input-row .form-textarea { margin: 0; min-height: 60px; }
+
+/* SUBTASKS */
+.subtask-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.subtask-item {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.subtask-item:hover { border-color: var(--navy); }
+.subtask-item__head {
+  display: flex; align-items: center; gap: 8px;
+}
+.subtask-item__title {
+  flex: 1; font-weight: 600; font-variation-settings: 'wght' 600;
+  font-size: 14px;
+}
+.subtask-item__meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 8px; }
+
+/* DETAIL SECTIONS */
+.detail-section { margin-bottom: 24px; }
+.detail-section__label {
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: 8px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.detail-meta-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.detail-meta-item label {
+  display: block; font-size: 10px; font-weight: 700;
+  font-variation-settings: 'wght' 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 3px;
+}
+.detail-meta-item span { font-size: 13px; }
+
+/* CONFIRM */
+.confirm-row { display: flex; gap: 8px; margin-top: 10px; }
+
+/* DANGER ZONE */
+.danger-zone {
+  border: 1px solid var(--red-light); border-radius: var(--radius);
+  padding: 14px 16px; margin-top: 24px;
+}
+.danger-zone__label {
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--red);
+  margin-bottom: 10px;
+}
+
+/* TOAST */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--navy); color: var(--white);
+  padding: 12px 18px; border-radius: var(--radius);
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  z-index: 999; transform: translateY(80px); opacity: 0;
+  transition: all 0.25s ease; max-width: 300px; pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 4px solid var(--green); }
+.toast.error   { border-left: 4px solid var(--red); }
+.toast.info    { border-left: 4px solid var(--amber); }
+
+/* DIVIDER */
+.divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+/* INLINE STATUS EDIT */
+.inline-select {
+  padding: 4px 8px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-family: var(--font);
+  font-size: 12px; background: var(--white); cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .toolbar { gap: 8px; }
+  .form-row { grid-template-columns: 1fr; }
+  .detail-meta-grid { grid-template-columns: 1fr; }
+  .panel { max-width: 100%; }
+  .kanban { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<script>var NL_TOOL_KEY = 'staff-tasks';</script>
+<script src="/tools/auth-guard.js"></script>
+
+<div id="pageWrap" style="display:none;">
+
+<!-- FIREBASE -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+       alt="National League"
+       onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+  <div class="topbar__title">NL <span>Tasks</span></div>
+  <button class="topbar__btn topbar__btn--solid" onclick="openCreatePanel('task')">+ Task</button>
+  <button class="topbar__btn topbar__btn--solid" onclick="openCreatePanel('project')">+ Project</button>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="view-toggle">
+      <button class="view-toggle__btn active" id="btnList" onclick="setView('list')">☰ List</button>
+      <button class="view-toggle__btn" id="btnKanban" onclick="setView('kanban')">⊞ Board</button>
+    </div>
+    <div class="filter-row">
+      <select class="filter-select" id="filterStatus" onchange="renderAll()">
+        <option value="">All statuses</option>
+        <option value="to-do">To do</option>
+        <option value="in-progress">In progress</option>
+        <option value="done">Done</option>
+      </select>
+      <select class="filter-select" id="filterPriority" onchange="renderAll()">
+        <option value="">All priorities</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <input class="filter-input" id="filterTag" placeholder="Filter by tag…" oninput="renderAll()">
+    </div>
+  </div>
+
+  <!-- LIST VIEW -->
+  <div id="viewList">
+    <div id="listOverdue"></div>
+    <div id="listActive"></div>
+    <div id="listDone"></div>
+  </div>
+
+  <!-- KANBAN VIEW -->
+  <div id="viewKanban" style="display:none;">
+    <div class="kanban">
+      <div class="kanban-col">
+        <div class="kanban-col__head">To Do <span class="section-head__count" id="kCountTodo">0</span></div>
+        <div class="kanban-col__cards" id="kColTodo"></div>
+      </div>
+      <div class="kanban-col">
+        <div class="kanban-col__head">In Progress <span class="section-head__count" id="kCountInprogress">0</span></div>
+        <div class="kanban-col__cards" id="kColInprogress"></div>
+      </div>
+      <div class="kanban-col">
+        <div class="kanban-col__head">Done <span class="section-head__count" id="kCountDone">0</span></div>
+        <div class="kanban-col__cards" id="kColDone"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- ===================== CREATE PANEL ===================== -->
+<div class="panel-overlay" id="createOverlay" onclick="closeCreatePanel()"></div>
+<div class="panel" id="createPanel">
+  <div class="panel__head">
+    <div class="panel__title" id="createPanelTitle">New Task</div>
+    <button class="panel__close" onclick="closeCreatePanel()">×</button>
+  </div>
+  <div class="panel__body" id="createPanelBody">
+    <!-- injected by openCreatePanel() -->
+  </div>
+  <div class="panel__foot">
+    <button class="btn btn--primary" id="createSaveBtn" onclick="saveCreate()">Save</button>
+    <button class="btn btn--ghost" onclick="closeCreatePanel()">Cancel</button>
+  </div>
+</div>
+
+<!-- ===================== DETAIL PANEL ===================== -->
+<div class="panel-overlay" id="detailOverlay" onclick="closeDetailPanel()"></div>
+<div class="panel" id="detailPanel">
+  <div class="panel__head">
+    <div class="panel__title" id="detailPanelTitle">Task</div>
+    <button class="panel__close" onclick="closeDetailPanel()">×</button>
+  </div>
+  <div class="panel__body" id="detailPanelBody">
+    <!-- injected by openDetail() -->
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+</div><!-- /pageWrap -->
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+var firebaseConfig = {
+  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:        'nl-tools.firebaseapp.com',
+  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'nl-tools',
+  storageBucket:     'nl-tools.firebasestorage.app',
+  messagingSenderId: '801354670005',
+  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+};
+
+// ─── STATE ─────────────────────────────────────────────────────────────────
+var db, SESSION;
+var STATE = {
+  view:     'list',
+  tasks:    {},   // taskId → task object
+  projects: {},   // projectId → project object
+  users:    {},   // uid → {name, email}
+  createType: 'task',
+  createMembers: [],
+  createTags: [],
+  detailType: null,  // 'task' | 'project'
+  detailId: null,
+  subtaskMembers: [],
+  confirmDelete: false
+};
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type||'success') + ' show';
+  setTimeout(function() { t.classList.remove('show'); }, 3500);
+}
+
+function ensureAuth() {
+  return new Promise(function(resolve, reject) {
+    var unsub = firebase.auth().onAuthStateChanged(function(u) {
+      unsub();
+      if (u) resolve(u); else reject(new Error('Not authenticated — please reload.'));
+    });
+  });
+}
+
+function pushId() {
+  return db.ref().push().key;
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  var d = new Date(ts);
+  return d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear();
+}
+
+function isOverdue(deadline, status) {
+  if (!deadline || status === 'done') return false;
+  return new Date(deadline) < new Date();
+}
+
+function initials(name) {
+  if (!name) return '?';
+  var parts = name.trim().split(' ');
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
+
+function statusLabel(s) {
+  return s === 'to-do' ? 'To Do' : s === 'in-progress' ? 'In Progress' : s === 'done' ? 'Done' : s || '—';
+}
+
+function pillStatus(s) {
+  var cls = s === 'done' ? 'done' : s === 'in-progress' ? 'inprogress' : 'todo';
+  return '<span class="pill pill--' + cls + '">' + statusLabel(s) + '</span>';
+}
+
+function pillPriority(p) {
+  return '<span class="pill pill--' + (p||'low') + '">' + (p||'low') + '</span>';
+}
+
+function subtaskProgress(project) {
+  if (!project.subtasks) return {done:0, total:0};
+  var keys = Object.keys(project.subtasks);
+  var done = keys.filter(function(k){ return project.subtasks[k].status === 'done'; }).length;
+  return {done: done, total: keys.length};
+}
+
+// ─── AUTH READY ────────────────────────────────────────────────────────────
+window.nlAuthReady = function(session) {
+  SESSION = session;
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+  loadUsers();
+  listenTasks();
+  listenProjects();
+};
+
+// ─── DATA LOAD ─────────────────────────────────────────────────────────────
+function loadUsers() {
+  db.ref('users').once('value', function(snap) {
+    var all = snap.val() || {};
+    Object.keys(all).forEach(function(uid) {
+      var u = all[uid];
+      if (u.role !== 'club') {
+        STATE.users[uid] = { name: u.name || u.email, email: u.email };
+      }
+    });
+  });
+}
+
+function listenTasks() {
+  ensureAuth().then(function() {
+    db.ref('tasks').on('value', function(snap) {
+      var all = snap.val() || {};
+      STATE.tasks = {};
+      Object.keys(all).forEach(function(id) {
+        var t = all[id];
+        if (t.archived) return;
+        if (t.members && t.members[SESSION.uid]) {
+          STATE.tasks[id] = t;
+          STATE.tasks[id]._id = id;
+          STATE.tasks[id]._type = 'task';
+        }
+      });
+      renderAll();
+    });
+  });
+}
+
+function listenProjects() {
+  ensureAuth().then(function() {
+    db.ref('projects').on('value', function(snap) {
+      var all = snap.val() || {};
+      STATE.projects = {};
+      Object.keys(all).forEach(function(id) {
+        var p = all[id];
+        if (p.archived) return;
+        if (p.members && p.members[SESSION.uid]) {
+          STATE.projects[id] = p;
+          STATE.projects[id]._id = id;
+          STATE.projects[id]._type = 'project';
+        }
+      });
+      renderAll();
+    });
+  });
+}
+
+// ─── RENDER ────────────────────────────────────────────────────────────────
+function getFilters() {
+  return {
+    status:   document.getElementById('filterStatus').value,
+    priority: document.getElementById('filterPriority').value,
+    tag:      document.getElementById('filterTag').value.toLowerCase().trim()
+  };
+}
+
+function matchesFilters(item, f) {
+  if (f.status   && item.status   !== f.status)   return false;
+  if (f.priority && item.priority !== f.priority) return false;
+  if (f.tag) {
+    var tags = item.tags || [];
+    if (!tags.some(function(t){ return t.toLowerCase().indexOf(f.tag) !== -1; })) return false;
+  }
+  return true;
+}
+
+function allItems() {
+  var items = [];
+  Object.keys(STATE.tasks).forEach(function(id)    { items.push(STATE.tasks[id]); });
+  Object.keys(STATE.projects).forEach(function(id) { items.push(STATE.projects[id]); });
+  return items;
+}
+
+function renderAll() {
+  if (STATE.view === 'list') renderList();
+  else renderKanban();
+}
+
+function setView(v) {
+  STATE.view = v;
+  document.getElementById('viewList').style.display   = v === 'list'   ? '' : 'none';
+  document.getElementById('viewKanban').style.display = v === 'kanban' ? '' : 'none';
+  document.getElementById('btnList').classList.toggle('active',   v === 'list');
+  document.getElementById('btnKanban').classList.toggle('active', v === 'kanban');
+  renderAll();
+}
+
+function renderList() {
+  var f = getFilters();
+  var items = allItems().filter(function(i){ return matchesFilters(i, f); });
+
+  var now = Date.now();
+  var overdue = items.filter(function(i){ return isOverdue(i.deadline, i.status); });
+  var active  = items.filter(function(i){ return !isOverdue(i.deadline, i.status) && i.status !== 'done'; });
+  var done    = items.filter(function(i){ return i.status === 'done'; });
+
+  renderListSection('listOverdue', 'Overdue', overdue, true);
+  renderListSection('listActive',  'Active',  active,  false);
+  renderListSection('listDone',    'Done',    done,    false);
+}
+
+function renderListSection(elId, label, items, urgent) {
+  var el = document.getElementById(elId);
+  if (!items.length) { el.innerHTML = ''; return; }
+
+  var html = '<div class="section-head"><h2>' + label
+    + '<span class="section-head__count">' + items.length + '</span></h2></div>'
+    + '<div class="task-list">';
+
+  items.forEach(function(item) {
+    html += renderListCard(item, urgent);
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderListCard(item, overdue) {
+  var classes = 'task-card';
+  if (overdue) classes += ' task-card--overdue';
+  if (item.status === 'done') classes += ' task-card--done';
+
+  var progress = '';
+  if (item._type === 'project') {
+    var p = subtaskProgress(item);
+    var pct = p.total ? Math.round((p.done/p.total)*100) : 0;
+    progress = '<div class="progress-bar"><div class="progress-bar__fill" style="width:' + pct + '%"></div></div>'
+      + '<span style="font-size:10px;color:var(--text-muted)">' + p.done + '/' + p.total + '</span>';
+  }
+
+  var tags = (item.tags||[]).map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join('');
+
+  var assignee = '';
+  if (item._type === 'task' && item.assignedTo && STATE.users[item.assignedTo]) {
+    assignee = STATE.users[item.assignedTo].name;
+  }
+
+  return '<div class="task-card" onclick="openDetail(\'' + escJ(item._id) + '\',\'' + item._type + '\')">'
+    + '<div class="task-card__left">'
+    + '<div class="task-card__title">' + esc(item.title) + '</div>'
+    + '<div class="task-card__meta">'
+    + (item._type === 'project' ? '<span class="pill pill--project">Project</span>' : '<span class="pill pill--task">Task</span>')
+    + pillStatus(item.status)
+    + pillPriority(item.priority)
+    + (item.deadline ? '<span>📅 ' + formatDate(item.deadline) + '</span>' : '')
+    + (assignee ? '<span>👤 ' + esc(assignee) + '</span>' : '')
+    + '</div>'
+    + (tags ? '<div class="task-card__tags">' + tags + '</div>' : '')
+    + '</div>'
+    + '<div class="task-card__right">' + progress + '</div>'
+    + '</div>';
+}
+
+function renderKanban() {
+  var f = getFilters();
+  var items = allItems().filter(function(i){ return matchesFilters(i, f); });
+
+  var cols = { 'to-do': [], 'in-progress': [], 'done': [] };
+  items.forEach(function(i) {
+    var s = i.status || 'to-do';
+    if (cols[s]) cols[s].push(i);
+  });
+
+  ['todo','inprogress','done'].forEach(function(key) {
+    var status = key === 'todo' ? 'to-do' : key === 'inprogress' ? 'in-progress' : 'done';
+    var colItems = cols[status] || [];
+    document.getElementById('kCount' + key.charAt(0).toUpperCase() + key.slice(1)).textContent = colItems.length;
+    var col = document.getElementById('kCol' + key.charAt(0).toUpperCase() + key.slice(1));
+    if (!colItems.length) {
+      col.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:16px;">None</div>';
+      return;
+    }
+    col.innerHTML = colItems.map(function(item) {
+      return '<div class="kanban-card" onclick="openDetail(\'' + escJ(item._id) + '\',\'' + item._type + '\')">'
+        + '<div class="kanban-card__title">' + esc(item.title) + '</div>'
+        + '<div class="kanban-card__meta">'
+        + (item._type === 'project' ? '<span class="pill pill--project" style="font-size:9px">Project</span>' : '<span class="pill pill--task" style="font-size:9px">Task</span>')
+        + pillPriority(item.priority)
+        + (item.deadline ? '<span>📅 ' + formatDate(item.deadline) + '</span>' : '')
+        + '</div>'
+        + '</div>';
+    }).join('');
+  });
+}
+
+// ─── CREATE PANEL ──────────────────────────────────────────────────────────
+function openCreatePanel(type) {
+  STATE.createType    = type;
+  STATE.createMembers = [];
+  STATE.createTags    = [];
+
+  document.getElementById('createPanelTitle').textContent = type === 'project' ? 'New Project' : 'New Task';
+
+  var html = '';
+
+  // Title
+  html += '<div class="form-group">'
+    + '<label class="form-label">Title *</label>'
+    + '<input class="form-input" id="cTitle" placeholder="What needs doing?">'
+    + '</div>';
+
+  // Description
+  html += '<div class="form-group">'
+    + '<label class="form-label">Description</label>'
+    + '<textarea class="form-textarea" id="cDesc" placeholder="Optional detail…"></textarea>'
+    + '</div>';
+
+  // Status + Priority
+  html += '<div class="form-row">'
+    + '<div class="form-group"><label class="form-label">Status</label>'
+    + '<select class="form-select" id="cStatus">'
+    + '<option value="to-do">To Do</option>'
+    + '<option value="in-progress">In Progress</option>'
+    + '<option value="done">Done</option>'
+    + '</select></div>'
+    + '<div class="form-group"><label class="form-label">Priority</label>'
+    + '<select class="form-select" id="cPriority">'
+    + '<option value="medium">Medium</option>'
+    + '<option value="high">High</option>'
+    + '<option value="low">Low</option>'
+    + '</select></div>'
+    + '</div>';
+
+  // Deadline
+  html += '<div class="form-group">'
+    + '<label class="form-label">Deadline</label>'
+    + '<input class="form-input" id="cDeadline" type="date">'
+    + '</div>';
+
+  // Tags
+  html += '<div class="form-group">'
+    + '<label class="form-label">Tags</label>'
+    + '<div class="tags-input-wrap" id="tagsWrap" onclick="document.getElementById(\'tagInput\').focus()">'
+    + '<input class="tags-input" id="tagInput" placeholder="Type tag + Enter…" onkeydown="handleTagKey(event)">'
+    + '</div>'
+    + '</div>';
+
+  // Members
+  html += '<div class="form-group">'
+    + '<label class="form-label">Add Members</label>'
+    + '<div class="member-search-wrap">'
+    + '<input class="form-input" id="memberSearch" placeholder="Search staff by name…" oninput="searchMembers(this.value)" autocomplete="off">'
+    + '<div class="member-results" id="memberResults"></div>'
+    + '</div>'
+    + '<div class="members-selected" id="membersSelected"></div>'
+    + '</div>';
+
+  document.getElementById('createPanelBody').innerHTML = html;
+  document.getElementById('createOverlay').classList.add('open');
+  document.getElementById('createPanel').classList.add('open');
+}
+
+function closeCreatePanel() {
+  document.getElementById('createOverlay').classList.remove('open');
+  document.getElementById('createPanel').classList.remove('open');
+}
+
+// Tags
+function handleTagKey(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    var val = e.target.value.trim().replace(/,/g,'');
+    if (val && STATE.createTags.indexOf(val) === -1) {
+      STATE.createTags.push(val);
+      renderCreateTags();
+    }
+    e.target.value = '';
+  }
+}
+
+function renderCreateTags() {
+  var wrap = document.getElementById('tagsWrap');
+  var input = document.getElementById('tagInput');
+  // Remove existing chips
+  Array.from(wrap.querySelectorAll('.tag-chip')).forEach(function(el){ el.remove(); });
+  STATE.createTags.forEach(function(tag, i) {
+    var chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = esc(tag) + '<span class="tag-chip__remove" onclick="removeCreateTag(' + i + ')">×</span>';
+    wrap.insertBefore(chip, input);
+  });
+}
+
+function removeCreateTag(i) {
+  STATE.createTags.splice(i, 1);
+  renderCreateTags();
+}
+
+// Member search
+function searchMembers(val) {
+  var res = document.getElementById('memberResults');
+  if (!val.trim()) { res.classList.remove('open'); return; }
+  var lower = val.toLowerCase();
+  var matches = Object.keys(STATE.users).filter(function(uid) {
+    if (uid === SESSION.uid) return false;
+    if (STATE.createMembers.some(function(m){ return m.uid === uid; })) return false;
+    return STATE.users[uid].name.toLowerCase().indexOf(lower) !== -1;
+  }).slice(0,8);
+
+  if (!matches.length) { res.classList.remove('open'); return; }
+
+  res.innerHTML = matches.map(function(uid) {
+    var u = STATE.users[uid];
+    return '<div class="member-option" onclick="addMember(\'' + escJ(uid) + '\',\'' + escJ(u.name) + '\')">'
+      + '<div class="member-avatar">' + initials(u.name) + '</div>'
+      + '<span>' + esc(u.name) + '</span>'
+      + '</div>';
+  }).join('');
+  res.classList.add('open');
+}
+
+function addMember(uid, name) {
+  if (!STATE.createMembers.some(function(m){ return m.uid === uid; })) {
+    STATE.createMembers.push({uid: uid, name: name});
+    renderCreateMembers();
+  }
+  document.getElementById('memberSearch').value = '';
+  document.getElementById('memberResults').classList.remove('open');
+}
+
+function removeMember(uid) {
+  STATE.createMembers = STATE.createMembers.filter(function(m){ return m.uid !== uid; });
+  renderCreateMembers();
+}
+
+function renderCreateMembers() {
+  var wrap = document.getElementById('membersSelected');
+  wrap.innerHTML = STATE.createMembers.map(function(m) {
+    return '<div class="member-chip">'
+      + '<div class="member-avatar" style="width:22px;height:22px;font-size:9px">' + initials(m.name) + '</div>'
+      + esc(m.name)
+      + '<span class="member-chip__remove" onclick="removeMember(\'' + escJ(m.uid) + '\')">×</span>'
+      + '</div>';
+  }).join('');
+}
+
+// Save
+function saveCreate() {
+  var title = (document.getElementById('cTitle').value || '').trim();
+  if (!title) { showToast('Please enter a title.', 'error'); return; }
+
+  var deadline = document.getElementById('cDeadline').value;
+  var members = {};
+  members[SESSION.uid] = true;
+  STATE.createMembers.forEach(function(m){ members[m.uid] = true; });
+
+  var data = {
+    title:     title,
+    description: (document.getElementById('cDesc').value||'').trim(),
+    status:    document.getElementById('cStatus').value,
+    priority:  document.getElementById('cPriority').value,
+    deadline:  deadline ? new Date(deadline).getTime() : null,
+    tags:      STATE.createTags.slice(),
+    members:   members,
+    createdBy: SESSION.uid,
+    createdAt: Date.now(),
+    archived:  false,
+    files:     {}
+  };
+
+  var node = STATE.createType === 'project' ? 'projects' : 'tasks';
+
+  ensureAuth().then(function() {
+    var id = pushId();
+    return db.ref(node + '/' + id).set(data);
+  }).then(function() {
+    showToast(STATE.createType === 'project' ? 'Project created.' : 'Task created.', 'success');
+    closeCreatePanel();
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+// ─── DETAIL PANEL ──────────────────────────────────────────────────────────
+function openDetail(id, type) {
+  STATE.detailType    = type;
+  STATE.detailId      = id;
+  STATE.confirmDelete = false;
+
+  var item = type === 'task' ? STATE.tasks[id] : STATE.projects[id];
+  if (!item) return;
+
+  var isCreator = item.createdBy === SESSION.uid;
+  var isSuperadmin = SESSION.role === 'superadmin';
+  var canEdit = isCreator || isSuperadmin;
+
+  document.getElementById('detailPanelTitle').textContent = type === 'project' ? 'Project' : 'Task';
+
+  var html = '';
+
+  // Title + type badge
+  html += '<div style="margin-bottom:16px">'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'
+    + (type === 'project' ? '<span class="pill pill--project">Project</span>' : '<span class="pill pill--task">Task</span>')
+    + pillStatus(item.status) + pillPriority(item.priority)
+    + '</div>'
+    + '<div style="font-size:20px;font-weight:900;font-variation-settings:\'wght\' 900;line-height:1.2">' + esc(item.title) + '</div>'
+    + '</div>';
+
+  // Description
+  if (item.description) {
+    html += '<div class="detail-section">'
+      + '<div class="detail-section__label">Description</div>'
+      + '<div style="font-size:14px;line-height:1.6">' + esc(item.description).replace(/\n/g,'<br>') + '</div>'
+      + '</div>';
+  }
+
+  // Meta
+  html += '<div class="detail-section">'
+    + '<div class="detail-section__label">Details</div>'
+    + '<div class="detail-meta-grid">'
+    + '<div class="detail-meta-item"><label>Deadline</label><span>' + formatDate(item.deadline) + '</span></div>'
+    + '<div class="detail-meta-item"><label>Created by</label><span>' + esc(item.createdBy === SESSION.uid ? 'You' : (STATE.users[item.createdBy] ? STATE.users[item.createdBy].name : '—')) + '</span></div>'
+    + '<div class="detail-meta-item"><label>Created</label><span>' + formatDate(item.createdAt) + '</span></div>'
+    + '</div>'
+    + '</div>';
+
+  // Tags
+  if (item.tags && item.tags.length) {
+    html += '<div class="detail-section">'
+      + '<div class="detail-section__label">Tags</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+      + item.tags.map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join('')
+      + '</div></div>';
+  }
+
+  // Members
+  var memberUids = Object.keys(item.members || {});
+  if (memberUids.length) {
+    html += '<div class="detail-section">'
+      + '<div class="detail-section__label">Members</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + memberUids.map(function(uid) {
+          var name = uid === SESSION.uid ? 'You' : (STATE.users[uid] ? STATE.users[uid].name : uid);
+          return '<div style="display:flex;align-items:center;gap:6px;font-size:13px">'
+            + '<div class="member-avatar">' + initials(name) + '</div>' + esc(name) + '</div>';
+        }).join('')
+      + '</div></div>';
+  }
+
+  // Quick status update (for members)
+  html += '<div class="detail-section">'
+    + '<div class="detail-section__label">Update Status</div>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<select class="inline-select" id="quickStatus" onchange="quickUpdateStatus()">'
+    + ['to-do','in-progress','done'].map(function(s){
+        return '<option value="' + s + '"' + (item.status === s ? ' selected' : '') + '>' + statusLabel(s) + '</option>';
+      }).join('')
+    + '</select>'
+    + '</div></div>';
+
+  // SUBTASKS (projects only)
+  if (type === 'project') {
+    html += '<div class="detail-section">'
+      + '<div class="detail-section__label" style="display:flex;justify-content:space-between;align-items:center">'
+      + 'Subtasks'
+      + (canEdit ? '<button class="btn btn--ghost" style="padding:4px 10px;font-size:10px" onclick="toggleAddSubtask()">+ Add</button>' : '')
+      + '</div>';
+
+    // Add subtask form (hidden by default)
+    if (canEdit) {
+      html += '<div id="addSubtaskForm" style="display:none;background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px">'
+        + '<div class="form-group" style="margin-bottom:10px"><input class="form-input" id="stTitle" placeholder="Subtask title *"></div>'
+        + '<div class="form-row">'
+        + '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Assign to</label>'
+        + '<select class="form-select" id="stAssignee">'
+        + '<option value="">— Select member —</option>'
+        + memberUids.map(function(uid){
+            var name = uid === SESSION.uid ? 'You' : (STATE.users[uid] ? STATE.users[uid].name : uid);
+            return '<option value="' + esc(uid) + '">' + esc(name) + '</option>';
+          }).join('')
+        + '</select></div>'
+        + '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Deadline</label>'
+        + '<input class="form-input" id="stDeadline" type="date"></div>'
+        + '</div>'
+        + '<div class="form-row">'
+        + '<div class="form-group"><label class="form-label">Priority</label>'
+        + '<select class="form-select" id="stPriority"><option value="medium">Medium</option><option value="high">High</option><option value="low">Low</option></select></div>'
+        + '<div style="display:flex;align-items:flex-end;gap:6px">'
+        + '<button class="btn btn--primary" style="padding:8px 14px" onclick="saveSubtask()">Save</button>'
+        + '<button class="btn btn--ghost" style="padding:8px 14px" onclick="toggleAddSubtask()">Cancel</button>'
+        + '</div></div>'
+        + '</div>';
+    }
+
+    // Existing subtasks
+    var subtasks = item.subtasks || {};
+    var stKeys = Object.keys(subtasks);
+    if (stKeys.length) {
+      html += '<div class="subtask-list">';
+      stKeys.forEach(function(stId) {
+        var st = subtasks[stId];
+        var stAssigneeName = st.assignedTo === SESSION.uid ? 'You' : (STATE.users[st.assignedTo] ? STATE.users[st.assignedTo].name : '—');
+        var canEditSt = canEdit || st.assignedTo === SESSION.uid;
+        html += '<div class="subtask-item" onclick="openSubtaskDetail(\'' + escJ(id) + '\',\'' + escJ(stId) + '\')">'
+          + '<div class="subtask-item__head">'
+          + '<div class="subtask-item__title">' + esc(st.title) + '</div>'
+          + pillStatus(st.status) + pillPriority(st.priority)
+          + '</div>'
+          + '<div class="subtask-item__meta">'
+          + '👤 ' + esc(stAssigneeName)
+          + (st.deadline ? ' · 📅 ' + formatDate(st.deadline) : '')
+          + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:13px;color:var(--text-muted);padding:10px 0">No subtasks yet.</div>';
+    }
+
+    html += '</div>';
+  }
+
+  // NOTES
+  html += '<div class="detail-section">'
+    + '<div class="detail-section__label">Notes</div>';
+
+  var notes = item.notes || {};
+  var noteKeys = Object.keys(notes).sort();
+  if (noteKeys.length) {
+    html += '<div class="notes-thread">';
+    noteKeys.forEach(function(nId) {
+      var n = notes[nId];
+      html += '<div class="note">'
+        + '<div class="note__head">'
+        + '<span class="note__author">' + esc(n.name || '—') + '</span>'
+        + '<span class="note__time">' + formatDate(n.timestamp) + '</span>'
+        + '</div>'
+        + '<div class="note__text">' + esc(n.text).replace(/\n/g,'<br>') + '</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="font-size:13px;color:var(--text-muted);padding:6px 0">No notes yet.</div>';
+  }
+
+  html += '<div class="note-input-row">'
+    + '<textarea class="form-textarea" id="noteInput" placeholder="Add a note…" style="flex:1"></textarea>'
+    + '<button class="btn btn--primary" style="align-self:flex-end" onclick="saveNote()">Post</button>'
+    + '</div>'
+    + '</div>';
+
+  // ACTIONS (creator/superadmin only)
+  if (canEdit) {
+    html += '<hr class="divider">'
+      + '<div class="danger-zone">'
+      + '<div class="danger-zone__label">Actions</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + '<button class="btn btn--ghost" onclick="archiveItem()">Archive</button>'
+      + '<button class="btn btn--danger" id="deleteBtn" onclick="confirmDelete()">Delete</button>'
+      + '</div>'
+      + '<div id="deleteConfirm" style="display:none;margin-top:10px;font-size:13px;color:var(--red)">'
+      + 'Are you sure? This cannot be undone.'
+      + '<div class="confirm-row">'
+      + '<button class="btn btn--danger" onclick="doDelete()">Yes, delete</button>'
+      + '<button class="btn btn--ghost" onclick="cancelDelete()">Cancel</button>'
+      + '</div></div>'
+      + '</div>';
+  }
+
+  document.getElementById('detailPanelBody').innerHTML = html;
+  document.getElementById('detailOverlay').classList.add('open');
+  document.getElementById('detailPanel').classList.add('open');
+}
+
+function closeDetailPanel() {
+  document.getElementById('detailOverlay').classList.remove('open');
+  document.getElementById('detailPanel').classList.remove('open');
+}
+
+function toggleAddSubtask() {
+  var f = document.getElementById('addSubtaskForm');
+  f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+
+function quickUpdateStatus() {
+  var newStatus = document.getElementById('quickStatus').value;
+  var node = STATE.detailType === 'task' ? 'tasks' : 'projects';
+  ensureAuth().then(function() {
+    return db.ref(node + '/' + STATE.detailId + '/status').set(newStatus);
+  }).then(function() {
+    showToast('Status updated.', 'success');
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+function saveNote() {
+  var text = (document.getElementById('noteInput').value || '').trim();
+  if (!text) return;
+  var node = STATE.detailType === 'task' ? 'tasks' : 'projects';
+  var noteId = pushId();
+  var note = {
+    uid:       SESSION.uid,
+    name:      SESSION.name,
+    text:      text,
+    timestamp: Date.now()
+  };
+  ensureAuth().then(function() {
+    return db.ref(node + '/' + STATE.detailId + '/notes/' + noteId).set(note);
+  }).then(function() {
+    showToast('Note posted.', 'success');
+    document.getElementById('noteInput').value = '';
+    openDetail(STATE.detailId, STATE.detailType);
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+function saveSubtask() {
+  var title = (document.getElementById('stTitle').value || '').trim();
+  if (!title) { showToast('Subtask needs a title.', 'error'); return; }
+  var deadline = document.getElementById('stDeadline').value;
+  var stId = pushId();
+  var data = {
+    title:      title,
+    assignedTo: document.getElementById('stAssignee').value || null,
+    deadline:   deadline ? new Date(deadline).getTime() : null,
+    priority:   document.getElementById('stPriority').value,
+    status:     'to-do',
+    notes:      {},
+    files:      {}
+  };
+  ensureAuth().then(function() {
+    return db.ref('projects/' + STATE.detailId + '/subtasks/' + stId).set(data);
+  }).then(function() {
+    showToast('Subtask added.', 'success');
+    openDetail(STATE.detailId, 'project');
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+function openSubtaskDetail(projectId, stId) {
+  var project = STATE.projects[projectId];
+  if (!project || !project.subtasks || !project.subtasks[stId]) return;
+  var st = project.subtasks[stId];
+  var isCreator = project.createdBy === SESSION.uid;
+  var isAssignee = st.assignedTo === SESSION.uid;
+  var isSuperadmin = SESSION.role === 'superadmin';
+  var canEdit = isCreator || isAssignee || isSuperadmin;
+
+  document.getElementById('detailPanelTitle').textContent = 'Subtask';
+
+  var html = '<div style="margin-bottom:12px">'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'
+    + pillStatus(st.status) + pillPriority(st.priority) + '</div>'
+    + '<div style="font-size:18px;font-weight:900;font-variation-settings:\'wght\' 900">' + esc(st.title) + '</div>'
+    + '</div>';
+
+  html += '<div class="detail-meta-grid" style="margin-bottom:16px">'
+    + '<div class="detail-meta-item"><label>Assigned to</label><span>'
+    + esc(st.assignedTo === SESSION.uid ? 'You' : (STATE.users[st.assignedTo] ? STATE.users[st.assignedTo].name : '—'))
+    + '</span></div>'
+    + '<div class="detail-meta-item"><label>Deadline</label><span>' + formatDate(st.deadline) + '</span></div>'
+    + '</div>';
+
+  // Status update (assignee or creator)
+  if (canEdit) {
+    html += '<div class="detail-section">'
+      + '<div class="detail-section__label">Update Status</div>'
+      + '<select class="inline-select" id="stQuickStatus" onchange="quickUpdateSubtaskStatus(\'' + escJ(projectId) + '\',\'' + escJ(stId) + '\')">'
+      + ['to-do','in-progress','done'].map(function(s){
+          return '<option value="' + s + '"' + (st.status === s ? ' selected' : '') + '>' + statusLabel(s) + '</option>';
+        }).join('')
+      + '</select></div>';
+  }
+
+  // Notes
+  html += '<div class="detail-section">'
+    + '<div class="detail-section__label">Notes</div>';
+  var notes = st.notes || {};
+  var noteKeys = Object.keys(notes).sort();
+  if (noteKeys.length) {
+    html += '<div class="notes-thread">';
+    noteKeys.forEach(function(nId) {
+      var n = notes[nId];
+      html += '<div class="note"><div class="note__head"><span class="note__author">' + esc(n.name||'—') + '</span><span class="note__time">' + formatDate(n.timestamp) + '</span></div><div class="note__text">' + esc(n.text).replace(/\n/g,'<br>') + '</div></div>';
+    });
+    html += '</div>';
+  }
+  html += '<div class="note-input-row">'
+    + '<textarea class="form-textarea" id="stNoteInput" placeholder="Add a note…" style="flex:1"></textarea>'
+    + '<button class="btn btn--primary" style="align-self:flex-end" onclick="saveSubtaskNote(\'' + escJ(projectId) + '\',\'' + escJ(stId) + '\')">Post</button>'
+    + '</div></div>';
+
+  html += '<hr class="divider"><button class="btn btn--ghost" onclick="openDetail(\'' + escJ(projectId) + '\',\'project\')">← Back to project</button>';
+
+  document.getElementById('detailPanelBody').innerHTML = html;
+}
+
+function quickUpdateSubtaskStatus(projectId, stId) {
+  var newStatus = document.getElementById('stQuickStatus').value;
+  ensureAuth().then(function() {
+    return db.ref('projects/' + projectId + '/subtasks/' + stId + '/status').set(newStatus);
+  }).then(function() {
+    showToast('Status updated.', 'success');
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+function saveSubtaskNote(projectId, stId) {
+  var text = (document.getElementById('stNoteInput').value || '').trim();
+  if (!text) return;
+  var noteId = pushId();
+  var note = { uid: SESSION.uid, name: SESSION.name, text: text, timestamp: Date.now() };
+  ensureAuth().then(function() {
+    return db.ref('projects/' + projectId + '/subtasks/' + stId + '/notes/' + noteId).set(note);
+  }).then(function() {
+    showToast('Note posted.', 'success');
+    openSubtaskDetail(projectId, stId);
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+// Archive / Delete
+function archiveItem() {
+  var node = STATE.detailType === 'task' ? 'tasks' : 'projects';
+  ensureAuth().then(function() {
+    return db.ref(node + '/' + STATE.detailId + '/archived').set(true);
+  }).then(function() {
+    showToast('Archived.', 'info');
+    closeDetailPanel();
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+
+function confirmDelete() {
+  document.getElementById('deleteConfirm').style.display = '';
+  document.getElementById('deleteBtn').style.display = 'none';
+}
+
+function cancelDelete() {
+  document.getElementById('deleteConfirm').style.display = 'none';
+  document.getElementById('deleteBtn').style.display = '';
+}
+
+function doDelete() {
+  var node = STATE.detailType === 'task' ? 'tasks' : 'projects';
+  ensureAuth().then(function() {
+    return db.ref(node + '/' + STATE.detailId).remove();
+  }).then(function() {
+    showToast('Deleted.', 'success');
+    closeDetailPanel();
+  }).catch(function(e) {
+    showToast('Error: ' + e.message, 'error');
+  });
+}
+</script>
+
+</body>
+</html>
