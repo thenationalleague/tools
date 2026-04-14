@@ -1,9 +1,14 @@
 /*
  * auth-guard.js — NL Tools v2
- * Version: v3.4 (conversation turn 75)
- * Date: 02/04/2026
+ * Version: v3.5 (conversation turn 75)
+ * Date: 14/04/2026
  *
  * Changelog:
+ * v3.5 — CRITICAL FIX: checkAccess now handles both string format ("admin",
+ *         "access", "off", "hidden") and legacy boolean object format
+ *         ({access: true, admin: true}). Previously an object entry was
+ *         coerced to "[object Object]" which matched neither access nor
+ *         admin, causing silent redirect to portal with spinner stuck.
  * v3.4 — CRITICAL FIX: nlSession now defined before NL_TOOL_KEY check
  *         so window.nlSession is always exposed (portal needs it).
  *         Added currentUser immediate check + 5s fallback for direct access.
@@ -211,7 +216,24 @@
       return;
     }
 
-    var level = (session.tools && session.tools[NL_TOOL_KEY]) || 'hidden';
+    /* Resolve tool entry -- handles both string format ("admin","access","off","hidden")
+       and legacy boolean object format ({access:true, admin:true}) */
+    var rawEntry = session.tools && session.tools[NL_TOOL_KEY];
+    var level;
+    if (!rawEntry && rawEntry !== 0) {
+      level = 'hidden';
+    } else if (typeof rawEntry === 'string') {
+      level = rawEntry;
+    } else if (typeof rawEntry === 'object') {
+      /* Legacy object format: {access: true/false, admin: true/false} */
+      if (rawEntry.admin)  level = 'admin';
+      else if (rawEntry.access) level = 'access';
+      else level = 'off';
+    } else if (rawEntry === true) {
+      level = 'access';
+    } else {
+      level = 'hidden';
+    }
 
     /* Fallback to tool defaults if no explicit entry */
     if (!session.tools || !session.tools.hasOwnProperty(NL_TOOL_KEY)) {
