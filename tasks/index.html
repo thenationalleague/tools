@@ -1,9 +1,16 @@
 <!--
   NL Tasks — NL Tools
-  Version: 1.0
+  Version: 1.1
   Date: 14/04/2026
 
   CHANGELOG
+  v1.1 (14/04/2026)
+    - Fixed script load order: Firebase SDKs + initializeApp now in <head>
+      before auth-guard, matching working tool pattern. Previously SDKs
+      were inside pageWrap (display:none) so auth-guard fired before
+      Firebase existed, causing permanent loading spinner.
+    - Removed initializeApp() from nlAuthReady (already initialised)
+    - Removed duplicate firebaseConfig from bottom script block
   v1.0 (14/04/2026)
     - Initial build
     - My Work view with list/kanban toggle
@@ -462,18 +469,28 @@ body {
   .kanban { grid-template-columns: 1fr; }
 }
 </style>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+var firebaseConfig = {
+  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:        'nl-tools.firebaseapp.com',
+  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'nl-tools',
+  storageBucket:     'nl-tools.firebasestorage.app',
+  messagingSenderId: '801354670005',
+  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+};
+firebase.initializeApp(firebaseConfig);
+</script>
+<script>var NL_TOOL_KEY = 'staff-tasks';</script>
+<script src="/tools/auth-guard.js"></script>
 </head>
 <body>
 
-<script>var NL_TOOL_KEY = 'staff-tasks';</script>
-<script src="/tools/auth-guard.js"></script>
-
 <div id="pageWrap" style="display:none;">
-
-<!-- FIREBASE -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -572,17 +589,6 @@ body {
 </div><!-- /pageWrap -->
 
 <script>
-// ─── CONFIG ────────────────────────────────────────────────────────────────
-var firebaseConfig = {
-  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
-  authDomain:        'nl-tools.firebaseapp.com',
-  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId:         'nl-tools',
-  storageBucket:     'nl-tools.firebasestorage.app',
-  messagingSenderId: '801354670005',
-  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
-};
-
 // ─── STATE ─────────────────────────────────────────────────────────────────
 var db, SESSION;
 var STATE = {
@@ -663,7 +669,6 @@ function subtaskProgress(project) {
 // ─── AUTH READY ────────────────────────────────────────────────────────────
 window.nlAuthReady = function(session) {
   SESSION = session;
-  firebase.initializeApp(firebaseConfig);
   db = firebase.database();
   loadUsers();
   listenTasks();
