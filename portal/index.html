@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.56 (conversation turn 5)
+  Version: v5.57 (conversation turn 6)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.57 -- deployTool() now writes object format {access: bool, admin: bool}
+           instead of plain string. Fixes auth-guard redirect/spinner for users
+           deployed via the Deploy button.
   v5.56 -- Deploy tool button on tiles (superadmin only). Seeds default access
            to all existing users who don't have an explicit entry for the tool.
            Re-deploy option for tools already deployed. Writes deployedAt to RTDB.
@@ -1861,7 +1864,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.56';
+var PORTAL_VERSION = 'v5.57';
 
 var STATE = {
   uid:      null,
@@ -2463,7 +2466,10 @@ function deployTool(toolKey, btn) {
       var defaultLevel = (tool.defaults && tool.defaults[gk]) || 'hidden';
       if (u.role === 'club' && defaultLevel === 'admin') defaultLevel = 'access';
 
-      updates['users/' + uid + '/tools/' + toolKey] = defaultLevel;
+      updates['users/' + uid + '/tools/' + toolKey] = {
+        access: defaultLevel === 'access' || defaultLevel === 'admin',
+        admin:  defaultLevel === 'admin'
+      };
       count++;
     });
 
