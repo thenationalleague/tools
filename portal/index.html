@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.57 (conversation turn 6)
+  Version: v5.58 (conversation turn 7)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.58 -- Re-deploy now overwrites string-format tool entries (legacy from
+           v5.56 deploy bug). Only replaces plain strings — never touches
+           entries already in object format.
   v5.57 -- deployTool() now writes object format {access: bool, admin: bool}
            instead of plain string. Fixes auth-guard redirect/spinner for users
            deployed via the Deploy button.
@@ -1864,7 +1867,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v5.57';
+var PORTAL_VERSION = 'v5.58';
 
 var STATE = {
   uid:      null,
@@ -2459,7 +2462,12 @@ function deployTool(toolKey, btn) {
 
     Object.keys(allUsers).forEach(function(uid) {
       var u = allUsers[uid];
-      if (u.tools && u.tools[toolKey] !== undefined) return;
+      /* Skip if entry is already in correct object format.
+         Overwrite string-format entries left by v5.56 deploy bug. */
+      if (u.tools && u.tools[toolKey] !== undefined) {
+        var existing = u.tools[toolKey];
+        if (typeof existing === 'object' && existing !== null) return;
+      }
       if (u.pending || u.rejected) return;
 
       var gk = getGroupKey(u);
