@@ -134,7 +134,10 @@ var STATIONS = {
 };
 
 var DATE = '2026-05-03'; // Sunday — National SF
-var TIME_BLOCKS = ['06:00','08:00','10:00','12:00','14:00','16:00','18:00','20:00'];
+var TIME_BLOCKS = ['06:00','08:00','10:00','12:00','14:00','16:00','18:00','20:00','22:00','23:30'];
+// Busy stations get hourly blocks to avoid missing services
+var TIME_BLOCKS_DENSE = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00'];
+var DENSE_STATIONS = ['EUS','KGX','STP','LDS','MAN','DON','FST']; // High-frequency stations (added FST for late Southend services)
 
 // Virtual walk connections (minutes)
 var WALKS = {
@@ -216,10 +219,13 @@ async function scanStation(crs) {
   var seenUids = {};
   var trainDeps = [];
 
+  // Use denser time blocks for busy interchange stations
+  var blocks = DENSE_STATIONS.indexOf(crs) >= 0 ? TIME_BLOCKS_DENSE : TIME_BLOCKS;
+  
   // Query each time block
-  for (var i = 0; i < TIME_BLOCKS.length; i++) {
+  for (var i = 0; i < blocks.length; i++) {
     if (shouldStop) break;
-    var time = TIME_BLOCKS[i];
+    var time = blocks[i];
     log('  Departures from ' + time, 'dim');
     var deps = await getDeps(crs, DATE, time);
     await sleep(ms());
@@ -320,18 +326,31 @@ function findDirectServices(fromCRS, toCRS) {
   deps.forEach(function(dep) {
     var svc = ALL_SERVICES[dep.train_uid];
     if (!svc) return;
-    var fromStop = findStopInService(svc, fromCRS);
-    var toStop = findStopInService(svc, toCRS);
-    if (!fromStop || !toStop) return;
-    var depTime = stopTime(fromStop, 'dep');
-    var arrTime = stopTime(toStop, 'arr');
-    if (tm(arrTime) <= tm(depTime)) return; // Wrong direction or same time
+    // Check stop order — fromCRS must appear before toCRS in the timetable
+    var fromIdx = -1, toIdx = -1;
+    for (var i = 0; i < svc.stops.length; i++) {
+      if (svc.stops[i].station_code === fromCRS && fromIdx < 0) fromIdx = i;
+      if (svc.stops[i].station_code === toCRS && toIdx < 0) toIdx = i;
+    }
+    if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) return; // Not on this service or wrong direction
+    var depTime = stopTime(svc.stops[fromIdx], 'dep');
+    var arrTime = stopTime(svc.stops[toIdx], 'arr');
+    if (!depTime || !arrTime) return;
+    // Duration handles past-midnight
+    var durMins = tm(arrTime) - tm(depTime);
+    if (durMins < 0) durMins += 1440; // past midnight
+    // Also check arrival date if available — services arriving next day
+    var arrDate = svc.stops[toIdx].aimed_arrival_date || svc.stops[toIdx].aimed_departure_date;
+    var depDate = svc.stops[fromIdx].aimed_departure_date;
+    var crossesMidnight = (arrDate && depDate && arrDate !== depDate);
+    
     results.push({
       depart: depTime,
       arrive: arrTime,
       operator: svc.operator,
       train_uid: dep.train_uid,
-      durationMins: tm(arrTime) - tm(depTime)
+      durationMins: durMins,
+      crossesMidnight: crossesMidnight
     });
   });
   results.sort(function(a,b) { return tm(a.depart) - tm(b.depart); });
@@ -350,10 +369,23 @@ function find1ChangeJourneys(fromCRS, toCRS, viaCRS, walkMins) {
     var earliest2 = tm(l1.arrive) + minConnection;
     // Find first leg2 departing after connection time
     for (var i = 0; i < leg2s.length; i++) {
-      if (tm(leg2s[i].depart) >= earliest2) {
+      var dep2 = tm(leg2s[i].depart);
+      // Handle past-midnight: if leg1 arrives late and leg2 is after midnight
+      var validConnection = dep2 >= earliest2;
+      if (!validConnection && l1.crossesMidnight) {
+        // leg1 arrival is already past midnight — dep2 should be read as next-day
+        validConnection = (dep2 + 1440) >= earliest2;
+      }
+      if (validConnection) {
         var totalMins = tm(leg2s[i].arrive) - tm(l1.depart);
         if (totalMins < 0) totalMins += 1440;
-        var waitMins = tm(leg2s[i].depart) - tm(l1.arrive) - walkMins;
+        // If leg1 crosses midnight, total needs adjustment
+        if (l1.crossesMidnight) {
+          totalMins = (tm(l1.arrive) + 1440 - tm(l1.depart)) + leg2s[i].durationMins;
+        }
+        var waitMins = dep2 - tm(l1.arrive);
+        if (waitMins < 0) waitMins += 1440;
+        waitMins -= walkMins;
         results.push({
           depart: l1.depart,
           arrive: leg2s[i].arrive,
