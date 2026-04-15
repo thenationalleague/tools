@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tasks — NL Tools
-  Version: 5.1
+  Version: 5.2
   Date: 15/04/2026
 
   CHANGELOG
@@ -230,7 +230,8 @@ body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variati
 .proj-header__colour { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
 .proj-header__title { font-size: 24px; font-weight: 900; font-variation-settings: 'wght' 900; flex: 1; line-height: 1.2; }
 .proj-header__meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
-.proj-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 20px; gap: 0; overflow-x: auto; }
+.proj-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 20px; gap: 0; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+.proj-tabs::-webkit-scrollbar { display: none; }
 .proj-tab { padding: 9px 18px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; border: none; background: none; font-family: var(--font); color: var(--text-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; white-space: nowrap; flex-shrink: 0; }
 .proj-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
@@ -464,6 +465,7 @@ body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variati
     <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png" alt="NL" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
     <div class="topbar__title">NL <span>Tasks</span></div>
     <div class="topbar__badge" id="topbarBadge"></div>
+    <a href="/tools/portal/" style="color:rgba(255,255,255,0.75);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;text-decoration:none;border:1px solid rgba(255,255,255,0.3);padding:6px 12px;border-radius:var(--radius);white-space:nowrap;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='none'">&#8592; Portal</a>
   </div>
 
   <div class="body-wrap">
@@ -725,6 +727,11 @@ function renderSidebarProjects(){
     btn.addEventListener('click',function(){ setView('proj:'+p._id); });
     el.appendChild(btn);
   });
+}
+
+
+function effectiveDeadline(t, proj) {
+  return t.deadline || (proj && proj.deadline) || null;
 }
 
 /* ─── TASK RENDERING ─────────────────────────────────────── */
@@ -1114,6 +1121,20 @@ function renderProjSettings(el, proj, projId){
   for(var si=0;si<statusSel.options.length;si++){ if(statusSel.options[si].value===proj.status) statusSel.selectedIndex=si; }
   statusSel.style.cssText='width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:14px;margin-top:8px';
 
+  /* Date fields */
+  var dateRow=document.createElement('div'); dateRow.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px';
+  function makeDateFg(lbl, ts) {
+    var fg=document.createElement('div');
+    var l=document.createElement('label'); l.style.cssText='display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.09em;color:var(--text-muted);margin-bottom:5px'; l.textContent=lbl;
+    var inp=document.createElement('input'); inp.type='datetime-local'; inp.style.cssText='width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px';
+    if(ts){ var dt=new Date(ts); inp.value=dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())+'T'+pad(dt.getHours())+':'+pad(dt.getMinutes()); }
+    if(!isOwner) inp.disabled=true;
+    fg.appendChild(l); fg.appendChild(inp); return {fg:fg,inp:inp};
+  }
+  var startField=makeDateFg('Start Date', proj.startDate);
+  var endField=makeDateFg('End Date', proj.deadline);
+  dateRow.appendChild(startField.fg); dateRow.appendChild(endField.fg);
+
   /* Colour picker */
   var colourLbl=document.createElement('div'); colourLbl.style.cssText='font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.09em;color:var(--text-muted);margin:12px 0 6px'; colourLbl.textContent='Colour';
   var colPicker=document.createElement('div'); colPicker.className='colour-picker';
@@ -1132,8 +1153,10 @@ function renderProjSettings(el, proj, projId){
   if(!isOwner){ nameInput.disabled=true; descInput.disabled=true; saveBtn.disabled=true; colPicker.style.pointerEvents='none'; colPicker.style.opacity='0.5'; }
   saveBtn.addEventListener('click',function(){
     var newTitle=nameInput.value.trim(); if(!newTitle){ showToast('Title required','error'); return; }
+    var newStart=startField.inp.value?new Date(startField.inp.value).getTime():null;
+    var newEnd=endField.inp.value?new Date(endField.inp.value).getTime():null;
     ensureAuth().then(function(){
-      return db.ref('projects/'+projId).update({ title:newTitle, description:descInput.value.trim(), status:statusSel.value, colour:selectedColour });
+      return db.ref('projects/'+projId).update({ title:newTitle, description:descInput.value.trim(), status:statusSel.value, colour:selectedColour, startDate:newStart, deadline:newEnd });
     }).then(function(){
       showToast('Project updated','success');
       logActivity(projId,'✏️',SESSION.name+' updated project details');
@@ -1141,7 +1164,7 @@ function renderProjSettings(el, proj, projId){
     }).catch(function(e){ showToast(e.message,'error'); });
   });
 
-  renameSec.appendChild(renameTitle); renameSec.appendChild(nameInput); renameSec.appendChild(descInput); renameSec.appendChild(statusSel); renameSec.appendChild(colourLbl); renameSec.appendChild(colPicker); renameSec.appendChild(saveBtn);
+  renameSec.appendChild(renameTitle); renameSec.appendChild(nameInput); renameSec.appendChild(descInput); renameSec.appendChild(statusSel); renameSec.appendChild(dateRow); renameSec.appendChild(colourLbl); renameSec.appendChild(colPicker); renameSec.appendChild(saveBtn);
   el.appendChild(renameSec);
 
   if(isOwner){
