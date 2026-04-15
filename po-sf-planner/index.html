@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playoff SF Planner — National League</title>
+<!--
+  National League Playoff Semi-Final Planner v8.0
+  Changelog:
+  v5.0 - 15/04/2026 - Initial build
+  v6.0 - 15/04/2026 - NL branding, stacked selectors, independent state per division
+  v7.0 - 15/04/2026 - Per-game KO pickers, swap early/late, soft gap warning, no auto-assignment
+  v8.0 - 15/04/2026 - Converted to single-file HTML for GitHub Pages hosting. No build step needed.
+-->
+<style>
+@font-face {
+  font-family: "carbona-variable";
+  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display: swap; font-style: normal; font-weight: 200 900;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'carbona-variable','carbona',sans-serif;
+  font-size: 15px; line-height: 1.5;
+  color: #1a2a44; background: #f4f6f9;
+}
+select:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
+.topbar {
+  background: #9e0000; color: #fff; padding: 0 18px; height: 56px;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 5px solid #223b7c;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  position: sticky; top: 0; z-index: 100;
+}
+.topbar img { height: 32px; }
+.topbar__title { font-weight: 900; font-size: 16px; text-transform: uppercase; letter-spacing: 0.04em; }
+.topbar__title span { opacity: 0.55; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 18px 14px 60px; }
+.intro { margin-bottom: 16px; font-size: 12px; color: #5a6a82; line-height: 1.6; }
+.division { background: #fff; border-radius: 6px; border: 1px solid #dde3ed; box-shadow: 0 2px 12px rgba(10,22,40,0.10); margin-bottom: 24px; overflow: hidden; }
+.div-header { background: #223b7c; color: #fff; padding: 11px 20px; display: flex; justify-content: space-between; align-items: center; }
+.div-header__name { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
+.div-header__date { font-size: 12px; opacity: 0.7; font-weight: 600; }
+.div-body { padding: 14px 18px; }
+.pos-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  border-radius: 4px; margin-bottom: 4px;
+}
+.pos-row--host { background: rgba(158,0,0,0.03); border: 1px solid rgba(158,0,0,0.10); }
+.pos-row--elim { background: #f8f9fb; border: 1px solid transparent; }
+.pos-label { width: 100px; flex-shrink: 0; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.pos-label--host { color: #9e0000; }
+.pos-label--elim { color: #5a6a82; }
+.pos-crest { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
+.pos-select {
+  flex: 1; padding: 5px 8px; border-radius: 3px; border: 1px solid #dde3ed;
+  background: #fff; font-size: 13px; color: #1a2a44; cursor: pointer;
+  font-family: 'carbona-variable','carbona',sans-serif;
+}
+.scenarios { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; margin-top: 16px; }
+.scenario { border: 1px solid #dde3ed; border-radius: 6px; overflow: hidden; background: #fff; }
+.sc-header { background: #f4f6f9; padding: 7px 12px; border-bottom: 1px solid #dde3ed; display: flex; justify-content: space-between; align-items: center; }
+.sc-id { font-weight: 800; font-size: 11px; color: #9e0000; text-transform: uppercase; letter-spacing: 0.08em; }
+.sc-elim { font-size: 10px; color: #5a6a82; }
+.match { padding: 10px 12px; border-bottom: 1px solid #eef1f6; }
+.match:last-child { border-bottom: none; }
+.match__teams { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; flex-wrap: wrap; }
+.match__crest { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+.match__home { font-weight: 700; font-size: 13px; }
+.match__v { color: #5a6a82; font-size: 11px; }
+.match__away { font-weight: 600; font-size: 13px; }
+.match__tag { font-size: 10px; color: #5a6a82; font-weight: 700; text-transform: uppercase; margin-left: 4px; }
+.match__meta { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+.dist { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.dist__dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.dist__mi { font-weight: 700; color: #1a2a44; }
+.dist__drive { color: #5a6a82; }
+.ko-pick { display: flex; align-items: center; gap: 6px; }
+.ko-pick__label { font-size: 9px; font-weight: 800; color: #5a6a82; text-transform: uppercase; letter-spacing: 0.05em; }
+.ko-pick__select {
+  padding: 4px 6px; border-radius: 3px; border: 1px solid #dde3ed; background: #fff;
+  font-size: 13px; font-weight: 700; color: #223b7c; cursor: pointer;
+  font-family: 'carbona-variable','carbona',sans-serif; min-width: 70px;
+}
+.train-tbc { font-size: 10px; color: #9e0000; margin-top: 4px; font-weight: 600; }
+.swap-row { display: flex; justify-content: center; padding: 2px 0; background: #f4f6f9; border-bottom: 1px solid #eef1f6; }
+.swap-btn {
+  background: none; border: 1px solid #dde3ed; border-radius: 3px; padding: 2px 10px;
+  font-size: 10px; color: #223b7c; font-weight: 700; cursor: pointer;
+  font-family: 'carbona-variable','carbona',sans-serif;
+}
+.swap-btn:hover { background: #eef1f6; }
+.gap-warn {
+  background: #fef6ec; border: 1px solid #e67e22; border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: #b35c00; font-weight: 600;
+  margin: 8px 12px; display: flex; align-items: center; gap: 6px;
+}
+.sc-footer { background: #f4f6f9; padding: 6px 12px; border-top: 1px solid #dde3ed; font-size: 10px; color: #5a6a82; font-style: italic; }
+.placeholder { padding: 18px; text-align: center; color: #5a6a82; font-size: 13px; background: #f4f6f9; border-radius: 6px; }
+.legend { padding: 12px; background: #fff; border-radius: 6px; border: 1px solid #dde3ed; font-size: 11px; color: #5a6a82; line-height: 1.6; }
+.legend strong { color: #1a2a44; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+    alt="National League"
+    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+  <div class="topbar__title">Playoff <span>SF Planner</span></div>
+</div>
+
+<div class="wrap">
+  <p class="intro">
+    Assign 2nd–7th per division. Four scenarios per division based on Eliminator outcomes. Each match has its own KO picker — swap early/late per scenario. Amber warning if gap &lt; 3h15m.
+  </p>
+  <div id="app"></div>
+  <div class="legend" style="margin-top:8px">
+    <strong>Distance:</strong>
+    <span style="color:#1e7e34">●</span> &lt;120mi
+    <span style="color:#e67e22">●</span> 120–200mi
+    <span style="color:#c0392b">●</span> &gt;200mi ·
+    <strong>Train:</strong> TBC — real National Rail data per route/date needed. ·
+    <strong>Travel rules:</strong> Outbound same day only (depart ≥06:00). Return past midnight OK.
+  </div>
+</div>
+
+<script>
+// ── Data ──
+var DIST_RAW = [
+"National|York City|Rochdale|69.32|76","National|York City|Carlisle United|118.76|138","National|York City|Boreham Wood|197.42|211","National|York City|Scunthorpe United|54.16|69","National|York City|Forest Green Rovers|216.97|224","National|York City|Southend United|232.35|249",
+"National|Rochdale|York City|69.67|77","National|Rochdale|Carlisle United|123.58|125","National|Rochdale|Boreham Wood|202.78|214","National|Rochdale|Scunthorpe United|80.64|88","National|Rochdale|Forest Green Rovers|166.42|177","National|Rochdale|Southend United|246.03|262",
+"National|Carlisle United|York City|118.70|137","National|Carlisle United|Rochdale|123.32|123","National|Carlisle United|Boreham Wood|293.13|294","National|Carlisle United|Scunthorpe United|160.47|167","National|Carlisle United|Forest Green Rovers|256.77|256","National|Carlisle United|Southend United|339.71|345",
+"National|Boreham Wood|York City|197.16|208","National|Boreham Wood|Rochdale|203.91|211","National|Boreham Wood|Carlisle United|293.49|293","National|Boreham Wood|Scunthorpe United|161.08|179","National|Boreham Wood|Forest Green Rovers|119.11|133","National|Boreham Wood|Southend United|49.71|68",
+"National|Scunthorpe United|York City|54.78|71","National|Scunthorpe United|Rochdale|80.00|86","National|Scunthorpe United|Carlisle United|160.89|170","National|Scunthorpe United|Boreham Wood|160.67|180","National|Scunthorpe United|Forest Green Rovers|186.17|195","National|Scunthorpe United|Southend United|195.60|218",
+"National|Forest Green Rovers|York City|216.92|223","National|Forest Green Rovers|Rochdale|167.06|176","National|Forest Green Rovers|Carlisle United|256.64|257","National|Forest Green Rovers|Boreham Wood|119.48|135","National|Forest Green Rovers|Scunthorpe United|186.06|195","National|Forest Green Rovers|Southend United|163.23|186",
+"National|Southend United|York City|233.00|247","National|Southend United|Rochdale|246.03|262","National|Southend United|Carlisle United|326.06|346","National|Southend United|Boreham Wood|57.99|68","National|Southend United|Scunthorpe United|194.84|218","National|Southend United|Forest Green Rovers|171.68|187",
+"North|South Shields|AFC Fylde|144.57|156","North|South Shields|Kidderminster Harriers|237.53|250","North|South Shields|Macclesfield|170.93|186","North|South Shields|Merthyr Town|320.80|330","North|South Shields|Scarborough Athletic|90.61|122","North|South Shields|Chester|187.74|195","North|South Shields|Darlington|39.41|54","North|South Shields|Buxton|154.55|186","North|South Shields|AFC Telford United|226.78|238","North|South Shields|Spennymoor Town|26.82|40",
+"North|AFC Fylde|South Shields|144.99|156","North|AFC Fylde|Kidderminster Harriers|131.52|143","North|AFC Fylde|Macclesfield|63.43|78","North|AFC Fylde|Merthyr Town|218.35|226","North|AFC Fylde|Scarborough Athletic|147.74|162","North|AFC Fylde|Chester|72.03|78","North|AFC Fylde|Darlington|108.81|117","North|AFC Fylde|Buxton|73.51|96","North|AFC Fylde|AFC Telford United|104.96|125","North|AFC Fylde|Spennymoor Town|109.22|128",
+"North|Kidderminster Harriers|South Shields|237.48|249","North|Kidderminster Harriers|AFC Fylde|131.22|142","North|Kidderminster Harriers|Macclesfield|83.29|106","North|Kidderminster Harriers|Merthyr Town|94.33|111","North|Kidderminster Harriers|Scarborough Athletic|184.61|222","North|Kidderminster Harriers|Chester|79.09|114","North|Kidderminster Harriers|Darlington|201.30|210","North|Kidderminster Harriers|Buxton|81.64|122","North|Kidderminster Harriers|AFC Telford United|30.34|50","North|Kidderminster Harriers|Spennymoor Town|216.86|228",
+"North|Macclesfield|South Shields|170.50|185","North|Macclesfield|AFC Fylde|62.69|76","North|Macclesfield|Kidderminster Harriers|83.35|105","North|Macclesfield|Merthyr Town|170.19|189","North|Macclesfield|Scarborough Athletic|137.73|165","North|Macclesfield|Chester|49.68|66","North|Macclesfield|Darlington|134.32|146","North|Macclesfield|Buxton|12.81|28","North|Macclesfield|AFC Telford United|56.79|87","North|Macclesfield|Spennymoor Town|149.88|163",
+"North|Merthyr Town|South Shields|320.87|328","North|Merthyr Town|AFC Fylde|218.18|225","North|Merthyr Town|Kidderminster Harriers|94.04|111","North|Merthyr Town|Macclesfield|170.25|189","North|Merthyr Town|Scarborough Athletic|268.00|301","North|Merthyr Town|Chester|137.94|188","North|Merthyr Town|Darlington|284.69|289","North|Merthyr Town|Buxton|168.59|204","North|Merthyr Town|AFC Telford United|134.61|144","North|Merthyr Town|Spennymoor Town|300.25|307",
+"North|Scarborough Athletic|South Shields|88.36|129","North|Scarborough Athletic|AFC Fylde|147.78|162","North|Scarborough Athletic|Kidderminster Harriers|184.90|220","North|Scarborough Athletic|Macclesfield|138.18|166","North|Scarborough Athletic|Merthyr Town|268.18|301","North|Scarborough Athletic|Chester|155.00|175","North|Scarborough Athletic|Darlington|67.22|103","North|Scarborough Athletic|Buxton|121.80|166","North|Scarborough Athletic|AFC Telford United|174.16|208","North|Scarborough Athletic|Spennymoor Town|73.43|111",
+"North|Chester|South Shields|188.14|196","North|Chester|AFC Fylde|71.40|78","North|Chester|Kidderminster Harriers|79.19|116","North|Chester|Macclesfield|50.41|69","North|Chester|Merthyr Town|129.65|189","North|Chester|Scarborough Athletic|155.36|176","North|Chester|Darlington|151.96|157","North|Chester|Buxton|60.49|87","North|Chester|AFC Telford United|46.55|76","North|Chester|Spennymoor Town|167.52|175",
+"North|Darlington|South Shields|39.65|54","North|Darlington|AFC Fylde|108.37|117","North|Darlington|Kidderminster Harriers|201.32|210","North|Darlington|Macclesfield|134.72|146","North|Darlington|Merthyr Town|284.59|291","North|Darlington|Scarborough Athletic|67.05|102","North|Darlington|Chester|151.54|157","North|Darlington|Buxton|118.34|147","North|Darlington|AFC Telford United|190.58|198","North|Darlington|Spennymoor Town|19.03|33",
+"North|Buxton|South Shields|153.96|187","North|Buxton|AFC Fylde|72.51|94","North|Buxton|Kidderminster Harriers|80.75|121","North|Buxton|Macclesfield|12.54|28","North|Buxton|Merthyr Town|167.59|204","North|Buxton|Scarborough Athletic|121.18|167","North|Buxton|Chester|59.50|84","North|Buxton|Darlington|117.77|148","North|Buxton|AFC Telford United|53.16|100","North|Buxton|Spennymoor Town|133.34|166",
+"North|AFC Telford United|South Shields|225.99|234","North|AFC Telford United|AFC Fylde|104.90|124","North|AFC Telford United|Kidderminster Harriers|29.42|51","North|AFC Telford United|Macclesfield|56.97|88","North|AFC Telford United|Merthyr Town|96.46|143","North|AFC Telford United|Scarborough Athletic|173.13|207","North|AFC Telford United|Chester|46.46|74","North|AFC Telford United|Darlington|189.81|195","North|AFC Telford United|Buxton|52.88|99","North|AFC Telford United|Spennymoor Town|205.37|213",
+"North|Spennymoor Town|South Shields|26.90|40","North|Spennymoor Town|AFC Fylde|108.71|128","North|Spennymoor Town|Kidderminster Harriers|217.10|229","North|Spennymoor Town|Macclesfield|150.50|165","North|Spennymoor Town|Merthyr Town|300.37|310","North|Spennymoor Town|Scarborough Athletic|75.92|112","North|Spennymoor Town|Chester|167.31|175","North|Spennymoor Town|Darlington|18.98|33","North|Spennymoor Town|Buxton|134.12|166","North|Spennymoor Town|AFC Telford United|206.35|217",
+"South|Worthing|Dorking Wanderers|32.75|49","South|Worthing|Torquay United|179.98|228","South|Worthing|Hornchurch|75.97|94","South|Worthing|Weston-super-Mare|175.61|189","South|Worthing|Hemel Hempstead Town|81.12|106","South|Worthing|Ebbsfleet United|70.73|84","South|Worthing|Maidenhead United|72.38|96","South|Worthing|Maidstone United|72.85|83","South|Worthing|Chesham United|78.73|109","South|Worthing|Chelmsford City|93.43|111",
+"South|Dorking Wanderers|Worthing|32.57|50","South|Dorking Wanderers|Torquay United|188.42|219","South|Dorking Wanderers|Hornchurch|44.99|66","South|Dorking Wanderers|Weston-super-Mare|149.88|155","South|Dorking Wanderers|Hemel Hempstead Town|49.00|62","South|Dorking Wanderers|Ebbsfleet United|39.75|56","South|Dorking Wanderers|Maidenhead United|40.25|51","South|Dorking Wanderers|Maidstone United|41.87|56","South|Dorking Wanderers|Chesham United|46.60|65","South|Dorking Wanderers|Chelmsford City|62.45|84",
+"South|Torquay United|Worthing|181.07|230","South|Torquay United|Dorking Wanderers|189.59|223","South|Torquay United|Hornchurch|226.66|262","South|Torquay United|Weston-super-Mare|82.13|90","South|Torquay United|Hemel Hempstead Town|219.68|222","South|Torquay United|Ebbsfleet United|221.42|253","South|Torquay United|Maidenhead United|189.82|190","South|Torquay United|Maidstone United|223.37|253","South|Torquay United|Chesham United|212.56|222","South|Torquay United|Chelmsford City|263.45|270",
+"South|Hornchurch|Worthing|76.38|95","South|Hornchurch|Dorking Wanderers|50.44|68","South|Hornchurch|Torquay United|225.88|261","South|Hornchurch|Weston-super-Mare|187.33|188","South|Hornchurch|Hemel Hempstead Town|41.57|55","South|Hornchurch|Ebbsfleet United|15.91|29","South|Hornchurch|Maidenhead United|77.70|85","South|Hornchurch|Maidstone United|30.04|43","South|Hornchurch|Chesham United|50.85|67","South|Hornchurch|Chelmsford City|19.96|35",
+"South|Weston-super-Mare|Worthing|176.09|191","South|Weston-super-Mare|Dorking Wanderers|150.41|158","South|Weston-super-Mare|Torquay United|78.33|91","South|Weston-super-Mare|Hornchurch|180.27|188","South|Weston-super-Mare|Hemel Hempstead Town|144.93|149","South|Weston-super-Mare|Ebbsfleet United|182.23|188","South|Weston-super-Mare|Maidenhead United|114.90|117","South|Weston-super-Mare|Maidstone United|184.36|187","South|Weston-super-Mare|Chesham United|137.64|148","South|Weston-super-Mare|Chelmsford City|188.53|197",
+"South|Hemel Hempstead Town|Worthing|81.32|109","South|Hemel Hempstead Town|Dorking Wanderers|49.15|64","South|Hemel Hempstead Town|Torquay United|219.61|221","South|Hemel Hempstead Town|Hornchurch|42.73|55","South|Hemel Hempstead Town|Weston-super-Mare|145.06|148","South|Hemel Hempstead Town|Ebbsfleet United|55.17|66","South|Hemel Hempstead Town|Maidenhead United|35.43|45","South|Hemel Hempstead Town|Maidstone United|69.31|80","South|Hemel Hempstead Town|Chesham United|10.33|19","South|Hemel Hempstead Town|Chelmsford City|50.98|64",
+"South|Ebbsfleet United|Worthing|71.02|87","South|Ebbsfleet United|Dorking Wanderers|45.08|60","South|Ebbsfleet United|Torquay United|220.51|253","South|Ebbsfleet United|Hornchurch|16.00|32","South|Ebbsfleet United|Weston-super-Mare|181.97|188","South|Ebbsfleet United|Hemel Hempstead Town|57.93|70","South|Ebbsfleet United|Maidenhead United|72.34|85","South|Ebbsfleet United|Maidstone United|17.58|27","South|Ebbsfleet United|Chesham United|78.68|81","South|Ebbsfleet United|Chelmsford City|33.46|50",
+"South|Maidenhead United|Worthing|72.23|98","South|Maidenhead United|Dorking Wanderers|40.06|53","South|Maidenhead United|Torquay United|189.10|189","South|Maidenhead United|Hornchurch|69.93|84","South|Maidenhead United|Weston-super-Mare|114.55|116","South|Maidenhead United|Hemel Hempstead Town|34.59|44","South|Maidenhead United|Ebbsfleet United|71.89|83","South|Maidenhead United|Maidstone United|74.01|83","South|Maidenhead United|Chesham United|17.00|37","South|Maidenhead United|Chelmsford City|78.18|93",
+"South|Maidstone United|Worthing|72.58|83","South|Maidstone United|Dorking Wanderers|46.64|56","South|Maidstone United|Torquay United|222.08|250","South|Maidstone United|Hornchurch|29.91|43","South|Maidstone United|Weston-super-Mare|183.53|185","South|Maidstone United|Hemel Hempstead Town|82.65|80","South|Maidstone United|Ebbsfleet United|17.46|24","South|Maidstone United|Maidenhead United|73.91|82","South|Maidstone United|Chesham United|80.25|92","South|Maidstone United|Chelmsford City|47.37|60",
+"South|Chesham United|Worthing|78.92|112","South|Chesham United|Dorking Wanderers|46.74|67","South|Chesham United|Torquay United|212.24|220","South|Chesham United|Hornchurch|51.83|67","South|Chesham United|Weston-super-Mare|137.69|148","South|Chesham United|Hemel Hempstead Town|10.34|19","South|Chesham United|Ebbsfleet United|64.28|77","South|Chesham United|Maidenhead United|17.00|37","South|Chesham United|Maidstone United|78.41|91","South|Chesham United|Chelmsford City|55.10|77",
+"South|Chelmsford City|Worthing|93.65|111","South|Chelmsford City|Dorking Wanderers|67.71|84","South|Chelmsford City|Torquay United|258.16|271","South|Chelmsford City|Hornchurch|20.73|35","South|Chelmsford City|Weston-super-Mare|183.61|198","South|Chelmsford City|Hemel Hempstead Town|45.82|65","South|Chelmsford City|Ebbsfleet United|33.18|46","South|Chelmsford City|Maidenhead United|73.98|95","South|Chelmsford City|Maidstone United|47.31|59","South|Chelmsford City|Chesham United|60.09|75"
+];
+
+var DMAP = {};
+DIST_RAW.forEach(function(l) { var p = l.split('|'); DMAP[p[0]+'|'+p[1]+'|'+p[2]] = { distance: parseFloat(p[3]), drivingMins: parseInt(p[4]) }; });
+function getDist(div, h, a) { return DMAP[div+'|'+h+'|'+a] || null; }
+
+var CREST_BASE = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK = CREST_BASE + 'National%20League%20rose.png';
+function crestUrl(n) { return CREST_BASE + encodeURIComponent(n) + '.png'; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+var POOLS = {
+  National: ["York City","Rochdale","Carlisle United","Boreham Wood","Scunthorpe United","Forest Green Rovers","Southend United"],
+  North: ["South Shields","AFC Fylde","Kidderminster Harriers","Macclesfield","Merthyr Town","Scarborough Athletic","Chester","Darlington","Buxton","AFC Telford United","Spennymoor Town"],
+  South: ["Worthing","Dorking Wanderers","Torquay United","Hornchurch","Weston-super-Mare","Hemel Hempstead Town","Ebbsfleet United","Maidenhead United","Maidstone United","Chesham United","Chelmsford City"]
+};
+var SF_DATES = { North: 'Sat 02/05/2026', South: 'Sat 02/05/2026', National: 'Sun 03/05/2026' };
+var POS_LABELS = { 2:'2nd — Hosts SF', 3:'3rd — Hosts SF', 4:'4th — Eliminator', 5:'5th — Eliminator', 6:'6th — Eliminator', 7:'7th — Eliminator' };
+
+var earlyTimes = []; for (var m = 720; m <= 780; m += 5) earlyTimes.push(m);
+var lateTimes = [];  for (var m2 = 915; m2 <= 975; m2 += 5) lateTimes.push(m2);
+function fmtTime(m) { return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
+var MIN_GAP = 195;
+
+// ── State per division ──
+var STATE = { National: {}, North: {}, South: {} };
+['National','North','South'].forEach(function(div) {
+  STATE[div] = { teams: {2:'',3:'',4:'',5:'',6:'',7:''}, scenarios: [] };
+});
+
+function getUsed(div) {
+  var t = STATE[div].teams;
+  return [t[2],t[3],t[4],t[5],t[6],t[7]].filter(Boolean);
+}
+
+function buildScenarios(div) {
+  var t = STATE[div].teams;
+  if (!t[2]||!t[3]||!t[4]||!t[5]||!t[6]||!t[7]) { STATE[div].scenarios = []; return; }
+  STATE[div].scenarios = [
+    { id:'A', e47:t[4], e56:t[5], m:[{home:t[2],away:t[5],tag:'2v5'},{home:t[3],away:t[4],tag:'3v4'}] },
+    { id:'B', e47:t[4], e56:t[6], m:[{home:t[2],away:t[6],tag:'2v6'},{home:t[3],away:t[4],tag:'3v4'}] },
+    { id:'C', e47:t[7], e56:t[5], m:[{home:t[2],away:t[5],tag:'2v5'},{home:t[3],away:t[7],tag:'3v7'}] },
+    { id:'D', e47:t[7], e56:t[6], m:[{home:t[2],away:t[6],tag:'2v6'},{home:t[3],away:t[7],tag:'3v7'}] }
+  ];
+  STATE[div].scenarios.forEach(function(s) {
+    s.m[0].dist = getDist(div, s.m[0].home, s.m[0].away);
+    s.m[1].dist = getDist(div, s.m[1].home, s.m[1].away);
+    s.flipped = false;
+    s.ko1 = 750; // 12:30
+    s.ko2 = 960; // 16:00
+  });
+}
+
+function distHtml(d) {
+  if (!d) return '<span style="color:#5a6a82;font-size:11px">No distance data</span>';
+  var col = d.distance > 200 ? '#c0392b' : d.distance > 120 ? '#e67e22' : '#1e7e34';
+  var hrs = Math.floor(d.drivingMins/60); var mins = d.drivingMins%60;
+  return '<span class="dist"><span class="dist__dot" style="background:'+col+'"></span><span class="dist__mi">'+d.distance.toFixed(0)+' mi</span><span class="dist__drive">('+hrs+'h'+String(mins).padStart(2,'0')+' drive)</span></span>';
+}
+
+function koOptions(times, selected, div, sIdx, which) {
+  var html = '<select class="ko-pick__select" onchange="setKo(\''+div+'\','+sIdx+',\''+which+'\',parseInt(this.value))">';
+  times.forEach(function(t) {
+    html += '<option value="'+t+'"'+(t===selected?' selected':'')+'>'+fmtTime(t)+'</option>';
+  });
+  html += '</select>';
+  return html;
+}
+
+function matchHtml(m, times, selectedKo, div, sIdx, which) {
+  return '<div class="match">'
+    + '<div class="match__teams">'
+    + '<img class="match__crest" src="'+esc(crestUrl(m.home))+'" onerror="this.onerror=null;this.src=\''+FALLBACK+'\'">'
+    + '<span class="match__home">'+esc(m.home)+'</span>'
+    + '<span class="match__v">v</span>'
+    + '<img class="match__crest" src="'+esc(crestUrl(m.away))+'" onerror="this.onerror=null;this.src=\''+FALLBACK+'\'">'
+    + '<span class="match__away">'+esc(m.away)+'</span>'
+    + '<span class="match__tag">'+esc(m.tag)+'</span>'
+    + '</div>'
+    + '<div class="match__meta">'
+    + distHtml(m.dist)
+    + '<div class="ko-pick"><span class="ko-pick__label">KO</span>'+koOptions(times, selectedKo, div, sIdx, which)+'</div>'
+    + '</div>'
+    + '<div class="train-tbc">Train: TBC</div>'
+    + '</div>';
+}
+
+function scenarioHtml(s, sIdx, div) {
+  var m1 = s.flipped ? s.m[1] : s.m[0];
+  var m2 = s.flipped ? s.m[0] : s.m[1];
+  var gap = Math.abs(s.ko1 - s.ko2);
+  var gapH = Math.floor(gap/60); var gapM = gap%60;
+  var warnHtml = '';
+  if (gap < MIN_GAP) {
+    warnHtml = '<div class="gap-warn"><span style="font-size:14px">⚠</span> Gap is '+gapH+'h'+String(gapM).padStart(2,'0')+' — under 3h15m broadcast minimum</div>';
+  }
+  return '<div class="scenario">'
+    + '<div class="sc-header"><span class="sc-id">Scenario '+esc(s.id)+'</span><span class="sc-elim">Elim: '+esc(s.e47)+' + '+esc(s.e56)+'</span></div>'
+    + matchHtml(m1, earlyTimes, s.ko1, div, sIdx, 'ko1')
+    + '<div class="swap-row"><button class="swap-btn" onclick="flipScenario(\''+div+'\','+sIdx+')">↕ Swap early/late</button></div>'
+    + matchHtml(m2, lateTimes, s.ko2, div, sIdx, 'ko2')
+    + warnHtml
+    + '<div class="sc-footer">Recommendation: awaiting train data</div>'
+    + '</div>';
+}
+
+function renderDiv(div) {
+  var s = STATE[div];
+  var pool = POOLS[div];
+  var used = getUsed(div);
+
+  var html = '<div class="division">';
+  html += '<div class="div-header"><span class="div-header__name">'+(div==='National'?'National League':'NL '+div)+'</span><span class="div-header__date">'+SF_DATES[div]+'</span></div>';
+  html += '<div class="div-body">';
+
+  // Position selectors
+  [2,3,4,5,6,7].forEach(function(pos) {
+    var isHost = pos <= 3;
+    var avail = pool.filter(function(t) { return t === s.teams[pos] || used.indexOf(t) === -1; });
+    html += '<div class="pos-row '+(isHost?'pos-row--host':'pos-row--elim')+'">';
+    html += '<span class="pos-label '+(isHost?'pos-label--host':'pos-label--elim')+'">'+POS_LABELS[pos]+'</span>';
+    if (s.teams[pos]) {
+      html += '<img class="pos-crest" src="'+esc(crestUrl(s.teams[pos]))+'" onerror="this.onerror=null;this.src=\''+FALLBACK+'\'">';
+    }
+    html += '<select class="pos-select" onchange="setTeam(\''+div+'\','+pos+',this.value)">';
+    html += '<option value="">— select —</option>';
+    avail.forEach(function(t) {
+      html += '<option value="'+esc(t)+'"'+(t===s.teams[pos]?' selected':'')+'>'+esc(t)+'</option>';
+    });
+    html += '</select></div>';
+  });
+
+  // Scenarios
+  if (s.scenarios.length === 0) {
+    html += '<div class="placeholder" style="margin-top:16px">Assign all six positions to see scenarios</div>';
+  } else {
+    html += '<div class="scenarios">';
+    s.scenarios.forEach(function(sc, i) { html += scenarioHtml(sc, i, div); });
+    html += '</div>';
+  }
+
+  html += '</div></div>';
+  return html;
+}
+
+function render() {
+  var el = document.getElementById('app');
+  el.innerHTML = renderDiv('National') + renderDiv('North') + renderDiv('South');
+}
+
+// ── Event handlers ──
+function setTeam(div, pos, val) {
+  STATE[div].teams[pos] = val;
+  buildScenarios(div);
+  render();
+}
+
+function setKo(div, sIdx, which, val) {
+  STATE[div].scenarios[sIdx][which] = val;
+  render();
+}
+
+function flipScenario(div, sIdx) {
+  var s = STATE[div].scenarios[sIdx];
+  s.flipped = !s.flipped;
+  // Also swap the KO values so they stay with their match
+  var tmp = s.ko1; s.ko1 = s.ko2; s.ko2 = tmp;
+  // Clamp into valid ranges after swap
+  if (s.ko1 < 720) s.ko1 = 720; if (s.ko1 > 780) s.ko1 = 780;
+  if (s.ko2 < 915) s.ko2 = 915; if (s.ko2 > 975) s.ko2 = 975;
+  // Snap to nearest 5
+  s.ko1 = Math.round(s.ko1/5)*5;
+  s.ko2 = Math.round(s.ko2/5)*5;
+  if (s.ko1 < 720) s.ko1 = 720; if (s.ko1 > 780) s.ko1 = 780;
+  if (s.ko2 < 915) s.ko2 = 915; if (s.ko2 > 975) s.ko2 = 975;
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
