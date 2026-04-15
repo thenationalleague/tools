@@ -3,12 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Train Lookup — Playoff SF Planner</title>
+<title>Train Journey Finder — Playoff SF</title>
 <!--
-  Train Lookup Tool v1.0 — 15/04/2026
-  Queries TransportAPI journey planner for all feasible SF routes.
-  Runs client-side in your browser. No server needed.
-  Outputs JSON data to paste into the main planner tool.
+  Train Journey Finder v2.0 — 15/04/2026
+  Chains timetable + service_timetable endpoints to build multi-leg journeys.
+  Runs client-side. Uses TransportAPI timetable data.
 -->
 <style>
 @font-face {
@@ -17,52 +16,46 @@
        url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
   font-display: swap; font-style: normal; font-weight: 200 900;
 }
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'carbona-variable','carbona',sans-serif; font-size: 15px; line-height: 1.5; color: #1a2a44; background: #f4f6f9; }
-.topbar { background: #9e0000; color: #fff; padding: 0 18px; height: 56px; display: flex; align-items: center; gap: 12px; border-bottom: 5px solid #223b7c; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
-.topbar img { height: 32px; }
-.topbar__title { font-weight: 900; font-size: 16px; text-transform: uppercase; letter-spacing: 0.04em; }
-.topbar__title span { opacity: 0.55; }
-.wrap { max-width: 960px; margin: 0 auto; padding: 18px 14px 60px; }
-.card { background: #fff; border-radius: 6px; border: 1px solid #dde3ed; box-shadow: 0 2px 12px rgba(10,22,40,0.10); margin-bottom: 20px; overflow: hidden; }
-.card-header { background: #223b7c; color: #fff; padding: 11px 20px; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
-.card-body { padding: 16px 20px; }
-label { font-size: 12px; font-weight: 700; color: #5a6a82; text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 4px; }
-input[type="text"] { width: 100%; padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 14px; font-family: inherit; color: #1a2a44; margin-bottom: 12px; }
-input[type="text"]:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
-.btn { display: inline-block; padding: 10px 24px; border: none; border-radius: 4px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; font-family: inherit; }
-.btn-primary { background: #9e0000; color: #fff; }
-.btn-primary:hover { background: #7a0000; }
-.btn-primary:disabled { background: #ccc; cursor: not-allowed; }
-.btn-navy { background: #223b7c; color: #fff; }
-.btn-navy:hover { background: #1a2f63; }
-.progress-wrap { margin: 16px 0; }
-.progress-bar { height: 8px; background: #dde3ed; border-radius: 4px; overflow: hidden; }
-.progress-fill { height: 100%; background: #1e7e34; border-radius: 4px; transition: width 0.3s; width: 0%; }
-.progress-text { font-size: 12px; color: #5a6a82; margin-top: 6px; }
-.log { background: #f4f6f9; border: 1px solid #dde3ed; border-radius: 4px; padding: 12px; max-height: 300px; overflow-y: auto; font-size: 12px; line-height: 1.8; color: #1a2a44; margin-top: 12px; }
-.log-entry { border-bottom: 1px solid #eef1f6; padding: 2px 0; }
-.log-entry:last-child { border-bottom: none; }
-.log-ok { color: #1e7e34; }
-.log-warn { color: #e67e22; }
-.log-err { color: #c0392b; }
-.log-info { color: #223b7c; }
-.results-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
-.results-table th { background: #223b7c; color: #fff; padding: 8px 10px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; }
-.results-table td { padding: 8px 10px; border-bottom: 1px solid #dde3ed; vertical-align: top; }
-.results-table tr:hover td { background: #f4f6f9; }
-.feasible { color: #1e7e34; font-weight: 700; }
-.tight { color: #e67e22; font-weight: 700; }
-.not-feasible { color: #c0392b; font-weight: 700; }
-.unknown { color: #5a6a82; }
-textarea { width: 100%; height: 120px; font-family: monospace; font-size: 11px; padding: 8px; border: 1px solid #dde3ed; border-radius: 4px; margin-top: 8px; }
-.row { display: flex; gap: 12px; flex-wrap: wrap; }
-.row > * { flex: 1; min-width: 200px; }
-.pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
-.pill-green { background: #edf7ee; color: #1e7e34; }
-.pill-amber { background: #fef6ec; color: #e67e22; }
-.pill-red { background: #fdf0ef; color: #c0392b; }
-.pill-grey { background: #f4f6f9; color: #5a6a82; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'carbona-variable','carbona',sans-serif;font-size:15px;line-height:1.5;color:#1a2a44;background:#f4f6f9}
+.topbar{background:#9e0000;color:#fff;padding:0 18px;height:56px;display:flex;align-items:center;gap:12px;border-bottom:5px solid #223b7c;box-shadow:0 2px 12px rgba(0,0,0,0.3)}
+.topbar img{height:32px}.topbar__title{font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:0.04em}.topbar__title span{opacity:0.55}
+.wrap{max-width:960px;margin:0 auto;padding:18px 14px 60px}
+.card{background:#fff;border-radius:6px;border:1px solid #dde3ed;box-shadow:0 2px 12px rgba(10,22,40,0.10);margin-bottom:20px;overflow:hidden}
+.card-header{background:#223b7c;color:#fff;padding:11px 20px;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:0.08em}
+.card-body{padding:16px 20px}
+label{font-size:12px;font-weight:700;color:#5a6a82;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px}
+input[type="text"]{width:100%;padding:8px 12px;border:1px solid #dde3ed;border-radius:4px;font-size:14px;font-family:inherit;color:#1a2a44;margin-bottom:12px}
+input[type="text"]:focus{outline:2px solid #9e0000;outline-offset:-1px}
+.btn{display:inline-block;padding:10px 24px;border:none;border-radius:4px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;font-family:inherit}
+.btn-primary{background:#9e0000;color:#fff}.btn-primary:hover{background:#7a0000}.btn-primary:disabled{background:#ccc;cursor:not-allowed}
+.btn-navy{background:#223b7c;color:#fff}.btn-navy:hover{background:#1a2f63}
+.btn-sm{padding:6px 14px;font-size:11px}
+.progress-bar{height:8px;background:#dde3ed;border-radius:4px;overflow:hidden;margin:12px 0 6px}
+.progress-fill{height:100%;background:#1e7e34;border-radius:4px;transition:width 0.3s;width:0%}
+.progress-text{font-size:12px;color:#5a6a82}
+.log{background:#f4f6f9;border:1px solid #dde3ed;border-radius:4px;padding:12px;max-height:400px;overflow-y:auto;font-size:11px;line-height:1.7;color:#1a2a44;margin-top:12px;font-family:monospace}
+.log .ok{color:#1e7e34}.log .warn{color:#e67e22}.log .err{color:#c0392b}.log .info{color:#223b7c}.log .dim{color:#5a6a82}
+.route-card{border:1px solid #dde3ed;border-radius:6px;margin:10px 0;overflow:hidden;background:#fff}
+.route-header{background:#f4f6f9;padding:8px 14px;border-bottom:1px solid #dde3ed;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+.route-title{font-weight:800;font-size:13px;color:#9e0000}
+.route-meta{font-size:11px;color:#5a6a82}
+.journey-row{padding:8px 14px;border-bottom:1px solid #eef1f6;font-size:12px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.journey-row:last-child{border-bottom:none}
+.j-time{font-weight:800;color:#223b7c;font-size:14px;min-width:110px}
+.j-detail{color:#5a6a82;flex:1}
+.j-duration{font-weight:700;color:#1a2a44;min-width:80px;text-align:right}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em}
+.pill-green{background:#edf7ee;color:#1e7e34}.pill-amber{background:#fef6ec;color:#e67e22}.pill-red{background:#fdf0ef;color:#c0392b}.pill-grey{background:#f4f6f9;color:#5a6a82}
+.leg{display:inline-flex;align-items:center;gap:4px;background:#f4f6f9;border-radius:3px;padding:2px 8px;font-size:11px;margin:2px 0}
+.leg-op{font-weight:700;color:#223b7c}.leg-arrow{color:#5a6a82}
+select{padding:6px 10px;border:1px solid #dde3ed;border-radius:4px;font-size:13px;font-family:inherit;color:#1a2a44;cursor:pointer}
+select:focus{outline:2px solid #9e0000;outline-offset:-1px}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}
+textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8px;border:1px solid #dde3ed;border-radius:4px;margin-top:8px}
+.tabs{display:flex;gap:4px;background:#fff;border:1px solid #dde3ed;border-radius:6px;padding:3px;margin-bottom:16px}
+.tab{flex:1;text-align:center;padding:8px 12px;border-radius:4px;font-size:11px;font-weight:800;cursor:pointer;color:#5a6a82;border:none;background:none;transition:all 0.15s;text-transform:uppercase;letter-spacing:0.08em;font-family:inherit}
+.tab.active{background:#9e0000;color:#fff}
 </style>
 </head>
 <body>
@@ -70,437 +63,567 @@ textarea { width: 100%; height: 120px; font-family: monospace; font-size: 11px; 
 <div class="topbar">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
     alt="NL" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title">Train <span>Lookup</span></div>
+  <div class="topbar__title">Train <span>Journey Finder</span></div>
 </div>
 
 <div class="wrap">
+
+  <!-- Credentials -->
   <div class="card">
-    <div class="card-header">TransportAPI Credentials</div>
+    <div class="card-header">API Credentials</div>
     <div class="card-body">
       <div class="row">
-        <div>
-          <label>App ID</label>
-          <input type="text" id="appId" value="d347c855">
-        </div>
-        <div>
-          <label>App Key</label>
-          <input type="text" id="appKey" value="daa125de19f0f403e225946f573fab38">
-        </div>
+        <div><label>App ID</label><input type="text" id="appId" value="d347c855"></div>
+        <div><label>App Key</label><input type="text" id="appKey" value="daa125de19f0f403e225946f573fab38"></div>
       </div>
-      <div class="row">
-        <div>
-          <label>Delay between calls (ms)</label>
-          <input type="text" id="delay" value="2500">
-        </div>
-        <div>
-          <label>Status</label>
-          <div id="apiStatus" style="padding:8px 0;font-size:13px;color:#5a6a82">Not started</div>
-        </div>
-      </div>
-      <button class="btn btn-primary" id="btnStart" onclick="startLookup()">Run All Lookups</button>
-      <button class="btn btn-navy" id="btnTest" onclick="testApi()" style="margin-left:8px">Test Connection</button>
+      <button class="btn btn-navy btn-sm" onclick="testAPI()">Test Connection</button>
+      <span id="apiStatus" style="margin-left:12px;font-size:12px;color:#5a6a82"></span>
     </div>
   </div>
 
+  <!-- Division tabs + controls -->
   <div class="card">
-    <div class="card-header">Progress</div>
+    <div class="card-header">Run Lookups</div>
     <div class="card-body">
-      <div class="progress-wrap">
-        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-        <div class="progress-text" id="progressText">0 / 0 routes queried</div>
+      <div class="tabs">
+        <button class="tab active" onclick="switchDiv('National',this)">National (Sun)</button>
+        <button class="tab" onclick="switchDiv('North',this)">North (Sat)</button>
+        <button class="tab" onclick="switchDiv('South',this)">South (Sat)</button>
       </div>
-      <div class="log" id="log"></div>
+      <div style="margin-bottom:12px">
+        <span style="font-size:12px;color:#5a6a82" id="divInfo">National — Sunday 03/05/2026 — 16 routes</span>
+      </div>
+      <button class="btn btn-primary" id="btnRun" onclick="runCurrentDiv()">Run National Lookups</button>
+      <button class="btn btn-navy btn-sm" onclick="runAllDivs()" style="margin-left:8px">Run All Divisions</button>
+      <div class="progress-bar"><div class="progress-fill" id="pFill"></div></div>
+      <div class="progress-text" id="pText">Ready</div>
     </div>
   </div>
 
+  <!-- Log -->
   <div class="card">
-    <div class="card-header">Results</div>
-    <div class="card-body">
-      <div id="resultsArea">No results yet — run lookups above.</div>
-    </div>
+    <div class="card-header">Log</div>
+    <div class="card-body"><div class="log" id="log"></div></div>
   </div>
 
+  <!-- Results -->
   <div class="card">
-    <div class="card-header">Export Data</div>
+    <div class="card-header">Journey Results</div>
+    <div class="card-body" id="resultsArea">Run lookups to see results.</div>
+  </div>
+
+  <!-- Export -->
+  <div class="card">
+    <div class="card-header">Export for Planner</div>
     <div class="card-body">
-      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Copy this JSON and paste it into the main planner tool's train data import.</p>
-      <textarea id="exportData" readonly></textarea>
-      <button class="btn btn-navy" onclick="copyExport()" style="margin-top:8px">Copy to Clipboard</button>
+      <p style="font-size:12px;color:#5a6a82;margin-bottom:4px">JSON data to import into the playoff planner tool.</p>
+      <textarea id="exportJSON" readonly></textarea>
+      <button class="btn btn-navy btn-sm" onclick="copyJSON()" style="margin-top:8px">Copy to Clipboard</button>
     </div>
   </div>
 </div>
 
 <script>
-// ── Station codes (CRS) for each team ──
-var STATIONS = {
-  // National
-  "York City": "YRK",
-  "Rochdale": "RCD",
-  "Carlisle United": "CAR",
-  "Boreham Wood": "ELS",       // Elstree & Borehamwood
-  "Scunthorpe United": "SCA",
-  "Forest Green Rovers": "STD", // Stroud
-  "Southend United": "SOC",     // Southend Central
-  // North
-  "South Shields": "EBD",       // East Boldon (closest)
-  "AFC Fylde": "KKM",           // Kirkham & Wesham
-  "Kidderminster Harriers": "KID",
-  "Macclesfield": "MAC",
-  "Merthyr Town": "MER",        // Merthyr Tydfil
-  "Scarborough Athletic": "SCA2", // Will use name-based query
-  "Chester": "CTR",
-  "Darlington": "DAR",
-  "Buxton": "BUX",
-  "AFC Telford United": "TFC",  // Telford Central
-  "Spennymoor Town": "DHM",     // Durham
-  // South
-  "Worthing": "WRH",
-  "Dorking Wanderers": "DKG",   // Dorking
-  "Torquay United": "TRR",      // Torre
-  "Hornchurch": "UPM",          // Upminster
-  "Weston-super-Mare": "WSM",
-  "Hemel Hempstead Town": "HML",
-  "Ebbsfleet United": "NFL",    // Northfleet (use Ebbsfleet Intl as backup)
-  "Maidenhead United": "MAI",
-  "Maidstone United": "MDE",    // Maidstone East
-  "Chesham United": "CSM",
-  "Chelmsford City": "CHM"
+/* ─────────────────────────────────────────────
+   CONFIG & ROUTING RECIPES
+   ───────────────────────────────────────────── */
+
+var API_BASE = 'https://transportapi.com/v3/uk/train';
+var DELAY_MS = 1200; // ms between API calls
+var currentDiv = 'National';
+
+// Station CRS codes
+var CRS = {
+  'York City':'YRK','Rochdale':'RCD','Carlisle United':'CAR','Boreham Wood':'ELS',
+  'Scunthorpe United':'SCA','Forest Green Rovers':'STD','Southend United':'SOC',
+  'South Shields':'EBD','AFC Fylde':'KKM','Kidderminster Harriers':'KID',
+  'Macclesfield':'MAC','Merthyr Town':'MER','Scarborough Athletic':'SCA',
+  'Chester':'CTR','Darlington':'DAR','Buxton':'BUX','AFC Telford United':'TFC',
+  'Spennymoor Town':'DHM',
+  'Worthing':'WRH','Dorking Wanderers':'DKG','Torquay United':'TRR',
+  'Hornchurch':'UPM','Weston-super-Mare':'WSM','Hemel Hempstead Town':'HML',
+  'Ebbsfleet United':'EBD','Maidenhead United':'MAI','Maidstone United':'MDE',
+  'Chesham United':'CSM','Chelmsford City':'CHM'
 };
 
-// Scarborough doesn't have a simple CRS — we'll use name query
-// Northfleet station is very small — Ebbsfleet International (EBD) may be better
-// We'll handle edge cases in the query builder
+// Routing recipes: for each (from_team → to_team), define the connection pattern.
+// Each recipe is an array of legs: [{from: CRS, direction: [dest CRS codes to look for], changeTo: CRS}]
+// The tool will: query departures from `from`, find services calling at any `direction` station,
+// follow that service timetable to the `changeTo` station, then continue to next leg.
+// Final leg ends at the destination.
 
-// ── Route definitions ──
-// For each division: hosts (2nd/3rd feasible) and away teams (4th-7th feasible)
-var ROUTES = {
-  National: {
-    date: "2026-05-03", // Sunday
-    dayLabel: "Sun 03/05",
-    hosts: ["York City", "Rochdale", "Carlisle United", "Boreham Wood"],
-    aways: ["Carlisle United", "Boreham Wood", "Scunthorpe United", "Forest Green Rovers", "Southend United"]
-  },
-  North: {
-    date: "2026-05-02", // Saturday
-    dayLabel: "Sat 02/05",
-    hosts: ["South Shields", "AFC Fylde", "Kidderminster Harriers", "Macclesfield"],
-    aways: ["Kidderminster Harriers", "Macclesfield", "Merthyr Town", "Scarborough Athletic", "Chester", "Darlington", "Buxton", "AFC Telford United", "Spennymoor Town"]
-  },
-  South: {
-    date: "2026-05-02", // Saturday
-    dayLabel: "Sat 02/05",
-    hosts: ["Worthing", "Dorking Wanderers", "Torquay United", "Hornchurch", "Weston-super-Mare", "Hemel Hempstead Town", "Ebbsfleet United", "Maidenhead United", "Maidstone United", "Chesham United", "Chelmsford City"],
-    aways: ["Worthing", "Dorking Wanderers", "Torquay United", "Hornchurch", "Weston-super-Mare", "Hemel Hempstead Town", "Ebbsfleet United", "Maidenhead United", "Maidstone United", "Chesham United", "Chelmsford City"]
+// Key interchange stations
+var EUS = 'EUS'; // London Euston
+var KGX = 'KGX'; // London Kings Cross
+var STP = 'STP'; // London St Pancras
+var LDS = 'LDS'; // Leeds
+var MAN = 'MAN'; // Manchester
+var MCV = 'MCV'; // Manchester Victoria
+var PRE = 'PRE'; // Preston
+var BHM = 'BHM'; // Birmingham New Street
+var DON = 'DON'; // Doncaster
+var NCL = 'NCL'; // Newcastle
+var CBG = 'CBG'; // Cambridge
+
+// Routing recipes per route — "away team → host team"
+// Each recipe: array of {from:CRS, seekStops:[CRS], to:CRS}
+// The tool queries `from` departures, finds trains that call at any of `seekStops`,
+// follows the service timetable to `to` (the change station or final dest),
+// then moves to the next leg.
+var RECIPES = {};
+
+function addRecipe(away, host, legs) {
+  var key = away + '→' + host;
+  if (!RECIPES[key]) RECIPES[key] = [];
+  RECIPES[key].push(legs);
+}
+
+// ── NATIONAL DIVISION (Sunday 03/05) ──
+// Hosts: York (YRK), Rochdale (RCD), Carlisle (CAR), Boreham Wood (ELS)
+// Aways: Carlisle (CAR), Boreham Wood (ELS), Scunthorpe (SCA), Forest Green (STD), Southend (SOC)
+
+// Carlisle → York: direct via Settle-Carlisle (Northern) or via Newcastle/LNER
+addRecipe('Carlisle United','York City', [{from:'CAR',seekStops:['LDS','YRK'],to:'YRK'}]); // Direct Settle-Carlisle→Leeds then Leeds→York
+addRecipe('Carlisle United','York City', [{from:'CAR',seekStops:['LDS'],to:'LDS'},{from:'LDS',seekStops:['YRK'],to:'YRK'}]);
+
+// Carlisle → Rochdale: Carlisle→Preston/Leeds→Rochdale, or Carlisle→Manchester→Rochdale
+addRecipe('Carlisle United','Rochdale', [{from:'CAR',seekStops:['PRE','LDS','MCV','MAN'],to:'LDS'},{from:'LDS',seekStops:['RCD'],to:'RCD'}]);
+addRecipe('Carlisle United','Rochdale', [{from:'CAR',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['MCV','MAN','RCD'],to:'RCD'}]);
+
+// Carlisle → Boreham Wood: Carlisle→Euston (Avanti)→Elstree (Thameslink)
+addRecipe('Carlisle United','Boreham Wood', [{from:'CAR',seekStops:['EUS'],to:'EUS'},{from:'EUS',seekStops:['ELS'],to:'ELS'}]);
+
+// Boreham Wood → York: Elstree→StPancras/KGX (Thameslink)→York (LNER)
+addRecipe('Boreham Wood','York City', [{from:'ELS',seekStops:['STP','KGX'],to:'STP'},{from:'STP',seekStops:['YRK'],to:'YRK'}]);
+addRecipe('Boreham Wood','York City', [{from:'ELS',seekStops:['STP'],to:'STP'},{from:'KGX',seekStops:['YRK'],to:'YRK'}]);
+
+// Boreham Wood → Rochdale: Elstree→StPancras→Sheffield/Manchester→Rochdale (complex)
+addRecipe('Boreham Wood','Rochdale', [{from:'ELS',seekStops:['STP'],to:'STP'},{from:'STP',seekStops:['MAN','SHF','LDS'],to:'MAN'},{from:'MAN',seekStops:['RCD'],to:'RCD'}]);
+
+// Boreham Wood → Carlisle: Elstree→Euston (Thameslink south)→Euston (Avanti north)→Carlisle
+addRecipe('Boreham Wood','Carlisle United', [{from:'ELS',seekStops:['STP','EUS'],to:'EUS'},{from:'EUS',seekStops:['CAR'],to:'CAR'}]);
+
+// Scunthorpe → York: via Doncaster most likely
+addRecipe('Scunthorpe United','York City', [{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['YRK'],to:'YRK'}]);
+
+// Scunthorpe → Rochdale: Scunthorpe→Sheffield/Manchester→Rochdale
+addRecipe('Scunthorpe United','Rochdale', [{from:'SCA',seekStops:['DON','SHF'],to:'SHF'},{from:'SHF',seekStops:['MAN','MCV'],to:'MAN'},{from:'MAN',seekStops:['RCD'],to:'RCD'}]);
+
+// Scunthorpe → Carlisle: Scunthorpe→Doncaster→York/Leeds→Carlisle
+addRecipe('Scunthorpe United','Carlisle United', [{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['YRK'],to:'YRK'},{from:'YRK',seekStops:['CAR'],to:'CAR'}]);
+
+// Scunthorpe → Boreham Wood: Scunthorpe→Doncaster→KGX→StPancras→Elstree
+addRecipe('Scunthorpe United','Boreham Wood', [{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['KGX'],to:'KGX'},{from:'KGX',seekStops:['ELS'],to:'ELS'}]);
+
+// Forest Green (Stroud) → York: Stroud→Cheltenham/Bristol→Birmingham→Leeds→York or Stroud→Swindon→London→York
+addRecipe('Forest Green Rovers','York City', [{from:'STD',seekStops:['CNM','BHM'],to:'BHM'},{from:'BHM',seekStops:['LDS','YRK'],to:'YRK'}]);
+addRecipe('Forest Green Rovers','York City', [{from:'STD',seekStops:['SWI','PAD'],to:'PAD'},{from:'KGX',seekStops:['YRK'],to:'YRK'}]);
+
+// Forest Green → Rochdale: Stroud→Birmingham→Manchester→Rochdale
+addRecipe('Forest Green Rovers','Rochdale', [{from:'STD',seekStops:['CNM','BHM'],to:'BHM'},{from:'BHM',seekStops:['MAN'],to:'MAN'},{from:'MAN',seekStops:['RCD'],to:'RCD'}]);
+
+// Forest Green → Carlisle: Stroud→Birmingham→Carlisle (Avanti via Crewe/Preston)
+addRecipe('Forest Green Rovers','Carlisle United', [{from:'STD',seekStops:['CNM','BHM'],to:'BHM'},{from:'BHM',seekStops:['CAR','PRE'],to:'CAR'}]);
+
+// Forest Green → Boreham Wood: Stroud→Swindon→London Paddington→(tube/walk)→StPancras→Elstree
+addRecipe('Forest Green Rovers','Boreham Wood', [{from:'STD',seekStops:['SWI','PAD'],to:'PAD'}]); // After Paddington needs tube — flag manually
+
+// Southend → York: Southend Central→London (c2c/GA)→KGX→York (LNER)
+addRecipe('Southend United','York City', [{from:'SOC',seekStops:['FST','LST'],to:'FST'},{from:'KGX',seekStops:['YRK'],to:'YRK'}]);
+
+// Southend → Rochdale: Southend→London→Euston→Manchester→Rochdale
+addRecipe('Southend United','Rochdale', [{from:'SOC',seekStops:['FST','LST'],to:'FST'},{from:'EUS',seekStops:['MAN','MCV'],to:'MAN'},{from:'MAN',seekStops:['RCD'],to:'RCD'}]);
+
+// Southend → Carlisle: Southend→London→Euston→Carlisle
+addRecipe('Southend United','Carlisle United', [{from:'SOC',seekStops:['FST','LST'],to:'FST'},{from:'EUS',seekStops:['CAR'],to:'CAR'}]);
+
+// Southend → Boreham Wood: Southend→Stratford/Liverpool St→(connect)→Elstree
+addRecipe('Southend United','Boreham Wood', [{from:'SOC',seekStops:['SRA','FST','LST'],to:'SRA'}]); // Needs Overground/tube — may not chain cleanly
+
+
+/* ─────────────────────────────────────────────
+   API HELPERS
+   ───────────────────────────────────────────── */
+
+function getCredentials() {
+  return { id: document.getElementById('appId').value.trim(), key: document.getElementById('appKey').value.trim() };
+}
+
+function apiUrl(path) {
+  var c = getCredentials();
+  var sep = path.indexOf('?') >= 0 ? '&' : '?';
+  return API_BASE + path + sep + 'app_id=' + c.id + '&app_key=' + c.key;
+}
+
+async function apiFetch(path) {
+  var url = apiUrl(path);
+  try {
+    var resp = await fetch(url);
+    if (!resp.ok) return { _error: resp.status + ' ' + resp.statusText };
+    return await resp.json();
+  } catch(e) {
+    return { _error: e.message };
   }
+}
+
+function sleep(ms) { return new Promise(function(r){setTimeout(r,ms)}); }
+
+// Get departures from a station on a date, starting from a time
+// Returns array of {mode, departure_time, destination_name, train_uid, operator_name, service_timetable_url}
+async function getDepartures(stationCRS, date, fromTime) {
+  var path = '/station/' + stationCRS + '/' + date + '/' + fromTime + '/timetable.json?train_status=passenger';
+  var data = await apiFetch(path);
+  if (data._error) return { error: data._error };
+  if (!data.departures || !data.departures.all) return { error: 'No departures data' };
+  return data.departures.all.filter(function(d) { return d.mode === 'train'; });
+}
+
+// Get a service timetable — returns array of stops with times
+async function getServiceTimetable(trainUid, date) {
+  var path = '/service_timetables/' + trainUid + ':' + date + '.json';
+  var data = await apiFetch(path);
+  if (data._error) return { error: data._error };
+  if (!data.stops) return { error: 'No stops data' };
+  return data.stops;
+}
+
+// Check if a service calls at any of the target stations
+// Returns the stop data for the first matching station, or null
+function serviceCallsAt(stops, targetCRS, afterTime) {
+  var afterMins = timeToMins(afterTime);
+  for (var i = 0; i < stops.length; i++) {
+    var s = stops[i];
+    if (targetCRS.indexOf(s.station_code) >= 0) {
+      var arrTime = s.aimed_arrival_time || s.aimed_departure_time;
+      if (arrTime && timeToMins(arrTime) >= afterMins) {
+        return s;
+      }
+    }
+  }
+  return null;
+}
+
+function timeToMins(t) {
+  if (!t) return -1;
+  var p = t.split(':');
+  return parseInt(p[0]) * 60 + parseInt(p[1]);
+}
+
+function minsToTime(m) {
+  if (m < 0) return '??:??';
+  var h = Math.floor(m / 60) % 24;
+  var mm = m % 60;
+  return String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+}
+
+/* ─────────────────────────────────────────────
+   JOURNEY CHAIN ENGINE
+   ───────────────────────────────────────────── */
+
+// For a given recipe (array of legs), attempt to find a journey departing after `startTime`
+// Returns: {legs: [{from, to, depart, arrive, operator, trainUid}], totalMins, changes} or null
+async function findJourneyForRecipe(recipe, date, startTime) {
+  var currentTime = startTime;
+  var legs = [];
+  var apiCalls = 0;
+
+  for (var li = 0; li < recipe.length; li++) {
+    var leg = recipe[li];
+    var minConnectionTime = li > 0 ? 10 : 0; // 10 min minimum connection
+    var searchFrom = li > 0 ? minsToTime(timeToMins(currentTime) + minConnectionTime) : currentTime;
+
+    logMsg('  Leg ' + (li+1) + ': departures from ' + leg.from + ' after ' + searchFrom, 'dim');
+
+    // Get departures
+    var deps = await getDepartures(leg.from, date, searchFrom);
+    apiCalls++;
+    await sleep(DELAY_MS);
+
+    if (deps.error || deps.length === 0) {
+      logMsg('  No departures from ' + leg.from + ' after ' + searchFrom, 'err');
+      return null;
+    }
+
+    // Try each departure to see if it reaches our target
+    var found = false;
+    for (var di = 0; di < Math.min(deps.length, 15); di++) {
+      var dep = deps[di];
+      var depTime = dep.aimed_departure_time;
+      if (timeToMins(depTime) < timeToMins(searchFrom)) continue;
+
+      // Get service timetable to check if it calls at our target
+      var stops = await getServiceTimetable(dep.train_uid, date);
+      apiCalls++;
+      await sleep(DELAY_MS);
+
+      if (stops.error) continue;
+
+      var targetStop = serviceCallsAt(stops, leg.seekStops.concat([leg.to]), depTime);
+      if (targetStop && targetStop.station_code === leg.to) {
+        // Direct to our target station on this leg
+        var arrTime = targetStop.aimed_arrival_time || targetStop.aimed_departure_time;
+        legs.push({
+          from: leg.from, to: leg.to,
+          fromName: getStationNameFromStops(stops, leg.from) || leg.from,
+          toName: targetStop.station_name || leg.to,
+          depart: depTime, arrive: arrTime,
+          operator: dep.operator_name, trainUid: dep.train_uid
+        });
+        currentTime = arrTime;
+        found = true;
+        logMsg('  ✓ ' + leg.from + ' ' + depTime + ' → ' + leg.to + ' ' + arrTime + ' (' + dep.operator_name + ')', 'ok');
+        break;
+      } else if (targetStop) {
+        // Calls at a seek station but not the final target — check if it reaches to
+        var finalStop = serviceCallsAt(stops, [leg.to], depTime);
+        if (finalStop) {
+          var arrTime2 = finalStop.aimed_arrival_time || finalStop.aimed_departure_time;
+          legs.push({
+            from: leg.from, to: leg.to,
+            fromName: getStationNameFromStops(stops, leg.from) || leg.from,
+            toName: finalStop.station_name || leg.to,
+            depart: depTime, arrive: arrTime2,
+            operator: dep.operator_name, trainUid: dep.train_uid
+          });
+          currentTime = arrTime2;
+          found = true;
+          logMsg('  ✓ ' + leg.from + ' ' + depTime + ' → ' + leg.to + ' ' + arrTime2 + ' (' + dep.operator_name + ')', 'ok');
+          break;
+        }
+      }
+    }
+
+    if (!found) {
+      logMsg('  ✗ No train from ' + leg.from + ' reaching ' + leg.to + ' (checked ' + Math.min(deps.length, 15) + ' services)', 'warn');
+      return null;
+    }
+  }
+
+  // Calculate total
+  var totalMins = timeToMins(legs[legs.length-1].arrive) - timeToMins(legs[0].depart);
+  if (totalMins < 0) totalMins += 1440; // past midnight
+
+  return { legs: legs, totalMins: totalMins, changes: legs.length - 1, apiCalls: apiCalls };
+}
+
+function getStationNameFromStops(stops, crs) {
+  for (var i = 0; i < stops.length; i++) {
+    if (stops[i].station_code === crs) return stops[i].station_name;
+  }
+  return null;
+}
+
+/* ─────────────────────────────────────────────
+   ROUTE BUILDER
+   ───────────────────────────────────────────── */
+
+var DIVISION_CONFIG = {
+  National: { date: '2026-05-03', label: 'Sun 03/05/2026', hosts: ['York City','Rochdale','Carlisle United','Boreham Wood'], aways: ['Carlisle United','Boreham Wood','Scunthorpe United','Forest Green Rovers','Southend United'] },
+  North: { date: '2026-05-02', label: 'Sat 02/05/2026', hosts: ['South Shields','AFC Fylde','Kidderminster Harriers','Macclesfield'], aways: ['Kidderminster Harriers','Macclesfield','Merthyr Town','Scarborough Athletic','Chester','Darlington','Buxton','AFC Telford United','Spennymoor Town'] },
+  South: { date: '2026-05-02', label: 'Sat 02/05/2026', hosts: ['Worthing','Dorking Wanderers','Torquay United','Hornchurch','Weston-super-Mare','Hemel Hempstead Town','Ebbsfleet United','Maidenhead United','Maidstone United','Chesham United','Chelmsford City'], aways: ['Worthing','Dorking Wanderers','Torquay United','Hornchurch','Weston-super-Mare','Hemel Hempstead Town','Ebbsfleet United','Maidenhead United','Maidstone United','Chesham United','Chelmsford City'] }
 };
 
-// Query times — we query outbound arriving by these times, return departing after these times
-var OUTBOUND_ARRIVE_TIMES = ["11:00", "14:00"]; // Covers early KO (12:00) and late KO (15:15)
-var RETURN_DEPART_TIMES = ["15:30", "19:30"];    // Covers early KO end (12:00+3.5h) and late KO end (16:15+3.5h)
+// Start times to try for outbound journeys
+var START_TIMES = ['06:00','07:00','08:00','09:00','10:00'];
 
-var RESULTS = {};
-var LOG_EL, PROGRESS_EL, PROGRESS_TEXT;
-var totalQueries = 0;
-var completedQueries = 0;
-var running = false;
+var ALL_RESULTS = {};
 
-function log(msg, cls) {
-  var el = document.getElementById('log');
-  var div = document.createElement('div');
-  div.className = 'log-entry ' + (cls || 'log-info');
-  div.textContent = msg;
-  el.appendChild(div);
-  el.scrollTop = el.scrollHeight;
-}
+function getRouteKey(away, host) { return away + '→' + host; }
 
-function updateProgress() {
-  var pct = totalQueries > 0 ? (completedQueries / totalQueries * 100) : 0;
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressText').textContent = completedQueries + ' / ' + totalQueries + ' queries completed';
-}
-
-function getStationCode(team) {
-  return STATIONS[team] || null;
-}
-
-// Build all unique routes (away → host, excluding same team)
-function buildRouteList() {
+function getRoutesForDiv(div) {
+  var cfg = DIVISION_CONFIG[div];
   var routes = [];
-  ['National', 'North', 'South'].forEach(function(div) {
-    var cfg = ROUTES[div];
-    cfg.hosts.forEach(function(host) {
-      cfg.aways.forEach(function(away) {
-        if (host === away) return; // Can't play yourself
-        var hostCRS = getStationCode(host);
-        var awayCRS = getStationCode(away);
-        if (!hostCRS || !awayCRS) {
-          // Will use name-based query
-        }
-        routes.push({
-          division: div,
-          date: cfg.date,
-          host: host,
-          away: away,
-          hostCRS: hostCRS,
-          awayCRS: awayCRS,
-          key: div + '|' + away + '→' + host
-        });
-      });
+  cfg.hosts.forEach(function(host) {
+    cfg.aways.forEach(function(away) {
+      if (host === away) return;
+      var key = getRouteKey(away, host);
+      if (RECIPES[key]) {
+        routes.push({ away: away, host: host, key: key, date: cfg.date });
+      }
     });
   });
   return routes;
 }
 
-function sleep(ms) {
-  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+/* ─────────────────────────────────────────────
+   UI
+   ───────────────────────────────────────────── */
+
+function logMsg(msg, cls) {
+  var el = document.getElementById('log');
+  var d = document.createElement('div');
+  d.className = cls || 'info';
+  d.textContent = msg;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
 }
 
-async function queryJourney(from, to, date, time, type) {
-  var appId = document.getElementById('appId').value.trim();
-  var appKey = document.getElementById('appKey').value.trim();
-
-  // Use CRS codes if available, otherwise use station names
-  var fromParam = from.crs ? 'station:' + from.crs : from.name;
-  var toParam = to.crs ? 'station:' + to.crs : to.name;
-
-  var timeType = type === 'arrive' ? 'arriving' : 'departing';
-  var url = 'https://transportapi.com/v3/uk/public/journey/from/' +
-    encodeURIComponent(fromParam) + '/to/' + encodeURIComponent(toParam) +
-    '/' + timeType + '/' + date + '/' + time + '.json' +
-    '?app_id=' + appId + '&app_key=' + appKey +
-    '&modes=train-bus' +
-    '&service=southern|thameslink|avanti|crosscountry|northern|transpennine|gwr|lner|southeastern|c2c|greater-anglia|east-midlands|transport-for-wales|scotrail|chiltern|south-western';
-
-  try {
-    var resp = await fetch(url);
-    if (!resp.ok) {
-      var errText = await resp.text();
-      return { error: resp.status + ': ' + errText };
-    }
-    return await resp.json();
-  } catch (e) {
-    return { error: e.message };
-  }
+function updateProgress(done, total, text) {
+  var pct = total > 0 ? (done/total*100) : 0;
+  document.getElementById('pFill').style.width = pct + '%';
+  document.getElementById('pText').textContent = text || (done + ' / ' + total);
 }
 
-function extractJourneyInfo(data) {
-  if (!data || data.error) return { error: data ? data.error : 'No data' };
-  if (!data.routes || data.routes.length === 0) return { error: 'No routes found' };
-
-  var journeys = [];
-  data.routes.forEach(function(route) {
-    var depart = route.departure_datetime || '';
-    var arrive = route.arrival_datetime || '';
-    var duration = route.duration || '';
-    var parts = route.route_parts || [];
-    var changes = parts.length > 0 ? parts.length - 1 : 0;
-
-    // Extract just times
-    var departTime = depart ? depart.split('T')[1].substring(0, 5) : '?';
-    var arriveTime = arrive ? arrive.split('T')[1].substring(0, 5) : '?';
-
-    // Duration in minutes
-    var durMins = 0;
-    if (duration) {
-      var durMatch = duration.match(/(\d+):(\d+):(\d+)/);
-      if (durMatch) durMins = parseInt(durMatch[1]) * 60 + parseInt(durMatch[2]);
-    }
-
-    journeys.push({
-      depart: departTime,
-      arrive: arriveTime,
-      durationMins: durMins,
-      changes: changes,
-      durationText: duration,
-      modes: parts.map(function(p) { return p.mode || ''; }).join(', ')
-    });
-  });
-
-  return { journeys: journeys };
+function switchDiv(div, btn) {
+  currentDiv = div;
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
+  btn.classList.add('active');
+  var cfg = DIVISION_CONFIG[div];
+  var routes = getRoutesForDiv(div);
+  document.getElementById('divInfo').textContent = div + ' — ' + cfg.label + ' — ' + routes.length + ' routes with recipes';
+  document.getElementById('btnRun').textContent = 'Run ' + div + ' Lookups';
 }
 
-async function testApi() {
-  log('Testing API connection...', 'log-info');
+async function testAPI() {
   document.getElementById('apiStatus').textContent = 'Testing...';
-
-  var result = await queryJourney(
-    { crs: 'YRK', name: 'York' },
-    { crs: 'RCD', name: 'Rochdale' },
-    '2026-05-03', '11:00', 'arrive'
-  );
-
-  if (result.error) {
-    log('API Error: ' + result.error, 'log-err');
-    document.getElementById('apiStatus').innerHTML = '<span style="color:#c0392b">Error: ' + result.error + '</span>';
-  } else if (result.routes && result.routes.length > 0) {
-    var j = extractJourneyInfo(result);
-    log('API OK! Test route York→Rochdale: depart ' + j.journeys[0].depart + ', arrive ' + j.journeys[0].arrive + ', ' + j.journeys[0].changes + ' changes', 'log-ok');
-    document.getElementById('apiStatus').innerHTML = '<span style="color:#1e7e34">Connected ✓</span>';
+  var deps = await getDepartures('YRK', '2026-05-03', '08:00');
+  if (deps.error) {
+    document.getElementById('apiStatus').innerHTML = '<span style="color:#c0392b">Error: ' + deps.error + '</span>';
   } else {
-    log('API returned empty results — may need different date or stations', 'log-warn');
-    document.getElementById('apiStatus').innerHTML = '<span style="color:#e67e22">Connected but no results</span>';
+    document.getElementById('apiStatus').innerHTML = '<span style="color:#1e7e34">OK — ' + deps.length + ' departures found ✓</span>';
   }
 }
 
-async function startLookup() {
-  if (running) return;
-  running = true;
-  document.getElementById('btnStart').disabled = true;
-  RESULTS = {};
-
-  var routes = buildRouteList();
-  // Each route needs: 2 outbound queries (arrive by 11:00, arrive by 14:00) + 2 return queries (depart 15:30, depart 19:30)
-  totalQueries = routes.length * 4;
-  completedQueries = 0;
-  updateProgress();
-
-  log('Starting lookups for ' + routes.length + ' routes (' + totalQueries + ' total queries)', 'log-info');
-
-  var delayMs = parseInt(document.getElementById('delay').value) || 2500;
-
-  for (var i = 0; i < routes.length; i++) {
-    var r = routes[i];
-    var key = r.key;
-    RESULTS[key] = { division: r.division, host: r.host, away: r.away, date: r.date, outbound: [], returnJourneys: [] };
-
-    log(r.division + ': ' + r.away + ' → ' + r.host + ' (' + r.date + ')', 'log-info');
-
-    // Outbound queries (away fans travelling TO the ground)
-    for (var oi = 0; oi < OUTBOUND_ARRIVE_TIMES.length; oi++) {
-      var oTime = OUTBOUND_ARRIVE_TIMES[oi];
-      var oResult = await queryJourney(
-        { crs: r.awayCRS, name: r.away },
-        { crs: r.hostCRS, name: r.host },
-        r.date, oTime, 'arrive'
-      );
-      var oInfo = extractJourneyInfo(oResult);
-      if (oInfo.error) {
-        log('  Outbound arrive-by ' + oTime + ': ERROR — ' + oInfo.error, 'log-err');
-      } else {
-        oInfo.journeys.forEach(function(j) {
-          RESULTS[key].outbound.push({ arriveBy: oTime, depart: j.depart, arrive: j.arrive, durationMins: j.durationMins, changes: j.changes });
-          log('  Outbound arrive-by ' + oTime + ': depart ' + j.depart + ' → arrive ' + j.arrive + ' (' + j.durationMins + 'min, ' + j.changes + ' chg)', 'log-ok');
-        });
-      }
-      completedQueries++;
-      updateProgress();
-      await sleep(delayMs);
-    }
-
-    // Return queries (away fans travelling HOME)
-    for (var ri = 0; ri < RETURN_DEPART_TIMES.length; ri++) {
-      var rTime = RETURN_DEPART_TIMES[ri];
-      var rResult = await queryJourney(
-        { crs: r.hostCRS, name: r.host },
-        { crs: r.awayCRS, name: r.away },
-        r.date, rTime, 'depart'
-      );
-      var rInfo = extractJourneyInfo(rResult);
-      if (rInfo.error) {
-        log('  Return depart ' + rTime + ': ERROR — ' + rInfo.error, 'log-err');
-      } else {
-        rInfo.journeys.forEach(function(j) {
-          RESULTS[key].returnJourneys.push({ departAfter: rTime, depart: j.depart, arrive: j.arrive, durationMins: j.durationMins, changes: j.changes });
-          log('  Return depart ' + rTime + ': depart ' + j.depart + ' → arrive ' + j.arrive + ' (' + j.durationMins + 'min, ' + j.changes + ' chg)', 'log-ok');
-        });
-      }
-      completedQueries++;
-      updateProgress();
-      await sleep(delayMs);
-    }
-  }
-
-  log('Complete! ' + routes.length + ' routes queried.', 'log-ok');
-  running = false;
-  document.getElementById('btnStart').disabled = false;
+async function runCurrentDiv() {
+  await runDiv(currentDiv);
   renderResults();
-  document.getElementById('exportData').value = JSON.stringify(RESULTS, null, 2);
+  updateExport();
 }
 
-function assessFeasibility(routeData, koMins) {
-  // koMins = KO time in minutes from midnight
-  // Outbound: need to arrive by koMins - 60
-  // Return: can leave at koMins + 210 (3.5h), home past midnight OK, depart >= 06:00 (360)
-  var arriveBy = koMins - 60;
-  var leaveAfter = koMins + 210;
+async function runAllDivs() {
+  await runDiv('National');
+  await runDiv('North');
+  await runDiv('South');
+  renderResults();
+  updateExport();
+}
 
-  var bestOut = null;
-  routeData.outbound.forEach(function(o) {
-    var arrMins = timeToMins(o.arrive);
-    if (arrMins <= arriveBy) {
-      var depMins = timeToMins(o.depart);
-      if (depMins >= 360) { // Depart on or after 06:00
-        if (!bestOut || depMins > timeToMins(bestOut.depart)) bestOut = o; // Latest possible departure that still arrives in time
+async function runDiv(div) {
+  var routes = getRoutesForDiv(div);
+  var cfg = DIVISION_CONFIG[div];
+  logMsg('═══ ' + div.toUpperCase() + ' (' + cfg.label + ') — ' + routes.length + ' routes ═══', 'info');
+
+  for (var ri = 0; ri < routes.length; ri++) {
+    var route = routes[ri];
+    updateProgress(ri, routes.length, div + ': ' + route.away + ' → ' + route.host);
+    logMsg('Route: ' + route.away + ' → ' + route.host, 'info');
+
+    var recipes = RECIPES[route.key] || [];
+    var bestJourneys = {};
+
+    // Try each recipe at each start time
+    for (var si = 0; si < START_TIMES.length; si++) {
+      var startTime = START_TIMES[si];
+      for (var rci = 0; rci < recipes.length; rci++) {
+        logMsg(' Trying recipe ' + (rci+1) + ' departing ~' + startTime, 'dim');
+        var journey = await findJourneyForRecipe(recipes[rci], route.date, startTime);
+        if (journey) {
+          var jKey = journey.legs[0].depart; // key by actual departure time
+          if (!bestJourneys[jKey] || journey.totalMins < bestJourneys[jKey].totalMins) {
+            bestJourneys[jKey] = journey;
+          }
+          break; // Don't try other recipes if this one worked
+        }
       }
     }
-  });
 
-  var bestRet = null;
-  routeData.returnJourneys.forEach(function(r) {
-    var depMins = timeToMins(r.depart);
-    if (depMins >= leaveAfter) {
-      if (!bestRet || depMins < timeToMins(bestRet.depart)) bestRet = r; // Earliest departure after match
+    // Now do return journeys (host → away)
+    var returnKey = getRouteKey(route.host, route.away);
+    var returnRecipes = RECIPES[returnKey] || [];
+    var returnJourneys = {};
+    var returnTimes = ['15:30','16:30','17:30','18:30','19:30','20:00'];
+
+    if (returnRecipes.length > 0) {
+      logMsg('Return: ' + route.host + ' → ' + route.away, 'info');
+      for (var rti = 0; rti < returnTimes.length; rti++) {
+        for (var rrci = 0; rrci < returnRecipes.length; rrci++) {
+          var retJ = await findJourneyForRecipe(returnRecipes[rrci], route.date, returnTimes[rti]);
+          if (retJ) {
+            var rjKey = retJ.legs[0].depart;
+            if (!returnJourneys[rjKey] || retJ.totalMins < returnJourneys[rjKey].totalMins) {
+              returnJourneys[rjKey] = retJ;
+            }
+            break;
+          }
+        }
+      }
     }
-  });
 
-  return { outbound: bestOut, returnJ: bestRet, feasible: bestOut && bestRet };
-}
+    ALL_RESULTS[route.key] = {
+      division: div, away: route.away, host: route.host, date: route.date,
+      outbound: Object.values(bestJourneys).sort(function(a,b) { return timeToMins(a.legs[0].depart) - timeToMins(b.legs[0].depart); }),
+      returns: Object.values(returnJourneys).sort(function(a,b) { return timeToMins(a.legs[0].depart) - timeToMins(b.legs[0].depart); })
+    };
+  }
 
-function timeToMins(t) {
-  if (!t || t === '?') return -1;
-  var parts = t.split(':');
-  var h = parseInt(parts[0]);
-  var m = parseInt(parts[1]);
-  // Handle past midnight (next day)
-  return h * 60 + m;
+  updateProgress(routes.length, routes.length, div + ' complete');
+  logMsg('═══ ' + div.toUpperCase() + ' COMPLETE ═══', 'ok');
 }
 
 function renderResults() {
-  var html = '<table class="results-table"><thead><tr><th>Division</th><th>Route (Away → Host)</th><th>Best Outbound</th><th>Best Return</th><th>12:30 KO</th><th>16:00 KO</th></tr></thead><tbody>';
+  var html = '';
+  Object.keys(ALL_RESULTS).forEach(function(key) {
+    var r = ALL_RESULTS[key];
+    html += '<div class="route-card">';
+    html += '<div class="route-header"><span class="route-title">' + esc(r.away) + ' → ' + esc(r.host) + '</span><span class="route-meta">' + esc(r.division) + ' · ' + esc(r.date) + '</span></div>';
 
-  Object.keys(RESULTS).forEach(function(key) {
-    var r = RESULTS[key];
-    var bestOutText = r.outbound.length > 0 ?
-      r.outbound.map(function(o) { return o.depart + '→' + o.arrive + ' (' + o.changes + 'chg)'; }).join('<br>') :
-      '<span class="unknown">No data</span>';
-    var bestRetText = r.returnJourneys.length > 0 ?
-      r.returnJourneys.map(function(j) { return j.depart + '→' + j.arrive + ' (' + j.changes + 'chg)'; }).join('<br>') :
-      '<span class="unknown">No data</span>';
-
-    // Assess for 12:30 and 16:00 KOs
-    var assess1230 = assessFeasibility(r, 750);
-    var assess1600 = assessFeasibility(r, 960);
-
-    function pillFor(a) {
-      if (a.feasible) return '<span class="pill pill-green">Feasible</span>';
-      if (a.outbound && !a.returnJ) return '<span class="pill pill-amber">Out OK, return?</span>';
-      if (!a.outbound && a.returnJ) return '<span class="pill pill-red">Can\'t get there</span>';
-      return '<span class="pill pill-grey">No data</span>';
+    // Outbound
+    if (r.outbound.length === 0) {
+      html += '<div class="journey-row"><span class="err">No outbound journeys found</span></div>';
+    } else {
+      html += '<div style="padding:6px 14px;font-size:10px;font-weight:800;color:#223b7c;text-transform:uppercase;background:#f8f9fb;border-bottom:1px solid #eef1f6">Outbound</div>';
+      r.outbound.forEach(function(j) {
+        html += journeyRowHtml(j);
+      });
     }
 
-    html += '<tr>'
-      + '<td>' + r.division + '</td>'
-      + '<td><strong>' + r.away + '</strong> → ' + r.host + '</td>'
-      + '<td>' + bestOutText + '</td>'
-      + '<td>' + bestRetText + '</td>'
-      + '<td>' + pillFor(assess1230) + '</td>'
-      + '<td>' + pillFor(assess1600) + '</td>'
-      + '</tr>';
+    // Returns
+    if (r.returns.length === 0) {
+      html += '<div class="journey-row"><span class="warn">No return journeys found</span></div>';
+    } else {
+      html += '<div style="padding:6px 14px;font-size:10px;font-weight:800;color:#223b7c;text-transform:uppercase;background:#f8f9fb;border-bottom:1px solid #eef1f6">Return</div>';
+      r.returns.forEach(function(j) {
+        html += journeyRowHtml(j);
+      });
+    }
+
+    html += '</div>';
   });
 
-  html += '</tbody></table>';
-  document.getElementById('resultsArea').innerHTML = html;
+  document.getElementById('resultsArea').innerHTML = html || 'No results yet.';
 }
 
-function copyExport() {
-  var ta = document.getElementById('exportData');
+function journeyRowHtml(j) {
+  var departTime = j.legs[0].depart;
+  var arriveTime = j.legs[j.legs.length-1].arrive;
+  var hrs = Math.floor(j.totalMins/60);
+  var mins = j.totalMins % 60;
+
+  var legsHtml = j.legs.map(function(l) {
+    return '<span class="leg"><span class="leg-op">' + esc(l.operator) + '</span> ' + esc(l.fromName) + ' ' + esc(l.depart) + ' <span class="leg-arrow">→</span> ' + esc(l.toName) + ' ' + esc(l.arrive) + '</span>';
+  }).join(' ');
+
+  return '<div class="journey-row">'
+    + '<span class="j-time">' + esc(departTime) + ' → ' + esc(arriveTime) + '</span>'
+    + '<span class="j-detail">' + legsHtml + '</span>'
+    + '<span class="j-duration">' + hrs + 'h' + String(mins).padStart(2,'0') + ' · ' + j.changes + 'chg</span>'
+    + '</div>';
+}
+
+function updateExport() {
+  document.getElementById('exportJSON').value = JSON.stringify(ALL_RESULTS, null, 2);
+}
+
+function copyJSON() {
+  var ta = document.getElementById('exportJSON');
   ta.select();
   document.execCommand('copy');
-  // Brief visual feedback
-  var btn = event.target;
-  btn.textContent = 'Copied!';
-  setTimeout(function() { btn.textContent = 'Copy to Clipboard'; }, 2000);
 }
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Init
+switchDiv('National', document.querySelector('.tab.active'));
 </script>
 </body>
 </html>
