@@ -5,12 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Playoff SF Planner — National League</title>
 <!--
-  National League Playoff Semi-Final Planner v8.0
+  National League Playoff Semi-Final Planner v10.0
   Changelog:
-  v5.0 - 15/04/2026 - Initial build
-  v6.0 - 15/04/2026 - NL branding, stacked selectors, independent state per division
-  v7.0 - 15/04/2026 - Per-game KO pickers, swap early/late, soft gap warning, no auto-assignment
-  v8.0 - 15/04/2026 - Converted to single-file HTML for GitHub Pages hosting. No build step needed.
+  v5.0  - 15/04/2026 - Initial build
+  v6.0  - 15/04/2026 - NL branding, stacked selectors, independent state per division
+  v7.0  - 15/04/2026 - Per-game KO pickers, swap, soft gap warning
+  v8.0  - 15/04/2026 - Converted to single HTML for GitHub Pages
+  v9.0  - 15/04/2026 - Position feasibility filtering based on points/games
+  v10.0 - 15/04/2026 - Swap keeps KO times fixed (only flips which match is early/late).
+    Scenario header now shows matchup tags eg "SCENARIO A (2v5 / 3v4)".
+    Tags removed from individual match cards.
+    Team data updated via conversation as results come in.
 -->
 <style>
 @font-face {
@@ -20,19 +25,10 @@
   font-display: swap; font-style: normal; font-weight: 200 900;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: 'carbona-variable','carbona',sans-serif;
-  font-size: 15px; line-height: 1.5;
-  color: #1a2a44; background: #f4f6f9;
-}
+body { font-family: 'carbona-variable','carbona',sans-serif; font-size: 15px; line-height: 1.5; color: #1a2a44; background: #f4f6f9; }
 select:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
-.topbar {
-  background: #9e0000; color: #fff; padding: 0 18px; height: 56px;
-  display: flex; align-items: center; gap: 12px;
-  border-bottom: 5px solid #223b7c;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  position: sticky; top: 0; z-index: 100;
-}
+button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
+.topbar { background: #9e0000; color: #fff; padding: 0 18px; height: 56px; display: flex; align-items: center; gap: 12px; border-bottom: 5px solid #223b7c; box-shadow: 0 2px 12px rgba(0,0,0,0.3); position: sticky; top: 0; z-index: 100; }
 .topbar img { height: 32px; }
 .topbar__title { font-weight: 900; font-size: 16px; text-transform: uppercase; letter-spacing: 0.04em; }
 .topbar__title span { opacity: 0.55; }
@@ -43,26 +39,21 @@ select:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
 .div-header__name { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
 .div-header__date { font-size: 12px; opacity: 0.7; font-weight: 600; }
 .div-body { padding: 14px 18px; }
-.pos-row {
-  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
-  border-radius: 4px; margin-bottom: 4px;
-}
+.pos-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 4px; margin-bottom: 4px; }
 .pos-row--host { background: rgba(158,0,0,0.03); border: 1px solid rgba(158,0,0,0.10); }
 .pos-row--elim { background: #f8f9fb; border: 1px solid transparent; }
 .pos-label { width: 100px; flex-shrink: 0; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
 .pos-label--host { color: #9e0000; }
 .pos-label--elim { color: #5a6a82; }
 .pos-crest { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
-.pos-select {
-  flex: 1; padding: 5px 8px; border-radius: 3px; border: 1px solid #dde3ed;
-  background: #fff; font-size: 13px; color: #1a2a44; cursor: pointer;
-  font-family: 'carbona-variable','carbona',sans-serif;
-}
+.pos-select { flex: 1; padding: 5px 8px; border-radius: 3px; border: 1px solid #dde3ed; background: #fff; font-size: 13px; color: #1a2a44; cursor: pointer; font-family: 'carbona-variable','carbona',sans-serif; }
+.pos-info { font-size: 9px; color: #5a6a82; flex-shrink: 0; min-width: 50px; text-align: right; }
 .scenarios { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; margin-top: 16px; }
 .scenario { border: 1px solid #dde3ed; border-radius: 6px; overflow: hidden; background: #fff; }
-.sc-header { background: #f4f6f9; padding: 7px 12px; border-bottom: 1px solid #dde3ed; display: flex; justify-content: space-between; align-items: center; }
-.sc-id { font-weight: 800; font-size: 11px; color: #9e0000; text-transform: uppercase; letter-spacing: 0.08em; }
-.sc-elim { font-size: 10px; color: #5a6a82; }
+.sc-header { background: #f4f6f9; padding: 7px 12px; border-bottom: 1px solid #dde3ed; }
+.sc-title { font-weight: 800; font-size: 12px; color: #9e0000; text-transform: uppercase; letter-spacing: 0.06em; }
+.sc-title span { color: #1a2a44; font-weight: 600; }
+.sc-elim { font-size: 10px; color: #5a6a82; margin-top: 2px; }
 .match { padding: 10px 12px; border-bottom: 1px solid #eef1f6; }
 .match:last-child { border-bottom: none; }
 .match__teams { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; flex-wrap: wrap; }
@@ -70,7 +61,6 @@ select:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
 .match__home { font-weight: 700; font-size: 13px; }
 .match__v { color: #5a6a82; font-size: 11px; }
 .match__away { font-weight: 600; font-size: 13px; }
-.match__tag { font-size: 10px; color: #5a6a82; font-weight: 700; text-transform: uppercase; margin-left: 4px; }
 .match__meta { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
 .dist { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
 .dist__dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
@@ -78,42 +68,31 @@ select:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
 .dist__drive { color: #5a6a82; }
 .ko-pick { display: flex; align-items: center; gap: 6px; }
 .ko-pick__label { font-size: 9px; font-weight: 800; color: #5a6a82; text-transform: uppercase; letter-spacing: 0.05em; }
-.ko-pick__select {
-  padding: 4px 6px; border-radius: 3px; border: 1px solid #dde3ed; background: #fff;
-  font-size: 13px; font-weight: 700; color: #223b7c; cursor: pointer;
-  font-family: 'carbona-variable','carbona',sans-serif; min-width: 70px;
-}
+.ko-pick__select { padding: 4px 6px; border-radius: 3px; border: 1px solid #dde3ed; background: #fff; font-size: 13px; font-weight: 700; color: #223b7c; cursor: pointer; font-family: 'carbona-variable','carbona',sans-serif; min-width: 70px; }
 .train-tbc { font-size: 10px; color: #9e0000; margin-top: 4px; font-weight: 600; }
 .swap-row { display: flex; justify-content: center; padding: 2px 0; background: #f4f6f9; border-bottom: 1px solid #eef1f6; }
-.swap-btn {
-  background: none; border: 1px solid #dde3ed; border-radius: 3px; padding: 2px 10px;
-  font-size: 10px; color: #223b7c; font-weight: 700; cursor: pointer;
-  font-family: 'carbona-variable','carbona',sans-serif;
-}
+.swap-btn { background: none; border: 1px solid #dde3ed; border-radius: 3px; padding: 2px 10px; font-size: 10px; color: #223b7c; font-weight: 700; cursor: pointer; font-family: 'carbona-variable','carbona',sans-serif; }
 .swap-btn:hover { background: #eef1f6; }
-.gap-warn {
-  background: #fef6ec; border: 1px solid #e67e22; border-radius: 4px;
-  padding: 6px 10px; font-size: 11px; color: #b35c00; font-weight: 600;
-  margin: 8px 12px; display: flex; align-items: center; gap: 6px;
-}
+.gap-warn { background: #fef6ec; border: 1px solid #e67e22; border-radius: 4px; padding: 6px 10px; font-size: 11px; color: #b35c00; font-weight: 600; margin: 8px 12px; display: flex; align-items: center; gap: 6px; }
 .sc-footer { background: #f4f6f9; padding: 6px 12px; border-top: 1px solid #dde3ed; font-size: 10px; color: #5a6a82; font-style: italic; }
 .placeholder { padding: 18px; text-align: center; color: #5a6a82; font-size: 13px; background: #f4f6f9; border-radius: 6px; }
 .legend { padding: 12px; background: #fff; border-radius: 6px; border: 1px solid #dde3ed; font-size: 11px; color: #5a6a82; line-height: 1.6; }
 .legend strong { color: #1a2a44; }
+.feasibility-note { font-size: 11px; color: #5a6a82; background: #f4f6f9; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid #223b7c; }
+.feasibility-note strong { color: #223b7c; }
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    alt="National League" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
   <div class="topbar__title">Playoff <span>SF Planner</span></div>
 </div>
 
 <div class="wrap">
   <p class="intro">
-    Assign 2nd–7th per division. Four scenarios per division based on Eliminator outcomes. Each match has its own KO picker — swap early/late per scenario. Amber warning if gap &lt; 3h15m.
+    Assign 2nd–7th per division. Dropdowns only show teams that can mathematically finish in each position. Four scenarios per division based on Eliminator outcomes. Each match has its own KO — swap early/late per scenario. Amber warning if gap &lt; 3h15m.
   </p>
   <div id="app"></div>
   <div class="legend" style="margin-top:8px">
@@ -122,12 +101,16 @@ select:focus { outline: 2px solid #9e0000; outline-offset: -1px; }
     <span style="color:#e67e22">●</span> 120–200mi
     <span style="color:#c0392b">●</span> &gt;200mi ·
     <strong>Train:</strong> TBC — real National Rail data per route/date needed. ·
-    <strong>Travel rules:</strong> Outbound same day only (depart ≥06:00). Return past midnight OK.
+    <strong>Travel rules:</strong> Outbound same day only (depart ≥06:00). Return past midnight OK. ·
+    <strong>Positions:</strong> Filtered by mathematical possibility (46 games, 3pts/W, 1pt/D).
   </div>
 </div>
 
 <script>
-// ── Data ──
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ── Distance data ──
 var DIST_RAW = [
 "National|York City|Rochdale|69.32|76","National|York City|Carlisle United|118.76|138","National|York City|Boreham Wood|197.42|211","National|York City|Scunthorpe United|54.16|69","National|York City|Forest Green Rovers|216.97|224","National|York City|Southend United|232.35|249",
 "National|Rochdale|York City|69.67|77","National|Rochdale|Carlisle United|123.58|125","National|Rochdale|Boreham Wood|202.78|214","National|Rochdale|Scunthorpe United|80.64|88","National|Rochdale|Forest Green Rovers|166.42|177","National|Rochdale|Southend United|246.03|262",
@@ -159,7 +142,6 @@ var DIST_RAW = [
 "South|Chesham United|Worthing|78.92|112","South|Chesham United|Dorking Wanderers|46.74|67","South|Chesham United|Torquay United|212.24|220","South|Chesham United|Hornchurch|51.83|67","South|Chesham United|Weston-super-Mare|137.69|148","South|Chesham United|Hemel Hempstead Town|10.34|19","South|Chesham United|Ebbsfleet United|64.28|77","South|Chesham United|Maidenhead United|17.00|37","South|Chesham United|Maidstone United|78.41|91","South|Chesham United|Chelmsford City|55.10|77",
 "South|Chelmsford City|Worthing|93.65|111","South|Chelmsford City|Dorking Wanderers|67.71|84","South|Chelmsford City|Torquay United|258.16|271","South|Chelmsford City|Hornchurch|20.73|35","South|Chelmsford City|Weston-super-Mare|183.61|198","South|Chelmsford City|Hemel Hempstead Town|45.82|65","South|Chelmsford City|Ebbsfleet United|33.18|46","South|Chelmsford City|Maidenhead United|73.98|95","South|Chelmsford City|Maidstone United|47.31|59","South|Chelmsford City|Chesham United|60.09|75"
 ];
-
 var DMAP = {};
 DIST_RAW.forEach(function(l) { var p = l.split('|'); DMAP[p[0]+'|'+p[1]+'|'+p[2]] = { distance: parseFloat(p[3]), drivingMins: parseInt(p[4]) }; });
 function getDist(div, h, a) { return DMAP[div+'|'+h+'|'+a] || null; }
@@ -167,23 +149,93 @@ function getDist(div, h, a) { return DMAP[div+'|'+h+'|'+a] || null; }
 var CREST_BASE = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
 var FALLBACK = CREST_BASE + 'National%20League%20rose.png';
 function crestUrl(n) { return CREST_BASE + encodeURIComponent(n) + '.png'; }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-var POOLS = {
-  National: ["York City","Rochdale","Carlisle United","Boreham Wood","Scunthorpe United","Forest Green Rovers","Southend United"],
-  North: ["South Shields","AFC Fylde","Kidderminster Harriers","Macclesfield","Merthyr Town","Scarborough Athletic","Chester","Darlington","Buxton","AFC Telford United","Spennymoor Town"],
-  South: ["Worthing","Dorking Wanderers","Torquay United","Hornchurch","Weston-super-Mare","Hemel Hempstead Town","Ebbsfleet United","Maidenhead United","Maidstone United","Chesham United","Chelmsford City"]
+// ── Team data (update via conversation as results come in) ──
+var TOTAL_GAMES = 46;
+var TEAM_DATA = {
+  National: [
+    {name:"York City", played:44, pts:104},
+    {name:"Rochdale", played:44, pts:102},
+    {name:"Carlisle United", played:44, pts:89},
+    {name:"Boreham Wood", played:44, pts:84},
+    {name:"Scunthorpe United", played:44, pts:81},
+    {name:"Forest Green Rovers", played:44, pts:78},
+    {name:"Southend United", played:43, pts:75}
+  ],
+  North: [
+    {name:"South Shields", played:44, pts:94},
+    {name:"AFC Fylde", played:44, pts:94},
+    {name:"Kidderminster Harriers", played:44, pts:81},
+    {name:"Macclesfield", played:43, pts:76},
+    {name:"Merthyr Town", played:44, pts:70},
+    {name:"Scarborough Athletic", played:44, pts:69},
+    {name:"Chester", played:44, pts:69},
+    {name:"Darlington", played:44, pts:68},
+    {name:"Buxton", played:44, pts:67},
+    {name:"AFC Telford United", played:44, pts:64},
+    {name:"Spennymoor Town", played:44, pts:64}
+  ],
+  South: [
+    {name:"Worthing", played:44, pts:81},
+    {name:"Dorking Wanderers", played:44, pts:78},
+    {name:"Torquay United", played:44, pts:77},
+    {name:"Hornchurch", played:44, pts:77},
+    {name:"Weston-super-Mare", played:44, pts:76},
+    {name:"Hemel Hempstead Town", played:44, pts:75},
+    {name:"Ebbsfleet United", played:44, pts:74},
+    {name:"Maidenhead United", played:44, pts:73},
+    {name:"Maidstone United", played:44, pts:71},
+    {name:"Chesham United", played:44, pts:71},
+    {name:"Chelmsford City", played:44, pts:70}
+  ]
 };
-var SF_DATES = { North: 'Sat 02/05/2026', South: 'Sat 02/05/2026', National: 'Sun 03/05/2026' };
-var POS_LABELS = { 2:'2nd — Hosts SF', 3:'3rd — Hosts SF', 4:'4th — Eliminator', 5:'5th — Eliminator', 6:'6th — Eliminator', 7:'7th — Eliminator' };
 
+// ── Feasibility calculation ──
+function calcFeasibility() {
+  ['National','North','South'].forEach(function(div) {
+    var teams = TEAM_DATA[div];
+    var n = teams.length;
+    teams.forEach(function(t) {
+      t.remaining = TOTAL_GAMES - t.played;
+      t.maxPts = t.pts + t.remaining * 3;
+      t.minPts = t.pts;
+    });
+    teams.forEach(function(t, i) {
+      t.feasible = [];
+      for (var pos = 1; pos <= n; pos++) {
+        var mustAbove = 0, mustBelow = 0;
+        for (var j = 0; j < n; j++) {
+          if (j === i) continue;
+          if (teams[j].minPts > t.maxPts) mustAbove++;
+          if (teams[j].maxPts < t.minPts) mustBelow++;
+        }
+        if (mustAbove <= pos - 1 && mustBelow <= n - pos) t.feasible.push(pos);
+      }
+      t.playoffPositions = t.feasible.filter(function(p) { return p >= 2 && p <= 7; });
+    });
+  });
+}
+calcFeasibility();
+
+function teamsForPosition(div, pos) {
+  return TEAM_DATA[div].filter(function(t) { return t.playoffPositions.indexOf(pos) !== -1; }).map(function(t) { return t.name; });
+}
+function teamInfo(div, name) {
+  for (var i = 0; i < TEAM_DATA[div].length; i++) { if (TEAM_DATA[div][i].name === name) return TEAM_DATA[div][i]; }
+  return null;
+}
+
+// ── KO times ──
 var earlyTimes = []; for (var m = 720; m <= 780; m += 5) earlyTimes.push(m);
 var lateTimes = [];  for (var m2 = 915; m2 <= 975; m2 += 5) lateTimes.push(m2);
 function fmtTime(m) { return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
 var MIN_GAP = 195;
 
-// ── State per division ──
-var STATE = { National: {}, North: {}, South: {} };
+var SF_DATES = { North: 'Sat 02/05/2026', South: 'Sat 02/05/2026', National: 'Sun 03/05/2026' };
+var POS_LABELS = { 2:'2nd — Hosts SF', 3:'3rd — Hosts SF', 4:'4th — Eliminator', 5:'5th — Eliminator', 6:'6th — Eliminator', 7:'7th — Eliminator' };
+
+// ── State ──
+var STATE = {};
 ['National','North','South'].forEach(function(div) {
   STATE[div] = { teams: {2:'',3:'',4:'',5:'',6:'',7:''}, scenarios: [] };
 });
@@ -206,11 +258,12 @@ function buildScenarios(div) {
     s.m[0].dist = getDist(div, s.m[0].home, s.m[0].away);
     s.m[1].dist = getDist(div, s.m[1].home, s.m[1].away);
     s.flipped = false;
-    s.ko1 = 750; // 12:30
-    s.ko2 = 960; // 16:00
+    s.ko1 = 750;
+    s.ko2 = 960;
   });
 }
 
+// ── Rendering ──
 function distHtml(d) {
   if (!d) return '<span style="color:#5a6a82;font-size:11px">No distance data</span>';
   var col = d.distance > 200 ? '#c0392b' : d.distance > 120 ? '#e67e22' : '#1e7e34';
@@ -219,12 +272,9 @@ function distHtml(d) {
 }
 
 function koOptions(times, selected, div, sIdx, which) {
-  var html = '<select class="ko-pick__select" onchange="setKo(\''+div+'\','+sIdx+',\''+which+'\',parseInt(this.value))">';
-  times.forEach(function(t) {
-    html += '<option value="'+t+'"'+(t===selected?' selected':'')+'>'+fmtTime(t)+'</option>';
-  });
-  html += '</select>';
-  return html;
+  var html = '<select class="ko-pick__select" onchange="setKo(\''+escJ(div)+'\','+sIdx+',\''+which+'\',parseInt(this.value))">';
+  times.forEach(function(t) { html += '<option value="'+t+'"'+(t===selected?' selected':'')+'>'+fmtTime(t)+'</option>'; });
+  return html + '</select>';
 }
 
 function matchHtml(m, times, selectedKo, div, sIdx, which) {
@@ -235,7 +285,6 @@ function matchHtml(m, times, selectedKo, div, sIdx, which) {
     + '<span class="match__v">v</span>'
     + '<img class="match__crest" src="'+esc(crestUrl(m.away))+'" onerror="this.onerror=null;this.src=\''+FALLBACK+'\'">'
     + '<span class="match__away">'+esc(m.away)+'</span>'
-    + '<span class="match__tag">'+esc(m.tag)+'</span>'
     + '</div>'
     + '<div class="match__meta">'
     + distHtml(m.dist)
@@ -246,93 +295,102 @@ function matchHtml(m, times, selectedKo, div, sIdx, which) {
 }
 
 function scenarioHtml(s, sIdx, div) {
+  // Determine which match is shown first (early slot) based on flip state
   var m1 = s.flipped ? s.m[1] : s.m[0];
   var m2 = s.flipped ? s.m[0] : s.m[1];
+
   var gap = Math.abs(s.ko1 - s.ko2);
   var gapH = Math.floor(gap/60); var gapM = gap%60;
   var warnHtml = '';
   if (gap < MIN_GAP) {
     warnHtml = '<div class="gap-warn"><span style="font-size:14px">⚠</span> Gap is '+gapH+'h'+String(gapM).padStart(2,'0')+' — under 3h15m broadcast minimum</div>';
   }
+
+  // Header shows scenario ID + both matchup tags
+  var headerTags = s.m[0].tag + ' / ' + s.m[1].tag;
+
   return '<div class="scenario">'
-    + '<div class="sc-header"><span class="sc-id">Scenario '+esc(s.id)+'</span><span class="sc-elim">Elim: '+esc(s.e47)+' + '+esc(s.e56)+'</span></div>'
+    + '<div class="sc-header">'
+    + '<div class="sc-title">Scenario '+esc(s.id)+' <span>('+esc(headerTags)+')</span></div>'
+    + '<div class="sc-elim">Elim winners: '+esc(s.e47)+' + '+esc(s.e56)+'</div>'
+    + '</div>'
     + matchHtml(m1, earlyTimes, s.ko1, div, sIdx, 'ko1')
-    + '<div class="swap-row"><button class="swap-btn" onclick="flipScenario(\''+div+'\','+sIdx+')">↕ Swap early/late</button></div>'
+    + '<div class="swap-row"><button class="swap-btn" onclick="flipScenario(\''+escJ(div)+'\','+sIdx+')">↕ Swap early/late</button></div>'
     + matchHtml(m2, lateTimes, s.ko2, div, sIdx, 'ko2')
     + warnHtml
     + '<div class="sc-footer">Recommendation: awaiting train data</div>'
     + '</div>';
 }
 
+function getSuffix(n) { return n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'; }
+
 function renderDiv(div) {
   var s = STATE[div];
-  var pool = POOLS[div];
   var used = getUsed(div);
-
   var html = '<div class="division">';
   html += '<div class="div-header"><span class="div-header__name">'+(div==='National'?'National League':'NL '+div)+'</span><span class="div-header__date">'+SF_DATES[div]+'</span></div>';
   html += '<div class="div-body">';
 
-  // Position selectors
   [2,3,4,5,6,7].forEach(function(pos) {
     var isHost = pos <= 3;
-    var avail = pool.filter(function(t) { return t === s.teams[pos] || used.indexOf(t) === -1; });
+    var eligible = teamsForPosition(div, pos);
+    var avail = eligible.filter(function(t) { return t === s.teams[pos] || used.indexOf(t) === -1; });
+    var info = s.teams[pos] ? teamInfo(div, s.teams[pos]) : null;
+    var infoText = info ? info.pts + 'pts P' + info.played + ' (max ' + info.maxPts + ')' : '';
+
     html += '<div class="pos-row '+(isHost?'pos-row--host':'pos-row--elim')+'">';
     html += '<span class="pos-label '+(isHost?'pos-label--host':'pos-label--elim')+'">'+POS_LABELS[pos]+'</span>';
-    if (s.teams[pos]) {
-      html += '<img class="pos-crest" src="'+esc(crestUrl(s.teams[pos]))+'" onerror="this.onerror=null;this.src=\''+FALLBACK+'\'">';
-    }
-    html += '<select class="pos-select" onchange="setTeam(\''+div+'\','+pos+',this.value)">';
+    if (s.teams[pos]) html += '<img class="pos-crest" src="'+esc(crestUrl(s.teams[pos]))+'" onerror="this.onerror=null;this.src=\''+FALLBACK+'\'">';
+    html += '<select class="pos-select" onchange="setTeam(\''+escJ(div)+'\','+pos+',this.value)">';
     html += '<option value="">— select —</option>';
     avail.forEach(function(t) {
-      html += '<option value="'+esc(t)+'"'+(t===s.teams[pos]?' selected':'')+'>'+esc(t)+'</option>';
+      var ti = teamInfo(div, t);
+      var suffix = ti ? ' (' + ti.pts + 'pts)' : '';
+      html += '<option value="'+esc(t)+'"'+(t===s.teams[pos]?' selected':'')+'>'+esc(t)+suffix+'</option>';
     });
-    html += '</select></div>';
+    html += '</select>';
+    if (infoText) html += '<span class="pos-info">'+esc(infoText)+'</span>';
+    html += '</div>';
   });
 
-  // Scenarios
+  var countByPos = {};
+  [2,3,4,5,6,7].forEach(function(pos) { countByPos[pos] = teamsForPosition(div, pos).length; });
+  html += '<div class="feasibility-note"><strong>Feasible teams per position:</strong> ';
+  [2,3,4,5,6,7].forEach(function(pos, i) {
+    if (i > 0) html += ' · ';
+    html += pos + getSuffix(pos) + ': ' + countByPos[pos];
+  });
+  html += '</div>';
+
   if (s.scenarios.length === 0) {
-    html += '<div class="placeholder" style="margin-top:16px">Assign all six positions to see scenarios</div>';
+    html += '<div class="placeholder">Assign all six positions to see scenarios</div>';
   } else {
     html += '<div class="scenarios">';
     s.scenarios.forEach(function(sc, i) { html += scenarioHtml(sc, i, div); });
     html += '</div>';
   }
-
   html += '</div></div>';
   return html;
 }
 
 function render() {
-  var el = document.getElementById('app');
-  el.innerHTML = renderDiv('National') + renderDiv('North') + renderDiv('South');
+  document.getElementById('app').innerHTML = renderDiv('National') + renderDiv('North') + renderDiv('South');
 }
 
-// ── Event handlers ──
+// ── Events ──
 function setTeam(div, pos, val) {
   STATE[div].teams[pos] = val;
   buildScenarios(div);
   render();
 }
-
 function setKo(div, sIdx, which, val) {
   STATE[div].scenarios[sIdx][which] = val;
   render();
 }
-
 function flipScenario(div, sIdx) {
-  var s = STATE[div].scenarios[sIdx];
-  s.flipped = !s.flipped;
-  // Also swap the KO values so they stay with their match
-  var tmp = s.ko1; s.ko1 = s.ko2; s.ko2 = tmp;
-  // Clamp into valid ranges after swap
-  if (s.ko1 < 720) s.ko1 = 720; if (s.ko1 > 780) s.ko1 = 780;
-  if (s.ko2 < 915) s.ko2 = 915; if (s.ko2 > 975) s.ko2 = 975;
-  // Snap to nearest 5
-  s.ko1 = Math.round(s.ko1/5)*5;
-  s.ko2 = Math.round(s.ko2/5)*5;
-  if (s.ko1 < 720) s.ko1 = 720; if (s.ko1 > 780) s.ko1 = 780;
-  if (s.ko2 < 915) s.ko2 = 915; if (s.ko2 > 975) s.ko2 = 975;
+  // Swap only flips which match sits in early vs late slot
+  // KO times stay exactly where they are
+  STATE[div].scenarios[sIdx].flipped = !STATE[div].scenarios[sIdx].flipped;
   render();
 }
 
