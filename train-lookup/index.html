@@ -3,16 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Train Journey Finder — Playoff SF</title>
+<title>Train Journey Finder v4 — Playoff SF</title>
 <!--
-  Train Journey Finder v3.0 — 15/04/2026
-  v2.0 - Initial chain engine with National recipes
-  v3.0 - Speed: delay dropped to 200ms. Fixed recipes:
-    - Rochdale routes now use MCV (Manchester Victoria) not MAN (Piccadilly)
-    - Boreham Wood→Rochdale routes via EUS→MCV
-    - Added EUS as London interchange for north-bound WCML services
-    - Added North + South division recipes
-    - More start times for broader coverage
+  Train Journey Finder v4.0 — 15/04/2026
+  v2.0 - Initial chain engine
+  v3.0 - Speed boost, North/South recipes, MCV fix
+  v4.0 - CRS fix (SCU for Scunthorpe), virtual London walk connections,
+    destination pre-filter to cut API hits, recipes refined from real timetable data.
 -->
 <style>
 @font-face{font-family:"carbona-variable";src:url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");font-display:swap;font-style:normal;font-weight:200 900}
@@ -37,15 +34,13 @@ input[type="text"]{width:100%;padding:8px 12px;border:1px solid #dde3ed;border-r
 .log .ok{color:#22c55e}.log .warn{color:#f59e0b}.log .err{color:#ef4444}.log .info{color:#64b5f6}.log .dim{color:#5a6a82}.log .head{color:#fff;font-weight:700}
 .route-card{border:1px solid #dde3ed;border-radius:6px;margin:10px 0;overflow:hidden;background:#fff}
 .route-header{background:#f4f6f9;padding:8px 14px;border-bottom:1px solid #dde3ed;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
-.route-title{font-weight:800;font-size:13px;color:#9e0000}
-.route-meta{font-size:11px;color:#5a6a82}
+.route-title{font-weight:800;font-size:13px;color:#9e0000}.route-meta{font-size:11px;color:#5a6a82}
 .journey-row{padding:8px 14px;border-bottom:1px solid #eef1f6;font-size:12px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
 .journey-row:last-child{border-bottom:none}
-.j-time{font-weight:800;color:#223b7c;font-size:14px;min-width:110px}
-.j-detail{color:#5a6a82;flex:1}
-.j-duration{font-weight:700;color:#1a2a44;min-width:80px;text-align:right}
+.j-time{font-weight:800;color:#223b7c;font-size:14px;min-width:110px}.j-detail{color:#5a6a82;flex:1}.j-duration{font-weight:700;color:#1a2a44;min-width:80px;text-align:right}
 .leg{display:inline-flex;align-items:center;gap:4px;background:#f4f6f9;border-radius:3px;padding:2px 8px;font-size:11px;margin:2px 0}
 .leg-op{font-weight:700;color:#223b7c}.leg-arrow{color:#5a6a82}
+.leg-walk{background:#fef6ec;color:#e67e22;font-weight:700}
 .section-label{padding:6px 14px;font-size:10px;font-weight:800;color:#223b7c;text-transform:uppercase;background:#f8f9fb;border-bottom:1px solid #eef1f6}
 .row{display:flex;gap:12px;flex-wrap:wrap}.row>*{flex:1;min-width:150px}
 textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8px;border:1px solid #dde3ed;border-radius:4px;margin-top:8px}
@@ -53,15 +48,14 @@ textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8p
 .tab{flex:1;text-align:center;padding:8px 12px;border-radius:4px;font-size:11px;font-weight:800;cursor:pointer;color:#5a6a82;border:none;background:none;text-transform:uppercase;letter-spacing:0.08em;font-family:inherit}
 .tab.active{background:#9e0000;color:#fff}
 .stats{display:flex;gap:12px;margin:12px 0;flex-wrap:wrap}
-.stat{background:#f4f6f9;border-radius:4px;padding:8px 14px;font-size:12px;color:#5a6a82}
-.stat strong{color:#1a2a44;font-size:18px;display:block}
+.stat{background:#f4f6f9;border-radius:4px;padding:8px 14px;font-size:12px;color:#5a6a82}.stat strong{color:#1a2a44;font-size:18px;display:block}
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png" alt="NL" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title">Train <span>Journey Finder</span></div>
+  <div class="topbar__title">Train <span>Journey Finder v4</span></div>
 </div>
 
 <div class="wrap">
@@ -74,7 +68,7 @@ textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8p
         <div><label>Delay (ms)</label><input type="text" id="delay" value="200"></div>
       </div>
       <button class="btn btn-navy btn-sm" onclick="testAPI()">Test</button>
-      <span id="apiStatus" style="font-size:12px;color:#5a6a82"></span>
+      <span id="apiStatus" style="margin-left:12px;font-size:12px;color:#5a6a82"></span>
     </div>
   </div>
 
@@ -86,7 +80,7 @@ textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8p
         <button class="tab" onclick="switchDiv('North',this)">North (Sat)</button>
         <button class="tab" onclick="switchDiv('South',this)">South (Sat)</button>
       </div>
-      <div id="divInfo" style="font-size:12px;color:#5a6a82;margin-bottom:12px">National — Sun 03/05/2026</div>
+      <div id="divInfo" style="font-size:12px;color:#5a6a82;margin-bottom:12px"></div>
       <button class="btn btn-primary" id="btnRun" onclick="runCurrentDiv()">Run National</button>
       <button class="btn btn-primary" onclick="runAllDivs()">Run All</button>
       <button class="btn btn-navy btn-sm" onclick="stopRun()">Stop</button>
@@ -94,6 +88,7 @@ textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8p
       <div class="progress-text" id="pText">Ready</div>
       <div class="stats">
         <div class="stat"><strong id="statCalls">0</strong>API calls</div>
+        <div class="stat"><strong id="statSkipped">0</strong>Skipped (pre-filter)</div>
         <div class="stat"><strong id="statFound">0</strong>Journeys found</div>
         <div class="stat"><strong id="statFailed">0</strong>Routes failed</div>
       </div>
@@ -122,161 +117,315 @@ textarea{width:100%;height:150px;font-family:monospace;font-size:11px;padding:8p
 <script>
 var API_BASE='https://transportapi.com/v3/uk/train';
 var currentDiv='National';
-var running=false;
-var shouldStop=false;
-var totalAPICalls=0;
-var totalFound=0;
-var totalFailed=0;
+var running=false,shouldStop=false;
+var totalAPICalls=0,totalSkipped=0,totalFound=0,totalFailed=0;
 
-// ── Station CRS codes ──
-// Key London stations
-var EUS='EUS',KGX='KGX',STP='STP',FST='FST',LST='LST',PAD='PAD';
-// Key interchange stations
-var LDS='LDS',MAN='MAN',MCV='MCV',PRE='PRE',BHM='BHM',DON='DON',NCL='NCL',SHF='SHF',CRE='CRE';
+/* ─────────────────────────────────────────────
+   VIRTUAL WALK CONNECTIONS
+   If arriving at station A, you can walk to station B in N minutes.
+   The engine will automatically chain these.
+   ───────────────────────────────────────────── */
+var WALKS = {
+  'STP→KGX': 8,   // St Pancras ↔ Kings Cross (same building practically)
+  'KGX→STP': 8,
+  'STP→EUS': 6,   // St Pancras → Euston (5-6 min walk)
+  'EUS→STP': 6,
+  'EUS→KGX': 10,  // Euston → Kings Cross
+  'KGX→EUS': 10,
+  'FST→KGX': 15,  // Fenchurch St → Kings Cross (tube Circle/Met)
+  'KGX→FST': 15,
+  'FST→EUS': 18,  // Fenchurch St → Euston (tube)
+  'EUS→FST': 18,
+  'PAD→EUS': 15,  // Paddington → Euston (tube)
+  'EUS→PAD': 15,
+  'PAD→KGX': 18,  // Paddington → Kings Cross (tube)
+  'KGX→PAD': 18,
+  'MAN→MCV': 10,  // Manchester Piccadilly → Victoria (walk/tram)
+  'MCV→MAN': 10,
+};
 
-// ── Recipes ──
-// Format: RECIPES["Away→Host"] = [ recipe1, recipe2, ... ]
-// Each recipe = [ {from:CRS, seekStops:[CRS], to:CRS}, ... ]
-// seekStops are intermediate stations the service might call at en route to `to`
+/* ─────────────────────────────────────────────
+   RECIPES — "Away Team → Host Team"
+   Each recipe = array of legs.
+   Leg types:
+     {type:'train', from:CRS, seekStops:[CRS...], to:CRS}
+     {type:'walk', from:CRS, to:CRS}  — uses WALKS table
+   ───────────────────────────────────────────── */
 var R={};
 function add(away,host,legs){var k=away+'→'+host;if(!R[k])R[k]=[];R[k].push(legs);}
 
-// ═══════════════════════════════════════════
-// NATIONAL (Sun 03/05) — Hosts: YRK, RCD, CAR, ELS
-// Aways: CAR, ELS, SCA, STD, SOC
-// ═══════════════════════════════════════════
+// ═══ NATIONAL (Sun 03/05) ═══
+// Hosts: YRK, RCD, CAR, ELS
+// Aways: CAR, ELS, SCU, STD, SOC
 
 // -- To York (YRK) --
-add('Carlisle United','York City',[{from:'CAR',seekStops:['LDS'],to:'LDS'},{from:'LDS',seekStops:['YRK'],to:'YRK'}]);
-add('Boreham Wood','York City',[{from:'ELS',seekStops:['STP'],to:'STP'},{from:'KGX',seekStops:['YRK'],to:'YRK'}]);
-add('Scunthorpe United','York City',[{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['YRK'],to:'YRK'}]);
-add('Forest Green Rovers','York City',[{from:'STD',seekStops:['SWI','GLO','CNM'],to:'PAD'}]); // Needs tube PAD→KGX
-add('Forest Green Rovers','York City',[{from:'STD',seekStops:['BHM','CNM','GLO'],to:'BHM'},{from:'BHM',seekStops:['LDS','YRK','DON'],to:'YRK'}]);
-add('Southend United','York City',[{from:'SOC',seekStops:['FST','LFS'],to:'FST'},{from:'KGX',seekStops:['YRK'],to:'YRK'}]);
+add('Carlisle United','York City',[
+  {type:'train',from:'CAR',seekStops:['LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['YRK'],to:'YRK'}
+]);
+add('Boreham Wood','York City',[
+  {type:'train',from:'ELS',seekStops:['STP'],to:'STP'},
+  {type:'walk',from:'STP',to:'KGX'},
+  {type:'train',from:'KGX',seekStops:['YRK'],to:'YRK'}
+]);
+add('Scunthorpe United','York City',[
+  {type:'train',from:'SCU',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['YRK'],to:'YRK'}
+]);
+add('Forest Green Rovers','York City',[
+  {type:'train',from:'STD',seekStops:['SWI','GLO','CNM','BPW'],to:'PAD'},
+  {type:'walk',from:'PAD',to:'KGX'},
+  {type:'train',from:'KGX',seekStops:['YRK'],to:'YRK'}
+]);
+add('Forest Green Rovers','York City',[
+  {type:'train',from:'STD',seekStops:['BHM','CNM','GLO'],to:'BHM'},
+  {type:'train',from:'BHM',seekStops:['YRK','LDS','DON'],to:'YRK'}
+]);
+add('Southend United','York City',[
+  {type:'train',from:'SOC',seekStops:['FST','LFS'],to:'FST'},
+  {type:'walk',from:'FST',to:'KGX'},
+  {type:'train',from:'KGX',seekStops:['YRK'],to:'YRK'}
+]);
 
-// -- To Rochdale (RCD) — KEY FIX: use MCV not MAN --
-add('Carlisle United','Rochdale',[{from:'CAR',seekStops:['LDS'],to:'LDS'},{from:'LDS',seekStops:['RCD','MCV'],to:'RCD'}]);
-add('Carlisle United','Rochdale',[{from:'CAR',seekStops:['PRE','LAN'],to:'PRE'},{from:'PRE',seekStops:['MCV','RCD'],to:'MCV'},{from:'MCV',seekStops:['RCD'],to:'RCD'}]);
-add('Boreham Wood','Rochdale',[{from:'ELS',seekStops:['STP','EUS'],to:'EUS'},{from:'EUS',seekStops:['MAN','MCV','SPT'],to:'MAN'},{from:'MCV',seekStops:['RCD'],to:'RCD'}]); // FIX: via Euston→Manchester→Victoria→Rochdale
-add('Boreham Wood','Rochdale',[{from:'ELS',seekStops:['STP'],to:'STP'},{from:'STP',seekStops:['SHF','MAN'],to:'SHF'},{from:'SHF',seekStops:['MCV','MAN'],to:'MCV'},{from:'MCV',seekStops:['RCD'],to:'RCD'}]);
-add('Scunthorpe United','Rochdale',[{from:'SCA',seekStops:['DON','SHF'],to:'DON'},{from:'DON',seekStops:['SHF','LDS'],to:'SHF'},{from:'SHF',seekStops:['MCV','MAN'],to:'MCV'},{from:'MCV',seekStops:['RCD'],to:'RCD'}]);
-add('Scunthorpe United','Rochdale',[{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['LDS'],to:'LDS'},{from:'LDS',seekStops:['RCD','MCV'],to:'RCD'}]);
-add('Forest Green Rovers','Rochdale',[{from:'STD',seekStops:['BHM','CNM','GLO'],to:'BHM'},{from:'BHM',seekStops:['MAN','MCV'],to:'MAN'},{from:'MCV',seekStops:['RCD'],to:'RCD'}]);
-add('Southend United','Rochdale',[{from:'SOC',seekStops:['FST'],to:'FST'},{from:'EUS',seekStops:['MAN','MCV','SPT'],to:'MAN'},{from:'MCV',seekStops:['RCD'],to:'RCD'}]);
+// -- To Rochdale (RCD) via Manchester Victoria --
+add('Carlisle United','Rochdale',[
+  {type:'train',from:'CAR',seekStops:['LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['RCD','MCV'],to:'RCD'}
+]);
+add('Carlisle United','Rochdale',[
+  {type:'train',from:'CAR',seekStops:['PRE','LAN','OXN'],to:'PRE'},
+  {type:'train',from:'PRE',seekStops:['MCV','MAN','BPN'],to:'MAN'},
+  {type:'walk',from:'MAN',to:'MCV'},
+  {type:'train',from:'MCV',seekStops:['RCD'],to:'RCD'}
+]);
+add('Boreham Wood','Rochdale',[
+  {type:'train',from:'ELS',seekStops:['STP'],to:'STP'},
+  {type:'walk',from:'STP',to:'EUS'},
+  {type:'train',from:'EUS',seekStops:['MAN','SPT','MAC'],to:'MAN'},
+  {type:'walk',from:'MAN',to:'MCV'},
+  {type:'train',from:'MCV',seekStops:['RCD'],to:'RCD'}
+]);
+add('Scunthorpe United','Rochdale',[
+  {type:'train',from:'SCU',seekStops:['DON','SHF'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['RCD','MCV'],to:'RCD'}
+]);
+add('Scunthorpe United','Rochdale',[
+  {type:'train',from:'SCU',seekStops:['DON','SHF','MAN'],to:'MAN'},
+  {type:'walk',from:'MAN',to:'MCV'},
+  {type:'train',from:'MCV',seekStops:['RCD'],to:'RCD'}
+]);
+add('Forest Green Rovers','Rochdale',[
+  {type:'train',from:'STD',seekStops:['BHM','CNM','GLO'],to:'BHM'},
+  {type:'train',from:'BHM',seekStops:['MAN','MCV'],to:'MAN'},
+  {type:'walk',from:'MAN',to:'MCV'},
+  {type:'train',from:'MCV',seekStops:['RCD'],to:'RCD'}
+]);
+add('Southend United','Rochdale',[
+  {type:'train',from:'SOC',seekStops:['FST'],to:'FST'},
+  {type:'walk',from:'FST',to:'EUS'},
+  {type:'train',from:'EUS',seekStops:['MAN','SPT','MAC'],to:'MAN'},
+  {type:'walk',from:'MAN',to:'MCV'},
+  {type:'train',from:'MCV',seekStops:['RCD'],to:'RCD'}
+]);
 
 // -- To Carlisle (CAR) --
-add('Boreham Wood','Carlisle United',[{from:'ELS',seekStops:['STP','EUS'],to:'EUS'},{from:'EUS',seekStops:['CAR'],to:'CAR'}]);
-add('Scunthorpe United','Carlisle United',[{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['YRK'],to:'YRK'},{from:'YRK',seekStops:['LDS'],to:'LDS'},{from:'LDS',seekStops:['CAR'],to:'CAR'}]);
-add('Scunthorpe United','Carlisle United',[{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['LDS','YRK'],to:'LDS'},{from:'LDS',seekStops:['CAR'],to:'CAR'}]);
-add('Forest Green Rovers','Carlisle United',[{from:'STD',seekStops:['BHM','CNM','GLO'],to:'BHM'},{from:'BHM',seekStops:['CAR','PRE'],to:'CAR'}]);
-add('Forest Green Rovers','Carlisle United',[{from:'STD',seekStops:['SWI','PAD'],to:'PAD'}]); // Needs tube to Euston
-add('Southend United','Carlisle United',[{from:'SOC',seekStops:['FST'],to:'FST'},{from:'EUS',seekStops:['CAR'],to:'CAR'}]);
+add('Boreham Wood','Carlisle United',[
+  {type:'train',from:'ELS',seekStops:['STP'],to:'STP'},
+  {type:'walk',from:'STP',to:'EUS'},
+  {type:'train',from:'EUS',seekStops:['CAR'],to:'CAR'}
+]);
+add('Scunthorpe United','Carlisle United',[
+  {type:'train',from:'SCU',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['YRK','LDS'],to:'YRK'},
+  {type:'train',from:'YRK',seekStops:['LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['CAR'],to:'CAR'}
+]);
+add('Forest Green Rovers','Carlisle United',[
+  {type:'train',from:'STD',seekStops:['BHM','CNM','GLO'],to:'BHM'},
+  {type:'train',from:'BHM',seekStops:['CAR','PRE','CRE'],to:'CAR'}
+]);
+add('Forest Green Rovers','Carlisle United',[
+  {type:'train',from:'STD',seekStops:['SWI','PAD'],to:'PAD'},
+  {type:'walk',from:'PAD',to:'EUS'},
+  {type:'train',from:'EUS',seekStops:['CAR'],to:'CAR'}
+]);
+add('Southend United','Carlisle United',[
+  {type:'train',from:'SOC',seekStops:['FST'],to:'FST'},
+  {type:'walk',from:'FST',to:'EUS'},
+  {type:'train',from:'EUS',seekStops:['CAR'],to:'CAR'}
+]);
 
 // -- To Boreham Wood (ELS) --
-add('Carlisle United','Boreham Wood',[{from:'CAR',seekStops:['EUS'],to:'EUS'},{from:'EUS',seekStops:['ELS'],to:'ELS'}]); // Avanti south, Thameslink north
-add('Carlisle United','Boreham Wood',[{from:'CAR',seekStops:['EUS','PRE'],to:'EUS'},{from:'STP',seekStops:['ELS'],to:'ELS'}]); // Via StP Thameslink
-add('Scunthorpe United','Boreham Wood',[{from:'SCA',seekStops:['DON'],to:'DON'},{from:'DON',seekStops:['KGX'],to:'KGX'},{from:'STP',seekStops:['ELS'],to:'ELS'}]);
-add('Forest Green Rovers','Boreham Wood',[{from:'STD',seekStops:['SWI','PAD','GLO'],to:'PAD'}]); // Needs tube/walk
-add('Forest Green Rovers','Boreham Wood',[{from:'STD',seekStops:['SWI'],to:'SWI'},{from:'SWI',seekStops:['PAD'],to:'PAD'}]);
-add('Southend United','Boreham Wood',[{from:'SOC',seekStops:['FST','SRA','WFJ'],to:'FST'}]); // Needs connection via London
+add('Carlisle United','Boreham Wood',[
+  {type:'train',from:'CAR',seekStops:['EUS'],to:'EUS'},
+  {type:'walk',from:'EUS',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
+add('Scunthorpe United','Boreham Wood',[
+  {type:'train',from:'SCU',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['KGX'],to:'KGX'},
+  {type:'walk',from:'KGX',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
+add('Forest Green Rovers','Boreham Wood',[
+  {type:'train',from:'STD',seekStops:['SWI','PAD','GLO'],to:'PAD'},
+  {type:'walk',from:'PAD',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
+add('Southend United','Boreham Wood',[
+  {type:'train',from:'SOC',seekStops:['FST','SRA','WFJ'],to:'FST'},
+  {type:'walk',from:'FST',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
 
-// ═══════════════════════════════════════════
-// NORTH (Sat 02/05) — Hosts: EBD(S.Shields), KKM(Fylde), KID, MAC
-// Aways: KID, MAC, MER, SCA(Scarborough=SCB), CTR, DAR, BUX, TFC, DHM
-// ═══════════════════════════════════════════
+// ═══ RETURN RECIPES (Host → Away) ═══
+// York → all aways
+add('York City','Carlisle United',[
+  {type:'train',from:'YRK',seekStops:['LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['CAR'],to:'CAR'}
+]);
+add('York City','Boreham Wood',[
+  {type:'train',from:'YRK',seekStops:['KGX'],to:'KGX'},
+  {type:'walk',from:'KGX',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
+add('York City','Scunthorpe United',[
+  {type:'train',from:'YRK',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['SCU'],to:'SCU'}
+]);
+add('York City','Southend United',[
+  {type:'train',from:'YRK',seekStops:['KGX'],to:'KGX'},
+  {type:'walk',from:'KGX',to:'FST'},
+  {type:'train',from:'FST',seekStops:['SOC'],to:'SOC'}
+]);
 
-// Scarborough CRS is actually SCB not SCA
-// South Shields closest = East Boldon EBD... but better to use NCL+Metro. Let's use Sunderland SUN or just NCL.
+// Rochdale → all aways
+add('Rochdale','Carlisle United',[
+  {type:'train',from:'RCD',seekStops:['MCV','LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['CAR'],to:'CAR'}
+]);
+add('Rochdale','Boreham Wood',[
+  {type:'train',from:'RCD',seekStops:['MCV'],to:'MCV'},
+  {type:'walk',from:'MCV',to:'MAN'},
+  {type:'train',from:'MAN',seekStops:['EUS','SPT'],to:'EUS'},
+  {type:'walk',from:'EUS',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
+add('Rochdale','Scunthorpe United',[
+  {type:'train',from:'RCD',seekStops:['MCV','LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['SCU'],to:'SCU'}
+]);
+add('Rochdale','Southend United',[
+  {type:'train',from:'RCD',seekStops:['MCV'],to:'MCV'},
+  {type:'walk',from:'MCV',to:'MAN'},
+  {type:'train',from:'MAN',seekStops:['EUS','SPT'],to:'EUS'},
+  {type:'walk',from:'EUS',to:'FST'},
+  {type:'train',from:'FST',seekStops:['SOC'],to:'SOC'}
+]);
 
-// -- To South Shields (via Newcastle) --
-add('Kidderminster Harriers','South Shields',[{from:'KID',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['YRK','NCL'],to:'NCL'}]); // Then Metro
-add('Macclesfield','South Shields',[{from:'MAC',seekStops:['MAN','SPT','SHF'],to:'MAN'},{from:'MAN',seekStops:['LDS','YRK'],to:'YRK'},{from:'YRK',seekStops:['NCL'],to:'NCL'}]);
-add('Merthyr Town','South Shields',[{from:'MER',seekStops:['CDF'],to:'CDF'},{from:'CDF',seekStops:['BHM','BRI'],to:'BHM'},{from:'BHM',seekStops:['NCL','YRK'],to:'NCL'}]);
-add('Chester','South Shields',[{from:'CTR',seekStops:['CRE','MAN'],to:'MAN'},{from:'MAN',seekStops:['LDS','YRK'],to:'YRK'},{from:'YRK',seekStops:['NCL'],to:'NCL'}]);
-add('Darlington','South Shields',[{from:'DAR',seekStops:['NCL'],to:'NCL'}]); // Then Metro
-add('Buxton','South Shields',[{from:'BUX',seekStops:['MAC','SPT','MAN'],to:'MAN'},{from:'MAN',seekStops:['LDS','YRK'],to:'YRK'},{from:'YRK',seekStops:['NCL'],to:'NCL'}]);
-add('Spennymoor Town','South Shields',[{from:'DHM',seekStops:['NCL'],to:'NCL'}]); // Then Metro
+// Carlisle → all aways
+add('Carlisle United','Boreham Wood',[
+  {type:'train',from:'CAR',seekStops:['EUS'],to:'EUS'},
+  {type:'walk',from:'EUS',to:'STP'},
+  {type:'train',from:'STP',seekStops:['ELS'],to:'ELS'}
+]);
+add('Carlisle United','Scunthorpe United',[
+  {type:'train',from:'CAR',seekStops:['LDS'],to:'LDS'},
+  {type:'train',from:'LDS',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['SCU'],to:'SCU'}
+]);
+add('Carlisle United','Southend United',[
+  {type:'train',from:'CAR',seekStops:['EUS'],to:'EUS'},
+  {type:'walk',from:'EUS',to:'FST'},
+  {type:'train',from:'FST',seekStops:['SOC'],to:'SOC'}
+]);
 
-// -- To AFC Fylde (Kirkham & Wesham KKM) --
-add('Kidderminster Harriers','AFC Fylde',[{from:'KID',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
-add('Macclesfield','AFC Fylde',[{from:'MAC',seekStops:['MAN','SPT'],to:'MAN'},{from:'MAN',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
-add('Merthyr Town','AFC Fylde',[{from:'MER',seekStops:['CDF'],to:'CDF'},{from:'CDF',seekStops:['BHM','BRI'],to:'BHM'},{from:'BHM',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
-add('Chester','AFC Fylde',[{from:'CTR',seekStops:['PRE','WGN'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
-add('Darlington','AFC Fylde',[{from:'DAR',seekStops:['YRK'],to:'YRK'},{from:'YRK',seekStops:['LDS','MAN'],to:'LDS'},{from:'LDS',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
-add('Buxton','AFC Fylde',[{from:'BUX',seekStops:['MAC','MAN'],to:'MAN'},{from:'MAN',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
-add('Spennymoor Town','AFC Fylde',[{from:'DHM',seekStops:['DAR','YRK','NCL'],to:'YRK'},{from:'YRK',seekStops:['LDS','MAN'],to:'LDS'},{from:'LDS',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['KKM'],to:'KKM'}]);
+// Boreham Wood → all aways
+add('Boreham Wood','Carlisle United',[
+  {type:'train',from:'ELS',seekStops:['STP'],to:'STP'},
+  {type:'walk',from:'STP',to:'EUS'},
+  {type:'train',from:'EUS',seekStops:['CAR'],to:'CAR'}
+]);
+add('Boreham Wood','Scunthorpe United',[
+  {type:'train',from:'ELS',seekStops:['STP'],to:'STP'},
+  {type:'walk',from:'STP',to:'KGX'},
+  {type:'train',from:'KGX',seekStops:['DON'],to:'DON'},
+  {type:'train',from:'DON',seekStops:['SCU'],to:'SCU'}
+]);
+add('Boreham Wood','Southend United',[
+  {type:'train',from:'ELS',seekStops:['STP'],to:'STP'},
+  {type:'walk',from:'STP',to:'FST'},
+  {type:'train',from:'FST',seekStops:['SOC'],to:'SOC'}
+]);
 
-// -- To Kidderminster (KID) --
-add('Macclesfield','Kidderminster Harriers',[{from:'MAC',seekStops:['MAN','SPT','SHF'],to:'MAN'},{from:'MAN',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('Merthyr Town','Kidderminster Harriers',[{from:'MER',seekStops:['CDF'],to:'CDF'},{from:'CDF',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('Chester','Kidderminster Harriers',[{from:'CTR',seekStops:['CRE','BHM','WVH'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('Darlington','Kidderminster Harriers',[{from:'DAR',seekStops:['YRK'],to:'YRK'},{from:'YRK',seekStops:['BHM','LDS'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('Buxton','Kidderminster Harriers',[{from:'BUX',seekStops:['MAC','MAN'],to:'MAN'},{from:'MAN',seekStops:['BHM','WVH'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('Spennymoor Town','Kidderminster Harriers',[{from:'DHM',seekStops:['DAR','YRK','NCL'],to:'YRK'},{from:'YRK',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('AFC Fylde','Kidderminster Harriers',[{from:'KKM',seekStops:['PRE'],to:'PRE'},{from:'PRE',seekStops:['BHM','CRE'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
-add('South Shields','Kidderminster Harriers',[{from:'NCL',seekStops:['YRK','DAR'],to:'YRK'},{from:'YRK',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['KID'],to:'KID'}]);
+/* ─────────────────────────────────────────────
+   DESTINATION PRE-FILTER
+   Maps station codes to "useful direction" keywords.
+   If a departure's destination_name contains none of these, skip it.
+   ───────────────────────────────────────────── */
+var DIR_HINTS = {
+  'LDS': ['Leeds','Carlisle','Skipton','Bradford','Sheffield','Nottingham'],
+  'YRK': ['York','Edinburgh','Newcastle','Scarborough','Aberdeen','Darlington'],
+  'DON': ['Doncaster','Sheffield','London','Cleethorpes','Manchester','Leeds','Hull'],
+  'KGX': ['London','Kings Cross'],
+  'STP': ['London','St Pancras','Luton','Bedford','Brighton','Elstree','Gatwick'],
+  'EUS': ['London','Euston','Milton Keynes','Birmingham','Manchester','Liverpool','Glasgow','Carlisle','Preston','Crewe','Wolverhampton'],
+  'FST': ['London','Fenchurch','Southend','Basildon','Tilbury'],
+  'PAD': ['London','Paddington','Reading','Swindon','Bristol','Cardiff','Oxford','Cheltenham','Gloucester'],
+  'ELS': ['Elstree','Borehamwood','Luton','Bedford','Brighton','St Albans','Sutton'],
+  'CAR': ['Carlisle','Glasgow','Edinburgh','Lancaster','Penrith','Whitehaven','Leeds','Newcastle','Preston','Lockerbie'],
+  'PRE': ['Preston','Lancaster','Blackpool','Carlisle','Glasgow','Edinburgh','Barrow'],
+  'BHM': ['Birmingham','Wolverhampton','London','Manchester','Glasgow','Edinburgh','Bristol','Cardiff','Carlisle','Newcastle','York'],
+  'MAN': ['Manchester','Stockport','Sheffield','London','Birmingham','Stoke'],
+  'MCV': ['Manchester','Rochdale','Leeds','Bradford','Halifax','Huddersfield','Blackpool','Wigan','Southport','Liverpool'],
+  'SHF': ['Sheffield','Manchester','Leeds','Doncaster','London','Nottingham','Liverpool'],
+  'RCD': ['Rochdale','Manchester','Leeds','Bradford','Halifax'],
+  'SCU': ['Scunthorpe','Doncaster','Cleethorpes','Manchester','Sheffield','Grimsby','Barnetby'],
+  'SOC': ['Southend','Fenchurch','London','Basildon','Grays','Tilbury'],
+  'STD': ['Stroud','Swindon','Gloucester','Cheltenham','London','Paddington','Bristol'],
+  'NCL': ['Newcastle','Edinburgh','York','Darlington','Sunderland','Carlisle','Durham'],
+  'CRE': ['Crewe','Manchester','Chester','London','Birmingham','Stoke','Stafford'],
+};
 
-// -- To Macclesfield (MAC) --
-add('Kidderminster Harriers','Macclesfield',[{from:'KID',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['MAN','MAC','SPT'],to:'MAC'}]);
-add('Merthyr Town','Macclesfield',[{from:'MER',seekStops:['CDF'],to:'CDF'},{from:'CDF',seekStops:['BHM'],to:'BHM'},{from:'BHM',seekStops:['MAC','MAN','SPT'],to:'MAC'}]);
-add('Chester','Macclesfield',[{from:'CTR',seekStops:['CRE','MAN'],to:'CRE'},{from:'CRE',seekStops:['MAC','SPT','MAN'],to:'MAC'}]);
-add('Darlington','Macclesfield',[{from:'DAR',seekStops:['YRK'],to:'YRK'},{from:'YRK',seekStops:['MAN','LDS'],to:'LDS'},{from:'LDS',seekStops:['MAN','MAC'],to:'MAN'},{from:'MAN',seekStops:['MAC','SPT'],to:'MAC'}]);
-add('South Shields','Macclesfield',[{from:'NCL',seekStops:['YRK','DAR'],to:'YRK'},{from:'YRK',seekStops:['LDS','MAN'],to:'LDS'},{from:'LDS',seekStops:['MAN'],to:'MAN'},{from:'MAN',seekStops:['MAC','SPT'],to:'MAC'}]);
-
-// ═══════════════════════════════════════════
-// SOUTH (Sat 02/05) — Very open. Focus on longest-distance pairs.
-// Hosts/Aways: WRH,DKG,TRR,UPM,WSM,HML,EBD(Ebbsfleet=EBD clash!),MAI,MDE,CSM,CHM
-// Ebbsfleet International = EBF. Northfleet = NFL. Let's use EBF.
-// ═══════════════════════════════════════════
-
-// Torquay is the outlier in the South — focus on Torquay routes
-add('Torquay United','Hornchurch',[{from:'TRR',seekStops:['NTA','EXD','PAD'],to:'PAD'}]); // Then tube to Upminster — can't chain
-add('Torquay United','Worthing',[{from:'TRR',seekStops:['NTA','EXD'],to:'EXD'},{from:'EXD',seekStops:['CLJ','GTW','BRH'],to:'CLJ'},{from:'CLJ',seekStops:['WRH'],to:'WRH'}]);
-add('Torquay United','Hemel Hempstead Town',[{from:'TRR',seekStops:['NTA','EXD','PAD'],to:'PAD'}]); // Then tube/Overground
-add('Torquay United','Dorking Wanderers',[{from:'TRR',seekStops:['NTA','EXD'],to:'EXD'},{from:'EXD',seekStops:['CLJ','SUR'],to:'CLJ'},{from:'CLJ',seekStops:['DKG','LHD'],to:'DKG'}]);
-add('Torquay United','Weston-super-Mare',[{from:'TRR',seekStops:['EXD','NTA','BRI'],to:'BRI'},{from:'BRI',seekStops:['WSM'],to:'WSM'}]);
-add('Torquay United','Ebbsfleet United',[{from:'TRR',seekStops:['NTA','EXD','PAD'],to:'PAD'}]); // Tube needed
-
-// Weston-super-Mare long routes
-add('Weston-super-Mare','Hornchurch',[{from:'WSM',seekStops:['BRI'],to:'BRI'},{from:'BRI',seekStops:['PAD','SWI'],to:'PAD'}]); // Then tube
-add('Weston-super-Mare','Chelmsford City',[{from:'WSM',seekStops:['BRI'],to:'BRI'},{from:'BRI',seekStops:['PAD','SWI'],to:'PAD'}]); // Then tube to Liverpool St
-
-// Hornchurch (Upminster UPM) — actually on District/C2C line
-add('Hornchurch','Torquay United',[{from:'UPM',seekStops:['FST'],to:'FST'},{from:'PAD',seekStops:['EXD','NTA','TRR'],to:'TRR'}]); // Needs tube FST→PAD
-add('Hornchurch','Weston-super-Mare',[{from:'UPM',seekStops:['FST'],to:'FST'},{from:'PAD',seekStops:['BRI','SWI'],to:'BRI'},{from:'BRI',seekStops:['WSM'],to:'WSM'}]);
-
+function matchesDirection(depDestName, targetCRS) {
+  var hints = DIR_HINTS[targetCRS];
+  if (!hints) return true; // No filter = allow all
+  var dn = (depDestName||'').toLowerCase();
+  for (var i=0; i<hints.length; i++) {
+    if (dn.indexOf(hints[i].toLowerCase()) >= 0) return true;
+  }
+  return false;
+}
 
 /* ─────────────────────────────────────────────
    API + ENGINE
    ───────────────────────────────────────────── */
-
 function creds(){return{id:document.getElementById('appId').value.trim(),key:document.getElementById('appKey').value.trim()}}
-function apiUrl(path){var c=creds();var s=path.indexOf('?')>=0?'&':'?';return API_BASE+path+s+'app_id='+c.id+'&app_key='+c.key}
-function delay(){return parseInt(document.getElementById('delay').value)||200}
+function apiUrl(p){var c=creds();var s=p.indexOf('?')>=0?'&':'?';return API_BASE+p+s+'app_id='+c.id+'&app_key='+c.key}
+function ms(){return parseInt(document.getElementById('delay').value)||200}
 
-async function apiFetch(path){
-  var url=apiUrl(path);
-  totalAPICalls++;
-  document.getElementById('statCalls').textContent=totalAPICalls;
-  try{var r=await fetch(url);if(!r.ok)return{_error:r.status};return await r.json()}catch(e){return{_error:e.message}}
+async function apiFetch(p){
+  totalAPICalls++;updStat();
+  try{var r=await fetch(apiUrl(p));if(!r.ok)return{_error:r.status};return await r.json()}catch(e){return{_error:e.message}}
 }
 
-function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function sleep(n){return new Promise(function(r){setTimeout(r,n)})}
 
-async function getDepartures(crs,date,time){
+async function getDeps(crs,date,time){
   var d=await apiFetch('/station/'+crs+'/'+date+'/'+time+'/timetable.json?train_status=passenger');
-  if(d._error)return[];
-  if(!d.departures||!d.departures.all)return[];
+  if(d._error||!d.departures||!d.departures.all)return[];
   return d.departures.all.filter(function(x){return x.mode==='train'});
 }
 
-async function getServiceStops(uid,date){
+async function getStops(uid,date){
   var d=await apiFetch('/service_timetables/'+uid+':'+date+'.json');
   if(d._error||!d.stops)return null;
   return d.stops;
 }
 
-function findStopAt(stops,targets,afterTime){
+function findStop(stops,targets,afterTime){
   var aft=tm(afterTime);
   for(var i=0;i<stops.length;i++){
     var s=stops[i];
@@ -288,72 +437,82 @@ function findStopAt(stops,targets,afterTime){
   return null;
 }
 
-function stationName(stops,crs){
-  for(var i=0;i<stops.length;i++)if(stops[i].station_code===crs)return stops[i].station_name;
-  return crs;
-}
-
+function sName(stops,crs){for(var i=0;i<stops.length;i++)if(stops[i].station_code===crs)return stops[i].station_name;return crs}
 function tm(t){if(!t)return-1;var p=t.split(':');return parseInt(p[0])*60+parseInt(p[1])}
 function ft(m){if(m<0)return'??:??';return String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
 
 async function findJourney(recipe,date,startTime){
   var curTime=startTime;
   var legs=[];
-  var d=delay();
+  var d=ms();
 
   for(var li=0;li<recipe.length;li++){
     var leg=recipe[li];
-    var minConn=li>0?8:0; // 8 min connection
-    var searchFrom=li>0?ft(tm(curTime)+minConn):curTime;
+
+    // WALK LEG — just add time
+    if(leg.type==='walk'){
+      var walkKey=leg.from+'→'+leg.to;
+      var walkMins=WALKS[walkKey];
+      if(!walkMins){log('  ✗ No walk data for '+walkKey,'err');return null}
+      var newTime=tm(curTime)+walkMins;
+      var walkArr=ft(newTime);
+      legs.push({from:leg.from,to:leg.to,fromName:leg.from,toName:leg.to,depart:curTime,arrive:walkArr,operator:'Walk',uid:'walk',isWalk:true});
+      curTime=walkArr;
+      log('  🚶 Walk '+leg.from+' → '+leg.to+' ('+walkMins+'min) arr '+walkArr,'dim');
+      continue;
+    }
+
+    // TRAIN LEG
+    var minConn=li>0&&!legs[legs.length-1].isWalk?8:0;
+    var searchFrom=minConn>0?ft(tm(curTime)+minConn):curTime;
 
     log('  Leg '+(li+1)+': '+leg.from+' after '+searchFrom,'dim');
 
-    var deps=await getDepartures(leg.from,date,searchFrom);
+    var deps=await getDeps(leg.from,date,searchFrom);
     await sleep(d);
     if(deps.length===0){log('  No departures from '+leg.from+' after '+searchFrom,'err');return null}
 
-    var found=false;
-    var checked=0;
+    var found=false,checked=0;
+    var allTargets=leg.seekStops.concat([leg.to]);
+
     for(var di=0;di<Math.min(deps.length,20)&&!found;di++){
       var dep=deps[di];
       if(tm(dep.aimed_departure_time)<tm(searchFrom))continue;
 
-      var stops=await getServiceStops(dep.train_uid,date);
+      // PRE-FILTER: check destination name matches our direction
+      if(!matchesDirection(dep.destination_name,leg.to)){
+        totalSkipped++;updStat();
+        continue;
+      }
+
+      var stops=await getStops(dep.train_uid,date);
       await sleep(d);
       checked++;
       if(!stops)continue;
 
-      // Check if this service calls at our target
-      var allTargets=leg.seekStops.concat([leg.to]);
-      var hit=findStopAt(stops,allTargets,dep.aimed_departure_time);
-      if(!hit)continue;
-
-      // Does it reach our actual `to` station?
-      var dest=findStopAt(stops,[leg.to],dep.aimed_departure_time);
+      var dest=findStop(stops,[leg.to],dep.aimed_departure_time);
       if(dest){
         var arr=dest.aimed_arrival_time||dest.aimed_departure_time;
-        legs.push({from:leg.from,to:leg.to,fromName:stationName(stops,leg.from)||leg.from,toName:dest.station_name||leg.to,depart:dep.aimed_departure_time,arrive:arr,operator:dep.operator_name,uid:dep.train_uid});
+        legs.push({from:leg.from,to:leg.to,fromName:sName(stops,leg.from)||leg.from,toName:dest.station_name||leg.to,depart:dep.aimed_departure_time,arrive:arr,operator:dep.operator_name,uid:dep.train_uid,isWalk:false});
         curTime=arr;
         found=true;
         log('  ✓ '+leg.from+' '+dep.aimed_departure_time+' → '+leg.to+' '+arr+' ('+dep.operator_name+')','ok');
       }
+      if(shouldStop)return null;
     }
 
-    if(!found){log('  ✗ No train '+leg.from+' → '+leg.to+' (checked '+checked+')','warn');return null}
-    if(shouldStop)return null;
+    if(!found){log('  ✗ No train '+leg.from+' → '+leg.to+' (checked '+checked+', skipped '+(Math.min(deps.length,20)-checked)+')','warn');return null}
   }
 
   var total=tm(legs[legs.length-1].arrive)-tm(legs[0].depart);
   if(total<0)total+=1440;
-  totalFound++;
-  document.getElementById('statFound').textContent=totalFound;
-  return{legs:legs,totalMins:total,changes:legs.length-1};
+  totalFound++;updStat();
+  return{legs:legs,totalMins:total,changes:legs.filter(function(l){return!l.isWalk}).length-1};
 }
 
 /* ─────────────────────────────────────────────
-   DIVISION CONFIG + ROUTE BUILDER
+   DIVISION CONFIG
    ───────────────────────────────────────────── */
-
 var CFG={
   National:{date:'2026-05-03',label:'Sun 03/05/2026',
     hosts:['York City','Rochdale','Carlisle United','Boreham Wood'],
@@ -366,14 +525,13 @@ var CFG={
     aways:['Worthing','Dorking Wanderers','Torquay United','Hornchurch','Weston-super-Mare','Hemel Hempstead Town','Ebbsfleet United','Maidenhead United','Maidstone United','Chesham United','Chelmsford City']}
 };
 
-var STARTS=['06:00','07:00','07:30','08:00','08:30','09:00','09:30','10:00','10:30'];
-var RET_STARTS=['15:00','15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00'];
+var OUT_STARTS=['06:00','07:00','07:30','08:00','08:30','09:00','09:30','10:00','10:30','11:00'];
+var RET_STARTS=['15:00','15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'];
 
 function routesFor(div){
   var c=CFG[div];var out=[];
   c.hosts.forEach(function(h){c.aways.forEach(function(a){
-    if(h===a)return;
-    var k=a+'→'+h;
+    if(h===a)return;var k=a+'→'+h;
     if(R[k])out.push({away:a,host:h,key:k,date:c.date});
   })});
   return out;
@@ -382,89 +540,68 @@ function routesFor(div){
 var ALL={};
 
 async function runDiv(div){
-  var routes=routesFor(div);
-  var c=CFG[div];
+  var routes=routesFor(div);var c=CFG[div];
   log('═══ '+div.toUpperCase()+' ('+c.label+') — '+routes.length+' routes ═══','head');
 
   for(var ri=0;ri<routes.length;ri++){
     if(shouldStop)break;
     var r=routes[ri];
-    updateProgress(ri,routes.length,div+': '+r.away+' → '+r.host);
+    updProg(ri,routes.length,div+': '+r.away+' → '+r.host);
     log('Route: '+r.away+' → '+r.host,'info');
 
-    var outbound={};
-    var recipes=R[r.key]||[];
-
-    for(var si=0;si<STARTS.length&&!shouldStop;si++){
+    var outbound={};var recipes=R[r.key]||[];
+    for(var si=0;si<OUT_STARTS.length&&!shouldStop;si++){
       for(var rci=0;rci<recipes.length;rci++){
-        log(' Recipe '+(rci+1)+' dep ~'+STARTS[si],'dim');
-        var j=await findJourney(recipes[rci],r.date,STARTS[si]);
-        if(j){
-          var jk=j.legs[0].depart;
-          if(!outbound[jk]||j.totalMins<outbound[jk].totalMins)outbound[jk]=j;
-          break;
-        }
+        log(' Recipe '+(rci+1)+' dep ~'+OUT_STARTS[si],'dim');
+        var j=await findJourney(recipes[rci],r.date,OUT_STARTS[si]);
+        if(j){var jk=j.legs[0].depart;if(!outbound[jk]||j.totalMins<outbound[jk].totalMins)outbound[jk]=j;break;}
       }
     }
 
-    // Return journeys
-    var retKey=r.host+'→'+r.away;
-    var retRecipes=R[retKey]||[];
-    var returns={};
-
-    if(retRecipes.length>0){
+    // Returns
+    var retKey=r.host+'→'+r.away;var retR=R[retKey]||[];var returns={};
+    if(retR.length>0){
       log('Return: '+r.host+' → '+r.away,'info');
       for(var rti=0;rti<RET_STARTS.length&&!shouldStop;rti++){
-        for(var rrci=0;rrci<retRecipes.length;rrci++){
-          var rj=await findJourney(retRecipes[rrci],r.date,RET_STARTS[rti]);
+        for(var rrci=0;rrci<retR.length;rrci++){
+          var rj=await findJourney(retR[rrci],r.date,RET_STARTS[rti]);
           if(rj){var rjk=rj.legs[0].depart;if(!returns[rjk]||rj.totalMins<returns[rjk].totalMins)returns[rjk]=rj;break;}
         }
       }
-    } else {
-      log('No return recipes for '+retKey,'warn');
-    }
+    } else log('No return recipes for '+retKey,'warn');
 
-    if(Object.keys(outbound).length===0)totalFailed++;
-    document.getElementById('statFailed').textContent=totalFailed;
-
-    ALL[r.key]={
-      division:div,away:r.away,host:r.host,date:r.date,
+    if(Object.keys(outbound).length===0){totalFailed++;updStat()}
+    ALL[r.key]={division:div,away:r.away,host:r.host,date:r.date,
       outbound:Object.values(outbound).sort(function(a,b){return tm(a.legs[0].depart)-tm(b.legs[0].depart)}),
       returns:Object.values(returns).sort(function(a,b){return tm(a.legs[0].depart)-tm(b.legs[0].depart)})
     };
   }
-  updateProgress(routes.length,routes.length,div+' done');
+  updProg(routes.length,routes.length,div+' done');
   log('═══ '+div.toUpperCase()+' COMPLETE ═══','ok');
 }
 
 /* ─────────────────────────────────────────────
    UI
    ───────────────────────────────────────────── */
-
 function log(msg,cls){var el=document.getElementById('log');var d=document.createElement('div');d.className=cls||'info';d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight}
-function updateProgress(done,total,txt){
-  var pct=total>0?(done/total*100):0;
-  document.getElementById('pFill').style.width=pct+'%';
-  document.getElementById('pText').textContent=txt||(done+'/'+total);
-}
+function updProg(done,total,txt){document.getElementById('pFill').style.width=(total>0?(done/total*100):0)+'%';document.getElementById('pText').textContent=txt||(done+'/'+total)}
+function updStat(){document.getElementById('statCalls').textContent=totalAPICalls;document.getElementById('statSkipped').textContent=totalSkipped;document.getElementById('statFound').textContent=totalFound;document.getElementById('statFailed').textContent=totalFailed}
 
 function switchDiv(div,btn){
-  currentDiv=div;
-  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
-  btn.classList.add('active');
+  currentDiv=div;document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});btn.classList.add('active');
   var c=CFG[div];var routes=routesFor(div);
-  document.getElementById('divInfo').textContent=div+' — '+c.label+' — '+routes.length+' routes';
+  document.getElementById('divInfo').textContent=div+' — '+c.label+' — '+routes.length+' routes with recipes';
   document.getElementById('btnRun').textContent='Run '+div;
 }
 
 async function testAPI(){
   document.getElementById('apiStatus').textContent='Testing...';
-  var deps=await getDepartures('YRK','2026-05-03','08:00');
-  document.getElementById('apiStatus').innerHTML=deps.length>0?'<span style="color:#1e7e34">OK ✓ '+deps.length+' deps</span>':'<span style="color:#c0392b">Failed</span>';
+  var deps=await getDeps('YRK','2026-05-03','08:00');
+  document.getElementById('apiStatus').innerHTML=deps.length>0?'<span style="color:#1e7e34">OK ✓ '+deps.length+' train deps</span>':'<span style="color:#c0392b">Failed</span>';
 }
 
 async function runCurrentDiv(){running=true;shouldStop=false;await runDiv(currentDiv);renderResults();updateExport();running=false}
-async function runAllDivs(){running=true;shouldStop=false;await runDiv('National');await runDiv('North');await runDiv('South');renderResults();updateExport();running=false}
+async function runAllDivs(){running=true;shouldStop=false;for(var d of['National','North','South'])await runDiv(d);renderResults();updateExport();running=false}
 function stopRun(){shouldStop=true;log('STOPPED','err')}
 
 function renderResults(){
@@ -473,13 +610,13 @@ function renderResults(){
     var r=ALL[key];
     html+='<div class="route-card"><div class="route-header"><span class="route-title">'+esc(r.away)+' → '+esc(r.host)+'</span><span class="route-meta">'+esc(r.division)+' · '+esc(r.date)+'</span></div>';
     if(r.outbound.length){
-      html+='<div class="section-label">Outbound</div>';
+      html+='<div class="section-label">Outbound (away fans to ground)</div>';
       r.outbound.forEach(function(j){html+=jRow(j)});
-    } else html+='<div class="journey-row" style="color:#c0392b">No outbound journeys found</div>';
+    } else html+='<div class="journey-row" style="color:#c0392b">No outbound found</div>';
     if(r.returns.length){
-      html+='<div class="section-label">Return</div>';
+      html+='<div class="section-label">Return (away fans home)</div>';
       r.returns.forEach(function(j){html+=jRow(j)});
-    } else html+='<div class="journey-row" style="color:#e67e22">No return recipes/journeys</div>';
+    } else html+='<div class="journey-row" style="color:#e67e22">No return found</div>';
     html+='</div>';
   });
   document.getElementById('resultsArea').innerHTML=html||'No results.';
@@ -488,8 +625,11 @@ function renderResults(){
 function jRow(j){
   var dep=j.legs[0].depart;var arr=j.legs[j.legs.length-1].arrive;
   var h=Math.floor(j.totalMins/60);var m=j.totalMins%60;
-  var legs=j.legs.map(function(l){return'<span class="leg"><span class="leg-op">'+esc(l.operator)+'</span> '+esc(l.fromName)+' '+esc(l.depart)+' <span class="leg-arrow">→</span> '+esc(l.toName)+' '+esc(l.arrive)+'</span>'}).join(' ');
-  return'<div class="journey-row"><span class="j-time">'+esc(dep)+' → '+esc(arr)+'</span><span class="j-detail">'+legs+'</span><span class="j-duration">'+h+'h'+String(m).padStart(2,'0')+' · '+j.changes+'chg</span></div>';
+  var lhtml=j.legs.map(function(l){
+    if(l.isWalk)return'<span class="leg leg-walk">🚶 '+esc(l.from)+' → '+esc(l.to)+'</span>';
+    return'<span class="leg"><span class="leg-op">'+esc(l.operator)+'</span> '+esc(l.fromName)+' '+esc(l.depart)+' <span class="leg-arrow">→</span> '+esc(l.toName)+' '+esc(l.arrive)+'</span>';
+  }).join(' ');
+  return'<div class="journey-row"><span class="j-time">'+esc(dep)+' → '+esc(arr)+'</span><span class="j-detail">'+lhtml+'</span><span class="j-duration">'+h+'h'+String(m).padStart(2,'0')+' · '+j.changes+'chg</span></div>';
 }
 
 function updateExport(){document.getElementById('exportJSON').value=JSON.stringify(ALL,null,2)}
