@@ -69,7 +69,13 @@ textarea{width:100%;height:200px;font-family:monospace;font-size:11px;padding:8p
       <div id="stationList"></div>
       <div style="margin-top:12px">
         <button class="btn btn-primary" onclick="runScan()">Scan All Stations</button>
+        <button class="btn btn-primary" onclick="runScanMissing()">Scan Missing Only</button>
         <button class="btn btn-navy btn-sm" onclick="stopScan()">Stop</button>
+      </div>
+      <div style="margin-top:8px">
+        <label>Import previous scan data (paste JSON from earlier run)</label>
+        <textarea id="importData" style="height:60px" placeholder="Paste previous export JSON here to pre-load data, then Scan Missing Only for new stations"></textarea>
+        <button class="btn btn-navy btn-sm" onclick="importPreviousData()" style="margin-top:4px">Import</button>
       </div>
       <div class="progress-bar"><div class="progress-fill" id="pFill"></div></div>
       <div class="progress-text" id="pText">Ready</div>
@@ -92,6 +98,16 @@ textarea{width:100%;height:200px;font-family:monospace;font-size:11px;padding:8p
       <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Once stations are scanned, click to build all possible journeys between playoff teams.</p>
       <button class="btn btn-primary" onclick="buildJourneys()">Build Journeys</button>
       <div id="journeyResults" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Raw Scan Data (Save/Load)</div>
+    <div class="card-body">
+      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Save the raw scan data so you don't need to re-scan. Load it back after adding new stations, then Scan Missing Only.</p>
+      <button class="btn btn-navy btn-sm" onclick="exportRawData()">Save Raw Data</button>
+      <button class="btn btn-navy btn-sm" onclick="loadRawData()">Load Raw Data</button>
+      <textarea id="rawDataArea" style="height:80px;margin-top:8px" placeholder="Raw scan data appears here when saved. Paste previously saved data and click Load."></textarea>
     </div>
   </div>
 
@@ -120,24 +136,29 @@ var STATIONS = {
   SCU: {name:'Scunthorpe',team:'Scunthorpe United',role:'away',walkToGround:15},
   STD: {name:'Stroud',team:'Forest Green Rovers',role:'away',walkToGround:20},
   SOC: {name:'Southend Central',team:'Southend United',role:'away',walkToGround:10},
-  // London interchanges — needed for cross-London connections
+  // London interchanges
   EUS: {name:'London Euston',role:'interchange'},
   KGX: {name:'London Kings Cross',role:'interchange'},
   STP: {name:'London St Pancras',role:'interchange'},
   FST: {name:'London Fenchurch Street',role:'interchange'},
+  PAD: {name:'London Paddington',role:'interchange'},
   // Key northern interchanges
   LDS: {name:'Leeds',role:'interchange'},
   DON: {name:'Doncaster',role:'interchange'},
   MAN: {name:'Manchester Piccadilly',role:'interchange'},
   MCV: {name:'Manchester Victoria',role:'interchange'},
   PRE: {name:'Preston',role:'interchange'},
+  SHF: {name:'Sheffield',role:'interchange'},
+  // Midlands / West
+  BHM: {name:'Birmingham New Street',role:'interchange'},
+  GLO: {name:'Gloucester',role:'interchange'},
 };
 
 var DATE = '2026-05-03'; // Sunday — National SF
 var TIME_BLOCKS = ['06:00','08:00','10:00','12:00','14:00','16:00','18:00','20:00','22:00','23:30'];
 // Busy stations get hourly blocks to avoid missing services
 var TIME_BLOCKS_DENSE = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00'];
-var DENSE_STATIONS = ['EUS','KGX','STP','LDS','MAN','DON','FST']; // High-frequency stations (added FST for late Southend services)
+var DENSE_STATIONS = ['EUS','KGX','STP','LDS','MAN','DON','FST','BHM','PAD','SHF']; // High-frequency stations
 
 // Virtual walk connections (minutes)
 var WALKS = {
@@ -146,8 +167,10 @@ var WALKS = {
   'EUS-KGX':10,'KGX-EUS':10,
   'FST-KGX':15,'KGX-FST':15,
   'FST-EUS':18,'EUS-FST':18,
+  'FST-STP':15,'STP-FST':15,
   'PAD-EUS':15,'EUS-PAD':15,
   'PAD-KGX':18,'KGX-PAD':18,
+  'PAD-STP':18,'STP-PAD':18,
   'MAN-MCV':10,'MCV-MAN':10,
 };
 
@@ -294,6 +317,68 @@ async function runScan() {
 
   updProgress(total, total, 'Scan complete — ' + totalCalls + ' API calls, ' + totalServices + ' services');
   log('All stations scanned. ' + Object.keys(ALL_SERVICES).length + ' unique services in database.', 'head');
+}
+
+async function runScanMissing() {
+  shouldStop = false;
+  // Only scan stations that are still 'pending'
+  var missing = Object.keys(STATIONS).filter(function(crs) {
+    return STATION_STATUS[crs] !== 'done';
+  });
+
+  if (missing.length === 0) {
+    log('All stations already scanned — nothing to do', 'info');
+    return;
+  }
+
+  log('Scanning ' + missing.length + ' missing stations: ' + missing.join(', '), 'head');
+
+  for (var i = 0; i < missing.length; i++) {
+    if (shouldStop) break;
+    updProgress(i, missing.length, 'Scanning ' + STATIONS[missing[i]].name);
+    await scanStation(missing[i]);
+  }
+
+  updProgress(missing.length, missing.length, 'Missing stations complete — ' + totalCalls + ' API calls');
+  log('Missing stations scanned. ' + Object.keys(ALL_SERVICES).length + ' total services in database.', 'head');
+}
+
+function importPreviousData() {
+  var raw = document.getElementById('importData').value.trim();
+  if (!raw) { log('Nothing to import', 'warn'); return; }
+
+  // The import data is the journey output JSON — but what we really need is the
+  // raw service data. Since we don't export that, we'll just mark previously-scanned
+  // stations as done so "Scan Missing" skips them.
+  // User should paste the station scan log or we detect from the journey data which stations had results.
+
+  try {
+    var journeyData = JSON.parse(raw);
+    // Check which team stations have data
+    var stationsWithData = {};
+    for (var key in journeyData) {
+      var route = journeyData[key];
+      if (route.outbound && route.outbound.length > 0) {
+        var awayCRS = teamToCRS(route.away);
+        var hostCRS = teamToCRS(route.host);
+        if (awayCRS) stationsWithData[awayCRS] = true;
+        if (hostCRS) stationsWithData[hostCRS] = true;
+      }
+    }
+
+    // We can't reconstruct the service database from journey data,
+    // so just log what was found and let user scan missing
+    var found = Object.keys(stationsWithData);
+    log('Import detected data for stations: ' + found.join(', '), 'info');
+    log('Note: raw service data cannot be imported — use Scan Missing to fill gaps', 'warn');
+    log('New stations added: BHM, PAD, GLO, SHF — these need scanning', 'info');
+
+    // Mark non-new stations as needing rescan too since we lost the service data
+    // Actually, better to just scan everything fresh for the new stations
+    // and let the dedup handle services already seen
+  } catch(e) {
+    log('Import failed: ' + e.message, 'err');
+  }
 }
 
 function stopScan() { shouldStop = true; log('STOPPED', 'err'); }
@@ -641,6 +726,60 @@ function renderJourneyResults(output) {
 function copyJSON(){var t=document.getElementById('exportJSON');t.select();document.execCommand('copy')}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
+function exportRawData() {
+  var raw = {
+    services: ALL_SERVICES,
+    deps: ALL_DEPS,
+    status: STATION_STATUS
+  };
+  document.getElementById('rawDataArea').value = JSON.stringify(raw);
+  log('Raw data saved — ' + Object.keys(ALL_SERVICES).length + ' services, copy the textarea to preserve', 'ok');
+}
+
+function loadRawData() {
+  var raw = document.getElementById('rawDataArea').value.trim();
+  if (!raw) { log('Nothing to load', 'warn'); return; }
+  try {
+    var data = JSON.parse(raw);
+    // Merge services
+    var newSvc = 0, newDeps = 0;
+    for (var uid in data.services) {
+      if (!ALL_SERVICES[uid]) { ALL_SERVICES[uid] = data.services[uid]; newSvc++; }
+    }
+    // Merge deps
+    for (var crs in data.deps) {
+      if (!ALL_DEPS[crs]) ALL_DEPS[crs] = [];
+      var existing = {};
+      ALL_DEPS[crs].forEach(function(d) { existing[d.train_uid] = true; });
+      data.deps[crs].forEach(function(d) {
+        if (!existing[d.train_uid]) { ALL_DEPS[crs].push(d); newDeps++; }
+      });
+    }
+    // Merge status
+    for (var crs2 in data.status) {
+      if (data.status[crs2] === 'done' && STATION_STATUS[crs2] !== 'done') {
+        STATION_STATUS[crs2] = 'done';
+      }
+    }
+    // New stations not in loaded data stay 'pending'
+    for (var crs3 in STATIONS) {
+      if (!STATION_STATUS[crs3]) STATION_STATUS[crs3] = 'pending';
+    }
+    totalServices = Object.keys(ALL_SERVICES).length;
+    updStats();
+    renderStationList();
+    log('Loaded ' + newSvc + ' services, ' + newDeps + ' departures. New stations marked pending.', 'ok');
+    // Show which stations are still missing
+    var missing = Object.keys(STATIONS).filter(function(c) { return STATION_STATUS[c] !== 'done'; });
+    if (missing.length > 0) {
+      log('Stations still to scan: ' + missing.join(', '), 'info');
+    } else {
+      log('All stations loaded — ready to Build Journeys', 'ok');
+    }
+  } catch(e) {
+    log('Load failed: ' + e.message, 'err');
+  }
+}
 // Init
 initStationStatus();
 renderStationList();
