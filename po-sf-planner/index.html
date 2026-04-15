@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Playoff SF Planner — National League</title>
+<title>Playoff SF Planner v13 — National League</title>
 <!--
-  National League Playoff Semi-Final Planner v12.0
+  National League Playoff Semi-Final Planner v13.0
   Changelog:
   v5.0  - 15/04/2026 - Initial build
   v6.0  - 15/04/2026 - NL branding, stacked selectors, independent state per division
@@ -14,13 +14,11 @@
   v9.0  - 15/04/2026 - Position feasibility filtering based on points/games
   v10.0 - 15/04/2026 - Swap keeps KO times fixed. Scenario header matchup tags.
   v11.0 - 15/04/2026 - Train feasibility display with traffic light grading.
-    National division real TransportAPI timetable data for all routes (Sun 03/05).
-  v12.0 - 15/04/2026 - Fixed train panel filtering:
-    Outbound only shows trains arriving before KO (minus walk time).
-    Return only shows trains after fans reach station (KO+180min+walk).
-    Black dot nearest-miss when no viable train exists, shows how far off.
-    Walk time to ground shown in captions per host venue.
-    Scenario footer auto-recommends based on train viability.
+  v12.0 - 15/04/2026 - Fixed filtering, black dot nearest-miss, walk time captions.
+  v13.0 - 15/04/2026 - Tap-to-expand train rows showing full connection details.
+    Each leg shows operator, stations, times, walk connections.
+    Wait times between connections displayed.
+    Corrected Carlisle evening returns (18:51 is slow via BHM, EUS 01:05).
 -->
 <style>
 @font-face {
@@ -82,15 +80,25 @@ button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
 .train-section { margin-bottom: 6px; }
 .train-section:last-child { margin-bottom: 0; }
 .train-section__label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #5a6a82; letter-spacing: 0.05em; margin-bottom: 2px; }
-.train-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 11px; border-bottom: 1px solid #f4f6f9; }
+.train-row { padding: 2px 0; font-size: 11px; border-bottom: 1px solid #f4f6f9; cursor: pointer; }
 .train-row:last-child { border-bottom: none; }
 .train-row--flagged { background: #f4f6f9; border-radius: 3px; padding: 2px 4px; font-weight: 700; }
+.train-summary { display: flex; align-items: center; gap: 6px; }
 .train-time { font-weight: 700; color: #223b7c; min-width: 90px; }
 .train-legs { color: #5a6a82; flex: 1; }
 .train-dur { color: #1a2a44; font-weight: 600; min-width: 50px; text-align: right; }
 .train-flag { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 3px; }
 .train-flag--first { background: #edf7ee; color: #1e7e34; }
 .train-flag--last { background: #fef6ec; color: #e67e22; }
+.train-expand { display: none; padding: 6px 0 4px 16px; border-left: 2px solid #dde3ed; margin: 4px 0 4px 4px; }
+.train-row.open .train-expand { display: block; }
+.train-row.open .train-chevron { transform: rotate(90deg); }
+.train-chevron { display: inline-block; font-size: 9px; color: #5a6a82; transition: transform 0.15s; margin-right: 2px; }
+.leg-line { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 11px; }
+.leg-line__op { font-weight: 700; color: #223b7c; min-width: 65px; font-size: 10px; text-transform: uppercase; }
+.leg-line__detail { color: #1a2a44; }
+.leg-line--walk { color: #e67e22; font-weight: 600; font-size: 10px; }
+.leg-line__wait { color: #5a6a82; font-size: 10px; font-style: italic; padding: 1px 0 1px 71px; }
 .grade-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .grade-green { background: #1e7e34; }
 .grade-amber { background: #e67e22; }
@@ -372,6 +380,76 @@ function tmn(t){if(!t)return-1;var p=t.split(':');return parseInt(p[0])*60+parse
 
 function getTrainKey(away, host) { return away + '→' + host; }
 
+// Parse legs string into structured display
+function parseLegs(legsStr) {
+  if (!legsStr) return [];
+  var parts = legsStr.split(', ');
+  var parsed = [];
+  parts.forEach(function(part) {
+    var walkMatch = part.match(/^Walk\s+(\w+)→(\w+)/);
+    if (walkMatch) {
+      parsed.push({type:'walk', from:walkMatch[1], to:walkMatch[2]});
+      return;
+    }
+    // Train leg: "Operator STA HH:MM→STA HH:MM" or "Operator STA HH:MM→STA HH:MM (note)"
+    var trainMatch = part.match(/^(.+?)\s+(\w+)\s+(\d{2}:\d{2})→(\w+)\s+(\d{2}:\d{2})(.*)/);
+    if (trainMatch) {
+      parsed.push({type:'train', operator:trainMatch[1], fromStn:trainMatch[2], depTime:trainMatch[3], toStn:trainMatch[4], arrTime:trainMatch[5], note:(trainMatch[6]||'').trim()});
+      return;
+    }
+    // Fallback — just show as text
+    parsed.push({type:'text', text:part});
+  });
+  return parsed;
+}
+
+function legsExpandHtml(legsStr) {
+  var legs = parseLegs(legsStr);
+  if (legs.length === 0) return '';
+  var html = '<div class="train-expand">';
+  for (var i = 0; i < legs.length; i++) {
+    var leg = legs[i];
+    if (leg.type === 'walk') {
+      html += '<div class="leg-line leg-line--walk">🚶 Walk ' + esc(leg.from) + ' → ' + esc(leg.to) + '</div>';
+    } else if (leg.type === 'train') {
+      html += '<div class="leg-line"><span class="leg-line__op">' + esc(leg.operator) + '</span><span class="leg-line__detail">' + esc(leg.fromStn) + ' ' + esc(leg.depTime) + ' → ' + esc(leg.toStn) + ' ' + esc(leg.arrTime) + '</span></div>';
+      if (leg.note) html += '<div class="leg-line__wait">' + esc(leg.note) + '</div>';
+      // Show wait time between this leg and next train leg
+      if (i < legs.length - 1) {
+        var nextTrainIdx = -1;
+        for (var j = i + 1; j < legs.length; j++) { if (legs[j].type === 'train') { nextTrainIdx = j; break; } }
+        if (nextTrainIdx >= 0) {
+          var waitMins = tmn(legs[nextTrainIdx].depTime) - tmn(leg.arrTime);
+          if (waitMins < 0) waitMins += 1440;
+          if (waitMins > 0 && legs[i+1].type !== 'walk') {
+            html += '<div class="leg-line__wait">' + waitMins + 'min wait</div>';
+          }
+        }
+      }
+    } else {
+      html += '<div class="leg-line"><span class="leg-line__detail">' + esc(leg.text) + '</span></div>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function trainRowHtml(j, gradeObj, isFlagged, flagLabel, flagClass) {
+  var hrs = Math.floor(j.totalMins/60); var mins = j.totalMins%60;
+  var uid = 'tr_' + j.depart.replace(':','') + '_' + j.arrive.replace(':','') + '_' + Math.random().toString(36).substr(2,4);
+  var html = '<div class="train-row'+(isFlagged?' train-row--flagged':'')+'" onclick="this.classList.toggle(\'open\')">';
+  html += '<div class="train-summary">';
+  html += '<span class="train-chevron">▶</span>';
+  html += '<span class="grade-dot grade-'+gradeObj.grade+'" title="'+esc(gradeObj.label)+'"></span>';
+  html += '<span class="train-time">'+esc(j.depart)+' → '+esc(j.arrive)+'</span>';
+  html += '<span class="train-dur">'+hrs+'h'+String(mins).padStart(2,'0')+' '+j.changes+'chg</span>';
+  if (isFlagged) html += '<span class="train-flag '+flagClass+'">'+flagLabel+'</span>';
+  html += '</div>';
+  html += legsExpandHtml(j.legs);
+  html += '</div>';
+  return html;
+}
+
 function trainPanelHtml(m, koMins) {
   var key = getTrainKey(m.away, m.home);
   var data = TRAIN_DATA[key];
@@ -403,14 +481,18 @@ function trainPanelHtml(m, koMins) {
   if (data.outbound.length === 0) {
     html += '<div class="train-none">No train route found for this journey</div>';
   } else if (viableOut.length === 0) {
-    // Show nearest miss with black dot
-    var nearest = data.outbound[0]; // earliest arriving train
+    // Show nearest miss with black dot — also expandable
+    var nearest = data.outbound[0];
     var arrAtGround = tmn(nearest.arrive) + walkMins;
     var missBy = arrAtGround - koMins;
-    html += '<div class="train-row">';
+    html += '<div class="train-row" onclick="this.classList.toggle(\'open\')">';
+    html += '<div class="train-summary">';
+    html += '<span class="train-chevron">▶</span>';
     html += '<span class="grade-dot grade-black"></span>';
     html += '<span class="train-time">'+esc(nearest.depart)+' → '+esc(nearest.arrive)+'</span>';
     html += '<span class="train-dur" style="color:#c0392b">'+missBy+'min late</span>';
+    html += '</div>';
+    html += legsExpandHtml(nearest.legs);
     html += '</div>';
     html += '<div class="train-walk-note">Nearest option — arrives '+fmtTime(arrAtGround)+' at ground (KO '+fmtTime(koMins)+')</div>';
   } else {
@@ -418,13 +500,7 @@ function trainPanelHtml(m, koMins) {
     viableOut.forEach(function(o, idx) {
       var g = gradeOutbound(o.arrive, koMins, walkMins);
       var isFlagged = idx === flagIdx;
-      var hrs = Math.floor(o.totalMins/60); var mins = o.totalMins%60;
-      html += '<div class="train-row'+(isFlagged?' train-row--flagged':'')+'">';
-      html += '<span class="grade-dot grade-'+g.grade+'" title="'+esc(g.label)+'"></span>';
-      html += '<span class="train-time">'+esc(o.depart)+' → '+esc(o.arrive)+'</span>';
-      html += '<span class="train-dur">'+hrs+'h'+String(mins).padStart(2,'0')+' '+o.changes+'chg</span>';
-      if (isFlagged) html += '<span class="train-flag train-flag--first">Latest</span>';
-      html += '</div>';
+      html += trainRowHtml(o, g, isFlagged, 'Latest', 'train-flag--first');
     });
     html += '<div class="train-walk-note">+'+walkMins+'min walk to ground · Must arrive station by '+fmtTime(outboundCutoff)+'</div>';
   }
@@ -447,7 +523,6 @@ function trainPanelHtml(m, koMins) {
   if (data.returns.length === 0) {
     html += '<div class="train-none">No return data — check manually</div>';
   } else if (viableRet.length === 0) {
-    // Show nearest miss
     var nearestRet = null;
     var smallestGap = 9999;
     data.returns.forEach(function(r) {
@@ -456,10 +531,14 @@ function trainPanelHtml(m, koMins) {
     });
     if (nearestRet) {
       var tooEarlyBy = leaveStationMins - tmn(nearestRet.depart);
-      html += '<div class="train-row">';
+      html += '<div class="train-row" onclick="this.classList.toggle(\'open\')">';
+      html += '<div class="train-summary">';
+      html += '<span class="train-chevron">▶</span>';
       html += '<span class="grade-dot grade-black"></span>';
       html += '<span class="train-time">'+esc(nearestRet.depart)+' → '+esc(nearestRet.arrive)+'</span>';
       html += '<span class="train-dur" style="color:#c0392b">'+tooEarlyBy+'min too early</span>';
+      html += '</div>';
+      html += legsExpandHtml(nearestRet.legs);
       html += '</div>';
       html += '<div class="train-walk-note">Fans reach station '+fmtTime(leaveStationMins)+' (KO+180min+'+walkMins+'min walk)</div>';
     }
@@ -468,13 +547,7 @@ function trainPanelHtml(m, koMins) {
     viableRet.forEach(function(r, idx) {
       var g = gradeReturn(r.depart, leaveStationMins);
       var isLast = idx === lastIdx;
-      var hrs = Math.floor(r.totalMins/60); var mins = r.totalMins%60;
-      html += '<div class="train-row'+(isLast?' train-row--flagged':'')+'">';
-      html += '<span class="grade-dot grade-'+g.grade+'" title="'+esc(g.label)+'"></span>';
-      html += '<span class="train-time">'+esc(r.depart)+' → '+esc(r.arrive)+'</span>';
-      html += '<span class="train-dur">'+hrs+'h'+String(mins).padStart(2,'0')+' '+r.changes+'chg</span>';
-      if (isLast) html += '<span class="train-flag train-flag--last">Last</span>';
-      html += '</div>';
+      html += trainRowHtml(r, g, isLast, 'Last', 'train-flag--last');
     });
     html += '<div class="train-walk-note">Fans reach station '+fmtTime(leaveStationMins)+' (KO+180min+'+walkMins+'min walk)</div>';
   }
