@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Playoff SF Planner — National League</title>
 <!--
-  National League Playoff Semi-Final Planner v10.0
+  National League Playoff Semi-Final Planner v11.0
   Changelog:
   v5.0  - 15/04/2026 - Initial build
   v6.0  - 15/04/2026 - NL branding, stacked selectors, independent state per division
@@ -16,6 +16,12 @@
     Scenario header now shows matchup tags eg "SCENARIO A (2v5 / 3v4)".
     Tags removed from individual match cards.
     Team data updated via conversation as results come in.
+  v11.0 - 15/04/2026 - Train feasibility display with traffic light grading.
+    National division: real TransportAPI timetable data for all routes (Sun 03/05).
+    Grading: green 60+ min, amber 30-60 min, red <30 min or no train.
+    Walk time to ground factored into grades.
+    Shows all available trains per route. Flags first viable (outbound) and last train (return).
+    Auto-updates when KO time is changed.
 -->
 <style>
 @font-face {
@@ -70,6 +76,29 @@ button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
 .ko-pick__label { font-size: 9px; font-weight: 800; color: #5a6a82; text-transform: uppercase; letter-spacing: 0.05em; }
 .ko-pick__select { padding: 4px 6px; border-radius: 3px; border: 1px solid #dde3ed; background: #fff; font-size: 13px; font-weight: 700; color: #223b7c; cursor: pointer; font-family: 'carbona-variable','carbona',sans-serif; min-width: 70px; }
 .train-tbc { font-size: 10px; color: #9e0000; margin-top: 4px; font-weight: 600; }
+.train-panel { margin-top: 8px; border: 1px solid #dde3ed; border-radius: 4px; overflow: hidden; font-size: 11px; }
+.train-panel__header { background: #223b7c; color: #fff; padding: 5px 10px; font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; display: flex; justify-content: space-between; align-items: center; }
+.train-panel__grade { display: inline-flex; align-items: center; gap: 4px; }
+.train-panel__body { padding: 6px 10px; }
+.train-section { margin-bottom: 6px; }
+.train-section:last-child { margin-bottom: 0; }
+.train-section__label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #5a6a82; letter-spacing: 0.05em; margin-bottom: 2px; }
+.train-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 11px; border-bottom: 1px solid #f4f6f9; }
+.train-row:last-child { border-bottom: none; }
+.train-row--flagged { background: #f4f6f9; border-radius: 3px; padding: 2px 4px; font-weight: 700; }
+.train-time { font-weight: 700; color: #223b7c; min-width: 90px; }
+.train-legs { color: #5a6a82; flex: 1; }
+.train-dur { color: #1a2a44; font-weight: 600; min-width: 50px; text-align: right; }
+.train-flag { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 3px; }
+.train-flag--first { background: #edf7ee; color: #1e7e34; }
+.train-flag--last { background: #fef6ec; color: #e67e22; }
+.grade-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.grade-green { background: #1e7e34; }
+.grade-amber { background: #e67e22; }
+.grade-red { background: #c0392b; }
+.grade-grey { background: #aab2c0; }
+.train-walk-note { font-size: 9px; color: #5a6a82; font-style: italic; margin-top: 2px; }
+.train-none { color: #c0392b; font-weight: 600; font-size: 11px; padding: 4px 0; }
 .swap-row { display: flex; justify-content: center; padding: 2px 0; background: #f4f6f9; border-bottom: 1px solid #eef1f6; }
 .swap-btn { background: none; border: 1px solid #dde3ed; border-radius: 3px; padding: 2px 10px; font-size: 10px; color: #223b7c; font-weight: 700; cursor: pointer; font-family: 'carbona-variable','carbona',sans-serif; }
 .swap-btn:hover { background: #eef1f6; }
@@ -100,9 +129,16 @@ button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
     <span style="color:#1e7e34">●</span> &lt;120mi
     <span style="color:#e67e22">●</span> 120–200mi
     <span style="color:#c0392b">●</span> &gt;200mi ·
-    <strong>Train:</strong> TBC — real National Rail data per route/date needed. ·
-    <strong>Travel rules:</strong> Outbound same day only (depart ≥06:00). Return past midnight OK. ·
-    <strong>Positions:</strong> Filtered by mathematical possibility (46 games, 3pts/W, 1pt/D).
+    <strong>Train outbound:</strong>
+    <span style="color:#1e7e34">●</span> 60+ min before KO
+    <span style="color:#e67e22">●</span> 30–60 min
+    <span style="color:#c0392b">●</span> &lt;30 min / no train ·
+    <strong>Train return:</strong>
+    <span style="color:#1e7e34">●</span> Train 60+ min after leaving ground
+    <span style="color:#e67e22">●</span> 30–60 min
+    <span style="color:#c0392b">●</span> &lt;30 min / no train ·
+    Walk time to ground factored in. KO + 210min = leave ground time.
+    <br><strong>Positions:</strong> Filtered by mathematical possibility (46 games, 3pts/W, 1pt/D).
   </div>
 </div>
 
@@ -277,6 +313,154 @@ function koOptions(times, selected, div, sIdx, which) {
   return html + '</select>';
 }
 
+// ── Walk times to ground (minutes from station) ──
+var WALK_TO_GROUND = {
+  'York City': 25,          // YRK to LNER Community Stadium
+  'Rochdale': 10,           // RCD to Crown Oil Arena
+  'Carlisle United': 15,    // CAR to Brunton Park
+  'Boreham Wood': 15,       // ELS to Meadow Park
+  'Scunthorpe United': 15,  // SCU to Glanford Park
+  'Forest Green Rovers': 20,// STD to The Bolt New Lawn (bus/walk)
+  'Southend United': 10     // SOC to Roots Hall
+};
+
+// ── Train journey data (from TransportAPI lookup tool) ──
+var TRAIN_DATA = {
+"Carlisle United→York City":{"outbound":[{"depart":"09:24","arrive":"12:49","totalMins":205,"changes":1,"legs":"Northern CAR 09:24→LDS 12:06, Northern LDS 12:17→YRK 12:49"},{"depart":"12:23","arrive":"15:50","totalMins":207,"changes":1,"legs":"Northern CAR 12:23→LDS 15:08, Northern LDS 15:17→YRK 15:50"}],"returns":[{"depart":"15:08","arrive":"19:02","totalMins":234,"changes":1,"legs":"Northern YRK 15:08→LDS 15:40, Northern LDS 16:23→CAR 19:02"},{"depart":"18:08","arrive":"21:34","totalMins":206,"changes":1,"legs":"Northern YRK 18:08→LDS 18:40, Northern LDS 18:52→CAR 21:34"}]},
+"Boreham Wood→York City":{"outbound":[{"depart":"06:46","arrive":"10:29","totalMins":223,"changes":1,"legs":"Thameslink ELS 06:46→STP 07:13, Walk STP→KGX, LNER KGX 08:31→YRK 10:29"},{"depart":"07:16","arrive":"10:29","totalMins":193,"changes":1,"legs":"Thameslink ELS 07:16→STP 07:43, Walk STP→KGX, LNER KGX 08:31→YRK 10:29"},{"depart":"07:46","arrive":"10:29","totalMins":163,"changes":1,"legs":"Thameslink ELS 07:46→STP 08:13, Walk STP→KGX, LNER KGX 08:31→YRK 10:29"},{"depart":"08:26","arrive":"11:05","totalMins":159,"changes":1,"legs":"Thameslink ELS 08:26→STP 08:55, Walk STP→KGX, LNER KGX 09:03→YRK 11:05"}],"returns":[{"depart":"15:31","arrive":"18:11","totalMins":160,"changes":1,"legs":"LNER YRK 15:31→KGX 17:34, Walk KGX→STP, Thameslink STP 17:48→ELS 18:11"},{"depart":"16:27","arrive":"19:41","totalMins":194,"changes":1,"legs":"LNER YRK 16:27→KGX 18:43, Walk KGX→STP, Thameslink STP 19:18→ELS 19:41"},{"depart":"17:24","arrive":"20:11","totalMins":167,"changes":1,"legs":"LNER YRK 17:24→KGX 19:35, Walk KGX→STP, Thameslink STP 19:48→ELS 20:11"},{"depart":"17:56","arrive":"20:41","totalMins":165,"changes":1,"legs":"LNER YRK 17:56→KGX 20:01, Walk KGX→STP, Thameslink STP 20:18→ELS 20:41"},{"depart":"18:27","arrive":"21:11","totalMins":164,"changes":1,"legs":"LNER YRK 18:27→KGX 20:39, Walk KGX→STP, Thameslink STP 20:48→ELS 21:11"},{"depart":"18:55","arrive":"21:41","totalMins":166,"changes":1,"legs":"LNER YRK 18:55→KGX 20:59, Walk KGX→STP, Thameslink STP 21:18→ELS 21:41"},{"depart":"19:31","arrive":"22:11","totalMins":160,"changes":1,"legs":"LNER YRK 19:31→KGX 21:33, Walk KGX→STP, Thameslink STP 21:48→ELS 22:11"},{"depart":"20:31","arrive":"23:46","totalMins":195,"changes":1,"legs":"LNER YRK 20:31→KGX 22:45, Walk KGX→STP, Thameslink STP 23:18→ELS 23:46"}]},
+"Scunthorpe United→York City":{"outbound":[{"depart":"10:09","arrive":"11:56","totalMins":107,"changes":1,"legs":"TPE SCU 10:09→DON 10:38, LNER DON 11:32→YRK 11:56"},{"depart":"11:08","arrive":"13:05","totalMins":117,"changes":1,"legs":"TPE SCU 11:08→DON 11:37, LNER DON 12:43→YRK 13:05"}],"returns":[{"depart":"15:55","arrive":"17:06","totalMins":71,"changes":1,"legs":"LNER YRK 15:55→DON 16:16, TPE DON 16:40→SCU 17:06"},{"depart":"16:27","arrive":"18:06","totalMins":99,"changes":1,"legs":"LNER YRK 16:27→DON 16:50, TPE DON 17:40→SCU 18:06"},{"depart":"17:56","arrive":"19:06","totalMins":70,"changes":1,"legs":"LNER YRK 17:56→DON 18:17, TPE DON 18:41→SCU 19:06"},{"depart":"18:27","arrive":"20:06","totalMins":99,"changes":1,"legs":"LNER YRK 18:27→DON 18:48, TPE DON 19:41→SCU 20:06"},{"depart":"18:55","arrive":"20:06","totalMins":71,"changes":1,"legs":"LNER YRK 18:55→DON 19:16, TPE DON 19:41→SCU 20:06"},{"depart":"19:55","arrive":"21:06","totalMins":71,"changes":1,"legs":"LNER YRK 19:55→DON 20:16, TPE DON 20:40→SCU 21:06"},{"depart":"20:31","arrive":"22:06","totalMins":95,"changes":1,"legs":"LNER YRK 20:31→DON 20:52, TPE DON 21:41→SCU 22:06"}]},
+"Forest Green Rovers→York City":{"outbound":[{"depart":"11:19","arrive":"15:05","totalMins":226,"changes":1,"legs":"GWR STD 11:19→PAD 12:44, Walk PAD→KGX, LNER KGX 13:03→YRK 15:05"}],"returns":[]},
+"Southend United→York City":{"outbound":[{"depart":"06:11","arrive":"10:29","totalMins":258,"changes":1,"legs":"c2c SOC 06:11→FST 07:26, Walk FST→KGX, LNER KGX 08:31→YRK 10:29"},{"depart":"07:05","arrive":"10:29","totalMins":204,"changes":1,"legs":"c2c SOC 07:05→FST 08:00, Walk FST→KGX, LNER KGX 08:31→YRK 10:29"},{"depart":"07:35","arrive":"11:05","totalMins":210,"changes":1,"legs":"c2c SOC 07:35→FST 08:30, Walk FST→KGX, LNER KGX 09:03→YRK 11:05"},{"depart":"08:05","arrive":"11:28","totalMins":203,"changes":1,"legs":"c2c SOC 08:05→FST 09:00, Walk FST→KGX, LNER KGX 09:33→YRK 11:28"},{"depart":"08:35","arrive":"12:30","totalMins":235,"changes":1,"legs":"c2c SOC 08:35→FST 09:31, Walk FST→KGX, LNER KGX 10:32→YRK 12:30"},{"depart":"09:05","arrive":"12:30","totalMins":205,"changes":1,"legs":"c2c SOC 09:05→FST 10:01, Walk FST→KGX, LNER KGX 10:32→YRK 12:30"},{"depart":"09:35","arrive":"13:05","totalMins":210,"changes":1,"legs":"c2c SOC 09:35→FST 10:31, Walk FST→KGX, LNER KGX 11:03→YRK 13:05"},{"depart":"10:05","arrive":"13:30","totalMins":205,"changes":1,"legs":"c2c SOC 10:05→FST 11:01, Walk FST→KGX, LNER KGX 11:33→YRK 13:30"},{"depart":"10:35","arrive":"13:54","totalMins":199,"changes":1,"legs":"c2c SOC 10:35→FST 11:31, Walk FST→KGX, Grand Central KGX 12:00→YRK 13:54"},{"depart":"11:05","arrive":"14:29","totalMins":204,"changes":1,"legs":"c2c SOC 11:05→FST 12:01, Walk FST→KGX, LNER KGX 12:33→YRK 14:29"}],"returns":[]},
+"Carlisle United→Rochdale":{"outbound":[{"depart":"09:24","arrive":"13:45","totalMins":261,"changes":1,"legs":"Northern CAR 09:24→LDS 12:06, Northern LDS 12:42→RCD 13:45"},{"depart":"11:39","arrive":"14:32","totalMins":173,"changes":2,"legs":"TPE CAR 11:39→PRE 12:52, Northern PRE 13:11→MAN 13:54, Walk MAN→MCV, Northern MCV 14:20→RCD 14:32"},{"depart":"12:23","arrive":"16:45","totalMins":262,"changes":1,"legs":"Northern CAR 12:23→LDS 15:08, Northern LDS 15:42→RCD 16:45"}],"returns":[{"depart":"17:06","arrive":"21:34","totalMins":268,"changes":1,"legs":"Northern RCD 17:06→LDS 18:16, Northern LDS 18:52→CAR 21:34"},{"depart":"17:32","arrive":"21:34","totalMins":242,"changes":1,"legs":"Northern RCD 17:32→LDS 18:40, Northern LDS 18:52→CAR 21:34"}]},
+"Boreham Wood→Rochdale":{"outbound":[{"depart":"06:46","arrive":"12:32","totalMins":346,"changes":2,"legs":"Thameslink ELS 06:46→STP 07:13, Walk STP→EUS, Avanti EUS 09:15→MAN 12:05, Walk MAN→MCV, Northern MCV 12:20→RCD 12:32"},{"depart":"07:16","arrive":"12:32","totalMins":316,"changes":2,"legs":"Thameslink ELS 07:16→STP 07:43, Walk STP→EUS, Avanti EUS 09:15→MAN 12:05, Walk MAN→MCV, Northern MCV 12:20→RCD 12:32"},{"depart":"07:46","arrive":"12:32","totalMins":286,"changes":2,"legs":"Thameslink ELS 07:46→STP 08:13, Walk STP→EUS, Avanti EUS 09:15→MAN 12:05, Walk MAN→MCV, Northern MCV 12:20→RCD 12:32"},{"depart":"08:26","arrive":"12:32","totalMins":246,"changes":2,"legs":"Thameslink ELS 08:26→STP 08:55, Walk STP→EUS, Avanti EUS 09:15→MAN 12:05, Walk MAN→MCV, Northern MCV 12:20→RCD 12:32"}],"returns":[{"depart":"15:11","arrive":"19:11","totalMins":240,"changes":2,"legs":"Northern RCD 15:11→MCV 15:32, Walk MCV→MAN, Avanti MAN 16:15→EUS 18:41, Walk EUS→STP, Thameslink STP 18:48→ELS 19:11"},{"depart":"15:46","arrive":"19:11","totalMins":205,"changes":2,"legs":"Northern RCD 15:46→MCV 16:00, Walk MCV→MAN, Avanti MAN 16:15→EUS 18:41, Walk EUS→STP, Thameslink STP 18:48→ELS 19:11"},{"depart":"16:17","arrive":"20:41","totalMins":264,"changes":2,"legs":"Northern RCD 16:17→MCV 16:31, Walk MCV→MAN, Avanti MAN 17:15→EUS 19:44, Walk EUS→STP, Thameslink STP 20:18→ELS 20:41"},{"depart":"17:11","arrive":"21:41","totalMins":270,"changes":2,"legs":"Northern RCD 17:11→MCV 17:34, Walk MCV→MAN, Avanti MAN 18:15→EUS 20:43, Walk EUS→STP, Thameslink STP 21:18→ELS 21:41"},{"depart":"17:46","arrive":"21:41","totalMins":235,"changes":2,"legs":"Northern RCD 17:46→MCV 18:00, Walk MCV→MAN, Avanti MAN 18:15→EUS 20:43, Walk EUS→STP, Thameslink STP 21:18→ELS 21:41"},{"depart":"18:18","arrive":"22:41","totalMins":263,"changes":2,"legs":"Northern RCD 18:18→MCV 18:32, Walk MCV→MAN, Avanti MAN 19:15→EUS 21:54, Walk EUS→STP, Thameslink STP 22:18→ELS 22:41"},{"depart":"18:46","arrive":"22:41","totalMins":235,"changes":2,"legs":"Northern RCD 18:46→MCV 19:00, Walk MCV→MAN, Avanti MAN 19:15→EUS 21:54, Walk EUS→STP, Thameslink STP 22:18→ELS 22:41"},{"depart":"19:11","arrive":"23:46","totalMins":275,"changes":2,"legs":"Northern RCD 19:11→MCV 19:34, Walk MCV→MAN, Avanti MAN 20:23→EUS 22:59, Walk EUS→STP, Thameslink STP 23:18→ELS 23:46"},{"depart":"19:45","arrive":"23:46","totalMins":241,"changes":2,"legs":"Northern RCD 19:45→MCV 19:59, Walk MCV→MAN, Avanti MAN 20:23→EUS 22:59, Walk EUS→STP, Thameslink STP 23:18→ELS 23:46"}]},
+"Scunthorpe United→Rochdale":{"outbound":[{"depart":"10:09","arrive":"13:17","totalMins":188,"changes":2,"legs":"TPE SCU 10:09→DON 10:38, LNER DON 11:18→LDS 11:49, Northern LDS 12:12→RCD 13:17"},{"depart":"11:08","arrive":"13:45","totalMins":157,"changes":2,"legs":"TPE SCU 11:08→DON 11:37, LNER DON 11:50→LDS 12:22, Northern LDS 12:42→RCD 13:45"}],"returns":[{"depart":"15:05","arrive":"18:06","totalMins":181,"changes":2,"legs":"Northern RCD 15:05→LDS 16:16, LNER LDS 16:40→DON 17:12, TPE DON 17:40→SCU 18:06"},{"depart":"15:32","arrive":"19:06","totalMins":214,"changes":2,"legs":"Northern RCD 15:32→LDS 16:40, LNER LDS 17:10→DON 17:40, TPE DON 18:41→SCU 19:06"},{"depart":"16:05","arrive":"19:06","totalMins":181,"changes":2,"legs":"Northern RCD 16:05→LDS 17:18, LNER LDS 17:40→DON 18:10, TPE DON 18:41→SCU 19:06"},{"depart":"17:06","arrive":"20:06","totalMins":180,"changes":2,"legs":"Northern RCD 17:06→LDS 18:16, LNER LDS 18:40→DON 19:12, TPE DON 19:41→SCU 20:06"},{"depart":"17:32","arrive":"21:06","totalMins":214,"changes":2,"legs":"Northern RCD 17:32→LDS 18:40, LNER LDS 19:10→DON 19:40, TPE DON 20:40→SCU 21:06"},{"depart":"18:05","arrive":"21:06","totalMins":181,"changes":2,"legs":"Northern RCD 18:05→LDS 19:16, LNER LDS 19:40→DON 20:10, TPE DON 20:40→SCU 21:06"},{"depart":"18:33","arrive":"22:06","totalMins":213,"changes":2,"legs":"Northern RCD 18:33→LDS 19:37, LNER LDS 20:10→DON 20:40, TPE DON 21:41→SCU 22:06"},{"depart":"19:05","arrive":"23:04","totalMins":239,"changes":2,"legs":"Northern RCD 19:05→LDS 20:17, LNER LDS 21:10→DON 21:40, TPE DON 22:39→SCU 23:04"}]},
+"Forest Green Rovers→Rochdale":{"outbound":[],"returns":[]},
+"Southend United→Rochdale":{"outbound":[{"depart":"06:11","arrive":"12:32","totalMins":381,"changes":2,"legs":"c2c SOC 06:11→FST 07:26, Walk FST→EUS, Avanti EUS 09:15→MAN 12:05, Walk MAN→MCV, Northern MCV 12:20→RCD 12:32"},{"depart":"08:05","arrive":"13:32","totalMins":327,"changes":2,"legs":"c2c SOC 08:05→FST 09:00, Walk FST→EUS, Avanti EUS 10:16→MAN 13:02, Walk MAN→MCV, Northern MCV 13:20→RCD 13:32"},{"depart":"09:05","arrive":"14:32","totalMins":327,"changes":2,"legs":"c2c SOC 09:05→FST 10:01, Walk FST→EUS, Avanti EUS 11:14→MAN 13:49, Walk MAN→MCV, Northern MCV 14:20→RCD 14:32"},{"depart":"10:05","arrive":"15:04","totalMins":299,"changes":2,"legs":"c2c SOC 10:05→FST 11:01, Walk FST→EUS, Avanti EUS 11:52→MAN 14:19, Walk MAN→MCV, Northern MCV 14:52→RCD 15:04"},{"depart":"11:05","arrive":"15:32","totalMins":267,"changes":2,"legs":"c2c SOC 11:05→FST 12:01, Walk FST→EUS, Avanti EUS 12:34→MAN 15:05, Walk MAN→MCV, Northern MCV 15:20→RCD 15:32"}],"returns":[]},
+"Boreham Wood→Carlisle United":{"outbound":[{"depart":"07:16","arrive":"14:51","totalMins":455,"changes":1,"legs":"Thameslink ELS 07:16→STP 07:43, Walk STP→EUS, Avanti EUS 09:48→CAR 14:51"},{"depart":"08:26","arrive":"14:51","totalMins":385,"changes":1,"legs":"Thameslink ELS 08:26→STP 08:55, Walk STP→EUS, Avanti EUS 09:48→CAR 14:51"}],"returns":[{"depart":"15:48","arrive":"21:11","totalMins":323,"changes":1,"legs":"Avanti CAR 15:48→EUS 20:35, Walk EUS→STP, Thameslink STP 20:48→ELS 21:11"},{"depart":"16:49","arrive":"22:41","totalMins":352,"changes":1,"legs":"Avanti CAR 16:49→EUS 21:51, Walk EUS→STP, Thameslink STP 22:18→ELS 22:41"},{"depart":"17:51","arrive":"23:46","totalMins":355,"changes":1,"legs":"Avanti CAR 17:51→EUS 22:52, Walk EUS→STP, Thameslink STP 23:18→ELS 23:46"}]},
+"Scunthorpe United→Carlisle United":{"outbound":[],"returns":[{"depart":"15:20","arrive":"20:06","totalMins":286,"changes":2,"legs":"Northern CAR 15:20→LDS 18:06, Northern LDS 18:21→DON 19:05, TPE DON 19:41→SCU 20:06"},{"depart":"16:07","arrive":"21:06","totalMins":299,"changes":2,"legs":"Northern CAR 16:07→LDS 18:34, LNER LDS 19:10→DON 19:40, TPE DON 20:40→SCU 21:06"},{"depart":"17:25","arrive":"22:06","totalMins":281,"changes":2,"legs":"Northern CAR 17:25→LDS 20:08, Northern LDS 20:21→DON 21:07, TPE DON 21:41→SCU 22:06"}]},
+"Forest Green Rovers→Carlisle United":{"outbound":[{"depart":"11:19","arrive":"17:54","totalMins":395,"changes":1,"legs":"GWR STD 11:19→PAD 12:44, Walk PAD→EUS, Avanti EUS 13:13→CAR 17:54"}],"returns":[]},
+"Southend United→Carlisle United":{"outbound":[{"depart":"07:05","arrive":"14:51","totalMins":466,"changes":1,"legs":"c2c SOC 07:05→FST 08:00, Walk FST→EUS, Avanti EUS 09:48→CAR 14:51"},{"depart":"08:35","arrive":"15:49","totalMins":434,"changes":1,"legs":"c2c SOC 08:35→FST 09:31, Walk FST→EUS, Avanti EUS 10:44→CAR 15:49"},{"depart":"09:35","arrive":"16:50","totalMins":435,"changes":1,"legs":"c2c SOC 09:35→FST 10:31, Walk FST→EUS, Avanti EUS 12:13→CAR 16:50"},{"depart":"11:05","arrive":"17:54","totalMins":409,"changes":1,"legs":"c2c SOC 11:05→FST 12:01, Walk FST→EUS, Avanti EUS 13:13→CAR 17:54"}],"returns":[]},
+"Carlisle United→Boreham Wood":{"outbound":[{"depart":"10:50","arrive":"16:11","totalMins":321,"changes":1,"legs":"Avanti CAR 10:50→EUS 15:34, Walk EUS→STP, Thameslink STP 15:48→ELS 16:11"},{"depart":"11:48","arrive":"17:11","totalMins":323,"changes":1,"legs":"Avanti CAR 11:48→EUS 16:37, Walk EUS→STP, Thameslink STP 16:48→ELS 17:11"}],"returns":[]},
+"Scunthorpe United→Boreham Wood":{"outbound":[{"depart":"10:09","arrive":"13:11","totalMins":182,"changes":2,"legs":"TPE SCU 10:09→DON 10:38, LNER DON 10:51→KGX 12:39, Walk KGX→STP, Thameslink STP 12:48→ELS 13:11"},{"depart":"11:08","arrive":"14:41","totalMins":213,"changes":2,"legs":"TPE SCU 11:08→DON 11:37, LNER DON 12:13→KGX 13:53, Walk KGX→STP, Thameslink STP 14:18→ELS 14:41"}],"returns":[]},
+"Forest Green Rovers→Boreham Wood":{"outbound":[],"returns":[]},
+"Southend United→Boreham Wood":{"outbound":[],"returns":[]}
+};
+
+// ── Train grading logic ──
+function gradeOutbound(arriveTime, koMins, walkMins) {
+  if (!arriveTime) return {grade:'none',label:'No train'};
+  var arrMins = tmn(arriveTime);
+  var atGround = arrMins + walkMins;
+  var margin = koMins - atGround;
+  if (margin >= 60) return {grade:'green', label:margin+'min before KO'};
+  if (margin >= 30) return {grade:'amber', label:margin+'min before KO'};
+  return {grade:'red', label: margin > 0 ? margin+'min before KO' : 'After KO'};
+}
+
+function gradeReturn(departTime, leaveGroundMins) {
+  if (!departTime) return {grade:'none',label:'No train'};
+  var depMins = tmn(departTime);
+  var wait = depMins - leaveGroundMins;
+  if (wait < 0) wait += 1440;
+  if (wait >= 60) return {grade:'green', label:wait+'min after leaving'};
+  if (wait >= 30) return {grade:'amber', label:wait+'min after leaving'};
+  return {grade:'red', label:wait+'min after leaving'};
+}
+
+function tmn(t){if(!t)return-1;var p=t.split(':');return parseInt(p[0])*60+parseInt(p[1])}
+
+function getTrainKey(away, host) { return away + '→' + host; }
+
+function trainPanelHtml(m, koMins) {
+  var key = getTrainKey(m.away, m.home);
+  var data = TRAIN_DATA[key];
+  if (!data) return '<div class="train-tbc">Train: no data for this route</div>';
+  
+  var walkMins = WALK_TO_GROUND[m.home] || 15;
+  var leaveGroundMins = koMins + 210; // KO + 3.5h
+  
+  var html = '<div class="train-panel">';
+  
+  // ── OUTBOUND ──
+  html += '<div class="train-panel__header"><span>Outbound (away fans)</span>';
+  if (data.outbound.length > 0) {
+    // Find best viable train: latest arrival that still gives 30+ min before KO
+    var bestOut = null;
+    for (var i = data.outbound.length - 1; i >= 0; i--) {
+      var o = data.outbound[i];
+      var g = gradeOutbound(o.arrive, koMins, walkMins);
+      if (g.grade !== 'red') { bestOut = o; break; }
+    }
+    if (!bestOut && data.outbound.length > 0) bestOut = data.outbound[data.outbound.length - 1];
+    var bestG = bestOut ? gradeOutbound(bestOut.arrive, koMins, walkMins) : {grade:'red'};
+    html += '<span class="train-panel__grade"><span class="grade-dot grade-'+bestG.grade+'"></span></span>';
+  } else {
+    html += '<span class="train-panel__grade"><span class="grade-dot grade-red"></span></span>';
+  }
+  html += '</div>';
+  
+  html += '<div class="train-panel__body">';
+  if (data.outbound.length === 0) {
+    html += '<div class="train-none">No viable train route found</div>';
+  } else {
+    // Find the flagged "first viable" — latest that gives green or amber
+    var flagIdx = -1;
+    for (var fi = data.outbound.length - 1; fi >= 0; fi--) {
+      var fg = gradeOutbound(data.outbound[fi].arrive, koMins, walkMins);
+      if (fg.grade === 'green' || fg.grade === 'amber') { flagIdx = fi; break; }
+    }
+    
+    data.outbound.forEach(function(o, idx) {
+      var g = gradeOutbound(o.arrive, koMins, walkMins);
+      var isFlagged = idx === flagIdx;
+      var hrs = Math.floor(o.totalMins/60); var mins = o.totalMins%60;
+      html += '<div class="train-row'+(isFlagged?' train-row--flagged':'')+'">';
+      html += '<span class="grade-dot grade-'+g.grade+'" title="'+esc(g.label)+'"></span>';
+      html += '<span class="train-time">'+esc(o.depart)+' → '+esc(o.arrive)+'</span>';
+      html += '<span class="train-dur">'+hrs+'h'+String(mins).padStart(2,'0')+' '+o.changes+'chg</span>';
+      if (isFlagged) html += '<span class="train-flag train-flag--first">Latest</span>';
+      html += '</div>';
+    });
+    html += '<div class="train-walk-note">+'+walkMins+'min walk to ground</div>';
+  }
+  html += '</div>';
+  
+  // ── RETURN ──
+  html += '<div class="train-panel__header"><span>Return (away fans home)</span>';
+  if (data.returns.length > 0) {
+    var lastRet = data.returns[data.returns.length - 1];
+    var lastG = gradeReturn(lastRet.depart, leaveGroundMins);
+    html += '<span class="train-panel__grade"><span class="grade-dot grade-'+lastG.grade+'"></span></span>';
+  } else {
+    html += '<span class="train-panel__grade"><span class="grade-dot grade-grey"></span></span>';
+  }
+  html += '</div>';
+  
+  html += '<div class="train-panel__body">';
+  if (data.returns.length === 0) {
+    html += '<div class="train-none">No return data — check manually</div>';
+  } else {
+    var lastIdx = data.returns.length - 1;
+    
+    data.returns.forEach(function(r, idx) {
+      var g = gradeReturn(r.depart, leaveGroundMins);
+      var isLast = idx === lastIdx;
+      var hrs = Math.floor(r.totalMins/60); var mins = r.totalMins%60;
+      html += '<div class="train-row'+(isLast?' train-row--flagged':'')+'">';
+      html += '<span class="grade-dot grade-'+g.grade+'" title="'+esc(g.label)+'"></span>';
+      html += '<span class="train-time">'+esc(r.depart)+' → '+esc(r.arrive)+'</span>';
+      html += '<span class="train-dur">'+hrs+'h'+String(mins).padStart(2,'0')+' '+r.changes+'chg</span>';
+      if (isLast) html += '<span class="train-flag train-flag--last">Last</span>';
+      html += '</div>';
+    });
+    html += '<div class="train-walk-note">Based on KO+210min ('+fmtTime(leaveGroundMins)+') leave ground</div>';
+  }
+  html += '</div>';
+  
+  html += '</div>';
+  return html;
+}
+
 function matchHtml(m, times, selectedKo, div, sIdx, which) {
   return '<div class="match">'
     + '<div class="match__teams">'
@@ -290,7 +474,7 @@ function matchHtml(m, times, selectedKo, div, sIdx, which) {
     + distHtml(m.dist)
     + '<div class="ko-pick"><span class="ko-pick__label">KO</span>'+koOptions(times, selectedKo, div, sIdx, which)+'</div>'
     + '</div>'
-    + '<div class="train-tbc">Train: TBC</div>'
+    + trainPanelHtml(m, selectedKo)
     + '</div>';
 }
 
@@ -318,8 +502,37 @@ function scenarioHtml(s, sIdx, div) {
     + '<div class="swap-row"><button class="swap-btn" onclick="flipScenario(\''+escJ(div)+'\','+sIdx+')">↕ Swap early/late</button></div>'
     + matchHtml(m2, lateTimes, s.ko2, div, sIdx, 'ko2')
     + warnHtml
-    + '<div class="sc-footer">Recommendation: awaiting train data</div>'
+    + '<div class="sc-footer">' + getScenarioRecommendation(s) + '</div>'
     + '</div>';
+}
+
+function getScenarioRecommendation(s) {
+  var m1 = s.flipped ? s.m[1] : s.m[0];
+  var m2 = s.flipped ? s.m[0] : s.m[1];
+  var k1 = getTrainKey(m1.away, m1.home);
+  var k2 = getTrainKey(m2.away, m2.home);
+  var d1 = TRAIN_DATA[k1];
+  var d2 = TRAIN_DATA[k2];
+  if (!d1 && !d2) return 'No train data available for these routes';
+  
+  var issues = [];
+  if (d1 && d1.outbound.length === 0) issues.push(m1.away + ' cannot reach ' + m1.home + ' by train');
+  if (d2 && d2.outbound.length === 0) issues.push(m2.away + ' cannot reach ' + m2.home + ' by train');
+  
+  // Check if early KO works for match 1
+  if (d1 && d1.outbound.length > 0) {
+    var w1 = WALK_TO_GROUND[m1.home] || 15;
+    var bestG1 = gradeOutbound(d1.outbound[d1.outbound.length-1].arrive, s.ko1, w1);
+    if (bestG1.grade === 'red') issues.push(m1.away + ' fans can\'t reach ' + m1.home + ' for ' + fmtTime(s.ko1) + ' KO');
+  }
+  if (d2 && d2.outbound.length > 0) {
+    var w2 = WALK_TO_GROUND[m2.home] || 15;
+    var bestG2 = gradeOutbound(d2.outbound[d2.outbound.length-1].arrive, s.ko2, w2);
+    if (bestG2.grade === 'red') issues.push(m2.away + ' fans can\'t reach ' + m2.home + ' for ' + fmtTime(s.ko2) + ' KO');
+  }
+  
+  if (issues.length === 0) return '✓ Both matches appear viable at these KO times';
+  return '⚠ ' + issues.join(' · ');
 }
 
 function getSuffix(n) { return n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'; }
