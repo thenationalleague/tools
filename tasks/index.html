@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tasks — NL Tools
-  Version: 5.2
+  Version: 5.3
   Date: 15/04/2026
 
   CHANGELOG
@@ -592,8 +592,8 @@ function fmtRelative(ts){ if(!ts) return ''; var d=new Date(ts),now=new Date(),t
 function fmtAgo(ts){ if(!ts) return ''; var d=new Date(ts),diff=Date.now()-d; if(diff<60000) return 'Just now'; if(diff<3600000) return Math.floor(diff/60000)+'m ago'; if(diff<86400000) return Math.floor(diff/3600000)+'h ago'; return fmtDate(ts); }
 function isOverdue(ts,status){ return !!(ts&&status!=='done'&&new Date(ts)<new Date()); }
 function isToday(ts){ if(!ts) return false; var d=new Date(ts),n=new Date(); return d.getDate()===n.getDate()&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear(); }
-function initials(name){ if(!name) return '?'; var p=String(name).trim().split(' '); return (p[0][0]+(p[1]?p[1][0]:'')).toUpperCase(); }
-function uname(uid){ if(uid===SESSION.uid) return 'You'; return S.users[uid]?S.users[uid].name:uid; }
+function initials(name){ if(!name||name==='Unknown') return '?'; var p=String(name).trim().split(' '); if(!p[0]) return '?'; return (p[0][0]+(p[1]?p[1][0]:'')).toUpperCase(); }
+function uname(uid){ if(uid===SESSION.uid) return 'You'; return S.users[uid]?S.users[uid].name:'Unknown'; }
 function statusLabel(s){ return s==='to-do'?'To Do':s==='in-progress'?'In Progress':s==='done'?'Done':'—'; }
 function pillStatus(s){ var c=s==='done'?'done':s==='in-progress'?'inprog':'todo'; return '<span class="pill pill-'+c+'">'+statusLabel(s)+'</span>'; }
 function pillPri(p){ return '<span class="pill pill-'+esc(p||'low')+'">'+esc(p||'low')+'</span>'; }
@@ -1410,7 +1410,7 @@ function renderDetail(t){
     var dep=S.tasks[depId];
     var depEnd=dep?dep.deadline:null;
     var conflict=depEnd&&t.startDate&&t.startDate<depEnd;
-    var row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;background:var('+(conflict?'--red-light':'--off-white')+');border:1px solid var('+(conflict?'--red':'--border')+');border-radius:var(--radius);margin-bottom:5px;font-size:13px';
+    var row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;background:'+(conflict?'var(--red-light)':'var(--off-white)')+';border:1px solid '+(conflict?'var(--red)':'var(--border)')+';border-radius:var(--radius);margin-bottom:5px;font-size:13px';
     var icon=document.createElement('span'); icon.textContent=conflict?'⚠ ':'→ ';
     var lbl=document.createElement('span'); lbl.style.flex='1'; lbl.textContent=(dep?dep.title:depId)+(conflict?' (conflict: starts before dep ends)':'');
     if(conflict) lbl.style.color='var(--red)';
