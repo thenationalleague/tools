@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Train Data Collector v5 — Playoff SF</title>
+<title>Train Data Collector v6 — Playoff SF</title>
 <!--
-  Train Data Collector v5.0 — 15/04/2026
+  Train Data Collector v6.0 — 16/04/2026
   v2-v4: Recipe-based route chaining (deprecated)
-  v5.0: Station-centric approach. Queries all departures from each relevant
-    station across the full day, fetches every service timetable, builds
-    complete journey database. No recipes — pure data.
+  v5.0: Station-centric approach. Complete data-driven journey discovery.
+  v6.0: Clear numbered instructions, removed broken Import box, added
+    Manual Station Scan with custom time range, auto-save raw data after
+    each station completes as crash insurance.
 -->
 <style>
 @font-face{font-family:"carbona-variable";src:url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");font-display:swap;font-style:normal;font-weight:200 900}
@@ -48,7 +49,7 @@ textarea{width:100%;height:200px;font-family:monospace;font-size:11px;padding:8p
 
 <div class="topbar">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png" alt="NL" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title">Train <span>Data Collector v5</span></div>
+  <div class="topbar__title">Train <span>Data Collector v6</span></div>
 </div>
 
 <div class="wrap">
@@ -64,18 +65,48 @@ textarea{width:100%;height:200px;font-family:monospace;font-size:11px;padding:8p
   </div>
 
   <div class="card">
-    <div class="card-header">Stations to Scan</div>
+    <div class="card-header">How to use</div>
+    <div class="card-body" style="font-size:13px;line-height:1.7">
+      <strong style="color:#9e0000">If this is a fresh session:</strong>
+      <ol style="margin:6px 0 12px 20px">
+        <li>Paste your previously-saved raw scan data into the <strong>Raw Scan Data</strong> box below and click <strong>Load Raw Data</strong>. This restores the service database from a previous scan.</li>
+        <li>Then click <strong>Scan Missing Only</strong> to fill in any new stations that weren't scanned before.</li>
+        <li>Click <strong>Build Journeys</strong> to generate the journey database.</li>
+        <li>Before closing, click <strong>Save Raw Data</strong>, copy the textarea contents, and save somewhere safe.</li>
+      </ol>
+      <strong style="color:#9e0000">If this is a first-time scan:</strong>
+      <ol style="margin:6px 0 12px 20px">
+        <li>Click <strong>Scan All Stations</strong>. This will cost ~2,000 API hits.</li>
+        <li>After each station completes, raw data auto-saves to the textarea — copy it periodically as insurance.</li>
+        <li>When done, click <strong>Build Journeys</strong>, then <strong>Save Raw Data</strong>.</li>
+      </ol>
+      <strong style="color:#9e0000">To scan a specific station manually:</strong>
+      <ol style="margin:6px 0 0 20px">
+        <li>Use the <strong>Manual Station Scan</strong> section below. Useful for filling gaps without re-running everything.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">1. Load Previous Scan Data (if available)</div>
+    <div class="card-body">
+      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Paste the <strong>raw scan data</strong> saved from a previous session (not the journey JSON). Stations with data will be marked as done, new stations will show as pending.</p>
+      <textarea id="rawDataArea" style="height:80px" placeholder="Paste previously-saved raw scan data here, then click Load Raw Data"></textarea>
+      <div style="margin-top:8px">
+        <button class="btn btn-primary" onclick="loadRawData()">Load Raw Data</button>
+        <button class="btn btn-navy btn-sm" onclick="exportRawData()">Save Raw Data (to textarea above)</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">2. Scan Stations</div>
     <div class="card-body">
       <div id="stationList"></div>
       <div style="margin-top:12px">
-        <button class="btn btn-primary" onclick="runScan()">Scan All Stations</button>
+        <button class="btn btn-primary" onclick="runScan()">Scan All Stations (full rescan, ~2k hits)</button>
         <button class="btn btn-primary" onclick="runScanMissing()">Scan Missing Only</button>
         <button class="btn btn-navy btn-sm" onclick="stopScan()">Stop</button>
-      </div>
-      <div style="margin-top:8px">
-        <label>Import previous scan data (paste JSON from earlier run)</label>
-        <textarea id="importData" style="height:60px" placeholder="Paste previous export JSON here to pre-load data, then Scan Missing Only for new stations"></textarea>
-        <button class="btn btn-navy btn-sm" onclick="importPreviousData()" style="margin-top:4px">Import</button>
       </div>
       <div class="progress-bar"><div class="progress-fill" id="pFill"></div></div>
       <div class="progress-text" id="pText">Ready</div>
@@ -88,34 +119,51 @@ textarea{width:100%;height:200px;font-family:monospace;font-size:11px;padding:8p
   </div>
 
   <div class="card">
-    <div class="card-header">Log</div>
-    <div class="card-body"><div class="log" id="log"></div></div>
+    <div class="card-header">Manual Station Scan</div>
+    <div class="card-body">
+      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Scan a single station between specified times. Results merge into the existing database. Any valid 3-letter CRS code works (use dropdown for known stations or type any code).</p>
+      <div class="row" style="margin-bottom:8px">
+        <div>
+          <label>Station</label>
+          <select id="manualStn" style="width:100%;padding:8px 12px;border:1px solid #dde3ed;border-radius:4px;font-size:14px;font-family:inherit"></select>
+        </div>
+        <div>
+          <label>Or type CRS code</label>
+          <input type="text" id="manualCRS" placeholder="e.g. NCL" maxlength="3" style="text-transform:uppercase">
+        </div>
+        <div>
+          <label>Start time (HH:MM)</label>
+          <input type="text" id="manualStart" value="06:00">
+        </div>
+        <div>
+          <label>End time (HH:MM)</label>
+          <input type="text" id="manualEnd" value="23:30">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="runManualScan()">Run Manual Scan</button>
+    </div>
   </div>
 
   <div class="card">
-    <div class="card-header">Journey Builder</div>
+    <div class="card-header">3. Build Journeys</div>
     <div class="card-body">
-      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Once stations are scanned, click to build all possible journeys between playoff teams.</p>
+      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Once all needed stations are scanned, generate the complete journey database.</p>
       <button class="btn btn-primary" onclick="buildJourneys()">Build Journeys</button>
       <div id="journeyResults" style="margin-top:12px"></div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-header">Raw Scan Data (Save/Load)</div>
-    <div class="card-body">
-      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">Save the raw scan data so you don't need to re-scan. Load it back after adding new stations, then Scan Missing Only.</p>
-      <button class="btn btn-navy btn-sm" onclick="exportRawData()">Save Raw Data</button>
-      <button class="btn btn-navy btn-sm" onclick="loadRawData()">Load Raw Data</button>
-      <textarea id="rawDataArea" style="height:80px;margin-top:8px" placeholder="Raw scan data appears here when saved. Paste previously saved data and click Load."></textarea>
-    </div>
+    <div class="card-header">Log</div>
+    <div class="card-body"><div class="log" id="log"></div></div>
   </div>
 
   <div class="card">
-    <div class="card-header">Export for Planner</div>
+    <div class="card-header">4. Export for Planner</div>
     <div class="card-body">
+      <p style="font-size:12px;color:#5a6a82;margin-bottom:8px">The final journey JSON for use in the playoff planner. This is NOT the same as raw scan data — keep both saved.</p>
       <textarea id="exportJSON" readonly></textarea>
-      <button class="btn btn-navy btn-sm" onclick="copyJSON()" style="margin-top:8px">Copy</button>
+      <button class="btn btn-navy btn-sm" onclick="copyJSON()" style="margin-top:8px">Copy to Clipboard</button>
     </div>
   </div>
 </div>
@@ -298,7 +346,15 @@ async function scanStation(crs) {
 
   STATION_STATUS[crs] = 'done';
   renderStationList();
-  log('═══ ' + stn.name + ' complete (' + trainDeps.length + ' services) ═══', 'ok');
+  // Auto-save raw data to textarea as insurance against page crashes
+  try { autoSaveRawData(); } catch(e) {}
+  log('═══ ' + stn.name + ' complete (' + trainDeps.length + ' services) — raw data auto-saved ═══', 'ok');
+}
+
+function autoSaveRawData() {
+  var raw = { services: ALL_SERVICES, deps: ALL_DEPS, status: STATION_STATUS };
+  var ta = document.getElementById('rawDataArea');
+  if (ta) ta.value = JSON.stringify(raw);
 }
 
 async function runScan() {
@@ -349,41 +405,93 @@ async function runScanMissing() {
 }
 
 function importPreviousData() {
-  var raw = document.getElementById('importData').value.trim();
-  if (!raw) { log('Nothing to import', 'warn'); return; }
+  // Deprecated — functionality removed. Use Load Raw Data instead.
+}
 
-  // The import data is the journey output JSON — but what we really need is the
-  // raw service data. Since we don't export that, we'll just mark previously-scanned
-  // stations as done so "Scan Missing" skips them.
-  // User should paste the station scan log or we detect from the journey data which stations had results.
+// Scan a single station between custom times
+async function runManualScan() {
+  var crs = (document.getElementById('manualCRS').value.trim() || document.getElementById('manualStn').value).toUpperCase();
+  if (!crs || crs.length !== 3) { log('Enter a valid 3-letter CRS code', 'err'); return; }
 
-  try {
-    var journeyData = JSON.parse(raw);
-    // Check which team stations have data
-    var stationsWithData = {};
-    for (var key in journeyData) {
-      var route = journeyData[key];
-      if (route.outbound && route.outbound.length > 0) {
-        var awayCRS = teamToCRS(route.away);
-        var hostCRS = teamToCRS(route.host);
-        if (awayCRS) stationsWithData[awayCRS] = true;
-        if (hostCRS) stationsWithData[hostCRS] = true;
-      }
-    }
-
-    // We can't reconstruct the service database from journey data,
-    // so just log what was found and let user scan missing
-    var found = Object.keys(stationsWithData);
-    log('Import detected data for stations: ' + found.join(', '), 'info');
-    log('Note: raw service data cannot be imported — use Scan Missing to fill gaps', 'warn');
-    log('New stations added: BHM, PAD, GLO, SHF — these need scanning', 'info');
-
-    // Mark non-new stations as needing rescan too since we lost the service data
-    // Actually, better to just scan everything fresh for the new stations
-    // and let the dedup handle services already seen
-  } catch(e) {
-    log('Import failed: ' + e.message, 'err');
+  var startTime = document.getElementById('manualStart').value.trim();
+  var endTime = document.getElementById('manualEnd').value.trim();
+  if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+    log('Invalid time format — use HH:MM', 'err'); return;
   }
+
+  // Register station if not already known
+  if (!STATIONS[crs]) {
+    STATIONS[crs] = {name: crs + ' (manual)', role: 'manual'};
+    log('Registered new station: ' + crs, 'info');
+  }
+  if (!ALL_DEPS[crs]) ALL_DEPS[crs] = [];
+  if (!STATION_STATUS[crs]) STATION_STATUS[crs] = 'pending';
+
+  // Build time blocks for the custom range (hourly)
+  var startMins = tm(startTime), endMins = tm(endTime);
+  if (endMins <= startMins) { log('End time must be after start time', 'err'); return; }
+  var blocks = [];
+  for (var m = startMins; m <= endMins; m += 60) {
+    blocks.push(String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'));
+  }
+
+  log('═══ Manual scan: ' + crs + ' from ' + startTime + ' to ' + endTime + ' (' + blocks.length + ' blocks) ═══', 'head');
+  shouldStop = false;
+  STATION_STATUS[crs] = 'running';
+  renderStationList();
+
+  // Track existing UIDs so we don't re-fetch services already in database
+  var seenUids = {};
+  ALL_DEPS[crs].forEach(function(d) { seenUids[d.train_uid] = true; });
+  var newDeps = [];
+
+  for (var i = 0; i < blocks.length; i++) {
+    if (shouldStop) break;
+    log('  Departures from ' + blocks[i], 'dim');
+    var deps = await getDeps(crs, DATE, blocks[i]);
+    await sleep(ms());
+    deps.forEach(function(dep) {
+      if (dep.mode !== 'train') { totalSkipped++; updStats(); return; }
+      if (seenUids[dep.train_uid]) { totalSkipped++; updStats(); return; }
+      seenUids[dep.train_uid] = true;
+      newDeps.push({
+        departure_time: dep.aimed_departure_time,
+        train_uid: dep.train_uid,
+        destination: dep.destination_name,
+        operator: dep.operator_name,
+        mode: dep.mode
+      });
+    });
+  }
+
+  log('  Found ' + newDeps.length + ' new unique services', 'info');
+
+  // Fetch service timetables for new services
+  for (var j = 0; j < newDeps.length; j++) {
+    if (shouldStop) break;
+    var dep = newDeps[j];
+    if (ALL_SERVICES[dep.train_uid]) continue;
+    var svc = await getServiceTimetable(dep.train_uid, DATE);
+    await sleep(ms());
+    if (svc) {
+      ALL_SERVICES[dep.train_uid] = {
+        stops: svc.stops,
+        operator: svc.operator_name || dep.operator,
+        origin: svc.origin_name,
+        destination: svc.destination_name,
+        train_uid: dep.train_uid
+      };
+      totalServices++; updStats();
+      log('  ✓ ' + dep.departure_time + ' ' + dep.operator + ' → ' + dep.destination, 'ok');
+    }
+  }
+
+  // Merge new deps into existing
+  ALL_DEPS[crs] = ALL_DEPS[crs].concat(newDeps);
+  STATION_STATUS[crs] = 'done';
+  renderStationList();
+  autoSaveRawData();
+  log('═══ Manual scan complete: ' + crs + ' — ' + newDeps.length + ' new services merged ═══', 'ok');
 }
 
 function stopScan() { shouldStop = true; log('STOPPED', 'err'); }
@@ -785,9 +893,20 @@ function loadRawData() {
     log('Load failed: ' + e.message, 'err');
   }
 }
+function populateManualDropdown() {
+  var sel = document.getElementById('manualStn');
+  if (!sel) return;
+  var html = '<option value="">— select known station —</option>';
+  for (var crs in STATIONS) {
+    html += '<option value="'+crs+'">'+crs+' — '+esc(STATIONS[crs].name)+'</option>';
+  }
+  sel.innerHTML = html;
+}
+
 // Init
 initStationStatus();
 renderStationList();
+populateManualDropdown();
 </script>
 </body>
 </html>
