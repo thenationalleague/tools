@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Playoff SF Planner v15 — National League</title>
+<title>Playoff SF Planner v16 — National League</title>
 <!--
-  National League Playoff Semi-Final Planner v15.0
+  National League Playoff Semi-Final Planner v16.0
   Changelog:
   v5.0  - 15/04/2026 - Initial build
   v6.0  - 15/04/2026 - NL branding, stacked selectors, independent state per division
@@ -16,15 +16,21 @@
   v11.0 - 15/04/2026 - Train feasibility display with traffic light grading.
   v12.0 - 15/04/2026 - Fixed filtering, black dot nearest-miss, walk time captions.
   v13.0 - 15/04/2026 - Tap-to-expand train rows showing full connection details.
-  v14.0 - 16/04/2026 - Full National dataset from station-centric scan. Several
-    routes (Forest Green, Boreham Wood→Rochdale, Southend→Rochdale, etc.) came
-    back empty from the old pattern-matching journey builder.
+  v14.0 - 16/04/2026 - Full National dataset from station-centric scan.
   v15.0 - 16/04/2026 - Embedded new journey dataset from train-lookup v7.1
-    (Dijkstra-based graph search). All 18 National routes now have viable
-    options including Forest Green via Swindon/Paddington, Boreham Wood↔Rochdale
-    via Manchester, and Southend→Rochdale 3-change chains. ~435 journey options
-    total across 18 routes (vs 249 in v14). No filtering — all options kept so
-    the planner can show the full picture once a KO time is selected.
+    (Dijkstra-based graph search). All 18 National routes now populated.
+  v16.0 - 16/04/2026 - Four fixes:
+    1) Overnight-arrival filter: next-day Caledonian Sleeper arrivals (e.g.
+       Boreham Wood 18:15→Carlisle 04:46 next day) were being marked as
+       viable outbound with LATEST tag — now excluded from outbound viable
+       list since they arrive after a same-day KO.
+    2) Row indent alignment: removed horizontal padding on flagged rows so
+       their content aligns with regular rows (flag background still visible).
+    3) Scenario header restyle: red background (#9e0000) with white text,
+       2px red border, larger gap between scenario cards and subtle shadow
+       for clearer visual separation at a glance.
+    4) Matchup tag format: '2v5 & 3v4' (ampersand, lowercase v) instead of
+       '2V5 / 3V4'.
 -->
 <style>
 @font-face {
@@ -57,12 +63,12 @@ button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
 .pos-crest { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
 .pos-select { flex: 1; padding: 5px 8px; border-radius: 3px; border: 1px solid #dde3ed; background: #fff; font-size: 13px; color: #1a2a44; cursor: pointer; font-family: 'carbona-variable','carbona',sans-serif; }
 .pos-info { font-size: 9px; color: #5a6a82; flex-shrink: 0; min-width: 50px; text-align: right; }
-.scenarios { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; margin-top: 16px; }
-.scenario { border: 1px solid #dde3ed; border-radius: 6px; overflow: hidden; background: #fff; }
-.sc-header { background: #f4f6f9; padding: 7px 12px; border-bottom: 1px solid #dde3ed; }
-.sc-title { font-weight: 800; font-size: 12px; color: #9e0000; text-transform: uppercase; letter-spacing: 0.06em; }
-.sc-title span { color: #1a2a44; font-weight: 600; }
-.sc-elim { font-size: 10px; color: #5a6a82; margin-top: 2px; }
+.scenarios { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; margin-top: 16px; }
+.scenario { border: 2px solid #9e0000; border-radius: 6px; overflow: hidden; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+.sc-header { background: #9e0000; color: #fff; padding: 8px 12px; }
+.sc-title { font-weight: 800; font-size: 12px; color: #fff; text-transform: uppercase; letter-spacing: 0.06em; }
+.sc-title span { color: rgba(255,255,255,0.85); font-weight: 600; }
+.sc-elim { font-size: 10px; color: rgba(255,255,255,0.85); margin-top: 2px; }
 .match { padding: 10px 12px; border-bottom: 1px solid #eef1f6; }
 .match:last-child { border-bottom: none; }
 .match__teams { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; flex-wrap: wrap; }
@@ -88,7 +94,7 @@ button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
 .train-section__label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #5a6a82; letter-spacing: 0.05em; margin-bottom: 2px; }
 .train-row { padding: 2px 0; font-size: 11px; border-bottom: 1px solid #f4f6f9; cursor: pointer; }
 .train-row:last-child { border-bottom: none; }
-.train-row--flagged { background: #f4f6f9; border-radius: 3px; padding: 2px 4px; font-weight: 700; }
+.train-row--flagged { background: #f4f6f9; border-radius: 3px; font-weight: 700; }
 .train-summary { display: flex; align-items: center; gap: 6px; }
 .train-time { font-weight: 700; color: #223b7c; min-width: 90px; }
 .train-legs { color: #5a6a82; flex: 1; }
@@ -130,7 +136,7 @@ button:focus-visible { outline: 2px solid #9e0000; outline-offset: 1px; }
 <div class="topbar">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
     alt="National League" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title">Playoff <span>SF Planner v15</span></div>
+  <div class="topbar__title">Playoff <span>SF Planner v16</span></div>
 </div>
 
 <div class="wrap">
@@ -466,10 +472,19 @@ function trainPanelHtml(m, koMins) {
   // Outbound cutoff: must arrive at station with enough time to walk to ground before KO
   var outboundCutoff = koMins - walkMins; // arrive at station by this time
   
+  // Helper: is this journey a next-day arrival? (clock arrive < clock depart)
+  // Next-day arrivals are never viable for a same-day KO
+  function isNextDayArrival(j) {
+    return tmn(j.arrive) < tmn(j.depart);
+  }
+  
   var html = '<div class="train-panel">';
   
   // ── OUTBOUND ──
-  var viableOut = data.outbound.filter(function(o) { return tmn(o.arrive) <= outboundCutoff; });
+  // Exclude next-day arrivals (sleeper trains etc) — they can't get fans to a same-day KO
+  var viableOut = data.outbound.filter(function(o) {
+    return !isNextDayArrival(o) && tmn(o.arrive) <= outboundCutoff;
+  });
   
   html += '<div class="train-panel__header"><span>Outbound (away fans)</span>';
   if (viableOut.length > 0) {
@@ -591,7 +606,7 @@ function scenarioHtml(s, sIdx, div) {
   }
 
   // Header shows scenario ID + both matchup tags
-  var headerTags = s.m[0].tag + ' / ' + s.m[1].tag;
+  var headerTags = s.m[0].tag + ' & ' + s.m[1].tag;
 
   return '<div class="scenario">'
     + '<div class="sc-header">'
