@@ -3,14 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Train Data Collector v6 — Playoff SF</title>
+<title>Train Data Collector v7 — Playoff SF</title>
 <!--
-  Train Data Collector v6.0 — 16/04/2026
+  Train Data Collector v7.0 — 16/04/2026
   v2-v4: Recipe-based route chaining (deprecated)
   v5.0: Station-centric approach. Complete data-driven journey discovery.
   v6.0: Clear numbered instructions, removed broken Import box, added
     Manual Station Scan with custom time range, auto-save raw data after
     each station completes as crash insurance.
+  v7.0: Rewrote journey builder as graph-based time-respecting BFS.
+    Removes hardcoded viaPairs and londonWalks lists. Supports up to
+    3 train changes automatically. Walks between stations (EUS/KGX/STP/
+    PAD/FST, MAN/MCV) handled as graph edges. Fixes empty routes for
+    Forest Green, Boreham Wood→Rochdale, Southend→Rochdale, and other
+    cross-London chains that the pattern-matcher missed.
 -->
 <style>
 @font-face{font-family:"carbona-variable";src:url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");font-display:swap;font-style:normal;font-weight:200 900}
@@ -49,7 +55,7 @@ textarea{width:100%;height:200px;font-family:monospace;font-size:11px;padding:8p
 
 <div class="topbar">
   <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png" alt="NL" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title">Train <span>Data Collector v6</span></div>
+  <div class="topbar__title">Train <span>Data Collector v7</span></div>
 </div>
 
 <div class="wrap">
@@ -200,6 +206,7 @@ var STATIONS = {
   // Midlands / West
   BHM: {name:'Birmingham New Street',role:'interchange'},
   GLO: {name:'Gloucester',role:'interchange'},
+  SWI: {name:'Swindon',role:'interchange'}, // Forest Green via PAD routing
 };
 
 var DATE = '2026-05-03'; // Sunday — National SF
@@ -691,71 +698,263 @@ function find2ChangeJourneys(fromCRS, toCRS, via1CRS, via2CRS, walkBetween) {
   return results;
 }
 
-// Master journey finder: tries all sensible routing patterns for a given pair
-function findAllJourneys(fromCRS, toCRS) {
-  var journeys = [];
+/* ─────────────────────────────────────────────
+   GRAPH-BASED JOURNEY FINDER (v6.1)
+   
+   Instead of hardcoded pattern matching, we treat stations as nodes
+   and services/walks as time-respecting edges. For each start-time
+   window, do a best-first search respecting time constraints.
+   
+   Why this is better: the old code only found routes that matched
+   pre-coded patterns like "A→interchange→B". It missed Forest Green
+   (needs STD→GLO→BHM→north), Southend→Rochdale (needs SOC→FST→walk
+   →KGX→MAN→walk→MCV→RCD, which is 3 changes), and cross-London
+   chains like Boreham Wood→Rochdale. A graph search handles all of
+   these without us having to pre-enumerate the patterns.
+   
+   Constraints:
+   - Max 3 train changes (4 legs) — keeps search space bounded
+   - Min 8-min platform change at same station, walk time if different
+   - Only explore connections where next leg departs after arrival + min connection
+   - Skip paths that revisit a station (prevents silly loops)
+   ───────────────────────────────────────────── */
 
-  // Direct
-  var direct = findDirectServices(fromCRS, toCRS);
-  direct.forEach(function(d) {
-    journeys.push({
-      depart: d.depart, arrive: d.arrive, totalMins: d.durationMins,
-      changes: 0,
-      legs: d.operator + ' ' + fromCRS + ' ' + d.depart + '→' + toCRS + ' ' + d.arrive
-    });
-  });
+// Find all services departing a station AFTER a given time, with limits
+// Returns list of {train_uid, depart, arrive, dest_crs, operator}
+function findDeparturesAfter(fromCRS, afterMins, maxResults) {
+  maxResults = maxResults || 30;
+  var results = [];
+  var deps = ALL_DEPS[fromCRS] || [];
+  var seenUids = {};
 
-  // 1-change via common interchanges
-  var interchanges = ['LDS','DON','MAN','MCV','PRE','EUS','KGX','STP','YRK','CAR','BHM'];
-  interchanges.forEach(function(via) {
-    if (via === fromCRS || via === toCRS) return;
-    var j1 = find1ChangeJourneys(fromCRS, toCRS, via);
-    journeys = journeys.concat(j1);
-  });
+  deps.forEach(function(dep) {
+    if (seenUids[dep.train_uid]) return;
+    var svc = ALL_SERVICES[dep.train_uid];
+    if (!svc) return;
 
-  // 1-change with London walks
-  var londonWalks = [
-    ['STP','KGX'],['KGX','STP'],
-    ['STP','EUS'],['EUS','STP'],
-    ['EUS','KGX'],['KGX','EUS'],
-    ['FST','KGX'],['KGX','FST'],
-    ['FST','EUS'],['EUS','FST'],
-    ['MAN','MCV'],['MCV','MAN']
-  ];
-  londonWalks.forEach(function(pair) {
-    var j = find1ChangeWalkJourneys(fromCRS, toCRS, pair[0], pair[1]);
-    journeys = journeys.concat(j);
-  });
+    // Find this station's index in the service
+    var fromIdx = -1;
+    for (var i = 0; i < svc.stops.length; i++) {
+      if (svc.stops[i].station_code === fromCRS) { fromIdx = i; break; }
+    }
+    if (fromIdx < 0 || fromIdx === svc.stops.length - 1) return; // No onward stops
 
-  // 2-change via common pairs
-  var viaPairs = [
-    ['DON','YRK'],['DON','LDS'],['DON','KGX'],
-    ['LDS','YRK'],['LDS','DON'],['LDS','MAN'],['LDS','MCV'],
-    ['YRK','LDS'],['YRK','NCL'],
-    ['PRE','MAN'],['PRE','MCV'],
-    ['MAN','PRE'],['MAN','LDS'],
-    ['EUS','MAN'],['EUS','PRE'],
-    ['KGX','DON'],['KGX','YRK'],
-  ];
-  viaPairs.forEach(function(pair) {
-    if (pair[0] === fromCRS || pair[1] === toCRS || pair[0] === toCRS || pair[1] === fromCRS) return;
-    var j2 = find2ChangeJourneys(fromCRS, toCRS, pair[0], pair[1]);
-    journeys = journeys.concat(j2);
-  });
+    var depTime = stopTime(svc.stops[fromIdx], 'dep');
+    if (!depTime) return;
+    var depMins = tm(depTime);
+    // Allow services that cross midnight: if search window is late evening,
+    // also include early-morning next-day services (depMins + 1440)
+    if (depMins < afterMins && (depMins + 1440) < afterMins + 360) return;
+    if (depMins < afterMins) depMins += 1440; // treat as next-day
 
-  // Deduplicate by depart+arrive
-  var seen = {};
-  var unique = [];
-  journeys.forEach(function(j) {
-    var key = j.depart + '-' + j.arrive;
-    if (!seen[key] || j.totalMins < seen[key].totalMins) {
-      seen[key] = j;
+    seenUids[dep.train_uid] = true;
+    // For each onward stop, this is a reachable destination
+    for (var j = fromIdx + 1; j < svc.stops.length; j++) {
+      var toStop = svc.stops[j];
+      var arrTime = stopTime(toStop, 'arr');
+      if (!arrTime) continue;
+      var arrMins = tm(arrTime);
+      // If arrival time is before departure, it crosses midnight
+      if (arrMins < tm(depTime)) arrMins += 1440;
+      // Adjust for the "next day" departure case
+      if (depMins >= 1440) arrMins += (arrMins < 1440 ? 1440 : 0);
+
+      results.push({
+        train_uid: dep.train_uid,
+        from: fromCRS,
+        to: toStop.station_code,
+        departMins: depMins,
+        arriveMins: arrMins,
+        depart: depTime,
+        arrive: arrTime,
+        operator: svc.operator,
+        crossesMidnight: arrMins >= 1440 || depMins >= 1440
+      });
     }
   });
-  for (var k in seen) unique.push(seen[k]);
-  unique.sort(function(a,b) { return tm(a.depart) - tm(b.depart); });
 
-  return unique;
+  results.sort(function(a,b) { return a.departMins - b.departMins; });
+  return results.slice(0, maxResults * 10); // Generous cap; we prune by destination later
+}
+
+// Get walk connections from a station
+function getWalksFrom(crs) {
+  var walks = [];
+  for (var key in WALKS) {
+    var parts = key.split('-');
+    if (parts[0] === crs) {
+      walks.push({ to: parts[1], mins: WALKS[key] });
+    }
+  }
+  return walks;
+}
+
+// Format a path as a legs string matching v5 output shape
+function formatPath(path) {
+  var parts = [];
+  for (var i = 0; i < path.length; i++) {
+    var step = path[i];
+    if (step.type === 'train') {
+      parts.push(step.operator + ' ' + step.from + ' ' + step.depart + '→' + step.to + ' ' + step.arrive);
+    } else if (step.type === 'walk') {
+      parts.push('Walk ' + step.from + '→' + step.to);
+    }
+  }
+  return parts.join(', ');
+}
+
+// Build the detail object for the first train leg (for UI expansion)
+function buildDetail(path) {
+  var trains = path.filter(function(s) { return s.type === 'train'; });
+  var walks = path.filter(function(s) { return s.type === 'walk'; });
+
+  if (trains.length === 1) return null; // Direct — no detail needed
+  if (trains.length === 2) {
+    var leg1 = trains[0], leg2 = trains[1];
+    // Is there a walk between them?
+    var walkBetween = walks.find(function(w) {
+      return w.from === leg1.to && w.to === leg2.from;
+    });
+    if (walkBetween) {
+      return {
+        leg1: { depart: leg1.depart, arrive: leg1.arrive, operator: leg1.operator, train_uid: leg1.train_uid, durationMins: leg1.arriveMins - leg1.departMins, crossesMidnight: leg1.crossesMidnight },
+        leg2: { depart: leg2.depart, arrive: leg2.arrive, operator: leg2.operator, train_uid: leg2.train_uid, durationMins: leg2.arriveMins - leg2.departMins, crossesMidnight: leg2.crossesMidnight },
+        via1: leg1.to, via2: leg2.from, walkMins: walkBetween.mins
+      };
+    } else {
+      // Same-station change
+      var waitMins = leg2.departMins - leg1.arriveMins;
+      return {
+        leg1: { depart: leg1.depart, arrive: leg1.arrive, operator: leg1.operator, train_uid: leg1.train_uid, durationMins: leg1.arriveMins - leg1.departMins, crossesMidnight: leg1.crossesMidnight },
+        leg2: { depart: leg2.depart, arrive: leg2.arrive, operator: leg2.operator, train_uid: leg2.train_uid, durationMins: leg2.arriveMins - leg2.departMins, crossesMidnight: leg2.crossesMidnight },
+        via: leg1.to, walkMins: 0, waitMins: waitMins
+      };
+    }
+  }
+  // 3+ legs: no detail (UI falls back to legs string)
+  return null;
+}
+
+// Master journey finder using time-respecting BFS
+// Returns deduplicated, sorted journey list matching v5 output shape
+function findAllJourneys(fromCRS, toCRS) {
+  var MAX_CHANGES = 3;
+  var MIN_CONNECTION_SAME_STATION = 8; // minutes
+  var SEARCH_START = 4 * 60; // 04:00 — earliest we'd consider
+  var SEARCH_END = 24 * 60; // 24:00 — latest we'd start a journey
+
+  var results = [];
+  var seenDepartArrive = {};
+
+  // Each queue entry: { station, arriveMins, path, changes }
+  // path is an array of {type, from, to, depart, arrive, operator, train_uid, departMins, arriveMins}
+  var queue = [{
+    station: fromCRS,
+    arriveMins: SEARCH_START,
+    path: [],
+    changes: -1, // -1 because first train isn't a "change"
+    visitedStations: {}
+  }];
+  queue[0].visitedStations[fromCRS] = true;
+
+  var iterations = 0;
+  var MAX_ITERATIONS = 50000; // safety cap
+
+  while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+    iterations++;
+    var node = queue.shift();
+
+    if (node.changes >= MAX_CHANGES) continue;
+
+    // Find train departures from this station after our current time
+    var minConn = node.path.length === 0 ? 0 : MIN_CONNECTION_SAME_STATION;
+    // If last step was a walk, no extra connection time needed (walk already added)
+    if (node.path.length > 0 && node.path[node.path.length-1].type === 'walk') minConn = 0;
+
+    var departures = findDeparturesAfter(node.station, node.arriveMins + minConn, 50);
+
+    departures.forEach(function(dep) {
+      if (node.visitedStations[dep.to]) return; // Don't revisit
+      if (dep.departMins > SEARCH_END + 1440) return; // Too far ahead
+
+      var newPath = node.path.slice();
+      newPath.push({
+        type: 'train',
+        from: dep.from, to: dep.to,
+        depart: dep.depart, arrive: dep.arrive,
+        departMins: dep.departMins, arriveMins: dep.arriveMins,
+        operator: dep.operator, train_uid: dep.train_uid,
+        crossesMidnight: dep.crossesMidnight
+      });
+
+      // Did we reach the destination?
+      if (dep.to === toCRS) {
+        var firstStep = newPath[0];
+        var departStr = firstStep.depart;
+        var arriveStr = dep.arrive;
+        var key = departStr + '-' + arriveStr;
+        var totalMins = dep.arriveMins - firstStep.departMins;
+        if (totalMins < 0) totalMins += 1440;
+
+        if (!seenDepartArrive[key] || seenDepartArrive[key].totalMins > totalMins) {
+          var journey = {
+            depart: departStr,
+            arrive: arriveStr,
+            totalMins: totalMins,
+            changes: node.changes + 1,
+            legs: formatPath(newPath)
+          };
+          var detail = buildDetail(newPath);
+          if (detail) journey.detail = detail;
+          seenDepartArrive[key] = journey;
+        }
+        return;
+      }
+
+      // Otherwise, queue the new state
+      var newVisited = Object.assign({}, node.visitedStations);
+      newVisited[dep.to] = true;
+      queue.push({
+        station: dep.to,
+        arriveMins: dep.arriveMins,
+        path: newPath,
+        changes: node.changes + 1,
+        visitedStations: newVisited
+      });
+
+      // Also explore walks from this station (same "change" count — walk+train = 1 change)
+      var walks = getWalksFrom(dep.to);
+      walks.forEach(function(walk) {
+        if (newVisited[walk.to]) return;
+        var walkArrive = dep.arriveMins + walk.mins;
+        var walkPath = newPath.slice();
+        walkPath.push({
+          type: 'walk',
+          from: dep.to, to: walk.to,
+          mins: walk.mins
+        });
+        var walkVisited = Object.assign({}, newVisited);
+        walkVisited[walk.to] = true;
+        queue.push({
+          station: walk.to,
+          arriveMins: walkArrive,
+          path: walkPath,
+          changes: node.changes + 1, // walk doesn't add a change
+          visitedStations: walkVisited
+        });
+      });
+    });
+  }
+
+  if (iterations >= MAX_ITERATIONS) {
+    log('  ⚠ Search hit iteration cap for ' + fromCRS + '→' + toCRS, 'warn');
+  }
+
+  // Convert seenDepartArrive to array, sort by departure
+  for (var k in seenDepartArrive) results.push(seenDepartArrive[k]);
+  results.sort(function(a,b) { return tm(a.depart) - tm(b.depart); });
+
+  return results;
 }
 
 function buildJourneys() {
