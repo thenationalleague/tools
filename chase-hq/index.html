@@ -1,9 +1,19 @@
 <!--
   Chase HQ — NL Tools
-  Version: v2.2
+  Version: v2.3
   Date: 17/04/2026
 
   CHANGELOG
+  v2.3 (17/04/2026)
+  - GAS proxy as default AI email source — uses shared NL Anthropic key
+    stored in Script Properties, never exposed client-side
+  - Personal API key now optional override — if set, used instead of proxy
+  - Settings panel updated: explains shared key, personal key is optional
+  - In-app walkthrough for getting a personal Anthropic API key
+  - Added clearApiKey() to remove personal key and revert to shared
+  - Added toggleWalkthrough() for collapsible how-to panel
+  - GAS NL_GAS_URL constant added to JS
+
   v2.2 (17/04/2026)
   - Fix: wrapped loadRequests(), loadStaffUsers(), loadApiKey() in
     ensureAuth() inside nlAuthReady. Auth-guard cached session means
@@ -572,6 +582,26 @@ body {
 .toast.error   { border-left: 4px solid var(--red); }
 .toast.info    { border-left: 4px solid var(--navy-light); }
 
+/* ── WALKTHROUGH ── */
+.walkthrough-step {
+  display: flex; gap: 12px; align-items: flex-start;
+  margin-bottom: 14px;
+}
+.walkthrough-num {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--navy); color: var(--white);
+  font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 2px;
+}
+.walkthrough-title {
+  font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700;
+  color: var(--text); margin-bottom: 3px;
+}
+.walkthrough-desc {
+  font-size: 12px; color: var(--text-muted); line-height: 1.6;
+}
+
 /* ── LOADING ── */
 .loading-row {
   text-align: center; padding: 40px;
@@ -668,22 +698,79 @@ body {
     <button class="settings-close" onclick="closeSettings()">×</button>
   </div>
   <div class="settings-body">
+
     <div>
       <div class="settings-section-title">AI Email Generation</div>
+      <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:14px;">
+        Chase emails are generated automatically using the National League's shared AI account — no setup needed.
+        If you'd prefer to use your own Anthropic account, add your personal API key below and it will be used instead.
+      </div>
       <div class="field">
-        <label>Anthropic API Key</label>
+        <label>Personal API Key (optional)</label>
         <input type="password" id="s-api-key" placeholder="sk-ant-…">
-        <div class="field-hint">Stored securely in your portal account. Used only to generate chase emails.</div>
+        <div class="field-hint">Overrides the shared NL key if set. Stored in your portal account.</div>
         <div class="api-key-status" id="api-key-status"></div>
       </div>
-      <div style="margin-top:12px">
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn--navy" onclick="saveApiKey()">Save Key</button>
+        <button class="btn btn--ghost" onclick="clearApiKey()">Clear Key</button>
       </div>
     </div>
+
+    <!-- WALKTHROUGH -->
+    <div>
+      <div class="settings-section-title" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;" onclick="toggleWalkthrough()">
+        <span>How to get your own API key</span>
+        <span id="walkthrough-chevron" style="font-size:11px;color:var(--text-muted);transition:transform 0.2s;">▼</span>
+      </div>
+      <div id="walkthrough-body" style="display:none;">
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.7;margin-bottom:12px;">
+          An Anthropic API account is separate from Claude.ai. At Chase HQ usage levels it costs pennies per month.
+        </div>
+
+        <div class="walkthrough-step">
+          <div class="walkthrough-num">1</div>
+          <div>
+            <div class="walkthrough-title">Go to the Anthropic Console</div>
+            <div class="walkthrough-desc">Open <a href="https://console.anthropic.com" target="_blank" style="color:var(--navy);">console.anthropic.com</a> in a new tab and sign up or sign in.</div>
+          </div>
+        </div>
+
+        <div class="walkthrough-step">
+          <div class="walkthrough-num">2</div>
+          <div>
+            <div class="walkthrough-title">Add a payment method</div>
+            <div class="walkthrough-desc">Go to <strong>Settings → Billing</strong> and add a card. You won't be charged until you use the API — typical Chase HQ usage is under £1/month.</div>
+          </div>
+        </div>
+
+        <div class="walkthrough-step">
+          <div class="walkthrough-num">3</div>
+          <div>
+            <div class="walkthrough-title">Create an API key</div>
+            <div class="walkthrough-desc">Go to <strong>Settings → API Keys</strong> and click <strong>Create Key</strong>. Give it a name like "Chase HQ".</div>
+          </div>
+        </div>
+
+        <div class="walkthrough-step">
+          <div class="walkthrough-num">4</div>
+          <div>
+            <div class="walkthrough-title">Copy and paste it here</div>
+            <div class="walkthrough-desc">Copy the key (it starts with <code style="background:var(--off-white);padding:1px 5px;border-radius:3px;font-size:11px;">sk-ant-</code>), paste it into the field above, and click Save Key.</div>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:var(--text-muted);margin-top:10px;padding:10px;background:var(--off-white);border-radius:var(--radius);border:1px solid var(--border);">
+          ⚠ Keep your key private. Don't share it or paste it anywhere other than this settings panel.
+        </div>
+      </div>
+    </div>
+
     <div>
       <div class="settings-section-title">Your Account</div>
       <div style="font-size:13px;color:var(--text-muted)" id="settings-user-info"></div>
     </div>
+
   </div>
 </div>
 
@@ -854,11 +941,53 @@ function getTone(n) {
 }
 
 /* ── AI EMAIL GENERATION ─────────────────────────────── */
+/*
+ * generateEmailAI(r, callback)
+ * Priority:
+ *   1. If user has a personal API key saved → call Anthropic directly (client-side)
+ *   2. Otherwise → call GAS proxy (server-side, NL shared key, never exposed)
+ */
+var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+
 function generateEmailAI(r, callback) {
-  if (!STATE.apiKey) {
-    callback(null, 'No API key set — open Settings (⚙️) to add your Anthropic key.');
-    return;
+  if (STATE.apiKey) {
+    /* Personal key — call Anthropic directly */
+    generateEmailDirect(r, STATE.apiKey, callback);
+  } else {
+    /* No personal key — use GAS proxy */
+    generateEmailViaGAS(r, callback);
   }
+}
+
+function generateEmailViaGAS(r, callback) {
+  fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({
+      action:      'chaseEmail',
+      title:       r.title       || '',
+      contact:     r.contact     || '',
+      contactType: r.contactType || 'external',
+      chaseCount:  r.chaseCount  || 0,
+      urgency:     r.urgency     || 'medium',
+      context:     r.context     || '',
+      chaseDate:   r.chaseDate   ? fmtDate(r.chaseDate) : ''
+    })
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    if (data.ok && data.email) {
+      callback(data.email, null);
+    } else {
+      callback(null, data.error || 'Could not generate email. Try again.');
+    }
+  })
+  .catch(function(err) {
+    callback(null, 'Connection error: ' + err.message);
+  });
+}
+
+function generateEmailDirect(r, apiKey, callback) {
   var tone     = getTone(r.chaseCount || 0);
   var typeStr  = r.contactType === 'internal' ? 'internal colleague' : 'external contact';
   var chaseNum = (r.chaseCount || 0) + 1;
@@ -877,20 +1006,26 @@ function generateEmailAI(r, callback) {
 
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type':      'application/json',
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01'
+    },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model:      'claude-sonnet-4-20250514',
       max_tokens: 400,
-      system: 'You write professional, natural-sounding chase emails on behalf of an operations executive at a football league organisation. Never use filler phrases like "I hope this finds you well". Be direct and human.',
-      messages: [{ role: 'user', content: prompt }]
+      system:     'You write professional, natural-sounding chase emails on behalf of an operations executive at a football league organisation. Never use filler phrases like "I hope this finds you well". Be direct and human.',
+      messages:   [{ role: 'user', content: prompt }]
     })
   })
   .then(function(res) { return res.json(); })
   .then(function(data) {
     if (data.content && data.content[0] && data.content[0].text) {
       callback(data.content[0].text, null);
+    } else if (data.error) {
+      callback(null, 'API error: ' + (data.error.message || JSON.stringify(data.error)));
     } else {
-      callback(null, 'Unexpected response from API. Check your key in Settings.');
+      callback(null, 'Unexpected response. Check your API key in Settings.');
     }
   })
   .catch(function(err) {
@@ -955,7 +1090,28 @@ function loadApiKey() {
   });
 }
 
-function saveApiKey() {
+function clearApiKey() {
+  if (!confirm('Remove your personal API key? The shared NL key will be used instead.')) return;
+  ensureAuth().then(function() {
+    return db.ref('users/' + STATE.session.uid + '/settings/anthropicKey').remove();
+  }).then(function() {
+    STATE.apiKey = '';
+    document.getElementById('s-api-key').value = '';
+    document.getElementById('api-key-status').textContent = '';
+    document.getElementById('api-key-status').className = 'api-key-status';
+    showToast('Personal key removed', 'info');
+  }).catch(function(e) { showToast('Could not remove: ' + e.message, 'error'); });
+}
+
+function toggleWalkthrough() {
+  var body = document.getElementById('walkthrough-body');
+  var chevron = document.getElementById('walkthrough-chevron');
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+
   var key = document.getElementById('s-api-key').value.trim();
   if (!key) { showToast('Enter a key first', 'error'); return; }
   ensureAuth().then(function() {
