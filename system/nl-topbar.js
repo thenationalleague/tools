@@ -1,7 +1,7 @@
 /* =========================================================================
    NL Tools — Topbar renderer
    File: /tools/system/nl-topbar.js
-   Version: v1.0 (17/04/2026)
+   Version: v1.1 (17/04/2026)
 
    Renders the standardised NL Tools topbar into #nlTopbar slot. Reads
    session from window.NL_SESSION (set by auth-guard) and tool catalogue
@@ -248,13 +248,27 @@
       '<span class="topbar__dd-item-icon">\u21aa</span>' +
       '<span class="topbar__dd-item-label">Sign out</span>';
     signOut.addEventListener('click', function() {
-      if (window.firebase && firebase.auth) {
-        firebase.auth().signOut().then(function() {
+      /* Before sign-out: write audit entry (needs auth to succeed) and clear session cache */
+      try {
+        if (window.NL && window.NL.writeAudit) {
+          window.NL.writeAudit('signed_out', 'Signed out');
+        }
+      } catch(e) {}
+      try {
+        if (window.nlSession && window.nlSession.clear) {
+          window.nlSession.clear();
+        }
+      } catch(e) {}
+      /* Allow audit write to fire, then sign out */
+      setTimeout(function() {
+        if (window.firebase && firebase.auth) {
+          firebase.auth().signOut().then(function() {
+            window.location.replace('/tools/');
+          });
+        } else {
           window.location.replace('/tools/');
-        });
-      } else {
-        window.location.replace('/tools/');
-      }
+        }
+      }, 50);
     });
     dd.appendChild(signOut);
 
