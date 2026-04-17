@@ -1,11 +1,33 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v6.0 (conversation turn 7)
+  Version: v5.59 (17/04/2026)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.59 (17/04/2026) — System file migration (MVP):
+           * Firebase SDK 10.7.1 → 10.12.0
+           * Auth-guard moved to /tools/system/auth-guard.js (cache v=4)
+           * Loads /tools/system/nl-utils.js (NL helpers available globally)
+           * Added window.NL_TOOL config (isPortal: true, kicker: '')
+           * Removed duplicate auth-guard.js script tag (was loaded twice)
+           * Firebase.initializeApp moved from script body to head (before auth-guard)
+           * RTDB paths migrated to /admin/ subtree:
+             - ref('audit')              → ref('admin/audit')
+             - ref('audit-by-user'/...)  → ref('admin/audit-by-user'/...)
+             - ref('invites-pending')    → ref('admin/invites-pending')
+             - ref('requests')           → ref('admin/requests')
+             - ref('tool-requests')      → ref('admin/tool-requests')
+             - ref('welcome-messages')   → ref('admin/welcome-messages')
+             - (same for updates[] multi-path writes)
+             - users/ and tools/ unchanged (still at root)
+           * NOT CHANGED in this pass (deferred for stability):
+             - Inline CSS not stripped (38KB of portal-specific styling kept as-is)
+             - Custom topbar kept (has portalVersion/topbarName/topbarCrest hooks)
+             - Local showToast() kept (41 callers not migrated to NL.toast)
+             - Local writeAudit/writeAuditFor kept (unique targetUid semantics)
+
   v5.58 -- Re-deploy now overwrites string-format tool entries (legacy from
            v5.56 deploy bug). Only replaces plain strings — never touches
            entries already in object format.
@@ -81,12 +103,30 @@
 <title>NL Tools</title>
 
 <!-- Firebase compat CDN -->
-<!-- auth-guard exposes nlSession -->
-<script src="/tools/auth-guard.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-<script src="/tools/auth-guard.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<!-- Firebase init (must come BEFORE auth-guard) -->
+<script>
+  firebase.initializeApp({
+    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+    authDomain:        "nl-tools.firebaseapp.com",
+    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:         "nl-tools",
+    storageBucket:     "nl-tools.firebasestorage.app",
+    messagingSenderId: "801354670005",
+    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+  });
+</script>
+
+<!-- System files: shared helpers + auth guard -->
+<script>
+  window.NL_TOOL = { title: 'NL Tools', toolKey: 'portal', isPortal: true, kicker: '' };
+  var NL_TOOL_KEY = 'portal';
+</script>
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <!-- Quill (welcome message editor) -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
@@ -139,11 +179,40 @@ body {
 }
 
 /* -- Topbar ---------------------------------------------------------------- */
-
-
-
-
-
+.topbar {
+  background: var(--primary);
+  color: var(--white);
+  padding: 0 28px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border-bottom: 7px solid var(--navy);
+  width: 100%;
+  box-sizing: border-box;
+}
+.topbar__logo { height: 42px; flex-shrink: 0; }
+.topbar__title {
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  font-size: 20px;
+  flex: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--white);
+}
+.topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.8);
+}
 .topbar__club-crest {
   height: 36px;
   width: 36px;
@@ -167,8 +236,23 @@ body {
   font-weight: 700;
   font-variation-settings: 'wght' 700;
 }
-
-
+.topbar__btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: var(--white);
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font);
+  white-space: nowrap;
+}
+.topbar__btn:hover { background: rgba(255,255,255,0.12); }
 
 /* -- Page body ------------------------------------------------------------- */
 .page-body {
@@ -1538,99 +1622,6 @@ body {
   object-fit: contain;
   flex-shrink: 0;
 }
-
-/* ── Standard NL Tools Topbar (see nl-brand skill) ─────────────────────── */
-.topbar {
-  background: var(--primary);
-  color: var(--white);
-  padding: 0 20px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-  width: 100%;
-  box-sizing: border-box;
-}
-.topbar__logo {
-  height: 42px;
-  flex-shrink: 0;
-}
-.topbar__title-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-  gap: 3px;
-}
-.topbar__title {
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  font-size: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--white);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.topbar__kicker {
-  font-size: 9px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.6);
-  white-space: nowrap;
-}
-.topbar__user {
-  font-size: 13px;
-  color: rgba(255,255,255,0.8);
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,0.3);
-  color: var(--white);
-  padding: 7px 14px;
-  border-radius: var(--radius);
-  font-size: 11px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn:hover { background: rgba(255,255,255,0.12); }
-.topbar__btn--icon {
-  padding: 7px 10px;
-  font-size: 14px;
-}
-/* Mobile: hide user name, icon-only Portal. Kicker stays visible. */
-@media (max-width: 700px) {
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar__user { display: none; }
-  .topbar__btn-text-portal { display: none; }
-  .topbar__btn--portal { padding: 7px 10px; }
-  .topbar__title { font-size: 17px; }
-}
-
 </style>
 </head>
 <body>
@@ -1644,17 +1635,20 @@ body {
 <div id="pageWrap" style="display:none">
 
   <!-- Topbar -->
-  <header class="topbar">
-  <img class="topbar__logo"
-    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title-wrap">
-    <span class="topbar__title">NL Tools</span>
-  </div>
-  <span class="topbar__user" id="topbarUser"></span>
-  <button class="topbar__btn" id="signOutBtn">Sign out</button>
-</header>
+  <div class="topbar">
+    <img class="topbar__logo"
+      src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+      alt="National League"
+      onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <span class="topbar__title">
+      NL <span class="word-secondary">Tools</span>
+    </span>
+    <span class="topbar__version" id="portalVersion"></span>
+    <div class="topbar__user">
+      <img class="topbar__club-crest" id="topbarCrest" src="" alt="" style="display:none"
+        onerror="this.onerror=null;this.style.display='none'">
+      <span class="topbar__name" id="topbarName"></span>
+    </div>
     <button class="topbar__btn" id="signOutBtn">Sign out</button>
   </div>
 
@@ -1868,17 +1862,7 @@ body {
 <div class="toast" id="toast"></div>
 
 <script>
-/* ---- Firebase init ------------------------------------------------------- */
-var firebaseConfig = {
-  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
-  authDomain:        'nl-tools.firebaseapp.com',
-  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId:         'nl-tools',
-  storageBucket:     'nl-tools.firebasestorage.app',
-  messagingSenderId: '801354670005',
-  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
-};
-firebase.initializeApp(firebaseConfig);
+/* ---- Firebase init already done in <head> before auth-guard loads --------- */
 var auth = firebase.auth();
 var db   = firebase.database();
 
@@ -1913,7 +1897,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v6.1';
+var PORTAL_VERSION = 'v5.58';
 
 var STATE = {
   uid:      null,
@@ -2127,29 +2111,17 @@ function initPortal() {
 /* ---- Topbar -------------------------------------------------------------- */
 function renderTopbar() {
   var ud = STATE.userData;
-  /* New standard topbar: user name goes in #topbarUser */
-  var userEl = document.getElementById('topbarUser');
-  if (userEl) userEl.textContent = ud.name || STATE.user.email || '';
-  /* Wire up sign out button */
-  var signOutBtn = document.getElementById('signOutBtn');
-  if (signOutBtn && !signOutBtn._wired) {
-    signOutBtn._wired = true;
-    signOutBtn.addEventListener('click', function() {
-      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
-    });
-  }
-  /* Legacy version display — element may or may not exist */
+  document.getElementById('topbarName').textContent = ud.name || STATE.user.email || '';
+  /* Set version from PORTAL_VERSION constant -- single source of truth */
   var verEl = document.getElementById('portalVersion');
   if (verEl) verEl.textContent = PORTAL_VERSION;
-  /* Club crest element also may not exist in new topbar */
+
   if (STATE.role === 'club' && ud.club) {
     var img = document.getElementById('topbarCrest');
-    if (img) {
-      img.src = CREST_BASE + encodeURIComponent(ud.club) + '.png';
-      img.alt = ud.club;
-      img.style.display = 'block';
-      img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
-    }
+    img.src = CREST_BASE + encodeURIComponent(ud.club) + '.png';
+    img.alt = ud.club;
+    img.style.display = 'block';
+    img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
   }
 }
 
@@ -3304,7 +3276,7 @@ function loadPendingInvites() {
     });
     if (staleKeys.length) {
       var cleanUpdates = {};
-      staleKeys.forEach(function(k) { cleanUpdates['admin/invites-pending/' + k] = null; });
+      staleKeys.forEach(function(k) { cleanUpdates['invites-pending/' + k] = null; });
       db.ref().update(cleanUpdates).catch(function() {});
     }
 
