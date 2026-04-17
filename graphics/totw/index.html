@@ -1,11 +1,25 @@
 <!DOCTYPE html>
 <!--
   Team of the Week Builder — NL Tools
-  Version: 7.1
+  Version: 7.2
   Date: 17/04/2026
   File: /tools/graphics/totw/index.html
 
   CHANGELOG
+  v7.2 (17/04/2026) — Layout + export textarea fixes
+    - FIX: preview was still rendering on LEFT in v7.1 despite intent.
+      CSS grid was right, but DOM order had .previewWrap first so at
+      desktop sizes it won the layout. Added `order: 2` on .previewWrap
+      and `order: 1` on .panel at all sizes (not just mobile) so controls
+      always take the left column regardless of DOM order.
+    - UX: roundup + Excel output textareas are now hidden (display:none)
+      but remain in the DOM. The engine still writes to their .value on
+      every change, and Copy Roundup / Copy for Excel still read from
+      them to populate the clipboard. Users never see them — less
+      visual clutter — but no functional regression.
+    - Label "Scorelines" moved to stay visible above the textarea at
+      the section layout change.
+
   v7.1 (17/04/2026) — UX rebuild + background path fix
     - FIX: BG_URL path was wrong in v7.0. The background file lives at
       /tools/assets/backgrounds/ (shared assets folder) not inside
@@ -207,22 +221,25 @@
       padding: 20px 20px 40px;
     }
 
-    /* ── App layout: controls LEFT, preview RIGHT (desktop) ── */
+    /* ── App layout: controls LEFT, preview RIGHT ─────────────────
+       DOM has .previewWrap first, then .panel. We flip visual order
+       using CSS grid column assignment so it works at desktop AND
+       stays correct on mobile (preview on top, panel below). ─────── */
     .app {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 500px;
       gap: 20px;
       align-items: start;
     }
+    /* Explicit column assignment overrides DOM order */
+    .panel        { grid-column: 1; grid-row: 1; }
+    .previewWrap  { grid-column: 2; grid-row: 1; }
+
     @media (max-width: 960px) {
       .app { grid-template-columns: 1fr; }
-    }
-
-    /* Mobile: preview comes FIRST, then controls (order via flex on wrapper) */
-    @media (max-width: 960px) {
-      .app { display: flex; flex-direction: column; }
-      .panel { order: 2; }
-      .previewWrap { order: 1; }
+      /* On mobile, preview on top (row 1), panel below (row 2) */
+      .previewWrap { grid-column: 1; grid-row: 1; }
+      .panel       { grid-column: 1; grid-row: 2; }
     }
 
     /* ── Preview (right column, sticky, capped size) ── */
@@ -454,6 +471,13 @@
     textarea[readonly] {
       background: var(--off-white);
       color: var(--text-muted);
+    }
+
+    /* Hide readonly output textareas — kept in DOM for engine .value
+       reads/writes but not shown to user. Copy buttons still work. */
+    #exportOut,
+    #excelOut {
+      display: none;
     }
 
     /* ── Footer status ── */
