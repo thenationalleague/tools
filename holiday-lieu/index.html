@@ -1160,27 +1160,27 @@
       refresh();
     }, function(err){ console.warn('users listener error:', err.code); /* do not wipe */ });
 
-    db.ref('holiday-lieu/entries').on('value', function(snap){
+    db.ref('app-data/staff-holiday-lieu/entries').on('value', function(snap){
       if (snap.exists()) { S.entries = snap.val(); } /* only update if read succeeded */
       refresh();
     }, function(err){ console.warn('entries listener error:', err.code); });
 
-    db.ref('holiday-lieu/lieu-earned').on('value', function(snap){
+    db.ref('app-data/staff-holiday-lieu/lieu-earned').on('value', function(snap){
       if (snap.exists()) { S.lieu = snap.val(); }
       refresh();
     }, function(err){ console.warn('lieu listener error:', err.code); });
 
-    db.ref('holiday-lieu/bank-holidays').on('value', function(snap){
+    db.ref('app-data/staff-holiday-lieu/bank-holidays').on('value', function(snap){
       if (snap.exists()) { S.bh = snap.val(); }
       refresh();
     }, function(err){ console.warn('bh listener error:', err.code); });
 
-    db.ref('holiday-lieu/shared-notes').on('value', function(snap){
+    db.ref('app-data/staff-holiday-lieu/shared-notes').on('value', function(snap){
       if (snap.exists()) { S.sharedNotes = snap.val(); } else { S.sharedNotes = {}; }
       refresh();
     }, function(err){ console.warn('shared-notes listener error:', err.code); });
 
-    db.ref('holiday-lieu/requests').on('value', function(snap){
+    db.ref('app-data/staff-holiday-lieu/requests').on('value', function(snap){
       if (snap.exists()) { S.requests = snap.val(); } else { S.requests = {}; }
       refresh();
     }, function(err){ console.warn('requests listener error:', err.code); });
@@ -1963,7 +1963,7 @@
     /* Approver rejects amendment — mark rejected, entry unchanged */
     btn.disabled = true; btn.textContent = 'Keeping…';
     var comment = getComment(id);
-    db.ref('holiday-lieu/requests/'+uid+'/'+id).update({
+    db.ref('app-data/staff-holiday-lieu/requests/'+uid+'/'+id).update({
       status:'rejected', rejectedBy:S.uid, rejectedAt:Date.now(),
       comment:comment||'Original entry kept'
     }).then(function(){
@@ -1979,9 +1979,9 @@
     var comment = getComment(id);
     var r = (S.requests[uid]||{})[id];
     if (!r||!r.entryId){ showToast('Entry reference missing','error'); return; }
-    db.ref('holiday-lieu/entries/'+uid+'/'+r.entryId).remove()
+    db.ref('app-data/staff-holiday-lieu/entries/'+uid+'/'+r.entryId).remove()
       .then(function(){
-        return db.ref('holiday-lieu/requests/'+uid+'/'+id).update({
+        return db.ref('app-data/staff-holiday-lieu/requests/'+uid+'/'+id).update({
           status:'approved', approvedBy:S.uid, approvedAt:Date.now(),
           comment:comment||'Entry removed by approver'
         });
@@ -2019,9 +2019,9 @@
         note:        lr ? (lr.reason||'') : '',
         lieuDays:    lr ? (lr.days||1) : 1
       };
-      db.ref('holiday-lieu/entries/'+uid).push(otCalEntry)
+      db.ref('app-data/staff-holiday-lieu/entries/'+uid).push(otCalEntry)
         .then(function(){
-          return db.ref('holiday-lieu/lieu-earned/'+uid+'/'+id).update({
+          return db.ref('app-data/staff-holiday-lieu/lieu-earned/'+uid+'/'+id).update({
             status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null
           });
         })
@@ -2036,9 +2036,9 @@
       var r = (S.requests[uid]||{})[id];
       if (!r) { showToast('Request not found','error'); return; }
       var entry = { type:r.type, date:r.date, endDate:r.endDate||r.date, note:r.note||'' };
-      db.ref('holiday-lieu/entries/'+uid).push(entry)
+      db.ref('app-data/staff-holiday-lieu/entries/'+uid).push(entry)
         .then(function(){
-          return db.ref('holiday-lieu/requests/'+uid+'/'+id).update({status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null});
+          return db.ref('app-data/staff-holiday-lieu/requests/'+uid+'/'+id).update({status:'approved', approvedBy:S.uid, approvedAt:Date.now(), comment:comment||null});
         })
         .then(function(newRef){
           showToast('Request approved');
@@ -2056,7 +2056,7 @@
   function doReject(kind, uid, id, btn) {
     btn.disabled = true; btn.textContent = 'Rejecting…';
     var comment = getComment(id);
-    var path = kind==='lieu-claim' ? 'holiday-lieu/lieu-earned/'+uid+'/'+id : 'holiday-lieu/requests/'+uid+'/'+id;
+    var path = kind==='lieu-claim' ? 'app-data/staff-holiday-lieu/lieu-earned/'+uid+'/'+id : 'app-data/staff-holiday-lieu/requests/'+uid+'/'+id;
     db.ref(path).update({status:'rejected', rejectedBy:S.uid, rejectedAt:Date.now(), comment:comment||null})
       .then(function(){
         showToast('Rejected');
@@ -2086,7 +2086,7 @@
     var label = document.getElementById('snLabel') && document.getElementById('snLabel').value.trim();
     if (!date||!label) { showToast('Date and note text required','error'); return; }
     var yr = date.split('-')[0];
-    db.ref('holiday-lieu/shared-notes/'+yr+'/'+date).set({label:label, addedBy:S.uid, addedAt:Date.now()})
+    db.ref('app-data/staff-holiday-lieu/shared-notes/'+yr+'/'+date).set({label:label, addedBy:S.uid, addedAt:Date.now()})
       .then(function(){
         showToast('Note added to all calendars');
         closeOv('ovEntry');
@@ -2110,7 +2110,7 @@
 
   function deleteSharedNote(iso) {
     if (!confirm('Remove this note?')) return;
-    db.ref('holiday-lieu/shared-notes/'+iso.split('-')[0]+'/'+iso).remove()
+    db.ref('app-data/staff-holiday-lieu/shared-notes/'+iso.split('-')[0]+'/'+iso).remove()
       .then(function(){ showToast('Note removed'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
@@ -2456,8 +2456,8 @@
       ev2.stopPropagation();
       if (!confirm('Retract this request?')) return;
       var retractPath = isLieuClaim
-          ? 'holiday-lieu/lieu-earned/'+S.uid+'/'+reqId
-          : 'holiday-lieu/requests/'+S.uid+'/'+reqId;
+          ? 'app-data/staff-holiday-lieu/lieu-earned/'+S.uid+'/'+reqId
+          : 'app-data/staff-holiday-lieu/requests/'+S.uid+'/'+reqId;
       db.ref(retractPath).remove()
         .then(function(){
           closeCellPopover();
@@ -2534,7 +2534,7 @@
     var me = S.users[S.uid]||{};
     var myApproverUids = Array.isArray(me.approverUids)?me.approverUids:(me.approverUid?[me.approverUid]:[]);
     if (isSelf) {
-      db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).update({date:newStart,endDate:newEnd||newStart})
+      db.ref('app-data/staff-holiday-lieu/entries/'+S.uid+'/'+_eState.editId).update({date:newStart,endDate:newEnd||newStart})
         .then(function(){
           if (S.entries[S.uid]&&S.entries[S.uid][_eState.editId]){
             S.entries[S.uid][_eState.editId].date=newStart;
@@ -2543,7 +2543,7 @@
           showToast('Entry updated'); closeOv('ovEntry'); refresh();
         }).catch(function(err){ showToast('Error: '+err.message,'error'); });
     } else {
-      db.ref('holiday-lieu/requests/'+S.uid).push({
+      db.ref('app-data/staff-holiday-lieu/requests/'+S.uid).push({
         type:'amend-entry', entryId:_eState.editId, entryType:e.type,
         date:newStart, endDate:newEnd||newStart,
         originalDate:e.date, originalEndDate:e.endDate||e.date,
@@ -2564,13 +2564,13 @@
       : 'Request removal of this '+typeLabel(e.type)+'? Your approver will be notified.';
     if (!confirm(confirmMsg)) return;
     if (isSelf) {
-      db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).remove()
+      db.ref('app-data/staff-holiday-lieu/entries/'+S.uid+'/'+_eState.editId).remove()
         .then(function(){
           if (S.entries[S.uid]) delete S.entries[S.uid][_eState.editId];
           showToast('Entry removed'); closeOv('ovEntry'); refresh();
         }).catch(function(err){ showToast('Error: '+err.message,'error'); });
     } else {
-      db.ref('holiday-lieu/requests/'+S.uid).push({
+      db.ref('app-data/staff-holiday-lieu/requests/'+S.uid).push({
         type:'remove-entry', entryId:_eState.editId, entryType:e.type,
         date:e.date, endDate:e.endDate||e.date,
         status:'pending', submittedAt:Date.now(), approverUids:myApproverUids
@@ -2596,7 +2596,7 @@
 
     if (isSelf) {
       /* Self: update entry directly */
-      db.ref('holiday-lieu/entries/'+S.uid+'/'+entryId).update({date:newStart, endDate:newEnd||newStart})
+      db.ref('app-data/staff-holiday-lieu/entries/'+S.uid+'/'+entryId).update({date:newStart, endDate:newEnd||newStart})
         .then(function(){
           if (S.entries[S.uid] && S.entries[S.uid][entryId]) {
             S.entries[S.uid][entryId].date = newStart;
@@ -2607,7 +2607,7 @@
           refresh();
         }).catch(function(err){ showToast('Error: '+err.message,'error'); });
     } else {
-      db.ref('holiday-lieu/requests/'+S.uid).push({
+      db.ref('app-data/staff-holiday-lieu/requests/'+S.uid).push({
         type: 'amend-entry',
         entryId: entryId,
         entryType: e.type,
@@ -2953,7 +2953,7 @@
   function deleteEntry() {
     if (!_eState.editId||!confirm('Delete this entry?')) return;
     var keyToDelete = _eState.editId;
-    db.ref('holiday-lieu/entries/'+S.uid+'/'+keyToDelete).remove()
+    db.ref('app-data/staff-holiday-lieu/entries/'+S.uid+'/'+keyToDelete).remove()
       .then(function(){
         showToast('Entry deleted');
         closeOv('ovEntry');
@@ -3063,7 +3063,7 @@
       if (_eState.editId && entries.length === 1) {
         /* Editing — always update in place */
         entries[0].note = entries[0].note || note;
-        writes.push(db.ref('holiday-lieu/entries/'+S.uid+'/'+_eState.editId).set(entries[0]));
+        writes.push(db.ref('app-data/staff-holiday-lieu/entries/'+S.uid+'/'+_eState.editId).set(entries[0]));
       } else {
         entries.forEach(function(entry) {
           var isALEntry  = entry.type.indexOf('annual-leave') !== -1 || entry.type.indexOf('lieu-taken') !== -1;
@@ -3074,7 +3074,7 @@
             var ws2     = (S.users[S.uid]||{}).workSettings||{};
             var expD2   = parseFloat(ws2.lieuExpiryDays)||0;
             var expDt2  = expD2 > 0 ? addDays(entry.date, expD2) : null;
-            var lieuRef = db.ref('holiday-lieu/lieu-earned/'+S.uid).push();
+            var lieuRef = db.ref('app-data/staff-holiday-lieu/lieu-earned/'+S.uid).push();
             var lieuRec = {
               dateWorked:   entry.date,
               days:         entry.lieuDays || 1,
@@ -3099,14 +3099,14 @@
               approverUid:  myApproverUid,  /* legacy */
               approverUids: myApproverUids
             });
-            var reqRef = db.ref('holiday-lieu/requests/'+S.uid).push();
+            var reqRef = db.ref('app-data/staff-holiday-lieu/requests/'+S.uid).push();
             if (!S.requests[S.uid]) S.requests[S.uid] = {};
             S.requests[S.uid][reqRef.key] = req;
             writes.push(reqRef.set(req));
 
           } else {
             /* Self-approve or non-approval type (office-day, note) → entries/ */
-            var ref = db.ref('holiday-lieu/entries/'+S.uid).push();
+            var ref = db.ref('app-data/staff-holiday-lieu/entries/'+S.uid).push();
             if (!S.entries[S.uid]) S.entries[S.uid] = {};
             /* Store with endDate always set to prevent loop issues */
             entry.endDate = entry.endDate || entry.date;
@@ -3249,13 +3249,13 @@
     if(!d||!l){ showToast('Date and label required','error'); return; }
     var acc=document.getElementById('bhAccrues').value==='true';
     var yr=d.split('-')[0];
-    db.ref('holiday-lieu/bank-holidays/'+yr+'/'+d).set({label:l,accruesLieu:acc})
+    db.ref('app-data/staff-holiday-lieu/bank-holidays/'+yr+'/'+d).set({label:l,accruesLieu:acc})
       .then(function(){ showToast('Bank holiday added'); closeOv('ovBH'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
   function deleteBH(iso) {
     if(!confirm('Delete '+fmtDate(iso)+'?')) return;
-    db.ref('holiday-lieu/bank-holidays/'+iso.split('-')[0]+'/'+iso).remove()
+    db.ref('app-data/staff-holiday-lieu/bank-holidays/'+iso.split('-')[0]+'/'+iso).remove()
       .then(function(){ showToast('Bank holiday removed'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
@@ -3285,13 +3285,13 @@
     var days=parseFloat(document.getElementById('lieuDays').value)||1;
     var rsn=document.getElementById('lieuReason').value.trim();
     if(!uid||!dt){ showToast('Select staff and date','error'); return; }
-    db.ref('holiday-lieu/lieu-earned/'+uid).push({dateWorked:dt,days:days,reason:rsn})
+    db.ref('app-data/staff-holiday-lieu/lieu-earned/'+uid).push({dateWorked:dt,days:days,reason:rsn})
       .then(function(){ showToast('Lieu accrual logged'); closeOv('ovLieu'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
   function delLieu(uid,id) {
     if(!confirm('Delete this accrual record?')) return;
-    db.ref('holiday-lieu/lieu-earned/'+uid+'/'+id).remove()
+    db.ref('app-data/staff-holiday-lieu/lieu-earned/'+uid+'/'+id).remove()
       .then(function(){ showToast('Accrual deleted'); })
       .catch(function(err){ showToast('Error: '+err.message,'error'); });
   }
