@@ -622,7 +622,7 @@ function doSetPassword() {
   if (!INVITE_TOKEN)    { showMsg('setpwMsg', 'Invalid invite link. Please use the link from your invite email.', 'error'); return; }
   setBtnLoading('setPwBtn', true);
   showMsg('setpwMsg', 'Verifying invite...', 'info');
-  db.ref('invites/' + INVITE_TOKEN).once('value')
+  db.ref('admin/invites/' + INVITE_TOKEN).once('value')
     .then(function(snap) {
       var invite = snap.val();
       if (!invite)        throw { message: 'Invite not found. Please use the link from your invite email.' };
@@ -635,7 +635,7 @@ function doSetPassword() {
         .then(function(credential) {
           var uid = credential.user.uid;
           var updates = {};
-          updates['invites/' + INVITE_TOKEN + '/used'] = true;
+          updates['admin/invites/' + INVITE_TOKEN + '/used'] = true;
           updates['users/' + uid + '/name']     = invite.name     || '';
           updates['users/' + uid + '/email']    = email;
           updates['users/' + uid + '/role']     = invite.role     || 'staff';
@@ -649,8 +649,8 @@ function doSetPassword() {
         });
     })
     .then(function() {
-      db.ref('invites-pending').orderByChild('email').equalTo(email.toLowerCase()).once('value')
-        .then(function(snap) { snap.forEach(function(child) { db.ref('invites-pending/' + child.key).remove().catch(function() {}); }); })
+      db.ref('admin/invites-pending').orderByChild('email').equalTo(email.toLowerCase()).once('value')
+        .then(function(snap) { snap.forEach(function(child) { db.ref('admin/invites-pending/' + child.key).remove().catch(function() {}); }); })
         .catch(function() {});
       window.location.replace(PORTAL_URL);
     })
@@ -708,16 +708,16 @@ function doSubmitRequest() {
       updates['users/' + uid + '/jobTitle'] = jobTitle;
       updates['users/' + uid + '/pending']  = true;
       updates['users/' + uid + '/tools']    = selectedTools;
-      var reqKey = db.ref('requests').push().key;
-      updates['requests/' + reqKey + '/uid']       = uid;
-      updates['requests/' + reqKey + '/name']      = name;
-      updates['requests/' + reqKey + '/email']     = email;
-      updates['requests/' + reqKey + '/club']      = club;
-      updates['requests/' + reqKey + '/jobTitle']  = jobTitle;
-      updates['requests/' + reqKey + '/tools']     = selectedTools;
-      updates['requests/' + reqKey + '/role']      = 'club';
-      updates['requests/' + reqKey + '/status']    = 'pending';
-      updates['requests/' + reqKey + '/createdAt'] = now;
+      var reqKey = db.ref('admin/requests').push().key;
+      updates['admin/requests/' + reqKey + '/uid']       = uid;
+      updates['admin/requests/' + reqKey + '/name']      = name;
+      updates['admin/requests/' + reqKey + '/email']     = email;
+      updates['admin/requests/' + reqKey + '/club']      = club;
+      updates['admin/requests/' + reqKey + '/jobTitle']  = jobTitle;
+      updates['admin/requests/' + reqKey + '/tools']     = selectedTools;
+      updates['admin/requests/' + reqKey + '/role']      = 'club';
+      updates['admin/requests/' + reqKey + '/status']    = 'pending';
+      updates['admin/requests/' + reqKey + '/createdAt'] = now;
       return db.ref().update(updates).then(function() { return uid; });
     })
     .then(function(uid) {
