@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<!--
+  Graphics — NL Tools
+  Version: 1.0
+  Date: 17/04/2026
+  File: /tools/graphics/index.html
+
+  CHANGELOG
+  v1.0 (17/04/2026)
+    - Initial rebuild from rckd-nl launcher v1.6
+    - Integrated with portal auth-guard (NL_TOOL_KEY = 'graphics')
+    - Replaced bespoke 720px card layout with standard NL portal topbar
+      and max-width 1200px page container matching /tools/portal/
+    - Replaced Typekit CSS import with direct carbona-variable font-face
+      (removes Typekit flash, matches nl-brand skill spec)
+    - Six tool tiles styled as portal-standard white cards with hover lift
+    - Tile border-top uses --primary red accent to signal graphics category
+    - All rckd-nl.github.io asset URLs removed; NL rose logo pulled from
+      /tools/assets/crests/ via raw.githubusercontent.com (per nl-brand)
+    - Sub-tool links relative: ./totw/, ./top-scorers/, etc.
+    - Back-to-portal button alongside sign-out (two-click path back to
+      the main portal if user lands here directly)
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Graphics — NL Tools</title>
+  <meta name="robots" content="noindex,nofollow" />
+
+  <script>var NL_TOOL_KEY = 'graphics';</script>
+  <script src="/tools/auth-guard.js"></script>
+
+  <style>
+    :root {
+      --primary:     #9e0000;
+      --primary-dim: #7a0000;
+      --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
+      --white:       #ffffff;
+      --off-white:   #f4f6f9;
+      --text:        #1a2a44;
+      --text-muted:  #5a6a82;
+      --border:      #dde3ed;
+      --radius:      6px;
+      --shadow:      0 2px 12px rgba(10,22,40,0.10);
+      --font:        'carbona-variable','carbona',sans-serif;
+      color-scheme: light;
+    }
+
+    @font-face {
+      font-family: "carbona-variable";
+      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+      font-display: swap;
+      font-style: normal;
+      font-weight: 200 900;
+      font-stretch: normal;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      font-size: 17px;
+      line-height: 1.5;
+      font-variation-settings: 'wght' 400;
+      color: var(--text);
+      background: var(--off-white);
+      min-height: 100vh;
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+      background: var(--primary);
+      color: var(--white);
+      padding: 0 20px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      border-bottom: 7px solid var(--navy);
+      width: 100%;
+    }
+    .topbar__logo { height: 42px; width: auto; flex-shrink: 0; }
+    .topbar__titles { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .topbar__title {
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      font-size: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--white);
+      line-height: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .topbar__kicker {
+      font-size: 10px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: rgba(255,255,255,0.65);
+      line-height: 1;
+    }
+    .topbar__user {
+      font-size: 12px;
+      color: rgba(255,255,255,0.75);
+      font-weight: 600;
+      font-variation-settings: 'wght' 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+    .topbar__btn {
+      background: none;
+      border: 1px solid rgba(255,255,255,0.3);
+      color: var(--white);
+      padding: 8px 14px;
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: var(--font);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .topbar__btn:hover { background: rgba(255,255,255,0.14); }
+
+    @media (max-width: 700px) {
+      .topbar { padding: 0 14px; gap: 10px; }
+      .topbar__title { font-size: 17px; }
+      .topbar__user { display: none; }
+      .topbar__btn--portal .label { display: none; }
+      .topbar__btn--portal { padding: 8px 10px; }
+    }
+
+    /* ── Page ── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    .intro { margin-bottom: 32px; }
+    .intro h1 {
+      font-size: 28px;
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      margin-bottom: 6px;
+      line-height: 1.1;
+    }
+    .intro p {
+      color: var(--text-muted);
+      font-size: 15px;
+      max-width: 640px;
+    }
+
+    .section-head {
+      font-size: 11px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── Tool tiles ── */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .tile {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-top: 4px solid var(--primary);
+      border-radius: var(--radius);
+      padding: 22px 20px 20px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: var(--shadow);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+      min-height: 140px;
+    }
+    .tile:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(10,22,40,0.14);
+      border-color: var(--primary);
+      border-top-color: var(--primary-dim);
+    }
+    .tile__label {
+      font-size: 17px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .tile__desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.45;
+      flex: 1;
+    }
+    .tile__kicker {
+      font-size: 10px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+  <div id="pageWrap" style="display:none;">
+
+    <div class="topbar">
+      <img class="topbar__logo"
+           src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+           alt="National League"
+           onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+      <div class="topbar__titles">
+        <span class="topbar__title">Graphics</span>
+        <span class="topbar__kicker">NL Tools</span>
+      </div>
+      <span class="topbar__user" id="userLabel"></span>
+      <a class="topbar__btn topbar__btn--portal" href="/tools/portal/">
+        <span>←</span><span class="label">Portal</span>
+      </a>
+      <button class="topbar__btn" id="signOutBtn">Sign out</button>
+    </div>
+
+    <div class="page">
+      <div class="intro">
+        <h1>Graphics Builder</h1>
+        <p>Create on-brand graphics for social, matchday and editorial use. All exports are PNG and never leave your browser.</p>
+      </div>
+
+      <div class="section-head">Tools</div>
+      <div class="tiles">
+        <a class="tile" href="./totw/">
+          <span class="tile__kicker">Matchday</span>
+          <span class="tile__label">Team of the Week</span>
+          <span class="tile__desc">Build and export formation-based Team of the Week graphics with crests, names and performance lines.</span>
+        </a>
+
+        <a class="tile" href="./league-tables/">
+          <span class="tile__kicker">Editorial</span>
+          <span class="tile__label">League Tables</span>
+          <span class="tile__desc">Clean, on-brand table graphics with selectable division and one-click PNG export.</span>
+        </a>
+
+        <a class="tile" href="./single-fixture/">
+          <span class="tile__kicker">Matchday</span>
+          <span class="tile__label">Single Fixture</span>
+          <span class="tile__desc">Two crests, kick-off date and time, and matchup text. Social-ready card for a single game.</span>
+        </a>
+
+        <a class="tile" href="./top-scorers/">
+          <span class="tile__kicker">Editorial</span>
+          <span class="tile__label">Top Scorers</span>
+          <span class="tile__desc">Eight-player goalscorers graphic with crests, names, totals and optional photo panel.</span>
+        </a>
+
+        <a class="tile" href="./fixtures-results/">
+          <span class="tile__kicker">Matchday</span>
+          <span class="tile__label">Fixtures &amp; Results</span>
+          <span class="tile__desc">Matchday fixtures or results graphics with crests, scores and status markers.</span>
+        </a>
+
+        <a class="tile" href="./article-composer/">
+          <span class="tile__kicker">Editorial</span>
+          <span class="tile__label">Article Composer</span>
+          <span class="tile__desc">Write and format article bodies quickly for social and newsletter use.</span>
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    window.nlAuthReady = function(session) {
+      // Show user label in topbar (first name only for tidy mobile fallback)
+      var lbl = document.getElementById('userLabel');
+      if (session && session.name) {
+        lbl.textContent = session.name.split(' ')[0];
+      }
+
+      // Sign out handler — uses Firebase Auth which auth-guard has initialised
+      document.getElementById('signOutBtn').addEventListener('click', function() {
+        if (window.firebase && firebase.auth) {
+          firebase.auth().signOut().then(function() {
+            window.location.href = '/tools/';
+          });
+        } else {
+          window.location.href = '/tools/';
+        }
+      });
+    };
+  </script>
+</body>
+</html>
