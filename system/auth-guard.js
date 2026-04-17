@@ -64,7 +64,6 @@
 
 (function () {
   'use strict';
-  console.log('[auth-guard] IIFE started');
 
   /* ── Constants ─────────────────────────────────────────────────────────── */
   var SESSION_KEY  = 'nl_session';
@@ -112,15 +111,11 @@
 
   /* Always expose -- portal needs this even when NL_TOOL_KEY is not set */
   window.nlSession = nlSession;
-  console.log('[auth-guard] nlSession exposed');
 
   /* ── Validate -- bail if no tool key (e.g. when loaded on portal) ───────── */
-  console.log('[auth-guard] Checking NL_TOOL_KEY. typeof:', typeof NL_TOOL_KEY, 'value:', (typeof NL_TOOL_KEY !== 'undefined') ? NL_TOOL_KEY : '(undefined)');
   if (typeof NL_TOOL_KEY === 'undefined' || !NL_TOOL_KEY) {
-    console.warn('[auth-guard] NO NL_TOOL_KEY — exiting silently');
     return; /* Portal uses window.nlSession only -- no guard needed */
   }
-  console.log('[auth-guard] NL_TOOL_KEY is:', NL_TOOL_KEY);
 
   /* ── Loading overlay ────────────────────────────────────────────────────── */
   var styleEl = document.createElement('style');
@@ -188,10 +183,8 @@
   overlay.appendChild(card);
   /* Append overlay -- body may not exist yet if script is in <head> */
   if (document.body) {
-    console.log('[auth-guard] Overlay attached to body');
     document.body.appendChild(overlay);
   } else {
-    console.log('[auth-guard] Body not ready — queuing overlay');
     document.addEventListener('DOMContentLoaded', function() {
       document.body.appendChild(overlay);
     });
@@ -274,13 +267,11 @@
   }
 
   function grantAccess(session) {
-    console.log('[auth-guard] grantAccess called for:', session.name || session.email);
     /* Wait for DOM to be ready before showing page and calling nlAuthReady */
     function doGrant() {
       removeOverlay();
       var wrap = document.getElementById('pageWrap');
-      console.log('[auth-guard] pageWrap element:', !!wrap);
-      if (wrap) { wrap.style.display = 'block'; console.log('[auth-guard] pageWrap shown'); }
+      if (wrap) wrap.style.display = 'block';
       if (typeof window.nlAuthReady === 'function') {
         window.NL = window.NL || {};
       window.NL.session = session;
@@ -387,12 +378,10 @@
 
   /* ── Main flow ─────────────────────────────────────────────────────────── */
   function run() {
-    console.log('[auth-guard] run() called');
     /* 1. Try sessionStorage first -- instant, no network call */
     var session = nlSession.read();
 
     if (session) {
-      console.log('[auth-guard] Session found in storage:', session.name || session.email);
       /* Session found -- get tool data from RTDB (lightweight, just one node) */
       /* then check access. Tool data needed for denied card label/description */
       firebase.database().ref('tools/' + NL_TOOL_KEY).once('value')
@@ -453,4 +442,4 @@
 
   run();
 
-})();
+})(); 
