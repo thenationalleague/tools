@@ -2,133 +2,349 @@
 <html lang="en">
 <head>
 <!--
-  National League Vacancy Submission Form
-  Version: 2.1
-  Date: 08/04/2026
+  NL Tools — Vacancy Submission Form (PUBLIC, no auth)
+  Version: 3.0 (17/04/2026)
+  File: /tools/vacancies/submit/index.html
 
   CHANGELOG
-  v2.1 (08/04/2026)
-    - Fixed submit never firing: code input listener was attached in
-      DOMContentLoaded before codeGroup was visible — moved to sendCode
-      success callback so listener attaches when field actually appears
-    - Submit button no longer starts disabled — validates on click instead
-    - submitForm reads code field directly as fallback if codeVerified flag missed
+  v3.0 (17/04/2026)
+    - System file migration: loads /tools/system/nl-brand.css + nl-utils.js.
+      No auth-guard (public form — unauthenticated staff/clubs can submit).
+    - Removed duplicated CSS (reset, tokens, fonts, body, form-group,
+      datetime-row, form-grid, spinner, success-screen).
+    - Removed duplicated esc/escJ — now NL.escHtml / NL.escJ.
+    - FIXED LOGO FILENAME: was 'National League logo white.png' (does not
+      exist — caused infinite retry loop on every page load). Now
+      'National League rose white.png' (correct per nl-brand skill).
+    - Added this.onerror=null to header image onerror handler.
+    - Fixed same retry-loop bug on club-picker option images.
+    - Submit page uses .header (custom), NOT .topbar — .topbar assumes
+      authenticated context. .header is the public-page equivalent.
+    - Club-picker remains inline — flag for nl-brand.css extraction
+      (now duplicated across 4 pages: vacancies, judgements, login, submit).
 
-  v2.0 (08/04/2026)
-    - API_URL updated to portal consolidated GAS deployment
-    - Clubs loaded directly from clubs-meta.json on GitHub (no GAS call)
-    - action 'requestCode'  -> 'vacancies_requestCode'
-    - action 'submitVacancy' -> 'vacancies_submit'
-    - Submissions now write to Firebase RTDB via GAS rtdbWrite
-    - Error handling updated: checks res.success not res.error
-    - Deploy at /tools/vacancies/submit/index.html
-
-  v1.1 (30/03/2026)
-    - Description 1,000 char limit with live counter
-  v1.0 (26/03/2026)
-    - Initial build
+  v2.1 (08/04/2026) — Fixed submit never firing + code field listener timing.
+  v2.0 (08/04/2026) — GAS deployment + RTDB writes via GAS.
+  v1.1 (30/03/2026) — 1,000 char description counter.
+  v1.0 (26/03/2026) — Initial build.
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Submit a Vacancy — National League</title>
+
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=9">
+<script src="/tools/system/nl-utils.js?v=5"></script>
+
 <style>
-@font-face {
-  font-family:"carbona-variable";
-  src:url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-      url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display:swap;font-style:normal;font-weight:200 900;
+/* ────────────────────────────────────────────────────────────────
+   Vacancy submission form — public page (no auth).
+   Shared from nl-brand.css: body, reset, form-group, datetime-row,
+   form-grid, spinner, success-screen, club-picker (partial).
+   ──────────────────────────────────────────────────────────────── */
+
+/* Public header — similar to topbar but manual markup since no NL_TOOL.
+   Uses .header namespace (not .topbar) to avoid confusion with auth-guarded pages. */
+.header {
+  background: var(--primary);
+  border-bottom: 7px solid var(--navy);
+  padding: 0 24px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
 }
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-:root{
-  --primary:#9e0000;--primary-dim:#7a0000;
-  --navy:#223b7c;--navy-light:#2a4a8c;
-  --white:#ffffff;--off-white:#f4f6f9;
-  --text:#1a2a44;--text-muted:#5a6a82;--border:#dde3ed;
-  --green:#1e7e34;--green-light:#edf7ee;
-  --red:#c0392b;--red-light:#fdf0ef;
-  --radius:8px;--shadow:0 2px 16px rgba(10,22,40,0.10);
-  --font:'carbona-variable','carbona',sans-serif;
+.header img { height: 42px; }
+.header__title {
+  font-size: clamp(18px, 0.3vw + 17.4px, 22px);
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--white);
 }
-body{font-family:var(--font);background:var(--off-white);color:var(--text);font-size:16px;line-height:1.5;min-height:100vh;font-variation-settings:'wght' 400;}
-.header{background:var(--primary);border-bottom:7px solid var(--navy);padding:0 24px;height:72px;display:flex;align-items:center;gap:16px;}
-.header img{height:42px;}
-.header__title{font-size:20px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.03em;color:var(--white);}
-.header__title span{color:rgba(255,255,255,0.5);}
-.page{max-width:720px;margin:0 auto;padding:40px 20px 80px;}
-.intro{margin-bottom:32px;}
-.intro h1{font-size:26px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;letter-spacing:-0.01em;margin-bottom:10px;}
-.intro p{font-size:15px;color:var(--text-muted);line-height:1.6;}
-.intro strong{color:var(--text);font-variation-settings:'wght' 700;}
-.steps{display:flex;margin-bottom:32px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);}
-.step{flex:1;text-align:center;padding:12px 8px;font-size:11px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);background:var(--white);border-right:1px solid var(--border);transition:all 0.2s;}
-.step:last-child{border-right:none;}
-.step.active{background:var(--navy);color:var(--white);}
-.step.done{background:var(--green-light);color:var(--green);}
-.card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:20px;}
-.card__head{background:var(--navy);color:var(--white);padding:16px 22px;border-bottom:4px solid var(--primary);}
-.card__head h2{font-size:13px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.1em;}
-.card__body{padding:24px 22px;}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
-@media(max-width:560px){.form-grid{grid-template-columns:1fr;}}
-.form-group{display:flex;flex-direction:column;gap:6px;}
-.form-group.span2{grid-column:1/-1;}
-.form-group label{font-size:11px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;letter-spacing:0.1em;}
-.form-group label .req{color:var(--primary);margin-left:2px;}
-.form-group input,.form-group select,.form-group textarea{padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius);font-size:15px;font-family:var(--font);font-variation-settings:'wght' 400;color:var(--text);background:var(--white);transition:border-color 0.15s;-webkit-appearance:none;width:100%;}
-.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(158,0,0,0.10);}
-.form-group textarea{resize:vertical;min-height:120px;}
-.form-hint{font-size:12px;color:var(--text-muted);}
-.datetime-row{display:flex;gap:8px;}
-.datetime-row input[type="date"]{flex:1;}
-.datetime-row input[type="time"]{flex:0 0 130px;}
-input[type="checkbox"]{width:16px!important;height:16px!important;padding:0!important;border:1px solid var(--border)!important;border-radius:3px!important;box-shadow:none!important;cursor:pointer;flex-shrink:0;accent-color:var(--primary);-webkit-appearance:checkbox;appearance:checkbox;}
-.club-picker{position:relative;}
-.club-picker__wrap{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:7px 12px;background:var(--white);transition:border-color 0.15s;}
-.club-picker__wrap:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(158,0,0,0.10);}
-.club-picker__crest{width:32px;height:32px;object-fit:contain;flex-shrink:0;}
-.club-picker__input{flex:1;border:none!important;padding:0!important;font-size:15px;outline:none;background:transparent;font-family:var(--font);font-variation-settings:'wght' 400;}
-.club-picker__dropdown{position:absolute;top:100%;left:0;right:0;z-index:50;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);max-height:240px;overflow-y:auto;display:none;margin-top:2px;}
-.club-picker__dropdown.open{display:block;}
-.club-picker__option{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);}
-.club-picker__option:last-child{border-bottom:none;}
-.club-picker__option:hover{background:var(--off-white);}
-.club-picker__option img{width:28px;height:28px;object-fit:contain;}
-.club-picker__option-name{flex:1;font-weight:600;font-variation-settings:'wght' 600;}
-.club-picker__option-div{font-size:11px;color:var(--text-muted);text-transform:uppercase;}
-.club-picker__freetext{padding:10px 14px;font-size:13px;color:var(--text-muted);font-style:italic;cursor:pointer;border-top:1px solid var(--border);background:var(--off-white);}
-.club-picker__freetext:hover{background:#eaeef4;}
-.email-row{display:flex;gap:10px;align-items:flex-end;}
-.email-row .form-group{flex:1;}
-.btn-send-code{padding:11px 18px;background:var(--navy);color:var(--white);border:none;border-radius:var(--radius);font-size:13px;font-weight:800;font-variation-settings:'wght' 800;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;white-space:nowrap;font-family:var(--font);transition:background 0.15s;flex-shrink:0;}
-.btn-send-code:hover{background:var(--navy-light);}
-.btn-send-code:disabled{opacity:0.5;cursor:not-allowed;}
-.code-row{display:flex;gap:10px;align-items:flex-end;margin-top:14px;}
-.code-input{width:140px!important;font-size:22px!important;font-weight:900!important;font-variation-settings:'wght' 900!important;letter-spacing:0.3em!important;text-align:center;}
-.code-status{font-size:13px;font-weight:600;padding:8px 0;display:none;}
-.code-status.success{color:var(--green);display:block;}
-.code-status.error{color:var(--red);display:block;}
-.alert{padding:14px 16px;border-radius:var(--radius);font-size:14px;line-height:1.5;margin-bottom:20px;}
-.alert--info{background:#e8f0fe;color:var(--navy);border:1px solid #c5d5ef;}
-.alert--error{background:var(--red-light);color:var(--red);border:1px solid #f5c6c2;}
-.submit-row{display:flex;justify-content:flex-end;gap:12px;margin-top:28px;padding-top:22px;border-top:1px solid var(--border);}
-.btn-submit{padding:14px 32px;background:var(--primary);color:var(--white);border:none;border-radius:var(--radius);font-size:15px;font-weight:900;font-variation-settings:'wght' 900;text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;font-family:var(--font);transition:background 0.15s;}
-.btn-submit:hover:not(:disabled){background:var(--primary-dim);}
-.btn-submit:disabled{opacity:0.4;cursor:not-allowed;}
-.success-screen{text-align:center;padding:60px 20px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);}
-.success-screen__icon{font-size:56px;margin-bottom:20px;}
-.success-screen h2{font-size:24px;font-weight:900;font-variation-settings:'wght' 900;color:var(--navy);text-transform:uppercase;margin-bottom:12px;}
-.success-screen p{font-size:15px;color:var(--text-muted);max-width:460px;margin:0 auto;line-height:1.7;}
-.spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:var(--white);border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.countdown{font-size:12px;color:var(--text-muted);margin-top:6px;display:none;}
-.countdown.show{display:block;}
+.header__title span { color: rgba(255, 255, 255, 0.5); }
+
+/* Page container (narrower than .main — single-column form) */
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+}
+
+/* Intro block */
+.intro { margin-bottom: 28px; }
+.intro h1 {
+  font-size: 28px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  color: var(--navy);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+}
+.intro p {
+  font-size: 15px;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+.intro p strong {
+  color: var(--text);
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+}
+
+/* Step indicator (1 → 2 → 3) */
+.steps {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+}
+.step {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--white);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-align: center;
+  transition: all 0.2s;
+}
+.step.active {
+  background: var(--primary);
+  color: var(--white);
+  border-color: var(--primary);
+}
+.step.done {
+  background: var(--green);
+  color: var(--white);
+  border-color: var(--green);
+}
+
+/* Card containers (form sections) */
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.card__head {
+  background: var(--navy);
+  color: var(--white);
+  padding: 14px 20px;
+  border-bottom: 5px solid var(--primary);
+}
+.card__head h2 {
+  font-size: 13px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.card__body { padding: 24px; }
+
+/* Alert box (above form) */
+.alert {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.alert--info {
+  background: var(--info-light);
+  color: var(--navy);
+  border: 1px solid #c5d5ef;
+}
+.alert--error {
+  background: var(--red-light);
+  color: var(--red);
+  border: 1px solid #f5c6c2;
+}
+
+/* Verify-code row */
+.email-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.email-row .form-group { flex: 1; }
+.btn-send-code {
+  padding: 11px 18px;
+  background: var(--navy);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font);
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.btn-send-code:hover:not(:disabled) { background: var(--navy-light); }
+.btn-send-code:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.code-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 14px;
+}
+.code-input {
+  width: 140px !important;
+  font-size: 22px !important;
+  font-weight: 900 !important;
+  font-variation-settings: 'wght' 900 !important;
+  letter-spacing: 0.3em !important;
+  text-align: center;
+}
+.code-status {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 0;
+  display: none;
+}
+.code-status.success { color: var(--green); display: block; }
+.code-status.error   { color: var(--red);   display: block; }
+.countdown {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  display: none;
+}
+.countdown.show { display: block; }
+
+/* Submit row (primary action button area) */
+.submit-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.btn-submit {
+  padding: 14px 32px;
+  background: var(--primary);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 900;
+  font-variation-settings: 'wght' 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: background 0.15s;
+}
+.btn-submit:hover:not(:disabled) { background: var(--primary-dim); }
+.btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Club picker — duplicated pattern (vacancies/judgements/login/submit).
+   TODO: extract to nl-brand.css as a widget. */
+.club-picker { position: relative; }
+.club-picker__wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 12px;
+  background: var(--white);
+  transition: border-color 0.15s;
+}
+.club-picker__wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(158, 0, 0, 0.10);
+}
+.club-picker__crest {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.club-picker__input {
+  flex: 1;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 15px;
+  outline: none;
+  background: transparent;
+  font-family: var(--font);
+  font-variation-settings: 'wght' 400;
+}
+.club-picker__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 240px;
+  overflow-y: auto;
+  display: none;
+  margin-top: 2px;
+}
+.club-picker__dropdown.open { display: block; }
+.club-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.club-picker__option:last-child { border-bottom: none; }
+.club-picker__option:hover { background: var(--off-white); }
+.club-picker__option img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.club-picker__option-name {
+  flex: 1;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+}
+.club-picker__option-div {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.club-picker__freetext {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  background: var(--off-white);
+}
+.club-picker__freetext:hover { background: #eaeef4; }
 </style>
 </head>
 <body>
 
 <header class="header">
-  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20logo%20white.png" alt="NL"
-    onerror="this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png" alt="NL"
+    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
   <div class="header__title">National League <span>Vacancies</span></div>
 </header>
 
@@ -301,6 +517,7 @@ input[type="checkbox"]{width:16px!important;height:16px!important;padding:0!impo
 </div>
 
 <script>
+
 var API_URL        = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
 var FALLBACK_CREST = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
 var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
@@ -328,13 +545,13 @@ function onClubInput(val) {
   }).slice(0, 10);
   var html = matches.map(function(c) {
     var cr = CREST_BASE + encodeURIComponent(c.name) + '.png';
-    return '<div class="club-picker__option" onmousedown="selectClub(\'' + escJ(c.name) + '\',\'' + escJ(cr) + '\')">'
-      + '<img src="' + esc(cr) + '" onerror="this.src=\'' + FALLBACK_CREST + '\'">'
-      + '<span class="club-picker__option-name">' + esc(c.name) + '</span>'
-      + '<span class="club-picker__option-div">' + esc(c.division || '') + '</span>'
+    return '<div class="club-picker__option" onmousedown="selectClub(\'' + NL.escJ(c.name) + '\',\'' + NL.escJ(cr) + '\')">'
+      + '<img src="' + NL.escHtml(cr) + '" onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'">'
+      + '<span class="club-picker__option-name">' + NL.escHtml(c.name) + '</span>'
+      + '<span class="club-picker__option-div">' + NL.escHtml(c.division || '') + '</span>'
       + '</div>';
   }).join('');
-  html += '<div class="club-picker__freetext" onmousedown="selectClub(\'' + escJ(val) + '\',\'\')">Use "' + esc(val) + '" as entered</div>';
+  html += '<div class="club-picker__freetext" onmousedown="selectClub(\'' + NL.escJ(val) + '\',\'\')">Use "' + NL.escHtml(val) + '" as entered</div>';
   dd.innerHTML = html;
   dd.classList.add('open');
 }
@@ -520,15 +737,15 @@ function apiPost(payload) {
 /* ── Alert ── */
 function showAlert(msg, type) {
   var el = document.getElementById('alertBox');
-  el.innerHTML = '<div class="alert alert--' + type + '">' + esc(msg) + '</div>';
+  el.innerHTML = '<div class="alert alert--' + type + '">' + NL.escHtml(msg) + '</div>';
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function clearAlert() { document.getElementById('alertBox').innerHTML = ''; }
 
 function isUrl(s)   { try { new URL(s); return true; } catch(e) { return false; } }
 function isEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
-function esc(s)     { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escJ(s)    { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+/* esc/escJ helpers provided by NL.escHtml / NL.escJ in nl-utils.js */
+
 </script>
 </body>
 </html>
