@@ -2,10 +2,22 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.2
+  Version: 2.3
   Date: 17/04/2026
 
   CHANGELOG
+  v2.3 (17/04/2026)
+    - System prompt trimmed from ~37k tokens to ~5k tokens. Previously dumped
+      the full clubsMeta + seasonNotes + trimmed leagueTables JSON inline,
+      which was hitting Anthropic's per-minute token ceiling and costing up
+      to 5p per first-message. Historical queries now route through the new
+      getClubSummary tool instead. Only thing kept inline is a one-line-per-
+      season champions summary for quick answers.
+    - Tool guidance rewritten: split into "current season" (NLS live feed)
+      vs "historical" (getClubSummary + /history/* redirects) sections.
+      Explicit instructions on phoenix/merger lineage — never assume combining
+      without asking, always surface relatedLineage options when offered.
+
   v2.2 (17/04/2026)
     - Two-register voice: chat replies render in LTC Italian Old Style Pro
       (warm serif, Ranieri-inflected English). Generated drafts — emails,
@@ -1644,39 +1656,49 @@ function wireTopbar(session) {
       var lastSeasonStart = currentSeasonStart - 1;
       var lastSeasonStr = lastSeasonStart + '-' + String((lastSeasonStart + 1) % 100).padStart(2, '0');
 
-      // Historical context — dumped as JSON strings when available. Claude parses JSON
-      // well enough that explicit restructuring isn't needed; the semantic field names
-      // (phoenix, merger, entity_notes, nicknames, first_season, points_deduction etc.)
-      // are self-documenting.
+      // Historical context — COMPACT summary only.
+      // Previous versions dumped the full clubsMeta / seasonNotes / leagueTables
+      // JSON inline (~33k tokens per message). That was reaching Anthropic's TPM
+      // ceiling and costing up to 5p per first-message.
+      //
+      // v2.3: all detailed historical queries (per-club records, season notes,
+      // league tables) now go through tools (getClubSummary, getLeagueTable,
+      // etc.) instead. The only thing we keep inline is a one-line-per-season
+      // champions list, which lets Claudio answer "who won in 1999?" instantly
+      // without a tool call. Everything else gets routed via tools or redirected
+      // to the /history/* pages on the site.
       var historicalBlock = '';
-      if (STATE.historicalContext) {
-        var hc = STATE.historicalContext;
-        var parts = [];
-        if (hc.clubsMeta) {
-          parts.push('## Historical clubs metadata');
-          parts.push('Rich metadata covering every club that has ever competed in these leagues — including reformed (phoenix) clubs, mergers, previous names (entity_notes), nicknames, and first-season/promotion/relegation history (first season). Use `entity` as the canonical identifier when a club has existed under multiple names.');
-          parts.push('```json');
-          parts.push(JSON.stringify(hc.clubsMeta));
-          parts.push('```');
-          parts.push('');
+      if (STATE.historicalContext && STATE.historicalContext.leagueTables &&
+          STATE.historicalContext.leagueTables.seasons) {
+        var champLines = [];
+        STATE.historicalContext.leagueTables.seasons.forEach(function(s) {
+          if (!s || !s.divisions) return;
+          // Prefer National, fall back to the single division if only one exists
+          var divKeys = Object.keys(s.divisions);
+          var champsBits = [];
+          divKeys.forEach(function(k) {
+            var d = s.divisions[k];
+            if (d && d.champion && d.champion.team) {
+              // Collapse division label
+              var divLbl = (k === 'National' ? 'NL' :
+                           k === 'North' ? 'N' :
+                           k === 'South' ? 'S' : k);
+              champsBits.push(divLbl + ': ' + d.champion.team);
+            }
+          });
+          if (champsBits.length) {
+            champLines.push(s.season + ' — ' + champsBits.join(' | '));
+          }
+        });
+        if (champLines.length) {
+          historicalBlock =
+            '## Champions by season (quick reference)\n' +
+            'One line per season. NL = National League, N = National League North, ' +
+            'S = National League South. For any other historical detail — season ' +
+            'notes, full tables, promoted/relegated teams, per-club records — use ' +
+            'the getClubSummary tool or redirect to the /history/* pages.\n' +
+            champLines.join('\n');
         }
-        if (hc.seasonNotes) {
-          parts.push('## Season notes — points deductions, expulsions, reprieves, format history');
-          parts.push('Comprehensive record of every off-pitch event that affected a league season: points deductions (with date and value), expulsions, demotions, reprieves from relegation, ground-requirement issues, play-off ineligibility, PPG curtailment (covid), and season format changes (title, champions/automatic/playoff counts, points-per-win rules). Use this to answer "what happened to X club in Y season" accurately.');
-          parts.push('```json');
-          parts.push(JSON.stringify(hc.seasonNotes));
-          parts.push('```');
-          parts.push('');
-        }
-        if (hc.leagueTables) {
-          parts.push('## Season outcomes — champions, promoted, relegated');
-          parts.push('Trimmed summary of every season since 1979-80. For each division in each season, lists: champion (automatic promotion), promotedViaPlayoff (the team that won the playoff final), playoffTeams (all playoff participants), relegated, folded, expelled. Full standings (mid-table teams, detailed stats) are NOT included here — refer users to nationalleagueservices.co.uk or the main NL website for detailed historical tables.');
-          parts.push('```json');
-          parts.push(JSON.stringify(hc.leagueTables));
-          parts.push('```');
-          parts.push('');
-        }
-        historicalBlock = parts.join('\n');
       }
 
       return [
@@ -1708,14 +1730,23 @@ function wireTopbar(session) {
         '',
         historicalBlock,
         '## Live data — your tools',
-        'You have TOOLS available for live current-season NL data. Use them when the user asks about:',
-        '- Current league standings or table position → call `getStandings({division})`',
-        '- Upcoming fixtures → call `getFixtures({division, days})`',
-        '- Recent match results → call `getRecentResults({division, days})`. For goalscorers or full detail on a specific match, follow up with `getMatchDetail({matchId})` using the matchId from the results.',
-        '- A team\'s recent form → call `getTeamForm({team, matches})`',
-        'Only use these for the CURRENT season (2025/26). For historical seasons use the injected data above, or redirect to the site.',
-        'You can also call `fetchNLSite({path})` to pull content from our own website (thenationalleague.org.uk). Use it for news articles, editorial, club info, announcements. It ONLY works on our domain — it cannot fetch any other site. Mention this restriction only if the user asks you to check another source.',
-        'You are limited to 3 tool calls per message. Use them efficiently.',
+        'You have TOOLS available for NL data. Use them when the user asks about:',
+        '',
+        '**Current 2025-26 season (live NLS feed):**',
+        '- Current league standings or table position → `getStandings({division})`',
+        '- Upcoming fixtures → `getFixtures({division, days})`',
+        '- Recent match results → `getRecentResults({division, days})`. For goalscorers or full detail follow up with `getMatchDetail({matchId})`.',
+        '- A team\'s recent form → `getTeamForm({team, matches})`',
+        '',
+        '**Historical data — all completed seasons (1979-80 onwards):**',
+        '- A club\'s overall historical record → `getClubSummary({club, scope?, lineage?})`. Returns total seasons, division breakdown, W/D/L/GF/GA/GD/win-rate, first and last seasons. Use this for questions like "how have Altrincham done overall", "how many seasons has Dorking played in the National", "tell me about Wealdstone\'s NL record". Scope narrows to one division tier: "national", "north", "south", or "all" (default).',
+        '- If the response includes `relatedLineage`, that means the club has phoenix/merger relatives (e.g. Maidstone United original vs reformed). Mention this to the user and offer to re-run with `lineage: [...]` to combine them. Never assume combining without asking.',
+        '- For more detailed historical questions that the summary tool can\'t answer (specific league tables, head-to-heads, streaks, records, top scorers) → for now, redirect to the relevant /history/* page on the website. More tools are coming.',
+        '',
+        '**Other:**',
+        '- `fetchNLSite({path})` — fetch content from thenationalleague.org.uk. News, editorial, club info. Locked to our domain.',
+        '',
+        'Tool call limit: 3 per user message. Use them efficiently.',
         '',
         '## Top scorers — redirect, don\'t tool-call',
         'There is NO top scorers tool. The NLS live data has known gaps in per-match goal event entry, so any live aggregation would be unreliable. If a user asks about top scorers (current or historical), point them to https://www.thenationalleague.org.uk/history/top-scorers (hand-written, authoritative). Do not attempt to guess or aggregate scorer data from match detail.',
