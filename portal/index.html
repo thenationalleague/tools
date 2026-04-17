@@ -1901,7 +1901,7 @@ function sortDepts(depts) {
 }
 
 /* ---- Version ------------------------------------------------------------- */
-var PORTAL_VERSION = 'v6.0';
+var PORTAL_VERSION = 'v6.1';
 
 var STATE = {
   uid:      null,
@@ -2115,17 +2115,29 @@ function initPortal() {
 /* ---- Topbar -------------------------------------------------------------- */
 function renderTopbar() {
   var ud = STATE.userData;
-  document.getElementById('topbarName').textContent = ud.name || STATE.user.email || '';
-  /* Set version from PORTAL_VERSION constant -- single source of truth */
+  /* New standard topbar: user name goes in #topbarUser */
+  var userEl = document.getElementById('topbarUser');
+  if (userEl) userEl.textContent = ud.name || STATE.user.email || '';
+  /* Wire up sign out button */
+  var signOutBtn = document.getElementById('signOutBtn');
+  if (signOutBtn && !signOutBtn._wired) {
+    signOutBtn._wired = true;
+    signOutBtn.addEventListener('click', function() {
+      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
+    });
+  }
+  /* Legacy version display — element may or may not exist */
   var verEl = document.getElementById('portalVersion');
   if (verEl) verEl.textContent = PORTAL_VERSION;
-
+  /* Club crest element also may not exist in new topbar */
   if (STATE.role === 'club' && ud.club) {
     var img = document.getElementById('topbarCrest');
-    img.src = CREST_BASE + encodeURIComponent(ud.club) + '.png';
-    img.alt = ud.club;
-    img.style.display = 'block';
-    img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
+    if (img) {
+      img.src = CREST_BASE + encodeURIComponent(ud.club) + '.png';
+      img.alt = ud.club;
+      img.style.display = 'block';
+      img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
+    }
   }
 }
 
