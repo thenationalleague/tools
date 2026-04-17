@@ -1,11 +1,25 @@
 <!DOCTYPE html>
 <!--
   Team of the Week Builder — NL Tools
-  Version: 7.2
+  Version: 7.3
   Date: 17/04/2026
   File: /tools/graphics/totw/index.html
 
   CHANGELOG
+  v7.3 (17/04/2026) — Responsive preview sizing + UI polish
+    - LAYOUT: preview width now scales with viewport using clamp()
+      instead of fixed 500px. Range 380px → 680px, targeting ~42vw.
+      Keeps the preview feeling like a proportional partner to the
+      controls column at desktop widths (~1400px+), without crushing
+      the controls at tablet widths (~1050px).
+    - The sticky preview position adjusted to also vertically centre
+      within viewport so if the left column is very tall, the preview
+      stays visible rather than hanging at top.
+    - REMOVED: "Font: DIN NEXT LT PRO CONDENSED • ACTIVE" debug label.
+      The fontStatus element itself is kept in the DOM (engine still
+      writes to it on font-load) but hidden via display:none.
+    - Status/footer row now single-field, left-aligned, less cluttered.
+
   v7.2 (17/04/2026) — Layout + export textarea fixes
     - FIX: preview was still rendering on LEFT in v7.1 despite intent.
       CSS grid was right, but DOM order had .previewWrap first so at
@@ -222,37 +236,37 @@
     }
 
     /* ── App layout: controls LEFT, preview RIGHT ─────────────────
-       DOM has .previewWrap first, then .panel. We flip visual order
-       using CSS grid column assignment so it works at desktop AND
-       stays correct on mobile (preview on top, panel below). ─────── */
+       DOM has .previewWrap first, then .panel. CSS grid column
+       assignment flips visual order. Right column sizes to preview's
+       actual (clamp-based) width via min-content. ─────────────────── */
     .app {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 500px;
+      grid-template-columns: minmax(0, 1fr) min-content;
       gap: 20px;
       align-items: start;
     }
-    /* Explicit column assignment overrides DOM order */
-    .panel        { grid-column: 1; grid-row: 1; }
+    .panel        { grid-column: 1; grid-row: 1; min-width: 0; }
     .previewWrap  { grid-column: 2; grid-row: 1; }
 
     @media (max-width: 960px) {
       .app { grid-template-columns: 1fr; }
-      /* On mobile, preview on top (row 1), panel below (row 2) */
       .previewWrap { grid-column: 1; grid-row: 1; }
       .panel       { grid-column: 1; grid-row: 2; }
     }
 
-    /* ── Preview (right column, sticky, capped size) ── */
+    /* ── Preview (right column, sticky, responsive width) ──────────
+       width: clamp() scales fluidly between 380px and 680px based on
+       ~42% of viewport. Matches proportions to the left column
+       naturally at most desktop sizes. ──────────────────────────── */
     .previewWrap {
       position: sticky;
-      top: 88px; /* below sticky 72px topbar + gap */
+      top: 88px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--off-white);
       padding: 8px;
       box-shadow: var(--shadow);
-      max-width: 500px;
-      justify-self: end;
+      width: clamp(380px, 42vw, 680px);
     }
     canvas {
       display: block;
@@ -264,10 +278,10 @@
     @media (max-width: 960px) {
       .previewWrap {
         position: static;
-        max-width: min(500px, 100%);
+        width: 100%;
+        max-width: 500px;
         justify-self: center;
         margin: 0 auto;
-        width: 100%;
       }
     }
 
@@ -474,13 +488,15 @@
     }
 
     /* Hide readonly output textareas — kept in DOM for engine .value
-       reads/writes but not shown to user. Copy buttons still work. */
+       reads/writes but not shown to user. Copy buttons still work.
+       Same pattern for the fontStatus debug label. */
     #exportOut,
-    #excelOut {
+    #excelOut,
+    #fontStatus {
       display: none;
     }
 
-    /* ── Footer status ── */
+    /* ── Footer status (single-field, left-aligned) ── */
     footer {
       margin-top: 10px;
       font-size: 11px;
@@ -488,8 +504,7 @@
       text-transform: uppercase; letter-spacing: 0.08em;
       color: var(--text-muted);
       display: flex;
-      justify-content: space-between;
-      flex-wrap: wrap;
+      align-items: center;
       gap: 8px;
       padding: 0 4px;
     }
