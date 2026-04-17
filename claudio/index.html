@@ -2,10 +2,20 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 1.0
+  Version: 1.1
   Date: 17/04/2026
 
   CHANGELOG
+  v1.1 (17/04/2026)
+    - Added historical context injection: fetches rich clubs-meta (phoenix/merger/
+      nicknames/first-season) and season-notes (points deductions, expulsions,
+      reprieves, format history) from the thenationalleague/site repo.
+    - Both files fetched once per session, cached in JS memory, injected into
+      system prompt. Prompt caching means ~0.4p extra cost per session total.
+    - NOT fetching results.json (too large — deferred to v2 with tool-use).
+    - Graceful fallback: if fetches fail, Claudio still works with the basic
+      72-club list and staff directory.
+
   v1.0 (17/04/2026)
     - Initial MVP. Chat UI, per-user conversation history isolated in RTDB,
       prompt caching on system prompt, Haiku 4.5 model, daily message cap,
@@ -453,6 +463,16 @@
     var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
     var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
 
+    // Historical context files — fetched from the 'site' repo (not 'tools').
+    // These are DIFFERENT to the current-72-clubs list above. They contain
+    // rich historical metadata (phoenix/merger/nicknames/first-season) and
+    // season notes (points deductions, expulsions, reprieves, format history).
+    // Injected into Claudio's system prompt for historical awareness.
+    var SITE_CLUBS_META_URL   = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/clubs-meta.json';
+    var SITE_SEASON_NOTES_URL = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/season-notes.json';
+    // results.json deliberately NOT fetched — too large (~500k+ tokens).
+    // Deferred to v2 with tool-use for on-demand match lookups.
+
     // How many past messages to send back to Claudio per request.
     // Keeps long conversations cheap — older context is dropped.
     var HISTORY_WINDOW = 15;
@@ -465,6 +485,7 @@
       db:        null,
       clubs:     [],
       staff:     [],
+      historicalContext: null,  // { clubsMeta, seasonNotes } from site repo — injected into system prompt
       convs:     [],       // list of conversations, sorted newest first
       activeId:  null,     // currently-open conversation ID
       messages:  [],       // messages in active conversation
@@ -482,8 +503,10 @@
       STATE.db      = firebase.database();
       document.getElementById('pageWrap').style.display = 'block';
 
-      // Load staff directory + clubs in parallel — these become context for Claudio
-      Promise.all([loadClubs(), loadStaff()])
+      // Load staff directory + clubs + historical context in parallel.
+      // Historical context fetches are wrapped to never reject — if they fail,
+      // Claudio still boots and works, just without the rich history.
+      Promise.all([loadClubs(), loadStaff(), loadHistoricalContext()])
         .then(function() {
           return Promise.all([loadConversations(), loadDailyUsage()]);
         })
@@ -508,6 +531,32 @@
           STATE.clubs = (data && data.clubs) ? data.clubs : [];
         })
         .catch(function() { STATE.clubs = []; });
+    }
+
+    function loadHistoricalContext() {
+      // Fetches rich clubs-meta and season-notes from the 'site' repo.
+      // Never rejects — if either fails, STATE.historicalContext stays null and
+      // the system prompt simply omits that section. Claudio still works fine.
+      //
+      // Browsers cache the raw.githubusercontent response aggressively thanks to
+      // GitHub's CDN headers, so repeat loads in the same day are essentially free.
+      var fetchJson = function(url) {
+        return fetch(url)
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .catch(function() { return null; });
+      };
+      return Promise.all([fetchJson(SITE_CLUBS_META_URL), fetchJson(SITE_SEASON_NOTES_URL)])
+        .then(function(arr) {
+          var clubsMeta   = arr[0];
+          var seasonNotes = arr[1];
+          if (clubsMeta || seasonNotes) {
+            STATE.historicalContext = {
+              clubsMeta:   clubsMeta,
+              seasonNotes: seasonNotes
+            };
+          }
+        })
+        .catch(function() { /* swallow — not fatal */ });
     }
 
     function loadStaff() {
@@ -1035,6 +1084,33 @@
 
       var currentUser = STATE.session.name + (STATE.session.jobTitle ? ' (' + STATE.session.jobTitle + ')' : '');
 
+      // Historical context — dumped as JSON strings when available. Claude parses JSON
+      // well enough that explicit restructuring isn't needed; the semantic field names
+      // (phoenix, merger, entity_notes, nicknames, first_season, points_deduction etc.)
+      // are self-documenting.
+      var historicalBlock = '';
+      if (STATE.historicalContext) {
+        var hc = STATE.historicalContext;
+        var parts = [];
+        if (hc.clubsMeta) {
+          parts.push('## Historical clubs metadata');
+          parts.push('Rich metadata covering every club that has ever competed in these leagues — including reformed (phoenix) clubs, mergers, previous names (entity_notes), nicknames, and first-season/promotion/relegation history (first season). Use `entity` as the canonical identifier when a club has existed under multiple names.');
+          parts.push('```json');
+          parts.push(JSON.stringify(hc.clubsMeta));
+          parts.push('```');
+          parts.push('');
+        }
+        if (hc.seasonNotes) {
+          parts.push('## Season notes — points deductions, expulsions, reprieves, format history');
+          parts.push('Comprehensive record of every off-pitch event that affected a league season: points deductions (with date and value), expulsions, demotions, reprieves from relegation, ground-requirement issues, play-off ineligibility, PPG curtailment (covid), and season format changes (title, champions/automatic/playoff counts, points-per-win rules). Use this to answer "what happened to X club in Y season" accurately.');
+          parts.push('```json');
+          parts.push(JSON.stringify(hc.seasonNotes));
+          parts.push('```');
+          parts.push('');
+        }
+        historicalBlock = parts.join('\n');
+      }
+
       return [
         'You are Claudio, the internal AI assistant for The National League — the fifth tier of English football.',
         'You help National League staff with day-to-day work: drafting emails and comms, answering questions about the organisation, summarising text, brainstorming, and general assistance.',
@@ -1051,8 +1127,14 @@
         '## NL staff you can reference',
         staffList || '(staff directory not loaded)',
         '',
-        '## The 72 clubs',
+        '## The 72 current clubs (this season)',
         clubsList || '(clubs data not loaded)',
+        '',
+        historicalBlock,
+        '## Live data — what you DON\'T have',
+        'You do not currently have access to live fixtures, results, standings, top scorers, match attendances, or any match-day data. You also do not have historical match-by-match results (who-beat-whom scores).',
+        'If a user asks about fixtures, results, live scores, standings, or specific match details you cannot answer from the historical metadata above, say so plainly. Direct them to nationalleagueservices.co.uk or the main NL website. Do NOT invent scores, dates, or match outcomes.',
+        'You WILL have access to live data in a future version (v2) via proper data lookups. For now, be honest about the limitation.',
         '',
         '## How to behave',
         '- Use British English spelling throughout (colour, organise, realise, licence etc.).',
@@ -1060,6 +1142,7 @@
         '- Be direct and helpful. Concise prose over long lists. Lead with the answer.',
         '- When drafting comms, match NL\'s tone: professional, warm, football-literate, not corporate.',
         '- If you don\'t know something, say so plainly — don\'t invent.',
+        '- When referring to a club across different eras, use the `entity` name from the historical metadata as the canonical identifier (e.g. "Maidstone United (original)" for the pre-1992 club, "Maidstone United" for the reformed club).',
         '',
         '## What you must NOT do',
         '- Do NOT speculate on transfers, club finances, club ownership, managerial changes, or any rumours.',
@@ -1068,6 +1151,7 @@
         '- Do NOT draft anything disciplinary or regulatory that would go out under NL\'s name without explicitly reminding the user it needs review.',
         '- Do NOT produce statements that could be quoted as NL\'s official position. Make clear any draft is a starting point for the user to review and own.',
         '- Do NOT invent NL policies, rules, procedures, or facts. If asked about a policy you don\'t have context for, say you don\'t have that information and suggest they check with the relevant person.',
+        '- Do NOT invent match results, scores, or fixture dates — you do not have that data.',
         '',
         'You are Claudio — named after Claudio Ranieri, the beloved Leicester manager. You have some of that warmth and experience: steady, helpful, a bit avuncular, unflappable. But you\'re an assistant, not a decision-maker. The person you\'re helping makes the calls.'
       ].join('\n');
