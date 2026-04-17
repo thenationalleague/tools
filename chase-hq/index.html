@@ -1,0 +1,1514 @@
+<!--
+  Chase HQ — NL Tools
+  Version: v2.0
+  Date: 17/04/2026
+
+  CHANGELOG
+  v2.0 (17/04/2026)
+  - Full portal integration: auth-guard, Firebase RTDB, NL brand
+  - Data persisted at chase-hq/{uid}/requests/{id} in RTDB
+  - Staff contact quick-pick from /users (non-club only) + freetext for externals
+  - Internal/external tag per request drives AI tone
+  - Grouped requests: parent with child requests
+  - Per-request stale threshold (default 5 days)
+  - AI-generated chase emails via Anthropic API (on demand, editable)
+  - API key stored at users/{uid}/settings/anthropicKey
+  - Settings panel for API key entry
+  - Auto-log chase email to notes thread on mark as chased (collapsed)
+  - In-app notification bell (Pass 2 placeholder)
+  - ensureAuth() pattern on all writes
+  - NL brand throughout
+
+  v1.1 (17/04/2026)
+  - NL brand restyle
+
+  v1.0 (14/04/2026)
+  - Initial standalone build with localStorage
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chase HQ — NL Tools</title>
+
+<script>var NL_TOOL_KEY = 'staff-chase-hq';</script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="/tools/auth-guard.js"></script>
+
+<style>
+@font-face {
+  font-family: "carbona-variable";
+  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+  font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary:     #9e0000;
+  --primary-dim: #7a0000;
+  --navy:        #223b7c;
+  --navy-mid:    #1a2f63;
+  --navy-light:  #2a4a8c;
+  --red:         #c0392b;
+  --red-light:   #fdf0ef;
+  --green:       #1e7e34;
+  --green-light: #edf7ee;
+  --amber:       #e67e22;
+  --amber-light: #fef6ec;
+  --white:       #ffffff;
+  --off-white:   #f4f6f9;
+  --text:        #1a2a44;
+  --text-muted:  #5a6a82;
+  --border:      #dde3ed;
+  --radius:      6px;
+  --shadow:      0 2px 12px rgba(10,22,40,0.10);
+  --font:        'carbona-variable','carbona',sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  font-variation-settings: 'wght' 400;
+  color: var(--text);
+  background: var(--off-white);
+  min-height: 100vh;
+}
+
+/* ── TOPBAR ── */
+.topbar {
+  background: var(--primary);
+  color: var(--white);
+  padding: 0 28px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border-bottom: 7px solid var(--navy);
+}
+.topbar img { height: 42px; }
+.topbar__title {
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  font-size: 20px; flex: 1;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--white);
+}
+.topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
+.topbar__actions { display: flex; align-items: center; gap: 10px; }
+.topbar__btn-ghost {
+  background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
+  padding: 8px 18px; border-radius: var(--radius); font-size: 12px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer; transition: all 0.15s; font-family: var(--font);
+}
+.topbar__btn-ghost:hover { background: rgba(255,255,255,0.12); }
+.topbar__icon-btn {
+  background: none; border: none; color: rgba(255,255,255,0.8);
+  font-size: 18px; cursor: pointer; padding: 4px 6px;
+  border-radius: 4px; transition: all 0.15s; position: relative;
+}
+.topbar__icon-btn:hover { background: rgba(255,255,255,0.12); color: var(--white); }
+.notif-dot {
+  position: absolute; top: 2px; right: 2px;
+  width: 8px; height: 8px; background: var(--amber);
+  border-radius: 50%; display: none;
+}
+.notif-dot.active { display: block; }
+
+/* ── LAYOUT ── */
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 28px 20px 70px;
+}
+
+/* ── STATS ── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.stat {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 16px;
+  text-align: center; box-shadow: var(--shadow);
+}
+.stat__num {
+  font-size: 40px; font-weight: 900; font-variation-settings: 'wght' 900;
+  line-height: 1; margin-bottom: 6px;
+}
+.stat__label {
+  font-size: 10px; color: var(--text-muted);
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.stat--overdue .stat__num  { color: var(--red); }
+.stat--due     .stat__num  { color: var(--amber); }
+.stat--open    .stat__num  { color: var(--navy); }
+.stat--resolved .stat__num { color: var(--green); }
+
+/* ── TOOLBAR ── */
+.toolbar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.filter-tabs {
+  display: flex; gap: 4px;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 3px; margin-left: auto;
+}
+.filter-tab {
+  font-family: var(--font); font-size: 11px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  padding: 6px 14px; border-radius: 4px; border: none;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.filter-tab.active { background: var(--primary); color: var(--white); }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 8px 16px; border-radius: var(--radius);
+  font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer; border: none; font-family: var(--font);
+  transition: background 0.15s; white-space: nowrap;
+}
+.btn--primary { background: var(--primary);    color: var(--white); }
+.btn--navy    { background: var(--navy);        color: var(--white); }
+.btn--green   { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
+.btn--danger  { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
+.btn--ghost   { background: none; border: 1px solid var(--border); color: var(--text-muted); }
+.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
+.btn--navy:hover:not(:disabled)    { background: var(--navy-mid); }
+.btn--green:hover:not(:disabled)   { background: #d4edda; }
+.btn--danger:hover:not(:disabled)  { background: #fae0de; }
+.btn--ghost:hover:not(:disabled)   { background: var(--off-white); color: var(--text); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--sm { padding: 5px 12px; font-size: 10px; }
+
+/* ── PILLS ── */
+.pill {
+  display: inline-block; padding: 3px 8px; border-radius: 12px;
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  white-space: nowrap; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.pill--nudge    { background: var(--green-light); color: var(--green); }
+.pill--firm     { background: var(--amber-light); color: var(--amber); }
+.pill--formal   { background: var(--red-light);   color: var(--red); }
+.pill--internal { background: #e8edf8; color: var(--navy); }
+.pill--external { background: var(--off-white); color: var(--text-muted); border: 1px solid var(--border); }
+.pill--resolved { background: var(--green-light); color: var(--green); }
+.pill--high     { background: var(--red-light);   color: var(--red); }
+.pill--medium   { background: var(--amber-light); color: var(--amber); }
+.pill--low      { background: var(--off-white);   color: var(--text-muted); border: 1px solid var(--border); }
+.pill--parent   { background: #e8edf8; color: var(--navy); }
+
+/* ── CARDS ── */
+.requests-list { display: flex; flex-direction: column; gap: 8px; }
+
+.empty-state {
+  text-align: center; padding: 60px 20px;
+  color: var(--text-muted); font-size: 14px;
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.empty-state .empty-icon { font-size: 28px; margin-bottom: 10px; }
+
+.card {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow); transition: border-color 0.15s;
+  animation: slideIn 0.18s ease;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card:hover { border-color: #c0c8d8; }
+.card.stale   { border-left: 4px solid var(--amber); }
+.card.overdue { border-left: 4px solid var(--red); }
+.card.resolved { opacity: 0.5; }
+.card.child-card {
+  margin-left: 28px;
+  border-left: 3px solid var(--border);
+  box-shadow: none;
+}
+.card.child-card:hover { border-left-color: var(--navy); }
+
+.card-main {
+  padding: 14px 18px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+.urgency-pip {
+  width: 9px; height: 9px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.urgency-high   { background: var(--red); }
+.urgency-medium { background: var(--amber); }
+.urgency-low    { background: var(--border); }
+
+.card-body { min-width: 0; }
+.card-title {
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  font-size: 15px; color: var(--text); margin-bottom: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-muted);
+  font-weight: 500; font-variation-settings: 'wght' 500;
+}
+.card-meta .contact      { color: var(--navy); font-weight: 600; font-variation-settings: 'wght' 600; }
+.card-meta .flag-overdue { color: var(--red);   font-weight: 700; font-variation-settings: 'wght' 700; }
+.card-meta .flag-due     { color: var(--amber); font-weight: 700; font-variation-settings: 'wght' 700; }
+.card-meta .flag-stale   { color: var(--amber); }
+.meta-dot { color: var(--border); }
+
+.card-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.card-expand-btn {
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); cursor: pointer;
+  font-size: 14px; padding: 4px 8px; border-radius: 4px;
+  line-height: 1; transition: all 0.15s; font-family: var(--font);
+}
+.card-expand-btn:hover { border-color: #b0b8c8; color: var(--text); }
+
+/* ── PANEL ── */
+.card-panel { border-top: 1px solid var(--border); background: var(--off-white); display: none; }
+.card-panel.open { display: block; }
+
+.panel-tabs {
+  display: flex; gap: 4px; padding: 10px 14px 0;
+  border-bottom: 1px solid var(--border); background: var(--white);
+}
+.panel-tab {
+  font-family: var(--font); font-size: 11px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  padding: 8px 14px; background: none; border: none;
+  color: var(--text-muted); cursor: pointer;
+  border-bottom: 3px solid transparent; margin-bottom: -1px;
+  transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.panel-tab:hover { color: var(--text); }
+.panel-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.panel-content { padding: 16px 18px; }
+
+/* ── CHILDREN GROUP ── */
+.children-group { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
+.children-label {
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);
+  padding: 8px 6px 4px;
+}
+.add-child-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font); font-size: 11px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  color: var(--navy); background: none; border: 1px dashed var(--border);
+  border-radius: var(--radius); padding: 7px 12px; cursor: pointer;
+  transition: all 0.15s; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.add-child-btn:hover { border-color: var(--navy); background: #f0f4fc; }
+
+/* ── EMAIL PREVIEW ── */
+.email-preview {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+  font-size: 14px; color: var(--text); line-height: 1.8;
+  white-space: pre-wrap; font-family: var(--font);
+  font-variation-settings: 'wght' 400;
+  margin-bottom: 12px; box-shadow: var(--shadow);
+  min-height: 80px;
+}
+.email-preview[contenteditable="true"] {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(158,0,0,0.08);
+}
+.email-preview.generating {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.email-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.copy-confirm {
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--green); text-transform: uppercase; letter-spacing: 0.06em;
+  opacity: 0; transition: opacity 0.3s;
+}
+.copy-confirm.show { opacity: 1; }
+
+/* ── NOTES ── */
+.notes-thread {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 12px; max-height: 220px; overflow-y: auto;
+}
+.note-entry {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 12px; font-size: 13px; color: var(--text);
+}
+.note-entry.note-chase {
+  border-left: 3px solid var(--primary);
+}
+.note-chase-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.note-ts {
+  font-size: 10px; color: var(--text-muted);
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.note-body { font-size: 13px; color: var(--text); }
+.note-chase-body {
+  font-size: 12px; color: var(--text-muted);
+  white-space: pre-wrap; line-height: 1.6;
+  display: none; margin-top: 6px;
+  border-top: 1px solid var(--border); padding-top: 6px;
+}
+.note-chase-body.expanded { display: block; }
+.note-toggle {
+  font-size: 10px; color: var(--navy); background: none; border: none;
+  cursor: pointer; font-family: var(--font);
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  text-transform: uppercase; letter-spacing: 0.05em; padding: 0;
+}
+.note-add { display: flex; gap: 8px; }
+.note-input {
+  flex: 1; background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 8px 11px; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+  font-variation-settings: 'wght' 400; outline: none; transition: border-color 0.15s;
+}
+.note-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.08); }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(10,22,40,0.55);
+  z-index: 200; display: none; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(2px);
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); width: 100%; max-width: 540px;
+  box-shadow: 0 8px 40px rgba(10,22,40,0.25);
+  animation: modalIn 0.18s ease; max-height: 90vh; overflow-y: auto;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.97) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-header {
+  padding: 18px 20px; background: var(--primary);
+  border-radius: var(--radius) var(--radius) 0 0;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 1;
+}
+.modal-title {
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  font-size: 16px; color: var(--white);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.modal-close {
+  background: none; border: none; color: rgba(255,255,255,0.7);
+  font-size: 22px; cursor: pointer; line-height: 1; transition: color 0.15s;
+}
+.modal-close:hover { color: var(--white); }
+.modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.modal-footer {
+  padding: 14px 20px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; justify-content: flex-end;
+  background: var(--off-white);
+  border-radius: 0 0 var(--radius) var(--radius);
+  position: sticky; bottom: 0;
+}
+
+/* ── FORM FIELDS ── */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label {
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em;
+}
+.field input, .field select, .field textarea {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 9px 11px; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+  font-variation-settings: 'wght' 400; outline: none;
+  transition: border-color 0.15s; width: 100%;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.08);
+}
+.field textarea { resize: vertical; min-height: 70px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-hint { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── CONTACT PICKER ── */
+.contact-picker { position: relative; }
+.contact-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  max-height: 200px; overflow-y: auto; display: none; margin-top: 2px;
+}
+.contact-dropdown.open { display: block; }
+.contact-option {
+  padding: 9px 12px; cursor: pointer; font-size: 13px;
+  border-bottom: 1px solid var(--border); display: flex;
+  align-items: center; gap: 10px;
+}
+.contact-option:last-child { border-bottom: none; }
+.contact-option:hover { background: var(--off-white); }
+.contact-option-name { font-weight: 600; font-variation-settings: 'wght' 600; }
+.contact-option-meta { font-size: 11px; color: var(--text-muted); }
+
+/* ── TYPE TOGGLE ── */
+.type-toggle { display: flex; gap: 6px; }
+.type-btn {
+  flex: 1; padding: 8px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: none;
+  font-family: var(--font); font-size: 11px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+  text-align: center;
+}
+.type-btn.active-internal { background: #e8edf8; color: var(--navy); border-color: var(--navy); }
+.type-btn.active-external { background: var(--off-white); color: var(--text); border-color: #b0b8c8; }
+
+/* ── SETTINGS PANEL ── */
+.settings-panel {
+  position: fixed; top: 0; right: -400px; width: 360px; height: 100vh;
+  background: var(--white); border-left: 1px solid var(--border);
+  box-shadow: -4px 0 24px rgba(10,22,40,0.15);
+  z-index: 300; transition: right 0.25s ease;
+  display: flex; flex-direction: column;
+}
+.settings-panel.open { right: 0; }
+.settings-header {
+  padding: 20px; background: var(--navy); color: var(--white);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.settings-title {
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.settings-close {
+  background: none; border: none; color: rgba(255,255,255,0.7);
+  font-size: 20px; cursor: pointer;
+}
+.settings-close:hover { color: var(--white); }
+.settings-body { padding: 20px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+.settings-section-title {
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted);
+  margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.api-key-status {
+  font-size: 12px; margin-top: 6px; font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.api-key-status.ok    { color: var(--green); }
+.api-key-status.error { color: var(--red); }
+.settings-overlay {
+  position: fixed; inset: 0; background: rgba(10,22,40,0.3);
+  z-index: 299; display: none;
+}
+.settings-overlay.open { display: block; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--navy); color: var(--white);
+  padding: 12px 18px; border-radius: var(--radius);
+  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25); z-index: 999;
+  transform: translateY(80px); opacity: 0; transition: all 0.25s ease;
+  max-width: 300px; pointer-events: none;
+}
+.toast.show    { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 4px solid var(--green); }
+.toast.error   { border-left: 4px solid var(--red); }
+.toast.info    { border-left: 4px solid var(--navy-light); }
+
+/* ── LOADING ── */
+.loading-row {
+  text-align: center; padding: 40px;
+  color: var(--text-muted); font-size: 13px;
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 640px) {
+  .topbar { padding: 0 14px; gap: 10px; }
+  .topbar__title { font-size: 16px; }
+  .container { padding: 16px 12px 60px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .filter-tabs { margin-left: 0; width: 100%; }
+  .filter-tab { flex: 1; text-align: center; }
+  .toolbar { gap: 8px; }
+  .card-actions .pill { display: none; }
+  .field-row { grid-template-columns: 1fr; }
+  .settings-panel { width: 100%; right: -100%; }
+  .child-card { margin-left: 12px; }
+}
+</style>
+</head>
+<body>
+
+<div id="pageWrap" style="display:none">
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <img
+    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+    alt="National League"
+    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+  <span class="topbar__title">
+    <span class="word-primary">Chase</span> <span class="word-secondary">HQ</span>
+  </span>
+  <div class="topbar__actions">
+    <button class="topbar__icon-btn" onclick="openSettings()" title="Settings">⚙️</button>
+    <button class="topbar__btn-ghost" onclick="doLogout()">Sign out</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat stat--overdue">
+      <div class="stat__num" id="stat-overdue">0</div>
+      <div class="stat__label">Overdue</div>
+    </div>
+    <div class="stat stat--due">
+      <div class="stat__num" id="stat-due">0</div>
+      <div class="stat__label">Due Today</div>
+    </div>
+    <div class="stat stat--open">
+      <div class="stat__num" id="stat-open">0</div>
+      <div class="stat__label">Open</div>
+    </div>
+    <div class="stat stat--resolved">
+      <div class="stat__num" id="stat-resolved">0</div>
+      <div class="stat__label">Resolved</div>
+    </div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <button class="btn btn--primary" onclick="openModal()">+ New Request</button>
+    <div class="filter-tabs">
+      <button class="filter-tab active" onclick="setFilter('open',this)">Open</button>
+      <button class="filter-tab" onclick="setFilter('all',this)">All</button>
+      <button class="filter-tab" onclick="setFilter('resolved',this)">Resolved</button>
+    </div>
+  </div>
+
+  <!-- LIST -->
+  <div class="requests-list" id="requests-list">
+    <div class="loading-row">Loading your requests…</div>
+  </div>
+
+</div><!-- /container -->
+
+</div><!-- /pageWrap -->
+
+<!-- SETTINGS PANEL -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+<div class="settings-panel" id="settings-panel">
+  <div class="settings-header">
+    <span class="settings-title">Settings</span>
+    <button class="settings-close" onclick="closeSettings()">×</button>
+  </div>
+  <div class="settings-body">
+    <div>
+      <div class="settings-section-title">AI Email Generation</div>
+      <div class="field">
+        <label>Anthropic API Key</label>
+        <input type="password" id="s-api-key" placeholder="sk-ant-…">
+        <div class="field-hint">Stored securely in your portal account. Used only to generate chase emails.</div>
+        <div class="api-key-status" id="api-key-status"></div>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn btn--navy" onclick="saveApiKey()">Save Key</button>
+      </div>
+    </div>
+    <div>
+      <div class="settings-section-title">Your Account</div>
+      <div style="font-size:13px;color:var(--text-muted)" id="settings-user-info"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">New Request</span>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>What are you waiting on?</label>
+        <input type="text" id="f-title" placeholder="e.g. Budget approval for Q3 event">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Contact name</label>
+          <div class="contact-picker">
+            <input type="text" id="f-contact" placeholder="Name or search staff…"
+              autocomplete="off"
+              oninput="onContactInput(this.value)"
+              onblur="setTimeout(closeContactDropdown,150)">
+            <div class="contact-dropdown" id="contact-dropdown"></div>
+          </div>
+          <input type="hidden" id="f-contact-uid">
+          <input type="hidden" id="f-contact-email-hidden">
+        </div>
+        <div class="field">
+          <label>Contact email</label>
+          <input type="email" id="f-contact-email" placeholder="email@example.com">
+        </div>
+      </div>
+      <div class="field">
+        <label>Internal or external?</label>
+        <div class="type-toggle">
+          <button class="type-btn active-internal" id="type-btn-internal" onclick="setType('internal')">🏢 Internal</button>
+          <button class="type-btn" id="type-btn-external" onclick="setType('external')">🌐 External</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Urgency</label>
+          <select id="f-urgency">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Chase me on</label>
+          <input type="date" id="f-chase-date">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Stale after (days)</label>
+          <input type="number" id="f-stale-days" value="5" min="1" max="30">
+          <div class="field-hint">Flag as stale if no activity for this many days</div>
+        </div>
+        <div class="field">
+          <label>Group / parent</label>
+          <select id="f-parent">
+            <option value="">— None (standalone) —</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Context</label>
+        <textarea id="f-context" placeholder="Brief background — what do you need and why?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn--ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn--primary" onclick="saveRequest()">Save Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── FIREBASE CONFIG ─────────────────────────────────── */
+var firebaseConfig = {
+  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:        'nl-tools.firebaseapp.com',
+  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'nl-tools',
+  storageBucket:     'nl-tools.firebasestorage.app',
+  messagingSenderId: '801354670005',
+  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
+
+/* ── ESCAPE HELPERS ──────────────────────────────────── */
+function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+/* ── TOAST ───────────────────────────────────────────── */
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type||'success') + ' show';
+  setTimeout(function() { t.classList.remove('show'); }, 3500);
+}
+
+/* ── ENSURE AUTH ─────────────────────────────────────── */
+function ensureAuth() {
+  return new Promise(function(resolve, reject) {
+    var unsub = firebase.auth().onAuthStateChanged(function(u) {
+      unsub();
+      if (u) resolve(u);
+      else reject(new Error('Not authenticated — please reload.'));
+    });
+  });
+}
+
+/* ── STATE ───────────────────────────────────────────── */
+var STATE = {
+  session:       null,
+  requests:      {},   /* flat map id -> request */
+  staffUsers:    [],   /* non-club portal users */
+  apiKey:        '',
+  currentFilter: 'open',
+  editingId:     null,
+  currentType:   'internal'
+};
+
+/* ── DATE HELPERS ────────────────────────────────────── */
+function todayStr() { return new Date().toISOString().slice(0,10); }
+
+function daysSince(dateStr) {
+  if (!dateStr) return 0;
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+}
+
+function isOverdue(r) {
+  if (!r.chaseDate || r.resolved) return false;
+  return r.chaseDate < todayStr();
+}
+
+function isDueToday(r) {
+  if (!r.chaseDate || r.resolved) return false;
+  return r.chaseDate === todayStr();
+}
+
+function isStale(r) {
+  if (r.resolved) return false;
+  var threshold = r.staleDays || 5;
+  return daysSince(r.lastActivity || r.created) >= threshold;
+}
+
+function fmtDate(dateStr) {
+  if (!dateStr) return '';
+  var p = dateStr.split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+
+function fmtTs(ts) {
+  var d = new Date(ts);
+  return String(d.getDate()).padStart(2,'0') + '/' +
+         String(d.getMonth()+1).padStart(2,'0') + '/' +
+         d.getFullYear() + ' ' +
+         String(d.getHours()).padStart(2,'0') + ':' +
+         String(d.getMinutes()).padStart(2,'0');
+}
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+/* ── TONE ────────────────────────────────────────────── */
+function getTone(n) {
+  if (n === 0) return { label: 'Nudge',  key: 'nudge'  };
+  if (n === 1) return { label: 'Firm',   key: 'firm'   };
+  return               { label: 'Formal', key: 'formal' };
+}
+
+/* ── AI EMAIL GENERATION ─────────────────────────────── */
+function generateEmailAI(r, callback) {
+  if (!STATE.apiKey) {
+    callback(null, 'No API key set — open Settings (⚙️) to add your Anthropic key.');
+    return;
+  }
+  var tone     = getTone(r.chaseCount || 0);
+  var typeStr  = r.contactType === 'internal' ? 'internal colleague' : 'external contact';
+  var chaseNum = (r.chaseCount || 0) + 1;
+
+  var prompt = 'Write a professional chase email. Details:\n'
+    + '- Recipient name: ' + (r.contact || 'the recipient') + '\n'
+    + '- Relationship: ' + typeStr + '\n'
+    + '- What I am waiting on: ' + r.title + '\n'
+    + (r.context ? '- Context: ' + r.context + '\n' : '')
+    + '- Chase number: ' + chaseNum + ' (tone should be: ' + tone.label + ')\n'
+    + '- Urgency: ' + (r.urgency || 'medium') + '\n'
+    + (r.chaseDate ? '- Originally due: ' + fmtDate(r.chaseDate) + '\n' : '')
+    + '\nTone guide: Nudge = friendly and low-pressure. Firm = direct, flags it is blocking progress. Formal = professional and serious, references repeated follow-ups.\n'
+    + 'For internal contacts, keep the tone warmer throughout even on formal escalations.\n'
+    + 'Write only the email body. No subject line. No "Dear" preamble unless Formal. Sign off appropriately. Be concise — 3 to 5 sentences max for Nudge/Firm, slightly longer for Formal.';
+
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 400,
+      system: 'You write professional, natural-sounding chase emails on behalf of an operations executive at a football league organisation. Never use filler phrases like "I hope this finds you well". Be direct and human.',
+      messages: [{ role: 'user', content: prompt }]
+    })
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    if (data.content && data.content[0] && data.content[0].text) {
+      callback(data.content[0].text, null);
+    } else {
+      callback(null, 'Unexpected response from API. Check your key in Settings.');
+    }
+  })
+  .catch(function(err) {
+    callback(null, 'API error: ' + err.message);
+  });
+}
+
+/* ── RTDB ────────────────────────────────────────────── */
+function requestsRef() {
+  return db.ref('chase-hq/' + STATE.session.uid + '/requests');
+}
+
+function loadRequests() {
+  requestsRef().on('value', function(snap) {
+    STATE.requests = snap.val() || {};
+    render();
+  });
+}
+
+function writeRequest(id, data) {
+  return ensureAuth().then(function() {
+    return requestsRef().child(id).set(data);
+  });
+}
+
+function updateRequest(id, data) {
+  return ensureAuth().then(function() {
+    return requestsRef().child(id).update(data);
+  });
+}
+
+function deleteRequestRTDB(id) {
+  return ensureAuth().then(function() {
+    return requestsRef().child(id).remove();
+  });
+}
+
+/* ── LOAD STAFF USERS ────────────────────────────────── */
+function loadStaffUsers() {
+  db.ref('users').once('value', function(snap) {
+    var all = snap.val() || {};
+    STATE.staffUsers = [];
+    Object.keys(all).forEach(function(uid) {
+      var u = all[uid];
+      if (!u.club && u.name && !u.pending) {
+        STATE.staffUsers.push({ uid: uid, name: u.name, email: u.email, jobTitle: u.jobTitle || '', org: u.org || '' });
+      }
+    });
+    STATE.staffUsers.sort(function(a,b) { return a.name.localeCompare(b.name); });
+  });
+}
+
+/* ── LOAD API KEY ────────────────────────────────────── */
+function loadApiKey() {
+  db.ref('users/' + STATE.session.uid + '/settings/anthropicKey').once('value', function(snap) {
+    STATE.apiKey = snap.val() || '';
+    if (STATE.apiKey) {
+      document.getElementById('s-api-key').value = STATE.apiKey;
+      document.getElementById('api-key-status').textContent = '✓ Key saved';
+      document.getElementById('api-key-status').className = 'api-key-status ok';
+    }
+  });
+}
+
+function saveApiKey() {
+  var key = document.getElementById('s-api-key').value.trim();
+  if (!key) { showToast('Enter a key first', 'error'); return; }
+  ensureAuth().then(function() {
+    return db.ref('users/' + STATE.session.uid + '/settings/anthropicKey').set(key);
+  }).then(function() {
+    STATE.apiKey = key;
+    document.getElementById('api-key-status').textContent = '✓ Key saved';
+    document.getElementById('api-key-status').className = 'api-key-status ok';
+    showToast('API key saved', 'success');
+  }).catch(function(e) {
+    showToast('Could not save: ' + e.message, 'error');
+  });
+}
+
+/* ── SETTINGS PANEL ──────────────────────────────────── */
+function openSettings() {
+  document.getElementById('settings-panel').classList.add('open');
+  document.getElementById('settings-overlay').classList.add('open');
+  if (STATE.session) {
+    document.getElementById('settings-user-info').textContent =
+      STATE.session.name + ' · ' + (STATE.session.jobTitle || STATE.session.org || '');
+  }
+}
+
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('settings-overlay').classList.remove('open');
+}
+
+/* ── CONTACT PICKER ──────────────────────────────────── */
+function onContactInput(val) {
+  var dd = document.getElementById('contact-dropdown');
+  document.getElementById('f-contact-uid').value = '';
+  document.getElementById('f-contact-email-hidden').value = '';
+
+  if (!val.trim()) { dd.classList.remove('open'); return; }
+  var lower = val.toLowerCase();
+  var matches = STATE.staffUsers.filter(function(u) {
+    return u.name.toLowerCase().indexOf(lower) !== -1 ||
+           (u.email && u.email.toLowerCase().indexOf(lower) !== -1);
+  }).slice(0, 8);
+
+  if (!matches.length) { dd.classList.remove('open'); return; }
+
+  dd.innerHTML = matches.map(function(u) {
+    return '<div class="contact-option" onmousedown="selectContact(\'' + escJ(u.uid) + '\',\'' + escJ(u.name) + '\',\'' + escJ(u.email||'') + '\')">'
+      + '<div>'
+        + '<div class="contact-option-name">' + esc(u.name) + '</div>'
+        + '<div class="contact-option-meta">' + esc(u.jobTitle || u.org || '') + '</div>'
+      + '</div>'
+    + '</div>';
+  }).join('');
+  dd.classList.add('open');
+}
+
+function selectContact(uid, name, email) {
+  document.getElementById('f-contact').value = name;
+  document.getElementById('f-contact-uid').value = uid;
+  document.getElementById('f-contact-email-hidden').value = email;
+  if (email) document.getElementById('f-contact-email').value = email;
+  closeContactDropdown();
+  setType('internal');
+}
+
+function closeContactDropdown() {
+  document.getElementById('contact-dropdown').classList.remove('open');
+}
+
+/* ── TYPE TOGGLE ─────────────────────────────────────── */
+function setType(type) {
+  STATE.currentType = type;
+  var ib = document.getElementById('type-btn-internal');
+  var eb = document.getElementById('type-btn-external');
+  ib.className = 'type-btn' + (type === 'internal' ? ' active-internal' : '');
+  eb.className = 'type-btn' + (type === 'external' ? ' active-external' : '');
+}
+
+/* ── PARENT PICKER ───────────────────────────────────── */
+function populateParentPicker(excludeId) {
+  var sel = document.getElementById('f-parent');
+  sel.innerHTML = '<option value="">— None (standalone) —</option>';
+  var reqs = STATE.requests;
+  Object.keys(reqs).forEach(function(id) {
+    var r = reqs[id];
+    if (id === excludeId) return;
+    if (r.parentId) return; /* don't allow child as parent */
+    if (r.resolved) return;
+    var opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = r.title + (r.contact ? ' (' + r.contact + ')' : '');
+    sel.appendChild(opt);
+  });
+}
+
+/* ── STATS ───────────────────────────────────────────── */
+function updateStats() {
+  var reqs = Object.values(STATE.requests);
+  var open     = reqs.filter(function(r) { return !r.resolved; });
+  var resolved = reqs.filter(function(r) { return  r.resolved; });
+  var overdue  = open.filter(isOverdue);
+  var due      = open.filter(isDueToday);
+
+  document.getElementById('stat-overdue').textContent  = overdue.length;
+  document.getElementById('stat-due').textContent      = due.length;
+  document.getElementById('stat-open').textContent     = open.length;
+  document.getElementById('stat-resolved').textContent = resolved.length;
+}
+
+/* ── FILTER ──────────────────────────────────────────── */
+function setFilter(f, el) {
+  STATE.currentFilter = f;
+  document.querySelectorAll('.filter-tab').forEach(function(t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  render();
+}
+
+/* ── RENDER ──────────────────────────────────────────── */
+function render() {
+  updateStats();
+  var list = document.getElementById('requests-list');
+  var reqs  = STATE.requests;
+
+  /* Separate parents/standalones from children */
+  var parents = [];
+  Object.keys(reqs).forEach(function(id) {
+    var r = reqs[id];
+    if (r.parentId) return; /* skip children here */
+    var passes = false;
+    if (STATE.currentFilter === 'open')     passes = !r.resolved;
+    if (STATE.currentFilter === 'resolved') passes = !!r.resolved;
+    if (STATE.currentFilter === 'all')      passes = true;
+    if (passes) parents.push(Object.assign({ _id: id }, r));
+  });
+
+  /* Sort: overdue first, then due today, then urgency */
+  var uw = { high: 0, medium: 1, low: 2 };
+  parents.sort(function(a, b) {
+    if (isOverdue(a) && !isOverdue(b)) return -1;
+    if (!isOverdue(a) && isOverdue(b)) return 1;
+    if (isDueToday(a) && !isDueToday(b)) return -1;
+    if (!isDueToday(a) && isDueToday(b)) return 1;
+    return (uw[a.urgency]||1) - (uw[b.urgency]||1);
+  });
+
+  if (parents.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div>'
+      + (STATE.currentFilter === 'open' ? 'Nothing outstanding — all clear.' : 'Nothing here.') + '</div>';
+    return;
+  }
+
+  list.innerHTML = parents.map(function(r) {
+    /* Find children */
+    var children = [];
+    Object.keys(reqs).forEach(function(cid) {
+      if (reqs[cid].parentId === r._id) {
+        var cr = Object.assign({ _id: cid }, reqs[cid]);
+        /* Apply filter to children too */
+        if (STATE.currentFilter === 'open'     && cr.resolved) return;
+        if (STATE.currentFilter === 'resolved' && !cr.resolved) return;
+        children.push(cr);
+      }
+    });
+    children.sort(function(a,b) { return (uw[a.urgency]||1) - (uw[b.urgency]||1); });
+    return cardHTML(r, children);
+  }).join('');
+}
+
+function cardHTML(r, children) {
+  var id       = r._id;
+  var tone     = getTone(r.chaseCount || 0);
+  var stale    = isStale(r);
+  var overdue  = isOverdue(r);
+  var dueToday = isDueToday(r);
+  var noteCount = (r.notes || []).length;
+  var hasChildren = children && children.length > 0;
+
+  var cardClass = 'card';
+  if (r.resolved)   cardClass += ' resolved';
+  else if (overdue) cardClass += ' overdue';
+  else if (stale)   cardClass += ' stale';
+
+  var flags = '<span class="contact">↳ ' + esc(r.contact || '—') + '</span>';
+  if (r.contactType) flags += '<span class="meta-dot">·</span><span class="pill pill--' + esc(r.contactType) + '" style="font-size:9px;padding:2px 6px">' + esc(r.contactType) + '</span>';
+  if (overdue)        flags += '<span class="meta-dot">·</span><span class="flag-overdue">⚠ Overdue ' + fmtDate(r.chaseDate) + '</span>';
+  else if (dueToday)  flags += '<span class="meta-dot">·</span><span class="flag-due">⏰ Due today</span>';
+  else if (r.chaseDate) flags += '<span class="meta-dot">·</span><span>Chase: ' + fmtDate(r.chaseDate) + '</span>';
+  if (stale && !r.resolved) flags += '<span class="meta-dot">·</span><span class="flag-stale">Stale</span>';
+  if (r.chaseCount > 0) flags += '<span class="meta-dot">·</span><span style="color:var(--text-muted)">×' + r.chaseCount + ' chased</span>';
+  if (noteCount > 0) flags += '<span class="meta-dot">·</span><span>' + noteCount + ' note' + (noteCount>1?'s':'') + '</span>';
+  if (hasChildren) flags += '<span class="meta-dot">·</span><span class="pill pill--parent" style="font-size:9px;padding:2px 6px">' + children.length + ' linked</span>';
+
+  var html = '<div class="' + cardClass + '" id="card-' + id + '">'
+    + '<div class="card-main">'
+      + '<div class="urgency-pip urgency-' + esc(r.urgency||'medium') + '"></div>'
+      + '<div class="card-body">'
+        + '<div class="card-title">' + esc(r.title) + '</div>'
+        + '<div class="card-meta">' + flags + '</div>'
+      + '</div>'
+      + '<div class="card-actions">'
+        + '<span class="pill pill--' + tone.key + '">' + tone.label + '</span>'
+        + '<button class="card-expand-btn" onclick="togglePanel(\'' + escJ(id) + '\')" title="Expand">···</button>'
+      + '</div>'
+    + '</div>'
+
+    /* PANEL */
+    + '<div class="card-panel" id="panel-' + id + '">'
+      + '<div class="panel-tabs">'
+        + '<button class="panel-tab active" onclick="showPanelTab(\'' + escJ(id) + '\',\'chase\',this)">Chase Email</button>'
+        + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'notes\',this)">Notes</button>'
+        + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'actions\',this)">Actions</button>'
+      + '</div>'
+
+      /* Chase tab */
+      + '<div class="panel-content" id="ptab-' + id + '-chase">'
+        + '<div class="email-preview" id="email-' + id + '" contenteditable="false">Click Generate to create a chase email.</div>'
+        + '<div class="email-actions">'
+          + '<button class="btn btn--primary btn--sm" onclick="generateEmail(\'' + escJ(id) + '\')">Generate</button>'
+          + '<button class="btn btn--navy btn--sm" onclick="copyEmail(\'' + escJ(id) + '\')" id="copy-btn-' + id + '" disabled>Copy</button>'
+          + '<button class="btn btn--ghost btn--sm" onclick="recordChase(\'' + escJ(id) + '\')" id="chase-btn-' + id + '" disabled>Mark as Chased</button>'
+          + '<span class="copy-confirm" id="copy-ok-' + id + '">✓ Copied</span>'
+        + '</div>'
+      + '</div>'
+
+      /* Notes tab */
+      + '<div class="panel-content" id="ptab-' + id + '-notes" style="display:none">'
+        + '<div class="notes-thread" id="notes-' + id + '">'
+          + renderNotes(r.notes || [])
+        + '</div>'
+        + '<div class="note-add">'
+          + '<input class="note-input" id="note-input-' + id + '" placeholder="Add a note…" onkeydown="if(event.key===\'Enter\')addNote(\'' + escJ(id) + '\')">'
+          + '<button class="btn btn--navy btn--sm" onclick="addNote(\'' + escJ(id) + '\')">Add</button>'
+        + '</div>'
+      + '</div>'
+
+      /* Actions tab */
+      + '<div class="panel-content" id="ptab-' + id + '-actions" style="display:none">'
+        + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+          + (!r.resolved
+              ? '<button class="btn btn--green btn--sm" onclick="resolveRequest(\'' + escJ(id) + '\')">✓ Mark Resolved</button>'
+              : '<span class="pill pill--resolved">Resolved</span>')
+          + '<button class="btn btn--ghost btn--sm" onclick="openModal(\'' + escJ(id) + '\')">Edit</button>'
+          + '<button class="btn btn--danger btn--sm" onclick="deleteReq(\'' + escJ(id) + '\')">Delete</button>'
+        + '</div>'
+      + '</div>'
+    + '</div>';/* /panel */
+
+  /* Children */
+  if (hasChildren) {
+    html += '<div class="children-group">'
+      + '<div class="children-label">Linked requests (' + children.length + ')</div>'
+      + children.map(function(c) { return childCardHTML(c); }).join('')
+      + '<button class="add-child-btn" onclick="openModal(null,\'' + escJ(id) + '\')">+ Add linked request</button>'
+    + '</div>';
+  } else if (!r.resolved) {
+    html += '<div class="children-group" style="padding-top:0">'
+      + '<button class="add-child-btn" onclick="openModal(null,\'' + escJ(id) + '\')">+ Add linked request</button>'
+    + '</div>';
+  }
+
+  html += '</div>'; /* /card */
+  return html;
+}
+
+function childCardHTML(r) {
+  var id      = r._id;
+  var tone    = getTone(r.chaseCount || 0);
+  var stale   = isStale(r);
+  var overdue = isOverdue(r);
+
+  var cardClass = 'card child-card';
+  if (r.resolved)   cardClass += ' resolved';
+  else if (overdue) cardClass += ' overdue';
+  else if (stale)   cardClass += ' stale';
+
+  var flags = '<span class="contact">↳ ' + esc(r.contact||'—') + '</span>';
+  if (overdue) flags += '<span class="meta-dot">·</span><span class="flag-overdue">⚠ Overdue</span>';
+  else if (isDueToday(r)) flags += '<span class="meta-dot">·</span><span class="flag-due">⏰ Today</span>';
+
+  return '<div class="' + cardClass + '" id="card-' + id + '">'
+    + '<div class="card-main">'
+      + '<div class="urgency-pip urgency-' + esc(r.urgency||'medium') + '"></div>'
+      + '<div class="card-body">'
+        + '<div class="card-title" style="font-size:13px">' + esc(r.title) + '</div>'
+        + '<div class="card-meta">' + flags + '</div>'
+      + '</div>'
+      + '<div class="card-actions">'
+        + '<span class="pill pill--' + tone.key + '">' + tone.label + '</span>'
+        + '<button class="card-expand-btn" onclick="togglePanel(\'' + escJ(id) + '\')" title="Expand">···</button>'
+      + '</div>'
+    + '</div>'
+    + '<div class="card-panel" id="panel-' + id + '">'
+      + '<div class="panel-tabs">'
+        + '<button class="panel-tab active" onclick="showPanelTab(\'' + escJ(id) + '\',\'chase\',this)">Chase Email</button>'
+        + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'notes\',this)">Notes</button>'
+        + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'actions\',this)">Actions</button>'
+      + '</div>'
+      + '<div class="panel-content" id="ptab-' + id + '-chase">'
+        + '<div class="email-preview" id="email-' + id + '" contenteditable="false">Click Generate to create a chase email.</div>'
+        + '<div class="email-actions">'
+          + '<button class="btn btn--primary btn--sm" onclick="generateEmail(\'' + escJ(id) + '\')">Generate</button>'
+          + '<button class="btn btn--navy btn--sm" onclick="copyEmail(\'' + escJ(id) + '\')" id="copy-btn-' + id + '" disabled>Copy</button>'
+          + '<button class="btn btn--ghost btn--sm" onclick="recordChase(\'' + escJ(id) + '\')" id="chase-btn-' + id + '" disabled>Mark as Chased</button>'
+          + '<span class="copy-confirm" id="copy-ok-' + id + '">✓ Copied</span>'
+        + '</div>'
+      + '</div>'
+      + '<div class="panel-content" id="ptab-' + id + '-notes" style="display:none">'
+        + '<div class="notes-thread" id="notes-' + id + '">' + renderNotes(r.notes||[]) + '</div>'
+        + '<div class="note-add">'
+          + '<input class="note-input" id="note-input-' + id + '" placeholder="Add a note…" onkeydown="if(event.key===\'Enter\')addNote(\'' + escJ(id) + '\')">'
+          + '<button class="btn btn--navy btn--sm" onclick="addNote(\'' + escJ(id) + '\')">Add</button>'
+        + '</div>'
+      + '</div>'
+      + '<div class="panel-content" id="ptab-' + id + '-actions" style="display:none">'
+        + '<div style="display:flex;flex-wrap:wrap;gap:8px">'
+          + (!r.resolved ? '<button class="btn btn--green btn--sm" onclick="resolveRequest(\'' + escJ(id) + '\')">✓ Resolved</button>' : '<span class="pill pill--resolved">Resolved</span>')
+          + '<button class="btn btn--ghost btn--sm" onclick="openModal(\'' + escJ(id) + '\')">Edit</button>'
+          + '<button class="btn btn--danger btn--sm" onclick="deleteReq(\'' + escJ(id) + '\')">Delete</button>'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+  + '</div>';
+}
+
+function renderNotes(notes) {
+  if (!notes || !notes.length) return '<div style="color:var(--text-muted);font-size:13px">No notes yet.</div>';
+  return notes.map(function(n, i) {
+    if (n.type === 'chase') {
+      var nid = 'chase-note-' + i + '-' + Math.random().toString(36).slice(2,6);
+      return '<div class="note-entry note-chase">'
+        + '<div class="note-chase-header">'
+          + '<span class="note-ts">' + esc(n.ts) + '</span>'
+          + '<span class="pill pill--' + esc(getTone(n.chaseNum-1).key) + '" style="font-size:9px;padding:1px 6px">Chase #' + n.chaseNum + '</span>'
+          + '<button class="note-toggle" onclick="toggleChaseNote(\'' + nid + '\')">Show email</button>'
+        + '</div>'
+        + '<div class="note-chase-body" id="' + nid + '">' + esc(n.emailText || '') + '</div>'
+      + '</div>';
+    }
+    return '<div class="note-entry"><div class="note-ts">' + esc(n.ts) + '</div><div class="note-body">' + esc(n.text||'') + '</div></div>';
+  }).join('');
+}
+
+function toggleChaseNote(nid) {
+  var el = document.getElementById(nid);
+  if (!el) return;
+  el.classList.toggle('expanded');
+  var btn = el.previousElementSibling ? el.previousElementSibling.querySelector('.note-toggle') : null;
+  if (btn) btn.textContent = el.classList.contains('expanded') ? 'Hide email' : 'Show email';
+}
+
+/* ── PANEL HELPERS ───────────────────────────────────── */
+function togglePanel(id) {
+  var panel = document.getElementById('panel-' + id);
+  if (panel) panel.classList.toggle('open');
+}
+
+function showPanelTab(id, tab, el) {
+  ['chase','notes','actions'].forEach(function(t) {
+    var c = document.getElementById('ptab-' + id + '-' + t);
+    if (c) c.style.display = (t === tab) ? '' : 'none';
+  });
+  el.closest('.panel-tabs').querySelectorAll('.panel-tab').forEach(function(t) { t.classList.remove('active'); });
+  el.classList.add('active');
+}
+
+/* ── EMAIL ACTIONS ───────────────────────────────────── */
+function generateEmail(id) {
+  var r = STATE.requests[id];
+  if (!r) return;
+  var el = document.getElementById('email-' + id);
+  if (!el) return;
+  el.textContent = 'Generating…';
+  el.className = 'email-preview generating';
+  el.contentEditable = 'false';
+
+  generateEmailAI(r, function(text, err) {
+    el.className = 'email-preview';
+    if (err) {
+      el.textContent = err;
+      showToast('Could not generate email', 'error');
+      return;
+    }
+    el.textContent = text;
+    el.contentEditable = 'true';
+    var copyBtn  = document.getElementById('copy-btn-' + id);
+    var chaseBtn = document.getElementById('chase-btn-' + id);
+    if (copyBtn)  copyBtn.disabled  = false;
+    if (chaseBtn) chaseBtn.disabled = false;
+  });
+}
+
+function copyEmail(id) {
+  var el = document.getElementById('email-' + id);
+  if (!el) return;
+  var text = el.textContent || el.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var ok = document.getElementById('copy-ok-' + id);
+    if (ok) { ok.classList.add('show'); setTimeout(function() { ok.classList.remove('show'); }, 2000); }
+    showToast('Email copied', 'success');
+  });
+}
+
+function recordChase(id) {
+  var r = STATE.requests[id];
+  if (!r) return;
+  var el = document.getElementById('email-' + id);
+  var emailText = el ? (el.textContent || el.innerText) : '';
+  var newCount  = (r.chaseCount || 0) + 1;
+  var ts        = fmtTs(Date.now());
+
+  var notes = r.notes ? r.notes.slice() : [];
+  notes.push({ type: 'chase', ts: ts, chaseNum: newCount, emailText: emailText });
+
+  updateRequest(id, {
+    chaseCount:    newCount,
+    lastActivity:  todayStr(),
+    notes:         notes
+  }).then(function() {
+    showToast('Marked as chased', 'info');
+    /* disable buttons until next generate */
+    var copyBtn  = document.getElementById('copy-btn-'  + id);
+    var chaseBtn = document.getElementById('chase-btn-' + id);
+    if (copyBtn)  copyBtn.disabled  = true;
+    if (chaseBtn) chaseBtn.disabled = true;
+    var emailEl = document.getElementById('email-' + id);
+    if (emailEl) { emailEl.textContent = 'Click Generate to create a chase email.'; emailEl.contentEditable = 'false'; }
+  }).catch(function(e) { showToast(e.message, 'error'); });
+}
+
+/* ── NOTES ───────────────────────────────────────────── */
+function addNote(id) {
+  var input = document.getElementById('note-input-' + id);
+  if (!input) return;
+  var text = input.value.trim();
+  if (!text) return;
+  var r = STATE.requests[id];
+  if (!r) return;
+  var notes = r.notes ? r.notes.slice() : [];
+  notes.push({ type: 'note', ts: fmtTs(Date.now()), text: text });
+  input.value = '';
+  updateRequest(id, { notes: notes, lastActivity: todayStr() })
+    .then(function() { showToast('Note added', 'success'); })
+    .catch(function(e) { showToast(e.message, 'error'); });
+}
+
+/* ── RESOLVE / DELETE ────────────────────────────────── */
+function resolveRequest(id) {
+  updateRequest(id, { resolved: true, resolvedDate: todayStr() })
+    .then(function() { showToast('Request resolved', 'success'); })
+    .catch(function(e) { showToast(e.message, 'error'); });
+}
+
+function deleteReq(id) {
+  if (!confirm('Delete this request? This cannot be undone.')) return;
+  /* Also remove from any parent */
+  deleteRequestRTDB(id)
+    .then(function() { showToast('Deleted', 'info'); })
+    .catch(function(e) { showToast(e.message, 'error'); });
+}
+
+/* ── MODAL ───────────────────────────────────────────── */
+function openModal(id, parentId) {
+  STATE.editingId = id || null;
+  document.getElementById('modal-title').textContent = id ? 'Edit Request' : 'New Request';
+  document.getElementById('modal-overlay').classList.add('open');
+  populateParentPicker(id || null);
+
+  if (id) {
+    var r = STATE.requests[id];
+    if (r) {
+      document.getElementById('f-title').value        = r.title        || '';
+      document.getElementById('f-contact').value      = r.contact      || '';
+      document.getElementById('f-contact-uid').value  = r.contactUid   || '';
+      document.getElementById('f-contact-email').value = r.contactEmail || '';
+      document.getElementById('f-urgency').value      = r.urgency      || 'medium';
+      document.getElementById('f-chase-date').value   = r.chaseDate    || '';
+      document.getElementById('f-stale-days').value   = r.staleDays    || 5;
+      document.getElementById('f-context').value      = r.context      || '';
+      document.getElementById('f-parent').value       = r.parentId     || '';
+      setType(r.contactType || 'internal');
+    }
+  } else {
+    document.getElementById('f-title').value         = '';
+    document.getElementById('f-contact').value       = '';
+    document.getElementById('f-contact-uid').value   = '';
+    document.getElementById('f-contact-email').value = '';
+    document.getElementById('f-urgency').value       = 'medium';
+    document.getElementById('f-chase-date').value    = '';
+    document.getElementById('f-stale-days').value    = 5;
+    document.getElementById('f-context').value       = '';
+    document.getElementById('f-parent').value        = parentId || '';
+    setType('internal');
+  }
+  setTimeout(function() { document.getElementById('f-title').focus(); }, 100);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  STATE.editingId = null;
+}
+
+function saveRequest() {
+  var title = document.getElementById('f-title').value.trim();
+  if (!title) { document.getElementById('f-title').focus(); return; }
+
+  var data = {
+    title:        title,
+    contact:      document.getElementById('f-contact').value.trim(),
+    contactUid:   document.getElementById('f-contact-uid').value || '',
+    contactEmail: document.getElementById('f-contact-email').value.trim() || document.getElementById('f-contact-email-hidden').value,
+    contactType:  STATE.currentType,
+    urgency:      document.getElementById('f-urgency').value,
+    chaseDate:    document.getElementById('f-chase-date').value,
+    staleDays:    parseInt(document.getElementById('f-stale-days').value, 10) || 5,
+    context:      document.getElementById('f-context').value.trim(),
+    parentId:     document.getElementById('f-parent').value || ''
+  };
+
+  var id = STATE.editingId || uid();
+  var isNew = !STATE.editingId;
+
+  if (isNew) {
+    data.chaseCount    = 0;
+    data.notes         = [];
+    data.created       = todayStr();
+    data.lastActivity  = todayStr();
+    data.resolved      = false;
+    data.createdBy     = STATE.session.uid;
+    data.createdByName = STATE.session.name;
+  } else {
+    /* Preserve existing fields */
+    var existing = STATE.requests[id] || {};
+    data.chaseCount   = existing.chaseCount   || 0;
+    data.notes        = existing.notes        || [];
+    data.created      = existing.created      || todayStr();
+    data.lastActivity = todayStr();
+    data.resolved     = existing.resolved     || false;
+    data.createdBy    = existing.createdBy    || STATE.session.uid;
+    data.createdByName = existing.createdByName || STATE.session.name;
+  }
+
+  writeRequest(id, data)
+    .then(function() {
+      showToast(isNew ? 'Request added' : 'Request updated', 'success');
+      closeModal();
+    })
+    .catch(function(e) { showToast(e.message, 'error'); });
+}
+
+/* ── AUTH & INIT ─────────────────────────────────────── */
+function doLogout() {
+  firebase.auth().signOut().then(function() {
+    if (window.nlSession) window.nlSession.clear();
+    window.location.href = '/tools/';
+  });
+}
+
+window.nlAuthReady = function(session) {
+  STATE.session = session;
+  loadRequests();
+  loadStaffUsers();
+  loadApiKey();
+};
+
+/* ── EVENT LISTENERS ─────────────────────────────────── */
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') { closeModal(); closeSettings(); }
+});
+</script>
+</body>
+</html>
