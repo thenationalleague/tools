@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<!--
+  Team of the Week Builder — NL Tools
+  Version: 7.0
+  Date: 17/04/2026
+  File: /tools/graphics/totw/index.html
+
+  CHANGELOG
+  v7.0 (17/04/2026) — Portal integration rebuild
+    Shell (rebuilt):
+      - Removed standalone app-header with hardcoded NL logo
+      - Added standard NL portal topbar (72px red/navy, rose logo with
+        onerror fallback, "TEAM OF THE WEEK / NL TOOLS GRAPHICS" title)
+      - Added auth-guard under NL_TOOL_KEY = 'graphics' (same key as
+        parent menu — access to graphics unlocks all sub-tools)
+      - Added Firebase compat SDKs + config + initializeApp in <head>
+        before auth-guard (per nl-tools skill §4 prerequisite stack)
+      - Back button → /tools/graphics/ menu, Sign out button
+      - All content wrapped in <div id="pageWrap" style="display:none">
+    Styling (rebuilt):
+      - GitHub-style palette replaced with NL brand navy/red/radius 6px
+      - Typekit CSS @import replaced with direct carbona-variable
+        font-face (matches nl-brand skill, faster, no Typekit flash)
+      - Control buttons restyled: navy primary, outlined secondary
+      - Lineup inputs tightened; preview frame uses --off-white tint
+      - Textarea backgrounds + borders aligned to brand
+      - Responsive: layout stacks below 900px instead of 980px
+    Engine (preserved intact from v6.9):
+      - All canvas rendering, formation logic, coordinate maths, drag/
+        pan/zoom, pinch support, font detection, export, localStorage
+        state management, Excel export — ALL kept byte-identical except
+        the three URL swaps below
+      - STORAGE_KEY kept as 'totw-builder-v6.9' so existing user layouts
+        survive the upgrade (must not rename without data migration)
+    URL swaps (engine):
+      - ASSET_BASE: rckd-nl.github.io → raw.githubusercontent.com/
+        thenationalleague/tools/refs/heads/main/assets (crests/divisions)
+      - BG_URL: images.gc.nationalleagueservices.co.uk CMS image →
+        ../assets/backgrounds/totw-pitch.jpg (self-hosted in tool folder)
+      - VERSION bumped 6.9 → 7.0 (for PNG filename export)
+
+  ASSET DEPENDENCIES
+    Hosted in thenationalleague/tools repo:
+      /assets/crests/{TeamName}.png         (72 files, already in place)
+      /assets/divisions/National.png        (already in place)
+      /assets/divisions/North.png           (already in place)
+      /assets/divisions/South.png           (already in place)
+    Tool-specific, must live at:
+      /tools/graphics/assets/backgrounds/totw-pitch.jpg
+    Adobe Typekit DIN condensed — loaded via use.typekit.net/gff4ipy.css
+      (same as every other NL tool; fonts loaded via gff4ipy kit)
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team of the Week — NL Tools</title>
+  <meta name="robots" content="noindex,nofollow">
+
+  <!-- Firebase SDKs — must load BEFORE auth-guard.js -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <script>
+    var firebaseConfig = {
+      apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+      authDomain:        'nl-tools.firebaseapp.com',
+      databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+      projectId:         'nl-tools',
+      storageBucket:     'nl-tools.firebasestorage.app',
+      messagingSenderId: '801354670005',
+      appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  </script>
+
+  <script>var NL_TOOL_KEY = 'graphics';</script>
+  <script src="/tools/auth-guard.js"></script>
+
+  <!-- Typekit for DIN condensed (used on canvas by the engine) -->
+  <link rel="preconnect" href="https://use.typekit.net" crossorigin>
+  <link rel="preconnect" href="https://p.typekit.net" crossorigin>
+  <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+
+  <style>
+    :root {
+      --primary:     #9e0000;
+      --primary-dim: #7a0000;
+      --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
+      --white:       #ffffff;
+      --off-white:   #f4f6f9;
+      --text:        #1a2a44;
+      --text-muted:  #5a6a82;
+      --border:      #dde3ed;
+      --green:       #1e7e34;
+      --amber:       #e67e22;
+      --red:         #c0392b;
+      --radius:      6px;
+      --shadow:      0 2px 12px rgba(10,22,40,0.10);
+      --font:        'carbona-variable','carbona',sans-serif;
+      color-scheme: light;
+    }
+
+    @font-face {
+      font-family: "carbona-variable";
+      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+      font-display: swap;
+      font-style: normal;
+      font-weight: 200 900;
+      font-stretch: normal;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.5;
+      font-variation-settings: 'wght' 400;
+      color: var(--text);
+      background: var(--off-white);
+      min-height: 100vh;
+    }
+
+    /* ── Topbar (portal standard) ── */
+    .topbar {
+      background: var(--primary);
+      color: var(--white);
+      padding: 0 20px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      border-bottom: 7px solid var(--navy);
+      width: 100%;
+    }
+    .topbar__logo { height: 42px; width: auto; flex-shrink: 0; }
+    .topbar__titles { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .topbar__title {
+      font-weight: 900; font-variation-settings: 'wght' 900;
+      font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--white); line-height: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .topbar__kicker {
+      font-size: 10px; font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.14em;
+      color: rgba(255,255,255,0.65); line-height: 1;
+    }
+    .topbar__btn {
+      background: none; border: 1px solid rgba(255,255,255,0.3);
+      color: var(--white); padding: 8px 14px; border-radius: var(--radius);
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: all 0.15s;
+      font-family: var(--font); text-decoration: none;
+      display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .topbar__btn:hover { background: rgba(255,255,255,0.14); }
+    @media (max-width: 700px) {
+      .topbar { padding: 0 14px; gap: 10px; }
+      .topbar__title { font-size: 16px; }
+      .topbar__btn--back .label { display: none; }
+      .topbar__btn--back { padding: 8px 10px; }
+    }
+
+    /* ── Page ── */
+    .page {
+      max-width: 1400px; margin: 0 auto;
+      padding: 20px 20px 40px;
+    }
+
+    /* ── App layout (2-col with sticky preview, stacks on tablet) ── */
+    .app {
+      display: grid;
+      grid-template-columns: minmax(460px, 900px) minmax(340px, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 1fr; }
+    }
+
+    /* ── Preview ── */
+    .previewWrap {
+      position: sticky;
+      top: 88px; /* sit below sticky topbar */
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--off-white);
+      padding: 10px;
+      box-shadow: var(--shadow);
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+    @media (max-width: 1100px) {
+      .previewWrap { position: static; }
+    }
+
+    /* ── Panel ── */
+    .panel {
+      display: flex; flex-direction: column; gap: 14px;
+      min-width: 0;
+    }
+    .box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    /* ── Control bar ── */
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    }
+    .controls select,
+    .controls input[type="date"] {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--white);
+      font: inherit;
+      color: var(--text);
+      font-weight: 600; font-variation-settings: 'wght' 600;
+      transition: border-color 0.12s;
+    }
+    .controls select:hover,
+    .controls input[type="date"]:hover { border-color: var(--navy); }
+    .controls select:focus,
+    .controls input[type="date"]:focus {
+      outline: 2px solid rgba(34,59,124,0.15);
+      border-color: var(--navy);
+    }
+    .controls label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600;
+      color: var(--text-muted);
+      padding: 0 4px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 8px 14px;
+      border: 1px solid var(--navy);
+      border-radius: var(--radius);
+      background: var(--navy);
+      color: var(--white);
+      font: inherit;
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: all 0.12s;
+      font-family: var(--font);
+    }
+    .btn:hover { background: var(--navy-mid); border-color: var(--navy-mid); }
+    .btn--secondary {
+      background: var(--white); color: var(--navy); border-color: var(--border);
+    }
+    .btn--secondary:hover { border-color: var(--navy); background: var(--off-white); }
+    .btn--primary {
+      background: var(--primary); border-color: var(--primary);
+    }
+    .btn--primary:hover { background: var(--primary-dim); border-color: var(--primary-dim); }
+
+    /* Apply .btn styling to all control+box buttons for consistency */
+    .controls button,
+    .box button {
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--white);
+      color: var(--navy);
+      font: inherit;
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: all 0.12s;
+      font-family: var(--font);
+    }
+    .controls button:hover,
+    .box button:hover {
+      background: var(--off-white);
+      border-color: var(--navy);
+    }
+    /* Download = primary action, highlight it */
+    #download {
+      background: var(--primary);
+      color: var(--white);
+      border-color: var(--primary);
+    }
+    #download:hover {
+      background: var(--primary-dim);
+      border-color: var(--primary-dim);
+    }
+
+    /* ── Lineup grid ── */
+    .lineup {
+      display: grid;
+      grid-template-columns: 56px 220px minmax(150px, 1fr) minmax(250px, 2fr);
+      gap: 6px 8px;
+      align-items: center;
+    }
+    .lineup .pos {
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .lineup input,
+    .lineup select {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font: inherit;
+      font-size: 13px;
+      background: var(--white);
+      color: var(--text);
+      transition: border-color 0.12s;
+    }
+    .lineup input:hover,
+    .lineup select:hover { border-color: var(--navy); }
+    .lineup input:focus,
+    .lineup select:focus {
+      outline: 2px solid rgba(34,59,124,0.15);
+      border-color: var(--navy);
+    }
+    .lineup input.perf {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    @media (max-width: 720px) {
+      .lineup { grid-template-columns: 56px 1fr; }
+    }
+
+    /* ── Section with label + textarea ── */
+    .section {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .section label {
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text-muted);
+    }
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font: inherit;
+      font-size: 13px;
+      line-height: 1.5;
+      background: var(--white);
+      color: var(--text);
+      resize: vertical;
+      font-family: var(--font);
+      transition: border-color 0.12s;
+    }
+    textarea:hover { border-color: var(--navy); }
+    textarea:focus {
+      outline: 2px solid rgba(34,59,124,0.15);
+      border-color: var(--navy);
+    }
+    textarea[readonly] {
+      background: var(--off-white);
+      color: var(--text-muted);
+    }
+
+    /* ── Footer status ── */
+    footer {
+      margin-top: 10px;
+      font-size: 11px;
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 4px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Font warmup element (used by engine to check Typekit DIN availability) -->
+<span id="fontWarmup" style="position:absolute;left:-9999px;top:-9999px;font-family:Arial,sans-serif;">
+  DIN-WARMUP-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+</span>
+
+<div id="pageWrap" style="display:none;">
+
+  <div class="topbar">
+    <img class="topbar__logo"
+         src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+         alt="National League"
+         onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <div class="topbar__titles">
+      <span class="topbar__title">Team of the Week</span>
+      <span class="topbar__kicker">NL Tools / Graphics</span>
+    </div>
+    <a class="topbar__btn topbar__btn--back" href="/tools/graphics/">
+      <span>←</span><span class="label">Graphics</span>
+    </a>
+    <button class="topbar__btn" id="signOutBtn">Sign out</button>
+  </div>
+
+  <div class="page">
+  <div class="app">
+
+    <div class="previewWrap">
+      <canvas id="preview" width="1080" height="1080"></canvas>
+    </div>
+
+    <div class="panel">
+
+      <!-- CONTROLS -->
+      <div class="box controls">
+        <select id="formation" title="Formation">
+          <option value="4-3-3">4-3-3</option>
+          <option value="5-3-2">5-3-2</option>
+          <option value="3-5-2">3-5-2</option>
+          <option value="4-4-2">4-4-2</option>
+          <option value="4-2-3-1">4-2-3-1</option>
+          <option value="5-4-1">5-4-1</option>
+          <option value="4-2-4">4-2-4</option>
+          <option value="3-4-3">3-4-3</option>
+          <option value="4-5-1">4-5-1</option>
+          <option value="4-1-3-2">4-1-3-2</option>
+        </select>
+
+        <select id="division" title="Division">
+          <option value="National">National</option>
+          <option value="North">North</option>
+          <option value="South">South</option>
+        </select>
+
+        <input type="date" id="date" title="Date">
+
+        <label>
+          <input type="checkbox" id="manualMove">
+          Manual move
+        </label>
+
+        <button type="button" id="zoomReset" title="Reset preview zoom/pan">Reset zoom</button>
+        <button type="button" id="resetPositions" title="Reset moved player positions (current formation)">Reset positions</button>
+
+        <button type="button" id="download" title="Download PNG export">Download PNG</button>
+        <button type="button" id="resetAll" title="Reset everything (formation, division, date, lineup, scores, positions, zoom)">Reset all</button>
+      </div>
+
+      <div class="box">
+        <div class="lineup" id="lineup"></div>
+      </div>
+
+      <div class="box section">
+        <label for="scores">Scorelines</label>
+        <textarea id="scores" rows="5" placeholder="Insert scores here"></textarea>
+      </div>
+
+      <div class="box section">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button type="button" id="copyExport">Copy roundup</button>
+          <button type="button" id="copyExcel">Copy for Excel</button>
+        </div>
+        <textarea id="exportOut" rows="8" placeholder="Export text appears here" readonly></textarea>
+        <textarea id="excelOut" rows="8" placeholder="Excel export appears here" readonly></textarea>
+      </div>
+
+      <footer>
+        <span id="status">Ready</span>
+        <span id="fontStatus">Font: …</span>
+      </footer>
+
+    </div>
+  </div>
+  </div>
+</div>
+
+<script>
+  window.nlAuthReady = function(session) {
+    document.getElementById('signOutBtn').addEventListener('click', function() {
+      if (window.firebase && firebase.auth) {
+        firebase.auth().signOut().then(function() {
+          window.location.href = '/tools/';
+        });
+      } else {
+        window.location.href = '/tools/';
+      }
+    });
+  };
+</script>
+
+<!-- ────────────────────────────────────────────────────────────────────────
+     TOTW ENGINE — preserved from v6.9 with three URL swaps only
+     See changelog at top of file for detail on what changed.
+     ──────────────────────────────────────────────────────────────────────── -->
+<script>
+(function(){
+  "use strict";
+
+  /* ================= CONFIG ================= */
+
+  const VERSION = "v7.0";
+  const STORAGE_KEY = "totw-builder-v6.9"; // Keep v6.9 key to preserve existing user layouts
+  
+  // Absolute (works no matter where this HTML file sits)
+  const ASSET_BASE = "https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets";
+
+  function assetUrl(relPath){
+    // relPath example: "divisions/National.png" or "crests/Eastleigh.png"
+    return encodeURI(`${ASSET_BASE}/${relPath}`);
+  }
+
+  function crestUrlForTeam(teamName){
+    // teamName MUST match the filename (case, spaces, &, dashes) in assets/crests exactly
+    return `${ASSET_BASE}/crests/${encodeURIComponent(teamName)}.png`;
+  }
+
+  const EXPORT_SIZE = 1080;
+  const CREST_MAX = 100;
+
+  // Names locked at 54px below crest centre
+  const NAME_OFFSET = 66;
+
+  // ===== NAME FONT (AUTO-DETECT FROM ADOBE KIT) =====
+  const NAME_FONT_SIZE = 25;
+  const NAME_COLOR = "#ffffff";
+
+  // ===== PLATFORM TWEAKS =====
+  // Canvas text tends to render slightly heavier on macOS (especially Safari).
+  // Keep non-Mac identical (700), but lighten macOS to visually match.
+  const IS_MAC = (() => {
+    const p = (navigator.platform || "").toLowerCase();
+    const ua = (navigator.userAgent || "").toLowerCase();
+    const isAppleDevice = p.includes("mac") || ua.includes("mac os x");
+    const isIOS = ua.includes("iphone") || ua.includes("ipad") || ua.includes("ipod");
+    return isAppleDevice && !isIOS;
+  })();
+
+  const NAME_FONT_WEIGHT = IS_MAC ? 600 : 700;
+  
+  // Many Adobe kits do NOT expose "din-next-lt-pro-condensed" as the family name.
+  // We'll try a sensible candidate list and pick the first that actually exists.
+  const NAME_FONT_CANDIDATES = [
+    "din-next-lt-pro-condensed",
+    "DIN Next LT Pro Condensed",
+    "din-next-lt-pro",
+    "DIN Next LT Pro",
+    "din-2014",
+    "din-2014-narrow",
+    "din-2014-condensed",
+    "din-condensed",
+    "din",
+    "din-alternate"
+  ];
+
+  const NAME_FONT_FALLBACK_STACK = `"Arial Narrow",Arial,sans-serif`;
+  const CANVAS_FALLBACK_STACK = NAME_FONT_FALLBACK_STACK;
+
+  let nameFontFamily = ""; // set at runtime
+
+  function getNameFontStack(){
+    // If we haven't detected anything, we still return a valid stack.
+    const lead = nameFontFamily ? `"${nameFontFamily}",` : "";
+    return `${lead}${NAME_FONT_FALLBACK_STACK}`;
+  }
+
+  // Background + division badges
+  const BG_URL = "../assets/backgrounds/totw-pitch.jpg";
+
+  function isFontActiveForCanvas(fontStack){
+    const t = document.createElement("canvas");
+    const c = t.getContext("2d");
+
+    const sample = "DIN-WARMUP-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    c.font = `${NAME_FONT_WEIGHT} ${NAME_FONT_SIZE}px ${CANVAS_FALLBACK_STACK}`;
+    const wFallback = c.measureText(sample).width;
+
+    c.font = `${NAME_FONT_WEIGHT} ${NAME_FONT_SIZE}px ${fontStack}`;
+    const wTest = c.measureText(sample).width;
+    return Math.abs(wFallback - wTest) >= 2;
+  }
+
+  function applyWarmupFont(){
+    const warm = document.getElementById("fontWarmup");
+    if(!warm) return;
+    warm.style.fontFamily = getNameFontStack();
+    void warm.offsetWidth; // force layout
+  }
+
+  const DIV_BADGE = {
+    National: assetUrl("divisions/National.png"),
+    North:    assetUrl("divisions/North.png"),
+    South:    assetUrl("divisions/South.png")
+  };
+
+  // Division badge placement: at (540, 952), 10% of native, centered
+  const DIV_BADGE_POS = { x: 540, y: 952, scale: 0.10 };
+
+  // Your formations + coordinates (crest centres)
+  const FORMATIONS = {
+    "4-3-3": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LCM",x:390,y:432},{pos:"CM",x:540,y:432},{pos:"RCM",x:690,y:432},
+      {pos:"LW",x:330,y:300},{pos:"CF",x:540,y:256},{pos:"RW",x:750,y:300}
+    ],
+    "5-3-2": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LWB",x:232,y:520},{pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},{pos:"RWB",x:848,y:520},
+      {pos:"LCM",x:390,y:432},{pos:"CM",x:540,y:432},{pos:"RCM",x:690,y:432},
+      {pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256}
+    ],
+    "3-5-2": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},
+      {pos:"LM",x:232,y:400},{pos:"LCM",x:390,y:432},{pos:"CM",x:540,y:432},{pos:"RCM",x:690,y:432},{pos:"RM",x:848,y:400},
+      {pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256}
+    ],
+    "4-4-2": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LM",x:232,y:400},{pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},{pos:"RM",x:848,y:400},
+      {pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256}
+    ],
+    "4-2-3-1": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LDM",x:410,y:474},{pos:"RDM",x:670,y:474},
+      {pos:"LW",x:280,y:345},{pos:"AM",x:540,y:387},{pos:"RW",x:800,y:345},
+      {pos:"CF",x:540,y:256}
+    ],
+    "5-4-1": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LWB",x:232,y:520},{pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},{pos:"RWB",x:848,y:520},
+      {pos:"LM",x:280,y:350},{pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},{pos:"RM",x:800,y:350},
+      {pos:"CF",x:540,y:256}
+    ],
+    "4-2-4": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LCM",x:420,y:432},{pos:"RCM",x:660,y:432},
+      {pos:"LW",x:280,y:370},{pos:"LF",x:450,y:256},{pos:"RF",x:630,y:256},{pos:"RW",x:800,y:370}
+    ],
+    "3-4-3": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LCB",x:370,y:606},{pos:"CB",x:540,y:606},{pos:"RCB",x:710,y:606},
+      {pos:"LM",x:270,y:432},{pos:"LCM",x:450,y:432},{pos:"RCM",x:630,y:432},{pos:"RM",x:810,y:432},
+      {pos:"LW",x:360,y:294},{pos:"CF",x:540,y:256},{pos:"RW",x:720,y:294}
+    ],
+    "4-5-1": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"LM",x:280,y:360},{pos:"LCM",x:390,y:432},{pos:"DM",x:540,y:500},{pos:"RCM",x:690,y:432},{pos:"RM",x:800,y:360},
+      {pos:"CF",x:540,y:256}
+    ],
+    "4-1-3-2": [
+      {pos:"GK",x:540,y:744},
+      {pos:"LB",x:252,y:606},{pos:"LCB",x:432,y:606},{pos:"RCB",x:648,y:606},{pos:"RB",x:828,y:606},
+      {pos:"DM",x:540,y:500},
+      {pos:"LM",x:320,y:330},{pos:"CM",x:540,y:360},{pos:"RM",x:760,y:330},
+      {pos:"LF",x:450,y:240},{pos:"RF",x:630,y:240}
+    ]
+  };
+  // Teams + crests (same order you supplied)
+  const TEAM_NAMES = [
+    "Aldershot Town","Altrincham","Boreham Wood","Boston United","Brackley Town","Braintree Town","Carlisle United","Eastleigh",
+    "FC Halifax Town","Forest Green Rovers","Gateshead","Hartlepool United","Morecambe","Rochdale","Scunthorpe United","Solihull Moors",
+    "Southend United","Sutton United","Tamworth","Truro City","Wealdstone","Woking","Yeovil Town","York City","AFC Fylde","AFC Telford United",
+    "Alfreton Town","Bedford Town","Buxton","Chester","Chorley","Curzon Ashton","Darlington","Hereford","Kidderminster Harriers","King's Lynn Town",
+    "Leamington","Macclesfield","Marine","Merthyr Town","Oxford City","Peterborough Sports","Radcliffe","Scarborough Athletic","South Shields","Southport",
+    "Spennymoor Town","Worksop Town","AFC Totton","Bath City","Chelmsford City","Chesham United","Chippenham Town","Dagenham & Redbridge","Dorking Wanderers",
+    "Dover Athletic","Eastbourne Borough","Ebbsfleet United","Enfield Town","Farnborough","Hampton & Richmond Borough","Hemel Hempstead Town","Hornchurch",
+    "Horsham","Maidenhead United","Maidstone United","Salisbury","Slough Town","Tonbridge Angels","Torquay United","Weston-super-Mare","Worthing"
+  ];
+
+  // Team shortnames aligned to TEAM_NAMES order (DO NOT reorder unless TEAM_NAMES changes)
+  const TEAM_SHORTNAMES = [
+    "ALD","ALT","BHW","BOS","BRK","BRA","CAR","EAS","HAL","FGR","GAT","HAR","MOR","ROC","SCU","SOL","SOU","SUT","TAM","TRU","WEA","WOK","YEO","YOR",
+    "FYL","TEL","ALF","BED","BUX","CHE","CHO","CUR","DAR","HER","KID","KLT","LEA","MAC","MAR","MER","OXC","PBS","RAD","SCA","SSH","SPT","SPE","WRK",
+    "TOT","BAT","CHC","CHU","CHI","DAG","DOR","DOV","EAB","EBB","ENF","FAB","HRB","HHT","HOR","HRS","MHU","MSU","SAL","SLO","TON","TOR","WSM","WOR"
+  ];
+
+   const TEAMS = TEAM_NAMES.map((name) => ({
+    name
+  }));
+
+  /* ================= ELEMENTS ================= */
+
+  const canvas = document.getElementById("preview");
+  const ctx = canvas.getContext("2d");
+
+  const formationSel = document.getElementById("formation");
+  const divisionSel = document.getElementById("division");
+  const dateEl = document.getElementById("date");
+  const manualMoveEl = document.getElementById("manualMove");
+  const zoomResetBtn = document.getElementById("zoomReset");
+  const resetPositionsBtn = document.getElementById("resetPositions");
+  const downloadBtn = document.getElementById("download");
+
+  const lineupEl = document.getElementById("lineup");
+  const scoresEl = document.getElementById("scores");
+  const exportOutEl = document.getElementById("exportOut");
+  const excelOutEl = document.getElementById("excelOut");
+  const copyExportBtn = document.getElementById("copyExport");
+  const copyExcelBtn = document.getElementById("copyExcel");
+  const resetAllBtn = document.getElementById("resetAll");
+  const statusEl = document.getElementById("status");
+
+  const fontStatusEl = document.getElementById("fontStatus");
+
+  /* ================= STATE ================= */
+
+  // Persisted per position (names retained across formation switches)
+  const stateByPos = {}; // { "GK": {team,name,perf}, ... }
+
+  // Per formation position offsets (manual move)
+  // { "4-3-3": { "GK": {dx,dy}, ... }, ... }
+  const offsetsByFormation = {};
+
+  // Lineup tab order (down columns)
+  let lineupTabOrder = []; // [teamSelects..., nameInputs..., perfInputs...]
+  let lineupTabIndexMap = new Map(); // element -> index
+
+  // Preview viewport transform (does NOT affect export)
+  let viewScale = 1;
+  let viewPanX = 0;
+  let viewPanY = 0;
+
+  // Drag mode
+  let isDragging = false;
+  let dragMode = "pan"; // "pan" | "player"
+  let dragStart = {x:0,y:0};
+  let dragStartPan = {x:0,y:0};
+  let dragPosKey = null;
+  let dragStartOffset = {dx:0,dy:0};
+
+  // Pinch
+  let lastPinchDist = 0;
+
+  // Image cache
+  const imgCache = new Map(); // url -> Promise<HTMLImageElement>
+
+  /* ================= HELPERS ================= */
+
+  function setStatus(msg){
+    statusEl.textContent = msg;
+    window.clearTimeout(setStatus._t);
+    setStatus._t = window.setTimeout(()=> statusEl.textContent = "Ready", 900);
+  }
+
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+  function pad2(n){ return String(n).padStart(2,"0"); }
+
+  function formatDMMMyy(dateStr){
+    if(!dateStr) return "";
+    const [y,m,d] = dateStr.split("-").map(Number);
+    if(!y || !m || !d) return "";
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const dd = String(d);
+    const mon = months[m-1] || "";
+    const yy = String(y).slice(-2);
+    return `${dd}${mon}${yy}`;
+  }
+
+  function formatDDMMYYYY(dateStr){
+    if(!dateStr) return "";
+    const [y,m,d] = dateStr.split("-").map(Number);
+    if(!y || !m || !d) return "";
+    const dd = String(d).padStart(2, "0");
+    const mm = String(m).padStart(2, "0");
+    const yyyy = String(y);
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  function getTeamShort(teamName){
+    const idx = TEAM_NAMES.indexOf(teamName);
+    if(idx >= 0 && idx < TEAM_SHORTNAMES.length) return TEAM_SHORTNAMES[idx];
+    return "";
+  }
+
+  function buildFilename(){
+    const div = divisionSel.value || "National";
+    const d = formatDMMMyy(dateEl.value) || "";
+    return `TOTW ${div}${d ? " " + d : ""}.png`;
+  }
+
+  function getTeamCrestUrl(teamName){
+    const chosen = TEAM_NAMES.includes(teamName) ? teamName : (TEAMS[0] ? TEAMS[0].name : "");
+    return chosen ? crestUrlForTeam(chosen) : "";
+  }
+
+  function buildTeamSelect(current){
+    const s = document.createElement("select");
+    for(const t of TEAMS){
+      const o = document.createElement("option");
+      o.value = t.name;
+      o.textContent = t.name;
+      s.appendChild(o);
+    }
+    if(current) s.value = current;
+    return s;
+  }
+
+  function getFormationPositions(formation){
+    return FORMATIONS[formation] || [];
+  }
+
+  function getOffset(formation, posKey){
+    if(!offsetsByFormation[formation]) offsetsByFormation[formation] = {};
+    return offsetsByFormation[formation][posKey] || {dx:0,dy:0};
+  }
+
+  function setOffset(formation, posKey, dx, dy){
+    if(!offsetsByFormation[formation]) offsetsByFormation[formation] = {};
+    offsetsByFormation[formation][posKey] = {dx,dy};
+  }
+
+  function resetOffsetsForFormation(formation){
+    offsetsByFormation[formation] = {};
+  }
+
+  function screenToCanvas(e){
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: cx * scaleX, y: cy * scaleY };
+  }
+
+  function canvasToWorld(pt){
+    return {
+      x: (pt.x - viewPanX) / viewScale,
+      y: (pt.y - viewPanY) / viewScale
+    };
+  }
+
+  function worldToCanvas(pt){
+    return {
+      x: pt.x * viewScale + viewPanX,
+      y: pt.y * viewScale + viewPanY
+    };
+  }
+
+  function pinchDistance(t0,t1){
+    const dx = t0.clientX - t1.clientX;
+    const dy = t0.clientY - t1.clientY;
+    return Math.hypot(dx,dy);
+  }
+
+  function loadImage(url){
+    if(imgCache.has(url)) return imgCache.get(url);
+    const p = new Promise((resolve,reject)=>{
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = ()=> resolve(img);
+      img.onerror = ()=> reject(new Error("Failed to load: " + url));
+      img.src = url;
+    });
+    imgCache.set(url, p);
+    return p;
+  }
+
+  async function ensureNameFontLoaded(){
+    try{
+      // Try to load a set of plausible family names from the Adobe kit.
+      if(document.fonts && document.fonts.load){
+        const specs = NAME_FONT_CANDIDATES.map(f => `${NAME_FONT_WEIGHT} ${NAME_FONT_SIZE}px "${f}"`);
+        await Promise.all(specs.map(spec => document.fonts.load(spec).catch(()=>[])));
+        if(document.fonts.ready) await document.fonts.ready;
+      }
+
+      // Pick the first candidate that is actually present.
+      // Use BOTH: document.fonts.check (availability) + canvas width-difference (real rendering).
+      let picked = "";
+      for(const fam of NAME_FONT_CANDIDATES){
+        const ok = (document.fonts && document.fonts.check)
+          ? document.fonts.check(`${NAME_FONT_WEIGHT} ${NAME_FONT_SIZE}px "${fam}"`, "DINWARMUP")
+          : true;
+
+        const stack = `"${fam}",${NAME_FONT_FALLBACK_STACK}`;
+        const canvasOk = isFontActiveForCanvas(stack);
+
+        if(ok && canvasOk){
+          picked = fam;
+          break;
+        }
+      }
+
+      nameFontFamily = picked; // can remain "" if nothing matches
+      applyWarmupFont();
+
+      // Give browsers a tick after applying the warmup stack (helps stubborn cases)
+      await new Promise(r => requestAnimationFrame(r));
+      await new Promise(r => setTimeout(r, 50));
+
+    }catch{
+      nameFontFamily = "";
+      applyWarmupFont();
+    }
+  }
+
+  function drawContainedImage(c, img, centerX, centerY, maxW, maxH){
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if(!iw || !ih) return;
+
+    const s = Math.min(maxW / iw, maxH / ih);
+    const dw = iw * s;
+    const dh = ih * s;
+    const x = centerX - dw/2;
+    const y = centerY - dh/2;
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(img, x, y, dw, dh);
+  }
+
+  function drawName(c, text, centerX, crestCenterY){
+    const name = (text || "").trim();
+    if(!name) return;
+
+    c.font = `${NAME_FONT_WEIGHT} ${NAME_FONT_SIZE}px ${getNameFontStack()}`;
+    c.fillStyle = NAME_COLOR;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    c.fillText(name, centerX, crestCenterY + NAME_OFFSET);
+  }
+
+  function safeText(s){ return (s || "").replace(/\s+/g," ").trim(); }
+
+  function refreshFontStatus(){
+    if(!fontStatusEl) return;
+    const active = isFontActiveForCanvas(getNameFontStack());
+    fontStatusEl.textContent = "Font: " + (nameFontFamily ? nameFontFamily : "UNKNOWN") + " • " + (active ? "ACTIVE" : "FALLBACK");
+  }
+
+  /* ================= RENDER ================= */
+    function clampViewport(){
+
+    // Keep the transformed 1080x1080 world covering the 1080x1080 preview.
+    // When zoomed in (scale > 1), pan is limited to [min..max] so no empty space shows.
+    const scaled = EXPORT_SIZE * viewScale;
+
+    const minPanX = EXPORT_SIZE - scaled; // negative when scale > 1
+    const maxPanX = 0;
+
+    const minPanY = EXPORT_SIZE - scaled;
+    const maxPanY = 0;
+
+    viewPanX = clamp(viewPanX, minPanX, maxPanX);
+    viewPanY = clamp(viewPanY, minPanY, maxPanY);
+  }
+
+  function clampPlayerOffset(formation, posKey, dx, dy){
+    // Keep crest centre inside the export canvas (prevents dragging players off the graphic)
+    const slots = getFormationPositions(formation);
+    const base = slots.find(s => s.pos === posKey);
+    if(!base) return { dx, dy };
+
+    const half = CREST_MAX / 2;
+
+    const x = base.x + dx;
+    const y = base.y + dy;
+
+    const clampedX = clamp(x, half, EXPORT_SIZE - half);
+    const clampedY = clamp(y, half, EXPORT_SIZE - half);
+
+    return { dx: clampedX - base.x, dy: clampedY - base.y };
+  }
+
+  let bgImg = null;
+  let divBadgeImg = null;
+
+  async function ensureBaseImages(){
+    if(!bgImg) bgImg = await loadImage(BG_URL);
+    const divUrl = DIV_BADGE[divisionSel.value] || DIV_BADGE.National;
+    divBadgeImg = await loadImage(divUrl);
+  }
+
+  async function renderTo(c, useViewport){
+    await ensureBaseImages();
+    
+    c.setTransform(1,0,0,1,0,0);
+    c.clearRect(0,0,EXPORT_SIZE,EXPORT_SIZE);
+
+    if(useViewport){
+      c.setTransform(viewScale,0,0,viewScale,viewPanX,viewPanY);
+    }else{
+      c.setTransform(1,0,0,1,0,0);
+    }
+
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.drawImage(bgImg, 0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    for(const slot of slots){
+      const posKey = slot.pos;
+      const s = stateByPos[posKey] || {};
+      const team = s.team || TEAMS[0].name;
+      const crestUrl = getTeamCrestUrl(team);
+
+      let crestImg = null;
+      try{ crestImg = await loadImage(crestUrl); }catch{ crestImg = null; }
+
+      const off = getOffset(formation, posKey);
+      const x = slot.x + (off.dx || 0);
+      const y = slot.y + (off.dy || 0);
+
+      if(crestImg){
+        drawContainedImage(c, crestImg, x, y, CREST_MAX, CREST_MAX);
+      }
+
+      drawName(c, s.name, x, y);
+    }
+
+    if(divBadgeImg){
+      const iw = divBadgeImg.naturalWidth || divBadgeImg.width;
+      const ih = divBadgeImg.naturalHeight || divBadgeImg.height;
+      const dw = iw * DIV_BADGE_POS.scale;
+      const dh = ih * DIV_BADGE_POS.scale;
+      const bx = DIV_BADGE_POS.x - dw/2;
+      const by = DIV_BADGE_POS.y - dh/2;
+      c.drawImage(divBadgeImg, bx, by, dw, dh);
+    }
+
+    refreshFontStatus();
+  }
+
+  // Live-build the two output textareas as you type (debounced)
+  let outputsQueued = false;
+  function scheduleOutputs(){
+    if(outputsQueued) return;
+    outputsQueued = true;
+
+    window.clearTimeout(scheduleOutputs._t);
+    scheduleOutputs._t = window.setTimeout(()=>{
+      outputsQueued = false;
+      buildExportText({ silent:true });
+      buildExcelTSV({ silent:true });
+    }, 120);
+  }
+
+  let renderQueued = false;
+  function scheduleRender(){
+    if(renderQueued) return;
+    renderQueued = true;
+
+    requestAnimationFrame(async ()=>{
+      renderQueued = false;
+      try{
+        await renderTo(ctx, true);
+      }catch(e){
+        console.error(e);
+        setStatus("Render error (check image CORS)");
+      }
+    });
+  }
+
+  /* ================= LINEUP UI + TAB ORDER ================= */
+
+  function rebuildLineup(){
+    lineupEl.innerHTML = "";
+
+    const teamEls = [];
+    const nameEls = [];
+    const perfEls = [];
+
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    for(const slot of slots){
+      const posKey = slot.pos;
+      const saved = stateByPos[posKey] || { team: TEAMS[0].name, name:"", perf:"" };
+
+      const posCell = document.createElement("div");
+      posCell.className = "pos";
+      posCell.textContent = posKey;
+
+      const teamSel = buildTeamSelect(saved.team);
+
+      const nameInp = document.createElement("input");
+      nameInp.type = "text";
+      nameInp.placeholder = "Insert player name";
+      nameInp.value = saved.name || "";
+
+      const perfInp = document.createElement("input");
+      perfInp.type = "text";
+      perfInp.className = "perf";
+      perfInp.placeholder = "Insert performance details";
+      perfInp.value = saved.perf || "";
+
+      teamSel.addEventListener("input", ()=>{
+        stateByPos[posKey] = stateByPos[posKey] || {};
+        stateByPos[posKey].team = teamSel.value;
+        autosave();
+        scheduleRender();
+        scheduleOutputs();
+      });
+
+      nameInp.addEventListener("input", ()=>{
+        stateByPos[posKey] = stateByPos[posKey] || {};
+        stateByPos[posKey].name = nameInp.value;
+        autosave();
+        scheduleRender();
+        scheduleOutputs();
+      });
+
+      perfInp.addEventListener("input", ()=>{
+        stateByPos[posKey] = stateByPos[posKey] || {};
+        stateByPos[posKey].perf = perfInp.value;
+        autosave();
+        scheduleOutputs();
+      });
+
+      lineupEl.appendChild(posCell);
+      lineupEl.appendChild(teamSel);
+      lineupEl.appendChild(nameInp);
+      lineupEl.appendChild(perfInp);
+
+      teamEls.push(teamSel);
+      nameEls.push(nameInp);
+      perfEls.push(perfInp);
+    }
+
+    // Tab order: teams (down) → names (down) → performance (down)
+    lineupTabOrder = [...teamEls, ...nameEls, ...perfEls];
+    lineupTabIndexMap = new Map();
+    lineupTabOrder.forEach((el, idx)=> lineupTabIndexMap.set(el, idx));
+  }
+
+  /* ================= EXPORT TEXT ================= */
+
+  function buildExportText(opts){
+    const silent = !!(opts && opts.silent);
+    const scores = (scoresEl.value || "").trim();
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    const lines = [];
+    if(scores) lines.push(scores, "");
+
+    for(const slot of slots){
+      const posKey = slot.pos;
+      const s = stateByPos[posKey] || {};
+      const team = safeText(s.team);
+      const name = safeText(s.name);
+      const perf = safeText(s.perf);
+
+      const line = [posKey, team, name, perf].filter(Boolean).join(" ");
+      if(line) lines.push(line);
+    }
+
+    exportOutEl.value = lines.join("\n");
+    if(!silent) setStatus("Export built");
+    autosave();
+  }
+
+  async function copyExportText(){
+    try{
+      await navigator.clipboard.writeText(exportOutEl.value || "");
+      setStatus("Copied");
+    }catch{
+      setStatus("Clipboard blocked");
+    }
+  }
+    function buildExcelTSV(opts){
+    const silent = !!(opts && opts.silent);
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    const dateOut = formatDDMMYYYY(dateEl.value);
+
+    const rows = [];
+    for(const slot of slots){
+      const s = stateByPos[slot.pos] || {};
+      const player = safeText(s.name);
+      const teamName = safeText(s.team);
+
+      if(!player) continue;
+
+      const short = getTeamShort(teamName) || "";
+      rows.push([dateOut, player, short].join("\t"));
+    }
+
+    excelOutEl.value = rows.join("\n");
+    autosave();
+    if(!silent) setStatus("Excel built");
+  }
+
+  async function copyExcelTSV(){
+    buildExcelTSV();
+    try{
+      await navigator.clipboard.writeText(excelOutEl.value || "");
+      setStatus("Copied (Excel)");
+    }catch{
+      setStatus("Clipboard blocked");
+    }
+  }
+
+
+  /* ================= DOWNLOAD ================= */
+
+  async function downloadPNG(){
+    const out = document.createElement("canvas");
+    out.width = EXPORT_SIZE;
+    out.height = EXPORT_SIZE;
+    const outCtx = out.getContext("2d");
+
+    try{
+      await renderTo(outCtx, false);
+    }catch(e){
+      console.error(e);
+      setStatus("Export error (check image CORS)");
+      return;
+    }
+
+    const blob = await new Promise(res => out.toBlob(res, "image/png"));
+    if(!blob){
+      setStatus("Export failed");
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = buildFilename();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+
+    setStatus("Downloaded");
+  }
+
+    function getStoredPayload(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return {};
+      const d = JSON.parse(raw);
+      return (d && typeof d === "object") ? d : {};
+    }catch{
+      return {};
+    }
+  }
+
+  function setStoredPayload(obj){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    }catch{}
+  }
+
+  function deepClone(obj){
+    try{ return JSON.parse(JSON.stringify(obj)); }catch{ return {}; }
+  }
+
+  function getCurrentDivisionSnapshot(){
+    return {
+      formation: formationSel.value,
+      date: dateEl.value,
+      scores: scoresEl.value,
+      exportOut: exportOutEl.value,
+      excelOut: excelOutEl.value,
+      stateByPos: deepClone(stateByPos),
+      offsetsByFormation: deepClone(offsetsByFormation),
+      viewport: { viewScale, viewPanX, viewPanY }
+    };
+  }
+
+  function applyDivisionSnapshot(snap){
+    const s = (snap && typeof snap === "object") ? snap : {};
+
+    // Formation + basic fields
+    if(s.formation && FORMATIONS[s.formation]) formationSel.value = s.formation;
+
+    if(typeof s.date === "string") dateEl.value = s.date;
+    if(typeof s.scores === "string") scoresEl.value = s.scores;
+    if(typeof s.exportOut === "string") exportOutEl.value = s.exportOut;
+    if(typeof s.excelOut === "string") excelOutEl.value = s.excelOut;
+
+    // Clear + replace objects in-place
+    for(const k of Object.keys(stateByPos)) delete stateByPos[k];
+    if(s.stateByPos && typeof s.stateByPos === "object"){
+      for(const k of Object.keys(s.stateByPos)){
+        stateByPos[k] = s.stateByPos[k];
+      }
+    }
+
+    for(const f of Object.keys(offsetsByFormation)) delete offsetsByFormation[f];
+    if(s.offsetsByFormation && typeof s.offsetsByFormation === "object"){
+      for(const f of Object.keys(s.offsetsByFormation)){
+        offsetsByFormation[f] = s.offsetsByFormation[f];
+      }
+    }
+
+    // Viewport
+    if(s.viewport && typeof s.viewport === "object"){
+      if(typeof s.viewport.viewScale === "number") viewScale = clamp(s.viewport.viewScale, 1.0, 4.0);
+      if(typeof s.viewport.viewPanX === "number") viewPanX = s.viewport.viewPanX;
+      if(typeof s.viewport.viewPanY === "number") viewPanY = s.viewport.viewPanY;
+    }else{
+      viewScale = 1;
+      viewPanX = 0;
+      viewPanY = 0;
+    }
+
+    clampViewport();
+  }
+
+  function saveDivisionSnapshot(div){
+    const payload = getStoredPayload();
+    payload.v = VERSION;
+    payload.lastDivision = div;
+
+    payload.byDivision = (payload.byDivision && typeof payload.byDivision === "object") ? payload.byDivision : {};
+    payload.byDivision[div] = getCurrentDivisionSnapshot();
+
+    setStoredPayload(payload);
+  }
+
+  function loadDivisionSnapshotOrBlank(div){
+    const payload = getStoredPayload();
+    const by = (payload.byDivision && typeof payload.byDivision === "object") ? payload.byDivision : {};
+    const snap = by[div];
+
+    if(snap && typeof snap === "object"){
+      applyDivisionSnapshot(snap);
+      return;
+    }
+
+    // Blank defaults for a division with no saved state yet
+    formationSel.value = "4-3-3";
+    scoresEl.value = "";
+    exportOutEl.value = "";
+    excelOutEl.value = "";
+
+    for(const k of Object.keys(stateByPos)) delete stateByPos[k];
+    for(const f of Object.keys(offsetsByFormation)) delete offsetsByFormation[f];
+
+    viewScale = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+
+    clampViewport();
+  }
+  
+  /* ================= AUTOSAVE ================= */
+
+  function autosave(){
+    // Always save into the currently selected division bucket
+    saveDivisionSnapshot(divisionSel.value);
+  }
+  
+  function autoload(){
+    try{
+      const d = getStoredPayload();
+      if(!d || typeof d !== "object") return;
+
+      // Restore last-used division if present
+      const lastDiv = (typeof d.lastDivision === "string" && DIV_BADGE[d.lastDivision]) ? d.lastDivision : "";
+      if(lastDiv) divisionSel.value = lastDiv;
+
+      // Load the snapshot for the currently-selected division (or blank)
+      loadDivisionSnapshotOrBlank(divisionSel.value);
+    }catch{}
+  }
+  
+  /* ================= INTERACTION ================= */
+
+    function resetAll(){
+    // Clear saved state
+    try{ localStorage.removeItem(STORAGE_KEY); }catch{}
+
+    // Reset top-level controls
+    formationSel.value = "4-3-3";
+    divisionSel.value = "National";
+
+    // Reset date to today
+    dateEl.value = "";
+    setDefaultDateIfBlank();
+
+    // Clear text areas
+    scoresEl.value = "";
+    exportOutEl.value = "";
+    excelOutEl.value = "";
+
+    // Clear lineup + manual offsets
+    for(const k of Object.keys(stateByPos)) delete stateByPos[k];
+    for(const f of Object.keys(offsetsByFormation)) delete offsetsByFormation[f];
+
+    // Reset viewport
+    viewScale = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+
+    // Division badge depends on division
+    divBadgeImg = null;
+
+    rebuildLineup();
+    autosave();
+    scheduleRender();
+    scheduleOutputs();
+    setStatus("Reset all");
+  }
+
+  function resetViewport(){
+    viewScale = 1;
+    viewPanX = 0;
+    viewPanY = 0;
+    clampViewport();
+    autosave();
+    scheduleRender();
+  }
+
+  function hitTestPlayer(worldPt){
+    const formation = formationSel.value;
+    const slots = getFormationPositions(formation);
+
+    for(let i = slots.length - 1; i >= 0; i--){
+      const slot = slots[i];
+      const off = getOffset(formation, slot.pos);
+      const cx = slot.x + (off.dx||0);
+      const cy = slot.y + (off.dy||0);
+
+      const half = CREST_MAX/2 + 6;
+      if(worldPt.x >= cx - half && worldPt.x <= cx + half && worldPt.y >= cy - half && worldPt.y <= cy + half){
+        return slot.pos;
+      }
+    }
+    return null;
+  }
+
+  function onPointerDown(e){
+    const pt = screenToCanvas(e);
+    const world = canvasToWorld(pt);
+
+    isDragging = true;
+    dragStart = { x: world.x, y: world.y };
+    dragStartPan = { x: viewPanX, y: viewPanY };
+
+    if(manualMoveEl.checked){
+      const hit = hitTestPlayer(world);
+      if(hit){
+        dragMode = "player";
+        dragPosKey = hit;
+        const off = getOffset(formationSel.value, hit);
+        dragStartOffset = { dx: off.dx || 0, dy: off.dy || 0 };
+      }else{
+        dragMode = "pan";
+        dragPosKey = null;
+      }
+    }else{
+      dragMode = "pan";
+      dragPosKey = null;
+    }
+
+    e.preventDefault();
+  }
+
+  function onPointerMove(e){
+    if(!isDragging) return;
+    const pt = screenToCanvas(e);
+    const world = canvasToWorld(pt);
+
+    const dx = world.x - dragStart.x;
+    const dy = world.y - dragStart.y;
+
+    if(dragMode === "pan"){
+      viewPanX = dragStartPan.x + dx * viewScale;
+      viewPanY = dragStartPan.y + dy * viewScale;
+      clampViewport();
+      autosave();
+      scheduleRender();
+    }else if(dragMode === "player" && dragPosKey){
+      const formation = formationSel.value;
+      const next = clampPlayerOffset(
+        formation,
+        dragPosKey,
+        dragStartOffset.dx + dx,
+        dragStartOffset.dy + dy
+      );
+      setOffset(formation, dragPosKey, next.dx, next.dy);
+      autosave();
+      scheduleRender();
+    }
+
+    e.preventDefault();
+  }
+
+  function onPointerUp(){
+    isDragging = false;
+    dragMode = "pan";
+    dragPosKey = null;
+  }
+
+  function onWheel(e){
+    e.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const cy = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+    const worldBefore = canvasToWorld({x:cx, y:cy});
+
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    viewScale = clamp(viewScale * factor, 1.0, 4.0);
+    
+    const canvasAfter = worldToCanvas(worldBefore);
+    viewPanX += (cx - canvasAfter.x);
+    viewPanY += (cy - canvasAfter.y);
+
+      clampViewport();
+      autosave();
+    scheduleRender();
+  }
+
+  function onTouchStart(e){
+    if(e.touches && e.touches.length === 2){
+      lastPinchDist = pinchDistance(e.touches[0], e.touches[1]);
+    }else{
+      onPointerDown(e);
+    }
+  }
+
+  function onTouchMove(e){
+    if(e.touches && e.touches.length === 2){
+      e.preventDefault();
+
+      const d = pinchDistance(e.touches[0], e.touches[1]);
+      if(lastPinchDist){
+        const rect = canvas.getBoundingClientRect();
+        const midClientX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midClientY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+        const cx = (midClientX - rect.left) * (canvas.width / rect.width);
+        const cy = (midClientY - rect.top) * (canvas.height / rect.height);
+
+        const worldBefore = canvasToWorld({x:cx, y:cy});
+
+        const factor = d / lastPinchDist;
+        viewScale = clamp(viewScale * factor, 1.0, 4.0);
+        const canvasAfter = worldToCanvas(worldBefore);
+        viewPanX += (cx - canvasAfter.x);
+        viewPanY += (cy - canvasAfter.y);
+
+      clampViewport();
+      autosave();
+        scheduleRender();
+      }
+      lastPinchDist = d;
+    }else{
+      onPointerMove(e);
+    }
+  }
+
+  function onTouchEnd(){
+    lastPinchDist = 0;
+    onPointerUp();
+  }
+
+  /* ================= INIT ================= */
+
+  function setDefaultDateIfBlank(){
+    if(dateEl.value) return;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = pad2(now.getMonth()+1);
+    const d = pad2(now.getDate());
+    dateEl.value = `${y}-${m}-${d}`;
+  }
+
+  function bindUI(){
+    formationSel.addEventListener("change", ()=>{
+      rebuildLineup();
+      autosave();
+      scheduleRender();
+      scheduleOutputs();
+    });
+
+    divisionSel.addEventListener("change", async ()=>{
+      // Save what you were editing for the previous division
+      const prev = divisionSel._prevDivision || "National";
+      saveDivisionSnapshot(prev);
+
+      // Load the newly-selected division snapshot (or blank)
+      loadDivisionSnapshotOrBlank(divisionSel.value);
+
+      // Badge depends on division
+      divBadgeImg = null;
+
+      // Track current for next switch
+      divisionSel._prevDivision = divisionSel.value;
+
+      rebuildLineup();
+      autosave();
+      scheduleRender();
+      scheduleOutputs();
+    });
+    
+    dateEl.addEventListener("input", ()=>{
+      autosave();
+      scheduleOutputs();
+    });
+
+    scoresEl.addEventListener("input", ()=>{
+      autosave();
+      scheduleOutputs();
+    });
+
+    zoomResetBtn.addEventListener("click", resetViewport);
+
+    resetPositionsBtn.addEventListener("click", ()=>{
+      resetOffsetsForFormation(formationSel.value);
+      autosave();
+      scheduleRender();
+      setStatus("Positions reset");
+    });
+
+    downloadBtn.addEventListener("click", downloadPNG);
+    copyExportBtn.addEventListener("click", copyExportText);
+    copyExcelBtn.addEventListener("click", copyExcelTSV);
+    resetAllBtn.addEventListener("click", resetAll);
+
+    // Preview interactions
+    canvas.addEventListener("wheel", onWheel, {passive:false});
+    canvas.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
+
+    canvas.addEventListener("touchstart", onTouchStart, {passive:false});
+    canvas.addEventListener("touchmove", onTouchMove, {passive:false});
+    window.addEventListener("touchend", onTouchEnd, {passive:true});
+
+    // Lineup: Tab goes down columns (team → name → performance)
+    lineupEl.addEventListener("keydown", (e)=>{
+      if(e.key !== "Tab") return;
+
+      const active = document.activeElement;
+      if(!lineupTabIndexMap.has(active)) return;
+
+      e.preventDefault();
+
+      const idx = lineupTabIndexMap.get(active);
+      const dir = e.shiftKey ? -1 : 1;
+      const nextIdx = idx + dir;
+
+      if(nextIdx < 0 || nextIdx >= lineupTabOrder.length){
+        if(!e.shiftKey){
+          scoresEl.focus();
+        }else{
+          dateEl.focus();
+        }
+        return;
+      }
+
+      lineupTabOrder[nextIdx].focus();
+    });
+  }
+
+  async function start(){
+    setDefaultDateIfBlank();
+    autoload();
+    divisionSel._prevDivision = divisionSel.value;
+    rebuildLineup();
+    bindUI();
+    scheduleOutputs();
+    
+    try{
+      // Make sure the Adobe font is genuinely active before the very first canvas draw (mobile Safari fix)
+      await ensureNameFontLoaded();
+
+      await ensureBaseImages();
+
+      // Prime canvas text engine AFTER we know which family we’re using
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise(r => setTimeout(r, 120));
+
+      ctx.save();
+      ctx.font = `${NAME_FONT_WEIGHT} ${NAME_FONT_SIZE}px ${getNameFontStack()}`;
+      ctx.measureText("DIN-WARMUP");
+      ctx.restore();
+
+      refreshFontStatus();
+
+      await renderTo(ctx, true);
+      await renderTo(ctx, true);
+
+      setStatus("Loaded");
+    }catch(e){
+      console.error(e);
+      setStatus("Image load error (CORS?)");
+    }
+  }
+
+  start();
+
+})();
+</script>
+
+</body>
+</html>
