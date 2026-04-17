@@ -994,6 +994,11 @@ function childCardHTML(r) {
 }
 
 function panelHTML(id, r) {
+  var opts = function(group, items) {
+    return items.map(function(o) {
+      return '<button class="guided-opt" onclick="selectOpt(this,\'' + escJ(id) + '\',\'' + group + '\')">' + o + '</button>';
+    }).join('');
+  };
   return '<div class="card-panel" id="panel-' + id + '">'
     + '<div class="panel-tabs">'
       + '<button class="panel-tab active" onclick="showPanelTab(\'' + escJ(id) + '\',\'chase\',this)">Chase Email</button>'
@@ -1001,12 +1006,50 @@ function panelHTML(id, r) {
       + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'actions\',this)">Actions</button>'
     + '</div>'
     + '<div class="panel-content" id="ptab-' + id + '-chase">'
-      + '<div class="email-preview" id="email-' + id + '" contenteditable="false">Click Generate to create a chase email.</div>'
-      + '<div class="email-actions">'
-        + '<button class="btn btn--primary btn--sm" onclick="generateEmail(\'' + escJ(id) + '\')">Generate</button>'
-        + '<button class="btn btn--navy btn--sm" id="copy-btn-' + id + '" onclick="copyEmail(\'' + escJ(id) + '\')" disabled>Copy</button>'
-        + '<button class="btn btn--ghost btn--sm" id="chase-btn-' + id + '" onclick="recordChase(\'' + escJ(id) + '\')" disabled>Mark as Chased</button>'
-        + '<span class="copy-confirm" id="copy-ok-' + id + '">\u2713 Copied</span>'
+      + '<div id="email-start-' + id + '">'
+        + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.6;">Answer a few quick questions so the email is as relevant as possible.</div>'
+        + '<button class="btn btn--primary btn--sm" onclick="startGuided(\'' + escJ(id) + '\')">Start &#8594;</button>'
+      + '</div>'
+      + '<div class="guided-panel" id="guided-' + id + '">'
+        + '<div class="guided-step active" id="gstep-' + id + '-1">'
+          + '<div class="guided-q"><span>Step 1 of 6</span>What are you chasing?</div>'
+          + '<input class="guided-input" id="g-what-' + id + '" value="' + esc(r.title) + '">'
+          + '<div class="guided-nav"><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',1)">Next &#8594;</button><span class="guided-progress">1 / 6</span></div>'
+        + '</div>'
+        + '<div class="guided-step" id="gstep-' + id + '-2">'
+          + '<div class="guided-q"><span>Step 2 of 6</span>Who are you chasing?</div>'
+          + '<input class="guided-input" id="g-who-' + id + '" value="' + esc(r.contact||'') + '">'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',2)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',2)">Next &#8594;</button><span class="guided-progress">2 / 6</span></div>'
+        + '</div>'
+        + '<div class="guided-step" id="gstep-' + id + '-3">'
+          + '<div class="guided-q"><span>Step 3 of 6</span>What do you need them to do?</div>'
+          + '<div class="guided-options" id="g-action-' + id + '">' + opts('action', ['Send information','Give approval','Send a document','Make a decision','Confirm availability','Other']) + '</div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',3)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',3)">Next &#8594;</button><span class="guided-progress">3 / 6</span></div>'
+        + '</div>'
+        + '<div class="guided-step" id="gstep-' + id + '-4">'
+          + '<div class="guided-q"><span>Step 4 of 6</span>Is there a deadline?</div>'
+          + '<div class="guided-options" id="g-deadline-' + id + '">' + opts('deadline', ['By end of today','By end of this week','By a specific date','As soon as possible','No specific deadline']) + '</div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',4)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',4)">Next &#8594;</button><span class="guided-progress">4 / 6</span></div>'
+        + '</div>'
+        + '<div class="guided-step" id="gstep-' + id + '-5">'
+          + '<div class="guided-q"><span>Step 5 of 6</span>What happens if they don\'t respond?</div>'
+          + '<div class="guided-options" id="g-impact-' + id + '">' + opts('impact', ['Nothing yet \u2014 just nudging','It\'s blocking my work','It\'s blocking the team','Escalation may be needed']) + '</div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',5)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',5)">Next &#8594;</button><span class="guided-progress">5 / 6</span></div>'
+        + '</div>'
+        + '<div class="guided-step" id="gstep-' + id + '-6">'
+          + '<div class="guided-q"><span>Step 6 of 6</span>Anything else to include? <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-muted)">Optional</span></div>'
+          + '<textarea class="guided-textarea" id="g-extras-' + id + '" placeholder="Any extra context, specific wording, or details\u2026"></textarea>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',6)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="generateEmail(\'' + escJ(id) + '\')">Generate Email &#8594;</button><span class="guided-progress">6 / 6</span></div>'
+        + '</div>'
+      + '</div>'
+      + '<div id="email-result-' + id + '" style="display:none">'
+        + '<div class="email-preview" id="email-' + id + '" contenteditable="false"></div>'
+        + '<div class="email-actions">'
+          + '<button class="btn btn--ghost btn--sm" onclick="resetGuided(\'' + escJ(id) + '\')">&#8592; Redo</button>'
+          + '<button class="btn btn--navy btn--sm" id="copy-btn-' + id + '" onclick="copyEmail(\'' + escJ(id) + '\')" disabled>Copy</button>'
+          + '<button class="btn btn--primary btn--sm" id="chase-btn-' + id + '" onclick="recordChase(\'' + escJ(id) + '\')" disabled>Mark as Chased</button>'
+          + '<span class="copy-confirm" id="copy-ok-' + id + '">\u2713 Copied</span>'
+        + '</div>'
       + '</div>'
     + '</div>'
     + '<div class="panel-content" id="ptab-' + id + '-notes" style="display:none">'
@@ -1068,15 +1111,84 @@ function showPanelTab(id, tab, el) {
   el.classList.add('active');
 }
 
+/* ── GUIDED HELPERS ── */
+function startGuided(id) {
+  document.getElementById('email-start-' + id).style.display = 'none';
+  document.getElementById('guided-' + id).classList.add('open');
+}
+
+function resetGuided(id) {
+  document.getElementById('email-result-' + id).style.display = 'none';
+  document.getElementById('email-start-' + id).style.display  = '';
+  document.getElementById('guided-' + id).classList.remove('open');
+  for (var i = 1; i <= 6; i++) {
+    var s = document.getElementById('gstep-' + id + '-' + i);
+    if (s) s.classList.remove('active');
+  }
+  var s1 = document.getElementById('gstep-' + id + '-1');
+  if (s1) s1.classList.add('active');
+  var panel = document.getElementById('guided-' + id);
+  if (panel) panel.querySelectorAll('.guided-opt').forEach(function(o) { o.classList.remove('selected'); });
+}
+
+function gNext(id, step) {
+  var curr = document.getElementById('gstep-' + id + '-' + step);
+  var next = document.getElementById('gstep-' + id + '-' + (step + 1));
+  if (curr) curr.classList.remove('active');
+  if (next) next.classList.add('active');
+}
+
+function gBack(id, step) {
+  var curr = document.getElementById('gstep-' + id + '-' + step);
+  var prev = document.getElementById('gstep-' + id + '-' + (step - 1));
+  if (curr) curr.classList.remove('active');
+  if (prev) prev.classList.add('active');
+}
+
+function selectOpt(btn, id, group) {
+  var container = document.getElementById('g-' + group + '-' + id);
+  if (container) container.querySelectorAll('.guided-opt').forEach(function(o) { o.classList.remove('selected'); });
+  btn.classList.add('selected');
+}
+
+function getGuidedData(id) {
+  var getVal = function(elId) { var el = document.getElementById(elId); return el ? el.value.trim() : ''; };
+  var getSel = function(group) {
+    var c = document.getElementById('g-' + group + '-' + id);
+    if (!c) return '';
+    var s = c.querySelector('.guided-opt.selected');
+    return s ? s.textContent.trim() : '';
+  };
+  return {
+    what:     getVal('g-what-'   + id),
+    who:      getVal('g-who-'    + id),
+    action:   getSel('action'),
+    deadline: getSel('deadline'),
+    impact:   getSel('impact'),
+    extras:   getVal('g-extras-' + id)
+  };
+}
+
 function generateEmail(id) {
   var r = STATE.requests[id];
   if (!r) return;
+  var g = getGuidedData(id);
+  document.getElementById('guided-' + id).classList.remove('open');
+  var resultEl = document.getElementById('email-result-' + id);
+  resultEl.style.display = '';
   var el = document.getElementById('email-' + id);
-  if (!el) return;
   el.textContent = 'Generating\u2026';
   el.className = 'email-preview generating';
   el.contentEditable = 'false';
-  generateEmailAI(r, function(text, err) {
+  var enriched = Object.assign({}, r, {
+    title:          g.what     || r.title,
+    contact:        g.who      || r.contact,
+    guidedAction:   g.action,
+    guidedDeadline: g.deadline,
+    guidedImpact:   g.impact,
+    guidedExtras:   g.extras
+  });
+  generateEmailAI(enriched, function(text, err) {
     el.className = 'email-preview';
     if (err) { el.textContent = err; showToast('Could not generate email', 'error'); return; }
     el.textContent = text;
