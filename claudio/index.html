@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<!--
+  Claudio — NL AI Assistant
+  Version: 1.0
+  Date: 17/04/2026
+
+  CHANGELOG
+  v1.0 (17/04/2026)
+    - Initial MVP. Chat UI, per-user conversation history isolated in RTDB,
+      prompt caching on system prompt, Haiku 4.5 model, daily message cap,
+      cost-per-message display, staff directory + clubs injected as context.
+-->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claudio — NL Tools</title>
+
+  <!-- Firebase SDKs — must come before auth-guard.js -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+  <!-- Firebase init — BEFORE auth-guard.js (see nl-tools skill gotcha #5) -->
+  <script>
+    var firebaseConfig = {
+      apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+      authDomain:        'nl-tools.firebaseapp.com',
+      databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+      projectId:         'nl-tools',
+      storageBucket:     'nl-tools.firebasestorage.app',
+      messagingSenderId: '801354670005',
+      appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc',
+    };
+    firebase.initializeApp(firebaseConfig);
+  </script>
+
+  <!-- Tool key — must match RTDB /tools/{key} -->
+  <script>var NL_TOOL_KEY = 'staff-claudio';</script>
+  <script src="/tools/auth-guard.js"></script>
+
+  <style>
+    @font-face {
+      font-family: "carbona-variable";
+      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+      font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+    }
+
+    :root {
+      --primary:     #9e0000;
+      --primary-dim: #7a0000;
+      --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
+      --navy-light:  #2a4a8c;
+      --red:         #c0392b;
+      --red-light:   #fdf0ef;
+      --green:       #1e7e34;
+      --green-light: #edf7ee;
+      --amber:       #e67e22;
+      --amber-light: #fef6ec;
+      --white:       #ffffff;
+      --off-white:   #f4f6f9;
+      --text:        #1a2a44;
+      --text-muted:  #5a6a82;
+      --border:      #dde3ed;
+      --radius:      6px;
+      --shadow:      0 2px 12px rgba(10,22,40,0.10);
+      --font:        'carbona-variable','carbona',sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font); font-size: 17px; line-height: 1.5;
+      font-variation-settings: 'wght' 400;
+      color: var(--text); background: var(--off-white);
+      overflow: hidden;
+    }
+
+    /* ===== Topbar ===== */
+    .topbar {
+      background: var(--primary); color: var(--white);
+      padding: 0 28px; height: 72px;
+      display: flex; align-items: center; gap: 18px;
+      position: relative; z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      border-bottom: 7px solid var(--navy);
+    }
+    .topbar img { height: 42px; }
+    .topbar__title {
+      font-weight: 900; font-variation-settings: 'wght' 900;
+      font-size: 20px; flex: 1; text-transform: uppercase;
+      letter-spacing: 0.04em; color: var(--white);
+    }
+    .topbar__title .word-primary   { color: var(--white); }
+    .topbar__title .word-secondary { color: rgba(255,255,255,0.55); }
+    .topbar__meta {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.85);
+    }
+    .topbar__meta-item { display: flex; align-items: center; gap: 6px; }
+    .topbar__meta-num { color: var(--white); font-weight: 900; font-variation-settings: 'wght' 900; font-size: 13px; }
+    .topbar__btn-ghost {
+      background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
+      padding: 8px 18px; border-radius: var(--radius); font-size: 12px;
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: all 0.15s; font-family: var(--font);
+    }
+    .topbar__btn-ghost:hover { background: rgba(255,255,255,0.12); }
+
+    /* ===== Main layout: sidebar + chat ===== */
+    .app {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      height: calc(100vh - 72px);
+      overflow: hidden;
+    }
+
+    /* ===== Sidebar (conversation list) ===== */
+    .sidebar {
+      background: var(--white);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar__head {
+      padding: 16px; border-bottom: 1px solid var(--border);
+      display: flex; gap: 8px;
+    }
+    .btn-new {
+      flex: 1;
+      background: var(--navy); color: var(--white); border: none;
+      padding: 10px 14px; border-radius: var(--radius);
+      font-family: var(--font); font-size: 12px;
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .btn-new:hover { background: var(--navy-mid); }
+    .sidebar__list {
+      flex: 1; overflow-y: auto; padding: 8px;
+    }
+    .conv-item {
+      padding: 12px 14px; border-radius: var(--radius); cursor: pointer;
+      margin-bottom: 4px; position: relative;
+      transition: background 0.15s; border: 1px solid transparent;
+    }
+    .conv-item:hover { background: var(--off-white); }
+    .conv-item.active { background: var(--off-white); border-color: var(--border); }
+    .conv-item__title {
+      font-size: 14px; font-weight: 600; font-variation-settings: 'wght' 600;
+      color: var(--text); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; padding-right: 24px;
+    }
+    .conv-item__time {
+      font-size: 11px; color: var(--text-muted);
+      font-weight: 600; font-variation-settings: 'wght' 600;
+      margin-top: 2px;
+    }
+    .conv-item__del {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      width: 22px; height: 22px; border: none; background: none;
+      font-size: 16px; color: var(--text-muted); cursor: pointer;
+      border-radius: 4px; opacity: 0; transition: opacity 0.15s;
+      line-height: 1;
+    }
+    .conv-item:hover .conv-item__del { opacity: 1; }
+    .conv-item__del:hover { background: var(--red-light); color: var(--red); }
+
+    .sidebar__empty {
+      padding: 32px 16px; text-align: center;
+      color: var(--text-muted); font-size: 13px;
+    }
+
+    /* ===== Chat main ===== */
+    .chat {
+      display: flex; flex-direction: column;
+      height: 100%; overflow: hidden;
+      background: var(--off-white);
+    }
+    .chat__scroll {
+      flex: 1; overflow-y: auto;
+      padding: 32px 0;
+    }
+    .chat__inner {
+      max-width: 820px; margin: 0 auto; padding: 0 24px;
+    }
+
+    /* ===== Welcome screen ===== */
+    .welcome {
+      display: flex; flex-direction: column; align-items: center;
+      text-align: center; padding: 40px 20px;
+    }
+    .welcome__avatar {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: var(--navy); color: var(--white);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; font-weight: 900; font-variation-settings: 'wght' 900;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    .welcome__title {
+      font-size: 28px; font-weight: 900; font-variation-settings: 'wght' 900;
+      color: var(--text); margin-bottom: 8px;
+    }
+    .welcome__sub {
+      font-size: 15px; color: var(--text-muted);
+      max-width: 520px; margin-bottom: 28px;
+    }
+    .welcome__prompts {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; width: 100%; max-width: 560px;
+    }
+    @media (max-width: 600px) { .welcome__prompts { grid-template-columns: 1fr; } }
+    .welcome__prompt {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      text-align: left; cursor: pointer;
+      font-family: var(--font); font-size: 14px;
+      color: var(--text); transition: all 0.15s;
+    }
+    .welcome__prompt:hover {
+      border-color: var(--navy); box-shadow: var(--shadow);
+    }
+    .welcome__prompt strong {
+      display: block; font-weight: 800; font-variation-settings: 'wght' 800;
+      color: var(--navy); font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 4px;
+    }
+
+    /* ===== Messages ===== */
+    .msg {
+      display: flex; gap: 14px; margin-bottom: 20px;
+      animation: msgIn 0.25s ease;
+    }
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .msg__avatar {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900;
+      color: var(--white);
+    }
+    .msg__avatar--user { background: var(--primary); }
+    .msg__avatar--ai   { background: var(--navy); }
+    .msg__body { flex: 1; min-width: 0; }
+    .msg__name {
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); margin-bottom: 4px;
+    }
+    .msg__text {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      font-size: 15px; line-height: 1.55;
+      color: var(--text);
+      overflow-wrap: break-word; word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+    .msg--user .msg__text {
+      background: #eef3ff; border-color: #d1def5;
+    }
+    .msg__cost {
+      margin-top: 6px; display: flex; gap: 10px;
+      font-size: 11px; color: var(--text-muted);
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      opacity: 0;
+      animation: costIn 0.6s ease 0.3s forwards;
+    }
+    @keyframes costIn { to { opacity: 1; } }
+    .msg__cost-num {
+      color: var(--navy); font-weight: 900; font-variation-settings: 'wght' 900;
+    }
+
+    /* Typing indicator */
+    .typing {
+      display: flex; gap: 14px; margin-bottom: 20px;
+    }
+    .typing__dots {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+      display: flex; gap: 5px;
+    }
+    .typing__dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-muted);
+      animation: typingPulse 1.2s ease infinite;
+    }
+    .typing__dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing__dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingPulse {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-3px); }
+    }
+
+    /* ===== Composer ===== */
+    .composer {
+      background: var(--white); border-top: 1px solid var(--border);
+      padding: 16px 24px;
+    }
+    .composer__inner {
+      max-width: 820px; margin: 0 auto;
+      display: flex; gap: 10px; align-items: flex-end;
+    }
+    .composer__input {
+      flex: 1;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px 14px; font-size: 15px;
+      font-family: var(--font); font-variation-settings: 'wght' 400;
+      color: var(--text); background: var(--white);
+      resize: none; min-height: 46px; max-height: 200px;
+      line-height: 1.4; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .composer__input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
+    }
+    .composer__input:disabled {
+      background: var(--off-white); color: var(--text-muted); cursor: not-allowed;
+    }
+    .composer__send {
+      background: var(--primary); color: var(--white); border: none;
+      padding: 0 22px; height: 46px; border-radius: var(--radius);
+      font-family: var(--font); font-size: 12px;
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .composer__send:hover:not(:disabled) { background: var(--primary-dim); }
+    .composer__send:disabled {
+      background: var(--text-muted); opacity: 0.5; cursor: not-allowed;
+    }
+    .composer__hint {
+      max-width: 820px; margin: 6px auto 0;
+      font-size: 11px; color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ===== Toast ===== */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--navy); color: var(--white);
+      padding: 12px 18px; border-radius: var(--radius);
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 999; transform: translateY(80px); opacity: 0;
+      transition: all 0.25s ease; max-width: 320px; pointer-events: none;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-left: 4px solid var(--green); }
+    .toast.error   { border-left: 4px solid var(--red); }
+
+    /* ===== Mobile ===== */
+    @media (max-width: 720px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .sidebar.open { display: flex; position: fixed; top: 72px; left: 0; width: 85vw; height: calc(100vh - 72px); z-index: 50; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+      .topbar__meta { display: none; }
+      .topbar { padding: 0 16px; }
+      .composer { padding: 12px 16px; }
+      .chat__inner { padding: 0 16px; }
+    }
+    .menu-toggle {
+      display: none;
+      background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
+      width: 36px; height: 36px; border-radius: var(--radius);
+      cursor: pointer; font-size: 18px;
+    }
+    @media (max-width: 720px) { .menu-toggle { display: flex; align-items: center; justify-content: center; } }
+  </style>
+</head>
+
+<body>
+  <div id="pageWrap" style="display:none;">
+
+    <div class="topbar">
+      <button class="menu-toggle" id="menuToggle" aria-label="Toggle conversations">☰</button>
+      <img
+        src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+        alt="National League"
+        onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+      <div class="topbar__title">
+        <span class="word-primary">CLAUDIO</span>
+        <span class="word-secondary">AI ASSISTANT</span>
+      </div>
+      <div class="topbar__meta">
+        <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
+          <span class="topbar__meta-num" id="dailyCount">0</span>
+          <span>/ <span id="dailyLimit">50</span> today</span>
+        </div>
+        <div class="topbar__meta-item" id="costMeta" title="Your cost today">
+          <span class="topbar__meta-num" id="costToday">0.00p</span>
+          <span>today</span>
+        </div>
+      </div>
+      <a href="/tools/portal/" class="topbar__btn-ghost">Portal</a>
+    </div>
+
+    <div class="app">
+      <!-- Sidebar: conversation list -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar__head">
+          <button class="btn-new" id="btnNew">New chat</button>
+        </div>
+        <div class="sidebar__list" id="convList">
+          <div class="sidebar__empty">No conversations yet. Start one below.</div>
+        </div>
+      </aside>
+
+      <!-- Chat area -->
+      <main class="chat">
+        <div class="chat__scroll" id="chatScroll">
+          <div class="chat__inner" id="chatInner">
+            <!-- Welcome screen rendered here by default -->
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="composer__inner">
+            <textarea
+              id="composerInput"
+              class="composer__input"
+              placeholder="Ask Claudio anything…"
+              rows="1"></textarea>
+            <button class="composer__send" id="btnSend">Send</button>
+          </div>
+          <div class="composer__hint">
+            Claudio knows NL staff and clubs. Don't share sensitive personal data.
+            Messages are private to you.
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // CONSTANTS
+    // =========================================================================
+    var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+    var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+
+    // How many past messages to send back to Claudio per request.
+    // Keeps long conversations cheap — older context is dropped.
+    var HISTORY_WINDOW = 15;
+
+    // =========================================================================
+    // STATE
+    // =========================================================================
+    var STATE = {
+      session:   null,
+      db:        null,
+      clubs:     [],
+      staff:     [],
+      convs:     [],       // list of conversations, sorted newest first
+      activeId:  null,     // currently-open conversation ID
+      messages:  [],       // messages in active conversation
+      sending:   false,    // guard to prevent double-send
+      dailyLimit: 50,
+      dailyCount: 0,
+      costTodayPence: 0
+    };
+
+    // =========================================================================
+    // BOOT — called by auth-guard once session is confirmed
+    // =========================================================================
+    window.nlAuthReady = function(session) {
+      STATE.session = session;
+      STATE.db      = firebase.database();
+      document.getElementById('pageWrap').style.display = 'block';
+
+      // Load staff directory + clubs in parallel — these become context for Claudio
+      Promise.all([loadClubs(), loadStaff()])
+        .then(function() {
+          return Promise.all([loadConversations(), loadDailyUsage()]);
+        })
+        .then(function() {
+          renderWelcome();
+          renderConvList();
+          wireUI();
+        })
+        .catch(function(err) {
+          console.error('Boot failed', err);
+          showToast('Failed to load. Please refresh.', 'error');
+        });
+    };
+
+    // =========================================================================
+    // DATA LOADING
+    // =========================================================================
+    function loadClubs() {
+      return fetch(CLUBS_META_URL)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          STATE.clubs = (data && data.clubs) ? data.clubs : [];
+        })
+        .catch(function() { STATE.clubs = []; });
+    }
+
+    function loadStaff() {
+      // Staff directory — names, roles, orgs, job titles. Public within NL staff context.
+      // Only load minimal fields (not tool access, not email) to keep the system prompt lean.
+      return ensureAuth().then(function() {
+        return STATE.db.ref('users').once('value');
+      }).then(function(snap) {
+        var users = snap.val() || {};
+        var arr = [];
+        Object.keys(users).forEach(function(uid) {
+          var u = users[uid] || {};
+          // Only include NL staff (not club users) — that's who Claudio talks about
+          if (u.role === 'club') return;
+          arr.push({
+            name:     u.name || '',
+            role:     u.role || '',
+            org:      u.org || '',
+            jobTitle: u.jobTitle || ''
+          });
+        });
+        STATE.staff = arr;
+      }).catch(function() { STATE.staff = []; });
+    }
+
+    function loadConversations() {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('claudio/conversations/' + STATE.session.uid).once('value');
+      }).then(function(snap) {
+        var obj = snap.val() || {};
+        var arr = [];
+        Object.keys(obj).forEach(function(cid) {
+          var c = obj[cid];
+          if (!c) return;
+          arr.push({
+            id:       cid,
+            title:    c.title || 'Untitled chat',
+            updated:  c.updated || 0,
+            created:  c.created || 0
+          });
+        });
+        arr.sort(function(a, b) { return (b.updated || 0) - (a.updated || 0); });
+        STATE.convs = arr;
+      }).catch(function(err) {
+        console.error('loadConversations failed', err);
+        STATE.convs = [];
+      });
+    }
+
+    function loadDailyUsage() {
+      var today = todayKey();
+      return ensureAuth().then(function() {
+        return STATE.db.ref('claudio/usage/' + STATE.session.uid + '/' + today).once('value');
+      }).then(function(snap) {
+        var u = snap.val() || {};
+        STATE.dailyCount     = u.count || 0;
+        STATE.costTodayPence = u.cost_pence || 0;
+        updateMetaUI();
+      }).catch(function() { /* ignore — will show 0 */ });
+    }
+
+    // =========================================================================
+    // ensureAuth() — see nl-tools skill
+    // =========================================================================
+    function ensureAuth() {
+      return new Promise(function(resolve, reject) {
+        var unsub = firebase.auth().onAuthStateChanged(function(u) {
+          unsub();
+          if (u) resolve(u);
+          else   reject(new Error('Not authenticated — please reload and try again.'));
+        });
+      });
+    }
+
+    // =========================================================================
+    // UI — welcome screen
+    // =========================================================================
+    function renderWelcome() {
+      var el = document.getElementById('chatInner');
+      clearChildren(el);
+
+      var w = document.createElement('div');
+      w.className = 'welcome';
+
+      var avatar = document.createElement('div');
+      avatar.className = 'welcome__avatar';
+      avatar.textContent = 'C';
+      w.appendChild(avatar);
+
+      var title = document.createElement('div');
+      title.className = 'welcome__title';
+      title.textContent = 'Hello ' + firstName(STATE.session.name) + '. I\'m Claudio.';
+      w.appendChild(title);
+
+      var sub = document.createElement('div');
+      sub.className = 'welcome__sub';
+      sub.textContent = 'Your NL assistant. I know the staff, the 72 clubs, and how things work here. Ask me anything — or start with one of these.';
+      w.appendChild(sub);
+
+      var prompts = document.createElement('div');
+      prompts.className = 'welcome__prompts';
+
+      var suggestions = [
+        { label: 'Draft an email',    text: 'Help me draft an email to ' },
+        { label: 'Who handles...',    text: 'Who at NL handles ' },
+        { label: 'Summarise text',    text: 'Summarise this for me:\n\n' },
+        { label: 'Clubs in a league', text: 'Which clubs are in the National League North?' }
+      ];
+      suggestions.forEach(function(s) {
+        var b = document.createElement('button');
+        b.className = 'welcome__prompt';
+        b.type = 'button';
+        var strong = document.createElement('strong');
+        strong.textContent = s.label;
+        b.appendChild(strong);
+        b.appendChild(document.createTextNode(s.text));
+        b.addEventListener('click', function() {
+          document.getElementById('composerInput').value = s.text;
+          document.getElementById('composerInput').focus();
+          // Move cursor to end
+          var inp = document.getElementById('composerInput');
+          inp.selectionStart = inp.selectionEnd = inp.value.length;
+        });
+        prompts.appendChild(b);
+      });
+      w.appendChild(prompts);
+
+      el.appendChild(w);
+    }
+
+    // =========================================================================
+    // UI — conversation list (sidebar)
+    // =========================================================================
+    function renderConvList() {
+      var list = document.getElementById('convList');
+      clearChildren(list);
+
+      if (!STATE.convs.length) {
+        var empty = document.createElement('div');
+        empty.className = 'sidebar__empty';
+        empty.textContent = 'No conversations yet. Start one below.';
+        list.appendChild(empty);
+        return;
+      }
+
+      STATE.convs.forEach(function(c) {
+        var item = document.createElement('div');
+        item.className = 'conv-item' + (c.id === STATE.activeId ? ' active' : '');
+
+        var title = document.createElement('div');
+        title.className = 'conv-item__title';
+        title.textContent = c.title;
+
+        var time = document.createElement('div');
+        time.className = 'conv-item__time';
+        time.textContent = relTime(c.updated || c.created);
+
+        var del = document.createElement('button');
+        del.className = 'conv-item__del';
+        del.type = 'button';
+        del.textContent = '×';
+        del.title = 'Delete conversation';
+        del.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (confirm('Delete this conversation? This can\'t be undone.')) {
+            deleteConversation(c.id);
+          }
+        });
+
+        item.appendChild(title);
+        item.appendChild(time);
+        item.appendChild(del);
+        item.addEventListener('click', function() { openConversation(c.id); });
+
+        list.appendChild(item);
+      });
+    }
+
+    // =========================================================================
+    // UI — chat messages
+    // =========================================================================
+    function renderMessages() {
+      var el = document.getElementById('chatInner');
+      clearChildren(el);
+
+      if (!STATE.messages.length) {
+        renderWelcome();
+        return;
+      }
+
+      STATE.messages.forEach(function(m) {
+        el.appendChild(buildMsgEl(m));
+      });
+      scrollToBottom();
+    }
+
+    function buildMsgEl(m) {
+      var wrap = document.createElement('div');
+      wrap.className = 'msg ' + (m.role === 'user' ? 'msg--user' : 'msg--ai');
+
+      var avatar = document.createElement('div');
+      avatar.className = 'msg__avatar ' + (m.role === 'user' ? 'msg__avatar--user' : 'msg__avatar--ai');
+      avatar.textContent = m.role === 'user' ? (firstName(STATE.session.name).charAt(0).toUpperCase() || 'Y') : 'C';
+
+      var body = document.createElement('div');
+      body.className = 'msg__body';
+
+      var name = document.createElement('div');
+      name.className = 'msg__name';
+      name.textContent = m.role === 'user' ? 'You' : 'Claudio';
+
+      var text = document.createElement('div');
+      text.className = 'msg__text';
+      text.textContent = m.content;
+
+      body.appendChild(name);
+      body.appendChild(text);
+
+      // Cost tag on assistant messages only
+      if (m.role === 'assistant' && m.cost_pence != null) {
+        var cost = document.createElement('div');
+        cost.className = 'msg__cost';
+
+        var costNum = document.createElement('span');
+        costNum.className = 'msg__cost-num';
+        costNum.textContent = formatPence(m.cost_pence);
+
+        var costLabel = document.createElement('span');
+        costLabel.textContent = '• ' + (m.tokens || 0) + ' tokens';
+
+        cost.appendChild(costNum);
+        cost.appendChild(costLabel);
+        body.appendChild(cost);
+
+        // Animated count-up on first render
+        animateCountUp(costNum, 0, m.cost_pence, 400);
+      }
+
+      wrap.appendChild(avatar);
+      wrap.appendChild(body);
+      return wrap;
+    }
+
+    function addTypingIndicator() {
+      var el = document.getElementById('chatInner');
+      var wrap = document.createElement('div');
+      wrap.className = 'typing';
+      wrap.id = 'typingIndicator';
+
+      var avatar = document.createElement('div');
+      avatar.className = 'msg__avatar msg__avatar--ai';
+      avatar.textContent = 'C';
+
+      var dots = document.createElement('div');
+      dots.className = 'typing__dots';
+      for (var i = 0; i < 3; i++) {
+        var d = document.createElement('div');
+        d.className = 'typing__dot';
+        dots.appendChild(d);
+      }
+
+      wrap.appendChild(avatar);
+      wrap.appendChild(dots);
+      el.appendChild(wrap);
+      scrollToBottom();
+    }
+
+    function removeTypingIndicator() {
+      var t = document.getElementById('typingIndicator');
+      if (t && t.parentNode) t.parentNode.removeChild(t);
+    }
+
+    function scrollToBottom() {
+      var scroll = document.getElementById('chatScroll');
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+
+    function updateMetaUI() {
+      document.getElementById('dailyCount').textContent = STATE.dailyCount;
+      document.getElementById('dailyLimit').textContent = STATE.dailyLimit;
+      document.getElementById('costToday').textContent  = formatPence(STATE.costTodayPence);
+    }
+
+    // =========================================================================
+    // CONVERSATIONS — open, new, delete
+    // =========================================================================
+    function openConversation(cid) {
+      STATE.activeId = cid;
+      renderConvList();
+
+      ensureAuth().then(function() {
+        return STATE.db.ref('claudio/conversations/' + STATE.session.uid + '/' + cid + '/messages').once('value');
+      }).then(function(snap) {
+        var obj = snap.val() || {};
+        var arr = [];
+        Object.keys(obj).forEach(function(mid) {
+          var m = obj[mid];
+          if (!m) return;
+          // Mark existing messages so animations don't replay
+          m._loaded = true;
+          arr.push(m);
+        });
+        arr.sort(function(a, b) { return (a.ts || 0) - (b.ts || 0); });
+        STATE.messages = arr;
+        renderMessages();
+      }).catch(function(err) {
+        console.error('openConversation failed', err);
+        showToast('Couldn\'t open that chat.', 'error');
+      });
+    }
+
+    function startNewConversation() {
+      STATE.activeId = null;
+      STATE.messages = [];
+      renderConvList();
+      renderWelcome();
+      document.getElementById('composerInput').focus();
+    }
+
+    function deleteConversation(cid) {
+      ensureAuth().then(function() {
+        return STATE.db.ref('claudio/conversations/' + STATE.session.uid + '/' + cid).remove();
+      }).then(function() {
+        STATE.convs = STATE.convs.filter(function(c) { return c.id !== cid; });
+        if (STATE.activeId === cid) {
+          STATE.activeId = null;
+          STATE.messages = [];
+          renderWelcome();
+        }
+        renderConvList();
+        showToast('Conversation deleted.', 'success');
+      }).catch(function(err) {
+        console.error('deleteConversation failed', err);
+        showToast('Couldn\'t delete that chat.', 'error');
+      });
+    }
+
+    // =========================================================================
+    // SEND — the core of the tool
+    // =========================================================================
+    function sendMessage() {
+      if (STATE.sending) return;
+
+      var input = document.getElementById('composerInput');
+      var text  = input.value.trim();
+      if (!text) return;
+
+      if (STATE.dailyCount >= STATE.dailyLimit) {
+        showToast('Daily limit reached. Resets at midnight.', 'error');
+        return;
+      }
+
+      STATE.sending = true;
+      setSendingUI(true);
+
+      // If this is a new conversation, create it first
+      var isNew = !STATE.activeId;
+      var convId = STATE.activeId || ('c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+
+      // Build the user message locally
+      var userMsg = {
+        role:    'user',
+        content: text,
+        ts:      Date.now()
+      };
+      STATE.messages.push(userMsg);
+      input.value = '';
+      autoResize(input);
+
+      // If opening welcome screen, switch to messages view
+      if (STATE.messages.length === 1) {
+        renderMessages();
+      } else {
+        document.getElementById('chatInner').appendChild(buildMsgEl(userMsg));
+      }
+      addTypingIndicator();
+
+      // Build the request to GAS
+      var systemPrompt = buildSystemPrompt();
+      var apiMessages = STATE.messages.slice(-HISTORY_WINDOW).map(function(m) {
+        return { role: m.role, content: m.content };
+      });
+
+      var reqBody = {
+        action: 'claudio',
+        uid: STATE.session.uid,
+        systemPrompt: systemPrompt,
+        messages: apiMessages,
+        cacheSystem: true
+      };
+
+      // First call: create the conv record in RTDB (so it appears in sidebar immediately)
+      var createPromise = isNew
+        ? saveConversationRecord(convId, deriveTitle(text))
+        : Promise.resolve();
+
+      createPromise
+        .then(function() {
+          STATE.activeId = convId;
+          if (isNew) {
+            STATE.convs.unshift({
+              id: convId,
+              title: deriveTitle(text),
+              updated: Date.now(),
+              created: Date.now()
+            });
+            renderConvList();
+          }
+          // Save user message to RTDB
+          return saveMessageToRTDB(convId, userMsg);
+        })
+        .then(function() {
+          // Call GAS → Anthropic
+          return fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+            method:  'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body:    JSON.stringify(reqBody)
+          });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+          removeTypingIndicator();
+
+          if (!result.ok) {
+            // Remove the user message we optimistically pushed? No — keep it, user sent it.
+            // Just show the error.
+            showToast(result.error || 'Claudio couldn\'t respond.', 'error');
+            STATE.sending = false;
+            setSendingUI(false);
+            return;
+          }
+
+          var aiMsg = {
+            role:       'assistant',
+            content:    result.reply || '',
+            ts:         Date.now(),
+            cost_pence: result.usage ? result.usage.cost_pence : 0,
+            tokens:     result.usage
+              ? (result.usage.input_tokens + result.usage.cache_read_input_tokens + result.usage.cache_creation_input_tokens + result.usage.output_tokens)
+              : 0
+          };
+          STATE.messages.push(aiMsg);
+          document.getElementById('chatInner').appendChild(buildMsgEl(aiMsg));
+          scrollToBottom();
+
+          // Update daily counters (from GAS response — source of truth)
+          if (typeof result.dailyCount === 'number') STATE.dailyCount = result.dailyCount;
+          if (typeof result.dailyLimit === 'number') STATE.dailyLimit = result.dailyLimit;
+          if (result.usage && result.usage.cost_pence) STATE.costTodayPence += result.usage.cost_pence;
+          updateMetaUI();
+
+          // Persist assistant message + bump conv updated timestamp
+          saveMessageToRTDB(convId, aiMsg);
+          bumpConversationTimestamp(convId);
+
+          STATE.sending = false;
+          setSendingUI(false);
+        })
+        .catch(function(err) {
+          removeTypingIndicator();
+          console.error('Send failed', err);
+          showToast('Network error. Try again.', 'error');
+          STATE.sending = false;
+          setSendingUI(false);
+        });
+    }
+
+    function setSendingUI(sending) {
+      document.getElementById('composerInput').disabled = sending;
+      document.getElementById('btnSend').disabled = sending;
+      document.getElementById('btnSend').textContent = sending ? '...' : 'Send';
+    }
+
+    // =========================================================================
+    // RTDB WRITES
+    // =========================================================================
+    function saveConversationRecord(cid, title) {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('claudio/conversations/' + STATE.session.uid + '/' + cid).update({
+          title:   title,
+          created: firebase.database.ServerValue.TIMESTAMP,
+          updated: firebase.database.ServerValue.TIMESTAMP
+        });
+      });
+    }
+
+    function saveMessageToRTDB(cid, msg) {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('claudio/conversations/' + STATE.session.uid + '/' + cid + '/messages').push({
+          role:       msg.role,
+          content:    msg.content,
+          ts:         msg.ts,
+          cost_pence: msg.cost_pence || 0,
+          tokens:     msg.tokens || 0
+        });
+      });
+    }
+
+    function bumpConversationTimestamp(cid) {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('claudio/conversations/' + STATE.session.uid + '/' + cid + '/updated').set(firebase.database.ServerValue.TIMESTAMP);
+      });
+    }
+
+    // =========================================================================
+    // SYSTEM PROMPT — what Claudio "knows" about NL
+    // =========================================================================
+    function buildSystemPrompt() {
+      var staffList = STATE.staff.slice(0, 80).map(function(s) {
+        var parts = [s.name];
+        if (s.jobTitle) parts.push('(' + s.jobTitle + ')');
+        if (s.org) parts.push('— ' + s.org);
+        return parts.join(' ');
+      }).join('\n');
+
+      var clubsByDiv = {};
+      STATE.clubs.forEach(function(c) {
+        var d = c.division || 'Unknown';
+        if (!clubsByDiv[d]) clubsByDiv[d] = [];
+        clubsByDiv[d].push(c.name);
+      });
+      var clubsList = Object.keys(clubsByDiv).map(function(div) {
+        return div + ':\n  ' + clubsByDiv[div].join(', ');
+      }).join('\n');
+
+      var currentUser = STATE.session.name + (STATE.session.jobTitle ? ' (' + STATE.session.jobTitle + ')' : '');
+
+      return [
+        'You are Claudio, the internal AI assistant for The National League — the fifth tier of English football.',
+        'You help National League staff with day-to-day work: drafting emails and comms, answering questions about the organisation, summarising text, brainstorming, and general assistance.',
+        '',
+        'The person you are talking to right now is: ' + currentUser + '.',
+        '',
+        '## About The National League',
+        'The National League is the organising body for English football\'s fifth tier, running three divisions:',
+        '- National League (tier 5)',
+        '- National League North (tier 6)',
+        '- National League South (tier 6)',
+        'There are 72 clubs across the three divisions. NL also runs NL Trust (charity arm) and U19 Alliance (youth competition).',
+        '',
+        '## NL staff you can reference',
+        staffList || '(staff directory not loaded)',
+        '',
+        '## The 72 clubs',
+        clubsList || '(clubs data not loaded)',
+        '',
+        '## How to behave',
+        '- Use British English spelling throughout (colour, organise, realise, licence etc.).',
+        '- Date format: DD/MM/YYYY. Currency: £.',
+        '- Be direct and helpful. Concise prose over long lists. Lead with the answer.',
+        '- When drafting comms, match NL\'s tone: professional, warm, football-literate, not corporate.',
+        '- If you don\'t know something, say so plainly — don\'t invent.',
+        '',
+        '## What you must NOT do',
+        '- Do NOT speculate on transfers, club finances, club ownership, managerial changes, or any rumours.',
+        '- Do NOT give legal advice or HR advice. Direct the user to appropriate professionals (HRX for HR questions, external legal counsel for legal).',
+        '- Do NOT access, request, or discuss sensitive personnel data (salaries, disciplinary matters, personal contact details beyond what is in the public staff directory above).',
+        '- Do NOT draft anything disciplinary or regulatory that would go out under NL\'s name without explicitly reminding the user it needs review.',
+        '- Do NOT produce statements that could be quoted as NL\'s official position. Make clear any draft is a starting point for the user to review and own.',
+        '- Do NOT invent NL policies, rules, procedures, or facts. If asked about a policy you don\'t have context for, say you don\'t have that information and suggest they check with the relevant person.',
+        '',
+        'You are Claudio — named after Claudio Ranieri, the beloved Leicester manager. You have some of that warmth and experience: steady, helpful, a bit avuncular, unflappable. But you\'re an assistant, not a decision-maker. The person you\'re helping makes the calls.'
+      ].join('\n');
+    }
+
+    // =========================================================================
+    // UI WIRING
+    // =========================================================================
+    function wireUI() {
+      var input = document.getElementById('composerInput');
+
+      // Auto-resize composer as user types
+      input.addEventListener('input', function() { autoResize(input); });
+
+      // Enter to send, Shift+Enter for newline
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      document.getElementById('btnSend').addEventListener('click', sendMessage);
+      document.getElementById('btnNew').addEventListener('click', startNewConversation);
+
+      document.getElementById('menuToggle').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.toggle('open');
+      });
+    }
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+    function firstName(full) {
+      return String(full || 'there').split(' ')[0];
+    }
+
+    function deriveTitle(firstMessage) {
+      // Use first ~50 chars of the user's first message as a title
+      var t = String(firstMessage || '').trim().replace(/\s+/g, ' ');
+      if (t.length > 50) t = t.slice(0, 47) + '…';
+      return t || 'Untitled chat';
+    }
+
+    function todayKey() {
+      // UK date (YYYY-MM-DD) — matches GAS Europe/London key
+      var d = new Date();
+      var pad = function(n) { return n < 10 ? '0' + n : String(n); };
+      // This uses local time; for users outside UK this may differ by a few hours
+      // from the server's Europe/London key. Acceptable drift for a usage counter.
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function formatPence(p) {
+      if (p == null) return '0.00p';
+      var n = Number(p) || 0;
+      if (n < 1) return n.toFixed(2) + 'p';
+      if (n < 100) return n.toFixed(1) + 'p';
+      return '£' + (n / 100).toFixed(2);
+    }
+
+    function animateCountUp(el, from, to, duration) {
+      var start = performance.now();
+      function step(now) {
+        var t = Math.min(1, (now - start) / duration);
+        // Ease-out cubic
+        var eased = 1 - Math.pow(1 - t, 3);
+        var val = from + (to - from) * eased;
+        el.textContent = formatPence(val);
+        if (t < 1) requestAnimationFrame(step);
+        else el.textContent = formatPence(to);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function relTime(ts) {
+      if (!ts) return '';
+      var diff = Date.now() - ts;
+      var mins = Math.floor(diff / 60000);
+      if (mins < 1)  return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      var hrs = Math.floor(mins / 60);
+      if (hrs < 24)  return hrs + 'h ago';
+      var days = Math.floor(hrs / 24);
+      if (days < 7)  return days + 'd ago';
+      var d = new Date(ts);
+      var pad = function(n) { return n < 10 ? '0' + n : String(n); };
+      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+    }
+
+    function clearChildren(el) {
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
+    function showToast(msg, type) {
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast ' + (type || 'success') + ' show';
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(function() { t.classList.remove('show'); }, 3500);
+    }
+  </script>
+</body>
+</html>
