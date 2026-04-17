@@ -489,7 +489,7 @@ var STATE = {
   pendingAction: null, pendingId: null, pendingTitle: null,
   submitCodeVerified: false, submitCountdownInt: null,
 };
-var vacRef = db.ref('ops-vacancies/listings');
+var vacRef = db.ref('app-data/ops-vacancies/listings');
 var vacListener = null;
 
 /* ── Auth ready callback from guard ── */
@@ -580,7 +580,7 @@ function startVacanciesListener() {
 /* ── Submissions (Firebase) ── */
 function loadSubs() {
   ensureAuth().then(function() {
-    db.ref('ops-vacancies/submissions').orderByChild('submittedAt').on('value', function(snap) {
+    db.ref('app-data/ops-vacancies/submissions').orderByChild('submittedAt').on('value', function(snap) {
       var raw = snap.val() || {};
       STATE.allSubs = Object.keys(raw).map(function(id) {
         var s = raw[id]; s.id = id;
@@ -601,7 +601,7 @@ function loadSubs() {
 /* ── Analytics ── */
 function loadAnalytics() {
   // Public read — no auth needed, but listen for real-time updates
-  db.ref('ops-vacancies/analytics').on('value', function(snap) {
+  db.ref('app-data/ops-vacancies/analytics').on('value', function(snap) {
     STATE.analytics = snap.val() || {};
     if (STATE.currentTab !== 'submissions') renderVacTable();
   });
@@ -797,7 +797,7 @@ function saveJob() {
   var btn=document.getElementById('saveBtn');
   btn.disabled=true;btn.textContent='Saving…';
   ensureAuth().then(function(){
-    var p=isNew?vacRef.push(data):db.ref('ops-vacancies/listings/'+STATE.editId).update(data);
+    var p=isNew?vacRef.push(data):db.ref('app-data/ops-vacancies/listings/'+STATE.editId).update(data);
     return p;
   })
   .then(function(){closeModal('formModal');showToast(isNew?'Vacancy added.':'Vacancy updated.','success');})
@@ -829,7 +829,7 @@ function confirmAction(){
   btn.disabled=true;btn.textContent=STATE.pendingAction==='delete'?'Deleting…':'Restoring…';
   closeModal('confirmModal');
   ensureAuth().then(function(){
-    return db.ref('ops-vacancies/listings/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'});
+    return db.ref('app-data/ops-vacancies/listings/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'});
   })
   .then(function(){showToast(STATE.pendingAction==='delete'?'Deleted.':'Restored.','success');})
   .catch(function(e){showToast(e.message,'error');})
@@ -896,7 +896,7 @@ function saveSub(){
   setSubModalBtns(true,'subSaveBtn');
   var data=getSubData();
   ensureAuth().then(function(){
-    return db.ref('ops-vacancies/submissions/'+STATE.reviewSubId).update(data);
+    return db.ref('app-data/ops-vacancies/submissions/'+STATE.reviewSubId).update(data);
   })
   .then(function(){showToast('Saved.','success');loadSubs();})
   .catch(function(e){showToast(e.message,'error');})
@@ -910,7 +910,7 @@ function approveSub(){
   data.status='Approved';
   data.approvedBy=approvedBy;
   ensureAuth().then(function(){
-    return db.ref('ops-vacancies/submissions/'+STATE.reviewSubId).update(data);
+    return db.ref('app-data/ops-vacancies/submissions/'+STATE.reviewSubId).update(data);
   }).then(function(){
       var sub=STATE.allSubs.find(function(s){return s.id===STATE.reviewSubId;});
       if(!sub) return;
@@ -938,7 +938,7 @@ function rejectSub(){
   setSubModalBtns(true,'subRejectBtn');
   var notes=document.getElementById('sNotes').value.trim();
   ensureAuth().then(function(){
-    return db.ref('ops-vacancies/submissions/'+STATE.reviewSubId).update({status:'Rejected',notes:notes});
+    return db.ref('app-data/ops-vacancies/submissions/'+STATE.reviewSubId).update({status:'Rejected',notes:notes});
   })
   .then(function(){closeModal('subModal');showToast('Rejected.','success');loadSubs();})
   .catch(function(e){showToast(e.message,'error');setSubModalBtns(false);});
