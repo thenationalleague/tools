@@ -1,7 +1,7 @@
 /* =========================================================================
    NL Tools — Shared utilities
    File: /tools/system/nl-utils.js
-   Version: v1.0 (17/04/2026)
+   Version: v1.1 (17/04/2026)
 
    Shared helper functions used by every tool page. Exposed on window.NL
    namespace. All functions are defensive — they handle missing arguments
@@ -31,15 +31,15 @@
   window.NL.toast = function(message, type) {
     if (!toastEl) {
       toastEl = document.createElement('div');
-      toastEl.className = 'nl-toast';
+      toastEl.className = 'toast';
       document.body.appendChild(toastEl);
     }
     var kind = type || 'success';
-    toastEl.className = 'nl-toast nl-toast--' + kind + ' is-shown';
+    toastEl.className = 'toast toast--' + kind + ' show';
     toastEl.textContent = message || '';
     if (toastTimeout) clearTimeout(toastTimeout);
     toastTimeout = setTimeout(function() {
-      toastEl.classList.remove('is-shown');
+      toastEl.classList.remove('show');
     }, 3500);
   };
 
@@ -64,16 +64,48 @@
   };
 
   /* ── Date helpers ────────────────────────────────────────────────────── */
-  /* Accepts ISO date strings like "2026-04-17" (no time). */
+  /* Accepts multiple formats:
+     - ISO: "2026-04-17" or "2026-04-17T09:30"
+     - UK with time: "17/04/2026 09:30" or "17/04/2026 09:30:00"
+     - UK date only: "17/04/2026"
+  */
   window.NL.parseDate = function(str) {
     if (!str) return null;
-    var parts = String(str).split('-');
-    if (parts.length < 3) return null;
-    var d = new Date(
-      parseInt(parts[0], 10),
-      parseInt(parts[1], 10) - 1,
-      parseInt(parts[2], 10)
-    );
+    str = String(str).trim();
+    if (!str) return null;
+
+    var d;
+
+    /* UK format: DD/MM/YYYY with optional HH:MM[:SS] */
+    var ukMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (ukMatch) {
+      d = new Date(
+        parseInt(ukMatch[3], 10),
+        parseInt(ukMatch[2], 10) - 1,
+        parseInt(ukMatch[1], 10),
+        parseInt(ukMatch[4] || 0, 10),
+        parseInt(ukMatch[5] || 0, 10),
+        parseInt(ukMatch[6] || 0, 10)
+      );
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    /* ISO format: YYYY-MM-DD with optional THH:MM[:SS] */
+    var isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (isoMatch) {
+      d = new Date(
+        parseInt(isoMatch[1], 10),
+        parseInt(isoMatch[2], 10) - 1,
+        parseInt(isoMatch[3], 10),
+        parseInt(isoMatch[4] || 0, 10),
+        parseInt(isoMatch[5] || 0, 10),
+        parseInt(isoMatch[6] || 0, 10)
+      );
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    /* Fallback: let JS Date try */
+    d = new Date(str);
     return isNaN(d.getTime()) ? null : d;
   };
 
