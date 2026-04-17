@@ -2,10 +2,26 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 1.1
+  Version: 1.2
   Date: 17/04/2026
 
   CHANGELOG
+  v1.2 (17/04/2026)
+    - Added league-tables injection (trimmed summary): champions, promoted,
+      relegated, and notable drama notes for every season 1979-80 onwards,
+      across all three divisions. Full per-row data trimmed client-side at
+      load to keep system-prompt size sane (~90% size reduction).
+    - Injected today's date into system prompt so "last season", "this season"
+      etc resolve correctly. Previously Claudio didn't know the current date.
+    - Staff directory now includes line-manager resolution: each staff row
+      shows their resolved line manager / approver name (not UIDs).
+    - Current user block now includes their own org, role, email, and resolved
+      line manager — so questions like "who's my line manager?" work.
+    - Softened "no live data" guardrail: Claudio can now answer common football
+      knowledge questions from its own knowledge (who won in year X, famous
+      moments etc), only refusing when asked to fabricate specific recent
+      match data it cannot verify.
+
   v1.1 (17/04/2026)
     - Added historical context injection: fetches rich clubs-meta (phoenix/merger/
       nicknames/first-season) and season-notes (points deductions, expulsions,
@@ -468,10 +484,13 @@
     // rich historical metadata (phoenix/merger/nicknames/first-season) and
     // season notes (points deductions, expulsions, reprieves, format history).
     // Injected into Claudio's system prompt for historical awareness.
-    var SITE_CLUBS_META_URL   = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/clubs-meta.json';
-    var SITE_SEASON_NOTES_URL = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/season-notes.json';
+    var SITE_CLUBS_META_URL    = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/clubs-meta.json';
+    var SITE_SEASON_NOTES_URL  = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/season-notes.json';
+    var SITE_LEAGUE_TABLES_URL = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/league-tables.json';
     // results.json deliberately NOT fetched — too large (~500k+ tokens).
     // Deferred to v2 with tool-use for on-demand match lookups.
+    // league-tables.json IS fetched but trimmed client-side at load time
+    // (champions/promoted/relegated/drama only — not full standings).
 
     // How many past messages to send back to Claudio per request.
     // Keeps long conversations cheap — older context is dropped.
@@ -485,7 +504,7 @@
       db:        null,
       clubs:     [],
       staff:     [],
-      historicalContext: null,  // { clubsMeta, seasonNotes } from site repo — injected into system prompt
+      historicalContext: null,  // { clubsMeta, seasonNotes, leagueTables } from site repo — injected into system prompt
       convs:     [],       // list of conversations, sorted newest first
       activeId:  null,     // currently-open conversation ID
       messages:  [],       // messages in active conversation
@@ -534,34 +553,104 @@
     }
 
     function loadHistoricalContext() {
-      // Fetches rich clubs-meta and season-notes from the 'site' repo.
-      // Never rejects — if either fails, STATE.historicalContext stays null and
+      // Fetches clubs-meta, season-notes, and league-tables from the 'site' repo.
+      // Never rejects — if any fail, STATE.historicalContext stays null/partial and
       // the system prompt simply omits that section. Claudio still works fine.
       //
       // Browsers cache the raw.githubusercontent response aggressively thanks to
       // GitHub's CDN headers, so repeat loads in the same day are essentially free.
+      //
+      // league-tables.json is LARGE (every team every season since 1979-80). We
+      // trim it client-side to champions/promoted/relegated/drama only — keeps
+      // the system prompt payload ~10% of the raw file size while preserving
+      // the most useful info for Claudio to answer "who won season X" questions.
       var fetchJson = function(url) {
         return fetch(url)
           .then(function(r) { return r.ok ? r.json() : null; })
           .catch(function() { return null; });
       };
-      return Promise.all([fetchJson(SITE_CLUBS_META_URL), fetchJson(SITE_SEASON_NOTES_URL)])
+      return Promise.all([
+        fetchJson(SITE_CLUBS_META_URL),
+        fetchJson(SITE_SEASON_NOTES_URL),
+        fetchJson(SITE_LEAGUE_TABLES_URL)
+      ])
         .then(function(arr) {
-          var clubsMeta   = arr[0];
-          var seasonNotes = arr[1];
-          if (clubsMeta || seasonNotes) {
+          var clubsMeta     = arr[0];
+          var seasonNotes   = arr[1];
+          var leagueTables  = arr[2] ? trimLeagueTables(arr[2]) : null;
+          if (clubsMeta || seasonNotes || leagueTables) {
             STATE.historicalContext = {
-              clubsMeta:   clubsMeta,
-              seasonNotes: seasonNotes
+              clubsMeta:    clubsMeta,
+              seasonNotes:  seasonNotes,
+              leagueTables: leagueTables
             };
           }
         })
         .catch(function() { /* swallow — not fatal */ });
     }
 
+    // Reduces the league-tables file from full standings to a compact
+    // season-by-season summary. For each division in each season we keep:
+    //   - champion (top row with 'champion' class)
+    //   - promotedViaPlayoff (rows with 'promoted' class but NOT champion)
+    //   - playoffFinalists (rows with 'playoff' class — lost in final)
+    //   - relegated (rows with 'relegated' class)
+    //   - folded / expelled (rows with those classes)
+    //   - note (the per-division drama note, if any)
+    // Everything else (mid-table teams, detailed stats) is dropped.
+    function trimLeagueTables(full) {
+      if (!full || !full.seasons) return null;
+      var out = { seasons: [] };
+      full.seasons.forEach(function(s) {
+        if (!s || !s.divisions) return;
+        var divs = {};
+        Object.keys(s.divisions).forEach(function(divKey) {
+          var div = s.divisions[divKey];
+          if (!div) return;
+          var rows = Array.isArray(div.rows) ? div.rows : [];
+          var summary = {
+            title: div.title || divKey
+          };
+          if (div.note) summary.note = div.note;
+          rows.forEach(function(r) {
+            if (!r) return;
+            var cls = Array.isArray(r.classes) ? r.classes : [];
+            var team = r.team || r.entity;
+            if (cls.indexOf('champion') !== -1) {
+              summary.champion = { team: team, entity: r.entity, pts: r.Pts };
+            }
+            if (cls.indexOf('promoted') !== -1 && cls.indexOf('champion') === -1) {
+              summary.promotedViaPlayoff = { team: team, entity: r.entity, pos: r.pos };
+            }
+            if (cls.indexOf('playoff') !== -1) {
+              if (!summary.playoffTeams) summary.playoffTeams = [];
+              summary.playoffTeams.push({ team: team, entity: r.entity, pos: r.pos });
+            }
+            if (cls.indexOf('relegated') !== -1) {
+              if (!summary.relegated) summary.relegated = [];
+              summary.relegated.push({ team: team, entity: r.entity, pos: r.pos });
+            }
+            if (cls.indexOf('folded') !== -1) {
+              if (!summary.folded) summary.folded = [];
+              summary.folded.push({ team: team, entity: r.entity });
+            }
+            if (cls.indexOf('expelled') !== -1) {
+              if (!summary.expelled) summary.expelled = [];
+              summary.expelled.push({ team: team, entity: r.entity });
+            }
+          });
+          divs[divKey] = summary;
+        });
+        out.seasons.push({ season: s.season, divisions: divs });
+      });
+      return out;
+    }
+
     function loadStaff() {
-      // Staff directory — names, roles, orgs, job titles. Public within NL staff context.
-      // Only load minimal fields (not tool access, not email) to keep the system prompt lean.
+      // Staff directory — names, roles, orgs, job titles, line-manager links.
+      // Public within NL staff context. We need uid + lineManagerUid + approverUid
+      // so we can resolve manager names for "who's my line manager?" questions.
+      // Email included so Claudio can recognise staff when user types an email.
       return ensureAuth().then(function() {
         return STATE.db.ref('users').once('value');
       }).then(function(snap) {
@@ -572,14 +661,28 @@
           // Only include NL staff (not club users) — that's who Claudio talks about
           if (u.role === 'club') return;
           arr.push({
-            name:     u.name || '',
-            role:     u.role || '',
-            org:      u.org || '',
-            jobTitle: u.jobTitle || ''
+            uid:             uid,
+            name:            u.name || '',
+            email:           u.email || '',
+            role:            u.role || '',
+            org:             u.org || '',
+            jobTitle:        u.jobTitle || '',
+            lineManagerUid:  u.lineManagerUid || '',
+            approverUid:     u.approverUid || ''
           });
         });
         STATE.staff = arr;
       }).catch(function() { STATE.staff = []; });
+    }
+
+    // Given a UID, find the matching staff member's name. Returns '' if not found.
+    // Used when resolving lineManagerUid / approverUid into human-readable names.
+    function resolveStaffName(uid) {
+      if (!uid) return '';
+      for (var i = 0; i < STATE.staff.length; i++) {
+        if (STATE.staff[i].uid === uid) return STATE.staff[i].name;
+      }
+      return '';
     }
 
     function loadConversations() {
@@ -1065,10 +1168,16 @@
     // SYSTEM PROMPT — what Claudio "knows" about NL
     // =========================================================================
     function buildSystemPrompt() {
+      // Staff directory — now with resolved line-manager names so Claudio can
+      // answer "who's X's line manager?" without seeing raw UIDs.
       var staffList = STATE.staff.slice(0, 80).map(function(s) {
         var parts = [s.name];
         if (s.jobTitle) parts.push('(' + s.jobTitle + ')');
         if (s.org) parts.push('— ' + s.org);
+        var lmName = resolveStaffName(s.lineManagerUid);
+        var apName = resolveStaffName(s.approverUid);
+        if (lmName) parts.push('[line manager: ' + lmName + ']');
+        if (apName && apName !== lmName) parts.push('[approver: ' + apName + ']');
         return parts.join(' ');
       }).join('\n');
 
@@ -1082,7 +1191,39 @@
         return div + ':\n  ' + clubsByDiv[div].join(', ');
       }).join('\n');
 
-      var currentUser = STATE.session.name + (STATE.session.jobTitle ? ' (' + STATE.session.jobTitle + ')' : '');
+      // Build a richer current-user block. We pull from STATE.session for the
+      // basics, but also look up the session uid in STATE.staff to get the
+      // lineManagerUid/approverUid we need to resolve names. This is why
+      // loadStaff now includes uid — without it, we couldn't link "me" to
+      // my line manager.
+      var me = STATE.staff.filter(function(s) { return s.uid === STATE.session.uid; })[0];
+      var currentUserLines = ['The person you are talking to right now:'];
+      currentUserLines.push('- Name: ' + (STATE.session.name || '(unknown)'));
+      if (STATE.session.email)    currentUserLines.push('- Email: ' + STATE.session.email);
+      if (STATE.session.jobTitle) currentUserLines.push('- Job title: ' + STATE.session.jobTitle);
+      if (STATE.session.org)      currentUserLines.push('- Organisation: ' + STATE.session.org);
+      if (STATE.session.role)     currentUserLines.push('- Access level: ' + STATE.session.role);
+      if (me) {
+        var myLm = resolveStaffName(me.lineManagerUid);
+        var myAp = resolveStaffName(me.approverUid);
+        if (myLm) currentUserLines.push('- Line manager: ' + myLm);
+        if (myAp && myAp !== myLm) currentUserLines.push('- Approver (for leave/expenses): ' + myAp);
+      }
+      currentUserLines.push('When the user says "me", "my", "I", refer to the person above. For questions like "who\'s my line manager?", use the line manager name above.');
+
+      // Today's date — so Claudio can resolve "this season", "last season",
+      // "next week" etc correctly. British format per NL convention.
+      var today = new Date();
+      var dd = String(today.getDate()).padStart(2, '0');
+      var mm = String(today.getMonth() + 1).padStart(2, '0');
+      var yyyy = today.getFullYear();
+      var todayStr = dd + '/' + mm + '/' + yyyy;
+      // Derive "current season" — football seasons run Aug to May, so before August
+      // we're in the season that started the previous calendar year.
+      var currentSeasonStart = (today.getMonth() >= 7) ? yyyy : yyyy - 1;
+      var currentSeasonStr = currentSeasonStart + '-' + String((currentSeasonStart + 1) % 100).padStart(2, '0');
+      var lastSeasonStart = currentSeasonStart - 1;
+      var lastSeasonStr = lastSeasonStart + '-' + String((lastSeasonStart + 1) % 100).padStart(2, '0');
 
       // Historical context — dumped as JSON strings when available. Claude parses JSON
       // well enough that explicit restructuring isn't needed; the semantic field names
@@ -1108,6 +1249,14 @@
           parts.push('```');
           parts.push('');
         }
+        if (hc.leagueTables) {
+          parts.push('## Season outcomes — champions, promoted, relegated');
+          parts.push('Trimmed summary of every season since 1979-80. For each division in each season, lists: champion (automatic promotion), promotedViaPlayoff (the team that won the playoff final), playoffTeams (all playoff participants), relegated, folded, expelled. Full standings (mid-table teams, detailed stats) are NOT included here — refer users to nationalleagueservices.co.uk or the main NL website for detailed historical tables.');
+          parts.push('```json');
+          parts.push(JSON.stringify(hc.leagueTables));
+          parts.push('```');
+          parts.push('');
+        }
         historicalBlock = parts.join('\n');
       }
 
@@ -1115,7 +1264,14 @@
         'You are Claudio, the internal AI assistant for The National League — the fifth tier of English football.',
         'You help National League staff with day-to-day work: drafting emails and comms, answering questions about the organisation, summarising text, brainstorming, and general assistance.',
         '',
-        'The person you are talking to right now is: ' + currentUser + '.',
+        '## Today\'s date',
+        'Today is ' + todayStr + '.',
+        'Current season: ' + currentSeasonStr + ' (in progress).',
+        'Last completed season: ' + lastSeasonStr + '.',
+        'When the user says "last season", "this season", "next season" etc, resolve them against the above.',
+        '',
+        '## Who you\'re talking to',
+        currentUserLines.join('\n'),
         '',
         '## About The National League',
         'The National League is the organising body for English football\'s fifth tier, running three divisions:',
@@ -1125,16 +1281,19 @@
         'There are 72 clubs across the three divisions. NL also runs NL Trust (charity arm) and U19 Alliance (youth competition).',
         '',
         '## NL staff you can reference',
+        'Format: Name (job title) — org [line manager: ...] [approver: ...]',
         staffList || '(staff directory not loaded)',
         '',
         '## The 72 current clubs (this season)',
         clubsList || '(clubs data not loaded)',
         '',
         historicalBlock,
-        '## Live data — what you DON\'T have',
-        'You do not currently have access to live fixtures, results, standings, top scorers, match attendances, or any match-day data. You also do not have historical match-by-match results (who-beat-whom scores).',
-        'If a user asks about fixtures, results, live scores, standings, or specific match details you cannot answer from the historical metadata above, say so plainly. Direct them to nationalleagueservices.co.uk or the main NL website. Do NOT invent scores, dates, or match outcomes.',
-        'You WILL have access to live data in a future version (v2) via proper data lookups. For now, be honest about the limitation.',
+        '## Live data — what you DO and DON\'T have',
+        'You DO have (in the historical context blocks above): every season\'s champion, promoted, relegated, playoff finalists, points deductions, expulsions, reprieves, format changes, club histories (phoenix/merger/nicknames), and season outcomes going back to 1979-80.',
+        'You DO have general football knowledge from your training (who won famous cup finals, well-known managerial tenures, widely-reported events) — it\'s fine to answer common football questions confidently where you know the answer.',
+        'You do NOT have: live fixtures, live scores, live standings, current top scorers, match attendances, match-by-match historical results (who-beat-whom scores), or this season\'s ongoing data.',
+        'If a user asks about live/current match data you can\'t answer from the blocks above, direct them to nationalleagueservices.co.uk or the main NL website. Do NOT invent specific match scores, dates, or attendance figures. But do NOT refuse reasonable historical questions that you can answer from the season outcomes block or from general football knowledge.',
+        'You WILL have access to live data in a future version (v2) via proper data lookups.',
         '',
         '## How to behave',
         '- Use British English spelling throughout (colour, organise, realise, licence etc.).',
@@ -1151,7 +1310,7 @@
         '- Do NOT draft anything disciplinary or regulatory that would go out under NL\'s name without explicitly reminding the user it needs review.',
         '- Do NOT produce statements that could be quoted as NL\'s official position. Make clear any draft is a starting point for the user to review and own.',
         '- Do NOT invent NL policies, rules, procedures, or facts. If asked about a policy you don\'t have context for, say you don\'t have that information and suggest they check with the relevant person.',
-        '- Do NOT invent match results, scores, or fixture dates — you do not have that data.',
+        '- Do NOT invent specific match scores, fixture dates, or attendance figures you don\'t have data for.',
         '',
         'You are Claudio — named after Claudio Ranieri, the beloved Leicester manager. You have some of that warmth and experience: steady, helpful, a bit avuncular, unflappable. But you\'re an assistant, not a decision-maker. The person you\'re helping makes the calls.'
       ].join('\n');
