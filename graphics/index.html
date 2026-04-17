@@ -1,11 +1,21 @@
 <!DOCTYPE html>
 <!--
   Graphics — NL Tools
-  Version: 1.0
+  Version: 1.1
   Date: 17/04/2026
   File: /tools/graphics/index.html
 
   CHANGELOG
+  v1.1 (17/04/2026)
+    - FIX: page stuck on loading overlay. auth-guard.js requires the Firebase
+      compat SDKs (app + auth + database) to be loaded AND initializeApp()
+      called BEFORE it runs. v1.0 omitted both, so firebase.database() was
+      undefined and the guard failed silently with the overlay left in place.
+    - Added firebase-app-compat, firebase-auth-compat, firebase-database-compat
+      script tags (pinned to 10.7.1 to match widgets)
+    - Added inline firebaseConfig + initializeApp before auth-guard.js loads
+    - Moved all three script tags into <head> so they run before body renders
+      (matches the ordering used by existing tool pages)
   v1.0 (17/04/2026)
     - Initial rebuild from rckd-nl launcher v1.6
     - Integrated with portal auth-guard (NL_TOOL_KEY = 'graphics')
@@ -27,6 +37,23 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Graphics — NL Tools</title>
   <meta name="robots" content="noindex,nofollow" />
+
+  <!-- Firebase SDKs — must load BEFORE auth-guard.js (guard uses firebase.auth/database directly) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <script>
+    var firebaseConfig = {
+      apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+      authDomain:        'nl-tools.firebaseapp.com',
+      databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+      projectId:         'nl-tools',
+      storageBucket:     'nl-tools.firebasestorage.app',
+      messagingSenderId: '801354670005',
+      appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  </script>
 
   <script>var NL_TOOL_KEY = 'graphics';</script>
   <script src="/tools/auth-guard.js"></script>
