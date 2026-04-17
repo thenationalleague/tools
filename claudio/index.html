@@ -2,10 +2,41 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.4
+  Version: 2.6
   Date: 17/04/2026
 
   CHANGELOG
+  v2.6 (17/04/2026)
+    - Flipped chat alignment: Claudio's messages now sit on the RIGHT
+      (avatar right-side), user messages on the LEFT. Typing indicator
+      also right-aligned.
+    - Added heckle bubbles during the "thinking" state. Two shell types:
+      "shout" (red terrace heckle, bold uppercase carbona, rough callout
+      with tail, wobble rotation — "Stop timewasting!", "Get on with it!"
+      etc) and "broadcast" (clean white speech bubble with navy serif
+      italic — "He's taking his time here…", "Bit pensive, Claudio…").
+      One bubble at a time, first appears ~1.5s into the wait (so instant
+      answers get nothing), then cycle every ~2.7s. Each bubble enters
+      from a random angle, rotates slightly, floats, and fades out.
+      Stops the moment Claudio's real reply lands.
+
+  v2.5 (17/04/2026)
+    - Added `nl-table` fenced-block renderer: when getLeagueTable or
+      getHeadToHead tools return a rendererPayload, Claudio emits it
+      inside an nl-table block and the UI turns it into a full styled
+      HTML table matching the /history/league-tables-by-season v3.38i
+      dashboard: gold champion, silver promoted, green play-off-semi,
+      light-green play-off-elim, pink relegated, grey expelled, black
+      folded, dotted dividers at zone boundaries (driven by seasonFormat
+      from season-notes.json), clinched-* emphasis for as-of tables,
+      movement arrows (↑/↓) for final mode, asterisk-on-points for
+      deductions, footnote block for deduction/expulsion notes.
+    - Added H2H last-5 styled table with W/D/L colour-coded result pills.
+    - Prompt guidance: "clubs move between leagues" phrasing fix — use
+      clubAHistory/clubBHistory to say "haven't met in our competitions;
+      last in NL in 2005-06" instead of the misleading "never met in
+      football" for EFL clubs.
+
   v2.4 (17/04/2026)
     - System prompt further trimmed: staff inline directory (~2k tokens)
       removed entirely, replaced by getStaff tool. Champions-by-season
@@ -333,6 +364,20 @@
       display: flex; gap: 14px; margin-bottom: 20px;
       animation: msgIn 0.25s ease;
     }
+    /* v2.6: Claudio on the right, user on the left.
+       Row-reverse flips avatar to the right side; text-align + flex-align
+       flip the body content to match. */
+    .msg--ai {
+      flex-direction: row-reverse;
+    }
+    .msg--ai .msg__body {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .msg--ai .msg__name {
+      text-align: right;
+    }
     @keyframes msgIn {
       from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0); }
@@ -492,6 +537,172 @@
       color: var(--navy);
     }
 
+    /* ======================================================================
+       v2.5 — NL-branded styled table (nlt).
+       Matches the /history/league-tables-by-season v3.38i dashboard:
+       - Zone colours: gold champion, silver promoted, green po-semi,
+         light-green po-elim, pink relegated, grey expelled, black folded
+       - Dotted dividers at zone boundaries (cut-*-after)
+       - Clinched-* emphasis for as-of tables
+       - Footnote block below for deductions/expulsions
+       ====================================================================== */
+
+    .nlt-wrap {
+      margin: 12px 0;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      font-family: var(--font);
+    }
+    .nlt-caption {
+      background: #9e0000;
+      color: #fff;
+      text-align: center;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      padding: 10px 14px;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+    .nlt-scroll {
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .nlt {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .nlt thead th {
+      background: #000;
+      color: #fff;
+      text-transform: uppercase;
+      font-size: 10px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      letter-spacing: 0.06em;
+      padding: 8px 10px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .nlt thead th.nlt-team-col { text-align: left; }
+    .nlt tbody td {
+      padding: 6px 10px;
+      text-align: center;
+      white-space: nowrap;
+      vertical-align: middle;
+      color: #0f172a;
+    }
+    .nlt tbody td.nlt-team-col {
+      text-align: left;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .nlt tbody td.nlt-strong,
+    .nlt thead th.nlt-strong {
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+    }
+    /* Zebra rows */
+    .nlt tbody tr.nlt-zebra-odd  td { background: #f6f6f6; }
+    .nlt tbody tr.nlt-zebra-even td { background: #fff; }
+
+    /* Zone colours — match dashboard exactly */
+    .nlt tbody tr.nlt-champion      td { background: gold;    color: #000; }
+    .nlt tbody tr.nlt-promoted      td { background: #c0c0c0; color: #000; }
+    .nlt tbody tr.nlt-playoff-semi  td { background: #bfe9c8; color: #000; }
+    .nlt tbody tr.nlt-playoff-elim  td { background: #e7f7ea; color: #000; }
+    .nlt tbody tr.nlt-relegated     td { background: #ffe0e6; color: #000; }
+    .nlt tbody tr.nlt-relegation-zone td { background: #ffe0e6; color: #000; }
+    .nlt tbody tr.nlt-folded        td { background: #000;    color: #fff !important; }
+    .nlt tbody tr.nlt-expelled      td { background: #555;    color: #fff !important; }
+
+    /* Clinched emphasis (as-of tables) — use same zone colour + small left bar */
+    .nlt tbody tr.nlt-clinched-champion   td { background: gold;    color: #000; }
+    .nlt tbody tr.nlt-clinched-po-semi    td {
+      background: #bfe9c8; color: #000;
+      background-image: linear-gradient(to right, rgba(0,96,32,.6) 0 4px, transparent 4px);
+    }
+    .nlt tbody tr.nlt-clinched-po-elim    td {
+      background: #e7f7ea; color: #000;
+      background-image: linear-gradient(to right, rgba(0,96,32,.28) 0 4px, transparent 4px);
+    }
+    .nlt tbody tr.nlt-clinched-relegated  td { background: #ffe0e6; color: #000; }
+
+    /* Dotted dividers (cut-*-after) */
+    .nlt tbody tr.nlt-cut-champion-after td,
+    .nlt tbody tr.nlt-cut-automatic-after td,
+    .nlt tbody tr.nlt-cut-playoff-byes-after td,
+    .nlt tbody tr.nlt-cut-playoff-after td,
+    .nlt tbody tr.nlt-cut-relegation-after td {
+      border-bottom: 2px dotted #333 !important;
+    }
+
+    /* Movement column */
+    .nlt-move-col { width: 1.8ch; font-weight: 700; }
+    .nlt-move-up   { color: #0a7d2a; }
+    .nlt-move-down { color: #b00020; }
+    .nlt-move-none { opacity: 0.35; }
+
+    /* GD colouring */
+    .nlt-gd-pos  { color: #0a7d2a; }
+    .nlt-gd-zero { color: #555; }
+    .nlt-gd-neg  { color: #b00020; }
+
+    /* Override in folded/expelled rows so everything reads white */
+    .nlt tbody tr.nlt-folded td,
+    .nlt tbody tr.nlt-expelled td,
+    .nlt tbody tr.nlt-folded .nlt-gd-pos,
+    .nlt tbody tr.nlt-folded .nlt-gd-zero,
+    .nlt tbody tr.nlt-folded .nlt-gd-neg,
+    .nlt tbody tr.nlt-expelled .nlt-gd-pos,
+    .nlt tbody tr.nlt-expelled .nlt-gd-zero,
+    .nlt tbody tr.nlt-expelled .nlt-gd-neg,
+    .nlt tbody tr.nlt-folded .nlt-move-up,
+    .nlt tbody tr.nlt-folded .nlt-move-down,
+    .nlt tbody tr.nlt-folded .nlt-move-none,
+    .nlt tbody tr.nlt-expelled .nlt-move-up,
+    .nlt tbody tr.nlt-expelled .nlt-move-down,
+    .nlt tbody tr.nlt-expelled .nlt-move-none {
+      color: #fff !important;
+      opacity: 1 !important;
+    }
+
+    /* Footnotes below the table */
+    .nlt-footnotes {
+      padding: 10px 14px;
+      background: #f8f8f8;
+      border-top: 1px solid var(--border);
+      border-left: 4px solid #9e0000;
+      font-size: 12px;
+      color: #222;
+      line-height: 1.45;
+    }
+    .nlt-footnote { margin: 2px 0; }
+
+    /* H2H last-5 table — W/D/L pill styling */
+    .nlt-result-cell { text-align: center; }
+    .nlt-result-pill {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      color: #fff;
+    }
+    .nlt-result-w { background: #1e7e34; }
+    .nlt-result-d { background: #e67e22; color: #000; }
+    .nlt-result-l { background: #c0392b; }
+    .nlt-result--,
+    .nlt-result-n { background: #555; }
+
     .msg--user .msg__text {
       background: #eef3ff; border-color: #d1def5;
     }
@@ -533,6 +744,8 @@
     /* Typing indicator */
     .typing {
       display: flex; gap: 14px; margin-bottom: 20px;
+      flex-direction: row-reverse;   /* v2.6: match Claudio's right-aligned bubbles */
+      position: relative;
     }
     .typing__dots {
       background: var(--white); border: 1px solid var(--border);
@@ -549,6 +762,92 @@
     @keyframes typingPulse {
       0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
       30% { opacity: 1; transform: translateY(-3px); }
+    }
+
+    /* v2.6: heckle bubbles.
+       Appear near the typing indicator while Claudio thinks. Two shell
+       types — "shout" (red terrace heckle, rough callout) and "broadcast"
+       (clean pundit speech bubble, italic serif). One at a time, soft
+       enter/exit, small float while visible. */
+    .heckle-stage {
+      position: absolute;
+      top: -10px;
+      bottom: -10px;
+      right: 60px;      /* to the left of Claudio's avatar since we're row-reverse */
+      width: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .heckle {
+      position: absolute;
+      white-space: nowrap;
+      font-family: var(--font);
+      font-size: 13px;
+      opacity: 0;
+      animation: heckleInOut 2400ms ease-in-out forwards;
+      pointer-events: none;
+    }
+    @keyframes heckleInOut {
+      0%   { opacity: 0; transform: translate(var(--hx-from, 20px), var(--hy-from, 6px)) rotate(var(--hr, -3deg)) scale(0.8); }
+      15%  { opacity: 1; transform: translate(0, 0) rotate(var(--hr, -3deg)) scale(1); }
+      75%  { opacity: 1; transform: translate(0, -2px) rotate(var(--hr, -3deg)) scale(1); }
+      100% { opacity: 0; transform: translate(var(--hx-to, -10px), var(--hy-to, -12px)) rotate(var(--hr, -3deg)) scale(0.9); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .heckle { animation-duration: 400ms; }
+    }
+
+    /* Shout style: red terrace heckle. Bold carbona, white text,
+       rough cloud-y shape via border-radius, slight rotation. */
+    .heckle--shout {
+      background: var(--primary);
+      color: var(--white);
+      font-weight: 900;
+      font-variation-settings: 'wght' 900;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 8px 14px;
+      border-radius: 22px 4px 22px 8px;
+      box-shadow: 2px 3px 0 rgba(0,0,0,0.12), 0 0 0 2px #fff;
+      font-size: 14px;
+    }
+    /* Rough pointer tail pointing down-right toward Claudio */
+    .heckle--shout::after {
+      content: '';
+      position: absolute;
+      bottom: -8px;
+      right: 18px;
+      width: 0; height: 0;
+      border-left: 6px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid var(--primary);
+      filter: drop-shadow(1px 1px 0 rgba(0,0,0,0.1));
+    }
+
+    /* Broadcast style: clean pundit speech bubble. Serif italic, navy text
+       on white with navy border — matches Claudio's voice register. */
+    .heckle--broadcast {
+      background: var(--white);
+      color: var(--navy);
+      border: 1.5px solid var(--navy);
+      font-family: var(--font-claudio);
+      font-style: italic;
+      font-weight: 400;
+      padding: 7px 13px;
+      border-radius: 18px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      font-size: 14px;
+    }
+    .heckle--broadcast::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      right: 20px;
+      width: 12px; height: 12px;
+      background: var(--white);
+      border-right: 1.5px solid var(--navy);
+      border-bottom: 1.5px solid var(--navy);
+      transform: rotate(45deg);
     }
 
     /* ===== Composer ===== */
@@ -1207,13 +1506,10 @@ function wireTopbar(session) {
       clearChildren(container);
       var src = String(content || '');
 
-      // v2.4: two-pass rendering.
-      //   Pass 1: split on fenced code blocks (``` ... ```) — these are
-      //           draft-voice blocks rendered via buildDraftBlock.
-      //   Pass 2: each non-code chunk is further split on markdown tables,
-      //           which render as proper <table> elements.
-      //   Pass 3: everything else runs through renderInlineFormatting for
-      //           **bold**, *italic*, and [links](url).
+      // v2.5: three-way fenced block routing.
+      //   ```nl-table  → styled NL-branded HTML table (standings / h2h last-5)
+      //   ```(other)   → draft-voice block (emails, letters, copy)
+      //   plain text   → markdown tables + inline formatting
       var parts = src.split(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/);
       for (var i = 0; i < parts.length; i++) {
         if (i % 3 === 0) {
@@ -1221,11 +1517,25 @@ function wireTopbar(session) {
           var chunk = parts[i];
           if (!chunk) continue;
           renderTextWithTables(container, chunk);
+        } else if (i % 3 === 1) {
+          // Lang tag — handled when we get the code chunk
+          continue;
         } else if (i % 3 === 2) {
-          // Code chunk (i%3===1 is the lang tag, ignored here but available)
+          var lang = String(parts[i - 1] || '').toLowerCase();
           var code = parts[i];
           if (code == null) continue;
-          container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
+          if (lang === 'nl-table') {
+            var nlTable = buildNLTable(code.trim());
+            if (nlTable) {
+              container.appendChild(nlTable);
+            } else {
+              // Malformed — fall through to showing as a draft block so
+              // user sees something rather than a blank space
+              container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
+            }
+          } else {
+            container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
+          }
         }
       }
       // Edge case: no code block at all — the split produced a single element
@@ -1476,6 +1786,215 @@ function wireTopbar(session) {
       return block;
     }
 
+    // v2.5: Styled NL-branded table renderer.
+    // Parses rendererPayload JSON emitted by getLeagueTable / getHeadToHead
+    // and builds a styled HTML <table> matching the league-tables-by-season
+    // v3.38i dashboard. Returns null on parse error so the caller can fall
+    // back gracefully.
+    function buildNLTable(jsonStr) {
+      var payload;
+      try { payload = JSON.parse(jsonStr); }
+      catch (e) { return null; }
+      if (!payload || typeof payload !== 'object') return null;
+      if (payload.type === 'standings') return buildNLStandingsTable(payload);
+      if (payload.type === 'h2h-last5') return buildNLH2HTable(payload);
+      return null;
+    }
+
+    function buildNLStandingsTable(payload) {
+      var wrap = document.createElement('div');
+      wrap.className = 'nlt-wrap';
+
+      var caption = document.createElement('div');
+      caption.className = 'nlt-caption';
+      var capLabel = payload.title || ((payload.division || '') + ' ' + (payload.season || ''));
+      if (!payload.isFinal && payload.asOf) {
+        capLabel += ' (as of ' + formatNLTDate(payload.asOf) + ')';
+      }
+      caption.textContent = capLabel;
+      wrap.appendChild(caption);
+
+      var scroll = document.createElement('div');
+      scroll.className = 'nlt-scroll';
+
+      var table = document.createElement('table');
+      table.className = 'nlt';
+
+      var thead = document.createElement('thead');
+      var thr = document.createElement('tr');
+      var headers = ['Pos', '', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts'];
+      headers.forEach(function(h, i) {
+        var th = document.createElement('th');
+        th.textContent = h;
+        var cls = [];
+        if (i === 1) cls.push('nlt-move-col');
+        if (i === 2) cls.push('nlt-team-col');
+        if (i === 0 || i === 10) cls.push('nlt-strong');
+        if (cls.length) th.className = cls.join(' ');
+        thr.appendChild(th);
+      });
+      thead.appendChild(thr);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      var rows = Array.isArray(payload.rows) ? payload.rows : [];
+      var zones = payload.zones || {};
+
+      rows.forEach(function(r, idx) {
+        var tr = document.createElement('tr');
+        var classes = Array.isArray(r.classes) ? r.classes.slice() : [];
+        classes.forEach(function(c) { tr.classList.add('nlt-' + c); });
+
+        var hasSpecial = classes.some(function(c) {
+          return ['champion','promoted','playoff-semi','playoff-elim','relegated','relegation-zone','folded','expelled','clinched-champion','clinched-po-semi','clinched-po-elim','clinched-relegated'].indexOf(c) !== -1;
+        });
+        if (!hasSpecial) {
+          tr.classList.add((idx % 2 === 0) ? 'nlt-zebra-odd' : 'nlt-zebra-even');
+        }
+
+        // Dotted dividers — match dashboard cut-*-after semantics
+        if (zones.championEnd && r.pos === zones.championEnd) tr.classList.add('nlt-cut-champion-after');
+        else if (zones.automaticEnd && r.pos === zones.automaticEnd) tr.classList.add('nlt-cut-automatic-after');
+        else if (zones.playoffSemiEnd && r.pos === zones.playoffSemiEnd) tr.classList.add('nlt-cut-playoff-byes-after');
+        else if (zones.playoffElimEnd && r.pos === zones.playoffElimEnd) tr.classList.add('nlt-cut-playoff-after');
+        if (zones.relegationLine && r.pos === zones.relegationLine) tr.classList.add('nlt-cut-relegation-after');
+
+        function td(text, extraCls) {
+          var c = document.createElement('td');
+          c.textContent = String(text == null ? '' : text);
+          if (extraCls) c.className = extraCls;
+          return c;
+        }
+        tr.appendChild(td(r.pos, 'nlt-strong'));
+
+        var mvCell = document.createElement('td');
+        mvCell.className = 'nlt-move-col';
+        if (r.move === 'up') { mvCell.textContent = '↑'; mvCell.className += ' nlt-move-up'; }
+        else if (r.move === 'down') { mvCell.textContent = '↓'; mvCell.className += ' nlt-move-down'; }
+        else { mvCell.className += ' nlt-move-none'; }
+        tr.appendChild(mvCell);
+
+        tr.appendChild(td(r.team, 'nlt-team-col'));
+        tr.appendChild(td(r.P));
+        tr.appendChild(td(r.W));
+        tr.appendChild(td(r.D));
+        tr.appendChild(td(r.L));
+        tr.appendChild(td(r.GF));
+        tr.appendChild(td(r.GA));
+
+        var gdCell = document.createElement('td');
+        var gd = Number(r.GD) || 0;
+        gdCell.textContent = gd > 0 ? ('+' + gd) : String(gd);
+        gdCell.className = gd > 0 ? 'nlt-gd-pos' : (gd < 0 ? 'nlt-gd-neg' : 'nlt-gd-zero');
+        tr.appendChild(gdCell);
+
+        var ptsCell = document.createElement('td');
+        ptsCell.className = 'nlt-strong';
+        if (r.deduction && r.deduction !== 0) {
+          ptsCell.textContent = String(r.Pts) + '*';
+          ptsCell.title = 'Points deduction: ' + r.deduction;
+        } else {
+          ptsCell.textContent = String(r.Pts);
+        }
+        tr.appendChild(ptsCell);
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      wrap.appendChild(scroll);
+
+      var fns = Array.isArray(payload.footnotes) ? payload.footnotes : [];
+      if (fns.length) {
+        var notes = document.createElement('div');
+        notes.className = 'nlt-footnotes';
+        fns.forEach(function(f) {
+          var line = document.createElement('div');
+          line.className = 'nlt-footnote';
+          if (f.team) {
+            var label = document.createElement('strong');
+            label.textContent = f.team + ': ';
+            line.appendChild(label);
+          }
+          line.appendChild(document.createTextNode(f.text || ''));
+          notes.appendChild(line);
+        });
+        wrap.appendChild(notes);
+      }
+
+      return wrap;
+    }
+
+    function buildNLH2HTable(payload) {
+      var wrap = document.createElement('div');
+      wrap.className = 'nlt-wrap';
+
+      var caption = document.createElement('div');
+      caption.className = 'nlt-caption';
+      caption.textContent = payload.title || 'Recent meetings';
+      wrap.appendChild(caption);
+
+      var scroll = document.createElement('div');
+      scroll.className = 'nlt-scroll';
+
+      var table = document.createElement('table');
+      table.className = 'nlt nlt-h2h';
+
+      var thead = document.createElement('thead');
+      var thr = document.createElement('tr');
+      ['Date', 'Season', 'Home', 'Score', 'Away', 'Comp.', 'Result'].forEach(function(h) {
+        var th = document.createElement('th');
+        th.textContent = h;
+        thr.appendChild(th);
+      });
+      thead.appendChild(thr);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      (payload.meetings || []).forEach(function(m, idx) {
+        var tr = document.createElement('tr');
+        tr.classList.add((idx % 2 === 0) ? 'nlt-zebra-odd' : 'nlt-zebra-even');
+
+        function td(text, cls) {
+          var c = document.createElement('td');
+          c.textContent = String(text == null ? '' : text);
+          if (cls) c.className = cls;
+          return c;
+        }
+
+        tr.appendChild(td(formatNLTDate(m.date)));
+        tr.appendChild(td(m.season || ''));
+        tr.appendChild(td(m.home || ''));
+        tr.appendChild(td(m.score || '', 'nlt-strong'));
+        tr.appendChild(td(m.away || ''));
+        tr.appendChild(td(m.competition || ''));
+
+        var rCell = document.createElement('td');
+        rCell.className = 'nlt-result-cell';
+        var pill = document.createElement('span');
+        var rCode = (m.result || '-').toUpperCase();
+        pill.className = 'nlt-result-pill nlt-result-' + rCode.toLowerCase();
+        pill.textContent = rCode === 'W' || rCode === 'D' || rCode === 'L' ? rCode : '-';
+        rCell.appendChild(pill);
+        tr.appendChild(rCell);
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      wrap.appendChild(scroll);
+      return wrap;
+    }
+
+    function formatNLTDate(iso) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+      if (!m) return String(iso || '');
+      var dt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+      var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return days[dt.getUTCDay()] + ' ' + (+m[3]) + ' ' + months[+m[2] - 1] + ' ' + m[1];
+    }
+
     function buildMsgEl(m) {
       var wrap = document.createElement('div');
       wrap.className = 'msg ' + (m.role === 'user' ? 'msg--user' : 'msg--ai');
@@ -1562,15 +2081,120 @@ function wireTopbar(session) {
         dots.appendChild(d);
       }
 
+      // v2.6: stage div that holds the rotating heckle bubbles
+      var stage = document.createElement('div');
+      stage.className = 'heckle-stage';
+      stage.id = 'heckleStage';
+
       wrap.appendChild(avatar);
       wrap.appendChild(dots);
+      wrap.appendChild(stage);
       el.appendChild(wrap);
       scrollToBottom();
+
+      // Fire up the heckle cycler (kicks in after a short delay — no
+      // heckles if Claudio answers instantly)
+      startHeckleCycle();
     }
 
     function removeTypingIndicator() {
+      stopHeckleCycle();
       var t = document.getElementById('typingIndicator');
       if (t && t.parentNode) t.parentNode.removeChild(t);
+    }
+
+    /* v2.6: football terrace / pundit heckles that pop in while Claudio
+       thinks. Two shell types — "shout" (red terrace) and "broadcast"
+       (navy pundit italic). One at a time, soft enter/exit, small float.
+       First heckle appears ~1.5s after typing starts so instant answers
+       don't trigger anything. */
+    var HECKLE_SHOUTS = [
+      'Stop timewasting!',
+      'Get on with it!',
+      'Any day now!',
+      'Wakey wakey!',
+      'Come on, ref!',
+      'Oi Claudio!',
+      'You having a laugh?',
+      'Hurry up!',
+      'We haven\'t got all day!',
+      'Pick it up, son!'
+    ];
+    var HECKLE_BROADCASTS = [
+      'He\'s taking his time here…',
+      'Bit pensive, Claudio…',
+      'Still thinking about this one…',
+      'You can see him weighing it up…',
+      'He needs to calm down and pick a pass…',
+      'Considering his options…',
+      'Not rushing into anything…'
+    ];
+
+    var _heckleTimer = null;
+    var _heckleKickoffTimer = null;
+    var _lastHeckleWasShout = Math.random() < 0.5;
+
+    function startHeckleCycle() {
+      stopHeckleCycle();
+      // First heckle after 1.5s — instant replies get nothing
+      _heckleKickoffTimer = setTimeout(function() {
+        showOneHeckle();
+        // Then every ~2.7s while typing indicator is still there
+        _heckleTimer = setInterval(showOneHeckle, 2700);
+      }, 1500);
+    }
+
+    function stopHeckleCycle() {
+      if (_heckleKickoffTimer) { clearTimeout(_heckleKickoffTimer); _heckleKickoffTimer = null; }
+      if (_heckleTimer) { clearInterval(_heckleTimer); _heckleTimer = null; }
+    }
+
+    function showOneHeckle() {
+      var stage = document.getElementById('heckleStage');
+      if (!stage) return;
+
+      // Alternate types roughly — flip a biased coin so it's not strict ABAB
+      var useShout = Math.random() < (_lastHeckleWasShout ? 0.35 : 0.65);
+      _lastHeckleWasShout = useShout;
+
+      var pool = useShout ? HECKLE_SHOUTS : HECKLE_BROADCASTS;
+      var text = pool[Math.floor(Math.random() * pool.length)];
+
+      var bubble = document.createElement('div');
+      bubble.className = 'heckle ' + (useShout ? 'heckle--shout' : 'heckle--broadcast');
+      bubble.textContent = text;
+
+      // Random entrance direction and rotation — feels alive
+      var angles = useShout
+        ? [-6, -4, -3, 4, 6, 7]      // shouts wobble more
+        : [-2, -1, 1, 2];             // broadcasts stay tidier
+      var rot = angles[Math.floor(Math.random() * angles.length)];
+
+      // Enter from a randomish direction (above-right mostly, some from below)
+      var entryFromTop = Math.random() < 0.6;
+      var hxFrom = (Math.random() * 30 + 10) + 'px';
+      var hyFrom = (entryFromTop ? -(Math.random() * 20 + 10) : (Math.random() * 20 + 10)) + 'px';
+      var hxTo = -(Math.random() * 20 + 5) + 'px';
+      var hyTo = -(Math.random() * 15 + 8) + 'px';
+
+      bubble.style.setProperty('--hr', rot + 'deg');
+      bubble.style.setProperty('--hx-from', hxFrom);
+      bubble.style.setProperty('--hy-from', hyFrom);
+      bubble.style.setProperty('--hx-to', hxTo);
+      bubble.style.setProperty('--hy-to', hyTo);
+
+      // Position the bubble above the typing dots (top coordinate within stage)
+      // Slight vertical jitter so they don't land in the same spot each time
+      bubble.style.top = (Math.random() * 20 - 20) + 'px';
+      // Anchor right-edge of bubble to right of stage
+      bubble.style.right = '0';
+
+      stage.appendChild(bubble);
+
+      // Clean up after animation — each heckle lives ~2.4s per CSS
+      setTimeout(function() {
+        if (bubble.parentNode) bubble.parentNode.removeChild(bubble);
+      }, 2500);
     }
 
     function scrollToBottom() {
@@ -1927,13 +2551,31 @@ function wireTopbar(session) {
         '- If a tool returns `{error: "..."}`, apologise briefly and offer to try a different angle. Do not invent data.',
         '',
         '### When tools return structured data — RENDER IT',
-        'When a tool returns **arrays of similar items** (like `last5Meetings`, `instances`, or a league table\'s `rows`), render them as a **markdown table**. The UI will render the table visually. Example:',
+        '',
+        '**For league tables and H2H last-5 meetings: use the nl-table block.**',
+        '',
+        'The `getLeagueTable` and `getHeadToHead` tools return a `rendererPayload` object. When they do, you MUST emit it verbatim inside an `nl-table` fenced block like this:',
+        '',
+        '```nl-table',
+        '{JSON here — copy the rendererPayload object EXACTLY, do not modify}',
+        '```',
+        '',
+        'The chat UI detects this and renders a full styled HTML table matching the /history/league-tables-by-season dashboard: gold champion, silver promoted, green play-off zones, pink relegation, dotted dividers between zones, asterisks on deducted points, footnote block below for deduction/expulsion notes, and for H2H the W/D/L colour-coded result pills.',
+        '',
+        'Place the nl-table block AFTER your prose intro but BEFORE any follow-up offer. Do not quote or escape the JSON — it must be a clean fenced block. If the rendererPayload field is missing, fall back to a markdown table.',
+        '',
+        '**For other structured data (streaks, records, plain match lists): markdown tables.**',
+        '',
+        'When a tool returns arrays of similar items (streak match lists, records top-5s), render as markdown:',
         '',
         '| Date | Home | Score | Away | Result |',
         '| --- | --- | --- | --- | --- |',
         '| 12 Apr 2024 | Dorking | 2-1 | Woking | W |',
         '',
         'When a tool returns scalars (total counts, single records, summary numbers), prose is fine.',
+        '',
+        '### Phrasing: clubs move between leagues',
+        'Clubs move up and down the pyramid over decades. If `getHeadToHead` returns `total: 0` or a low number, do NOT say "they\'ve never met in football" — they may well have met in the EFL or FA Cup. Instead say something like: "They haven\'t met in our competitions" and use `clubAHistory` / `clubBHistory` from the response to add useful context — e.g. "Chesterfield last played in our leagues in 2005-06; Mansfield in 2012-13. They\'ve been in the EFL since." If a club has `seasonsInOurLeagues: 0`, phrase as "never played in our leagues" rather than "never existed" or "never met in football".',
         '',
         '### Offering follow-ups',
         'After a tool response, think about what the user is likely to ask next. End with a light offer — "want the last five results?" or "shall I show the full table?" — so they can expand naturally. Don\'t overwhelm with every possible follow-up, just one or two that fit.',
