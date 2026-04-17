@@ -3,10 +3,16 @@
 <head>
 <!--
   NL Tools — Vacancies
-  Version: 1.6
+  Version: 1.7
   Date: 08/04/2026
 
   CHANGELOG
+  v1.7 (17/04/2026)
+    - RTDB restructure: paths moved under /ops-vacancies/ parent
+      /vacancies/ → /ops-vacancies/listings/
+      /submissions/ → /ops-vacancies/submissions/
+      /analytics/vacancies/ → /ops-vacancies/analytics/
+
   v1.6 (08/04/2026)
     - Added click tracking — Clicks column in admin table
     - loadAnalytics() reads /analytics/vacancies in real time
@@ -470,7 +476,7 @@ var STATE = {
   pendingAction: null, pendingId: null, pendingTitle: null,
   submitCodeVerified: false, submitCountdownInt: null,
 };
-var vacRef = db.ref('vacancies');
+var vacRef = db.ref('ops-vacancies/listings');
 var vacListener = null;
 
 /* ── Auth ready callback from guard ── */
@@ -561,7 +567,7 @@ function startVacanciesListener() {
 /* ── Submissions (Firebase) ── */
 function loadSubs() {
   ensureAuth().then(function() {
-    db.ref('submissions').orderByChild('submittedAt').on('value', function(snap) {
+    db.ref('ops-vacancies/submissions').orderByChild('submittedAt').on('value', function(snap) {
       var raw = snap.val() || {};
       STATE.allSubs = Object.keys(raw).map(function(id) {
         var s = raw[id]; s.id = id;
@@ -582,7 +588,7 @@ function loadSubs() {
 /* ── Analytics ── */
 function loadAnalytics() {
   // Public read — no auth needed, but listen for real-time updates
-  db.ref('analytics/vacancies').on('value', function(snap) {
+  db.ref('ops-vacancies/analytics').on('value', function(snap) {
     STATE.analytics = snap.val() || {};
     if (STATE.currentTab !== 'submissions') renderVacTable();
   });
@@ -778,7 +784,7 @@ function saveJob() {
   var btn=document.getElementById('saveBtn');
   btn.disabled=true;btn.textContent='Saving…';
   ensureAuth().then(function(){
-    var p=isNew?vacRef.push(data):db.ref('vacancies/'+STATE.editId).update(data);
+    var p=isNew?vacRef.push(data):db.ref('ops-vacancies/listings/'+STATE.editId).update(data);
     return p;
   })
   .then(function(){closeModal('formModal');showToast(isNew?'Vacancy added.':'Vacancy updated.','success');})
@@ -810,7 +816,7 @@ function confirmAction(){
   btn.disabled=true;btn.textContent=STATE.pendingAction==='delete'?'Deleting…':'Restoring…';
   closeModal('confirmModal');
   ensureAuth().then(function(){
-    return db.ref('vacancies/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'});
+    return db.ref('ops-vacancies/listings/'+STATE.pendingId).update({deleted:STATE.pendingAction==='delete'});
   })
   .then(function(){showToast(STATE.pendingAction==='delete'?'Deleted.':'Restored.','success');})
   .catch(function(e){showToast(e.message,'error');})
