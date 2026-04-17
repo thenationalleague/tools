@@ -2097,7 +2097,7 @@ function renderTopbar() {
 
 /* ---- Welcome carousel ---------------------------------------------------- */
 function loadWelcomeMessages() {
-  db.ref('welcome-messages').once('value').then(function(snap) {
+  db.ref('admin/welcome-messages').once('value').then(function(snap) {
     var val = snap.val();
     var wmBody = document.getElementById('welcomeBody');
     var oldEmpties = wmBody.querySelectorAll('.welcome-empty');
@@ -2429,7 +2429,7 @@ function requestToolAccess(key, label, btn) {
   /* Write to tool-requests/ node */
   btn.disabled = true;
   btn.textContent = 'Requested';
-  db.ref('tool-requests').push({
+  db.ref('admin/tool-requests').push({
     uid:       STATE.uid,
     name:      STATE.userData.name || '',
     email:     STATE.userData.email || '',
@@ -2546,8 +2546,8 @@ function writeAudit(action, detail) {
     at:        new Date(ts).toISOString()
   };
   var updates = {};
-  updates['audit/' + ts]                          = entry;
-  updates['audit-by-user/' + STATE.uid + '/' + ts] = entry;
+  updates['admin/audit/' + ts]                          = entry;
+  updates['admin/audit-by-user/' + STATE.uid + '/' + ts] = entry;
   db.ref().update(updates).catch(function() {});
 }
 
@@ -2571,10 +2571,10 @@ function writeAuditFor(targetUid, targetName, targetEmail, action, detail) {
     at:          new Date(ts).toISOString()
   };
   var updates = {};
-  updates['audit/' + ts]                               = entry;
-  updates['audit-by-user/' + STATE.uid + '/' + ts]     = entry;
+  updates['admin/audit/' + ts]                               = entry;
+  updates['admin/audit-by-user/' + STATE.uid + '/' + ts]     = entry;
   if (targetUid && targetUid !== STATE.uid) {
-    updates['audit-by-user/' + targetUid + '/' + ts]   = entry;
+    updates['admin/audit-by-user/' + targetUid + '/' + ts]   = entry;
   }
   db.ref().update(updates).catch(function() {});
 }
@@ -2616,9 +2616,9 @@ function loadAuditFeed(fresh) {
       '<div class="audit-loading">Loading...<\/div>';
   }
 
-  var query = db.ref('audit').orderByKey().limitToLast(21);
+  var query = db.ref('admin/audit').orderByKey().limitToLast(21);
   if (AUDIT_STATE.cursor) {
-    query = db.ref('audit').orderByKey().endBefore(String(AUDIT_STATE.cursor)).limitToLast(21);
+    query = db.ref('admin/audit').orderByKey().endBefore(String(AUDIT_STATE.cursor)).limitToLast(21);
   }
 
   query.once('value').then(function(snap) {
@@ -2717,9 +2717,9 @@ function loadAuditForUser(uid, fresh) {
     AUDIT_STATE.exhausted    = false;
   }
 
-  var query = db.ref('audit-by-user/' + uid).orderByKey().limitToLast(21);
+  var query = db.ref('admin/audit-by-user/' + uid).orderByKey().limitToLast(21);
   if (AUDIT_STATE.searchCursor) {
-    query = db.ref('audit-by-user/' + uid)
+    query = db.ref('admin/audit-by-user/' + uid)
       .orderByKey()
       .endBefore(String(AUDIT_STATE.searchCursor))
       .limitToLast(21);
@@ -2763,7 +2763,7 @@ function loadAuditForUser(uid, fresh) {
 
 function loadAuditActionSearch(q, fresh) {
   /* Read last 500 entries and filter by action/detail client-side */
-  db.ref('audit').orderByKey().limitToLast(500).once('value').then(function(snap) {
+  db.ref('admin/audit').orderByKey().limitToLast(500).once('value').then(function(snap) {
     var entries = [];
     snap.forEach(function(child) {
       var e = child.val();
@@ -2909,7 +2909,7 @@ function loadRequests() {
   var container = document.getElementById('requestsList');
   container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>';
 
-  db.ref('requests').once('value').then(function(snap) {
+  db.ref('admin/requests').once('value').then(function(snap) {
     container.innerHTML = '';
     if (!snap.exists()) {
       var e = document.createElement('div');
@@ -3081,7 +3081,7 @@ function buildRequestCard(r) {
     archiveBtn.className = 'btn btn--ghost btn--sm';
     archiveBtn.textContent = 'Archive';
     archiveBtn.addEventListener('click', function() {
-      db.ref('requests/' + r._key + '/status').set('archived')
+      db.ref('admin/requests/' + r._key + '/status').set('archived')
         .then(function() { showToast('Request archived', 'success'); loadRequests(); });
     });
     actions.appendChild(archiveBtn);
@@ -3124,7 +3124,7 @@ function approveRequest(r, btn, ss) {
   Object.keys(toolAccess).forEach(function(k) {
     updates['users/' + r.uid + '/tools/' + k] = toolAccess[k];
   });
-  updates['requests/' + r._key + '/status'] = 'approved';
+  updates['admin/requests/' + r._key + '/status'] = 'approved';
 
   writeAuditFor(r.uid, r.name || '', r.email || '',
     'request_approved', (r.name || r.email || '') + (r.club ? ' (' + r.club + ')' : ''));
@@ -3155,7 +3155,7 @@ function rejectRequest(r, btn) {
 
   if (!r.uid) {
     /* Legacy request with no uid -- just mark rejected in requests node */
-    db.ref('requests/' + r._key + '/status').set('rejected')
+    db.ref('admin/requests/' + r._key + '/status').set('rejected')
       .then(function() { showToast('Request rejected', 'success'); loadRequests(); })
       .catch(function() { btn.disabled = false; btn.textContent = 'Reject'; });
     return;
@@ -3164,7 +3164,7 @@ function rejectRequest(r, btn) {
   var updates = {};
   updates['users/' + r.uid + '/pending']  = false;
   updates['users/' + r.uid + '/rejected'] = true;
-  updates['requests/' + r._key + '/status'] = 'rejected';
+  updates['admin/requests/' + r._key + '/status'] = 'rejected';
 
   writeAuditFor(r.uid, r.name || '', r.email || '',
     'request_declined', (r.name || r.email || '') + (r.club ? ' (' + r.club + ')' : ''));
@@ -3218,7 +3218,7 @@ function loadPendingInvites() {
 
   container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>';
 
-  db.ref('invites-pending').once('value').then(function(snap) {
+  db.ref('admin/invites-pending').once('value').then(function(snap) {
     var allItems = [];
     if (snap.exists()) {
       snap.forEach(function(child) {
@@ -3246,7 +3246,7 @@ function loadPendingInvites() {
     });
     if (staleKeys.length) {
       var cleanUpdates = {};
-      staleKeys.forEach(function(k) { cleanUpdates['invites-pending/' + k] = null; });
+      staleKeys.forEach(function(k) { cleanUpdates['admin/invites-pending/' + k] = null; });
       db.ref().update(cleanUpdates).catch(function() {});
     }
 
@@ -3368,7 +3368,7 @@ function buildPendingInviteCard(inv) {
         resendBtn.textContent = 'Resend invite';
       } else {
         /* Update sentAt on the pending record */
-        db.ref('invites-pending/' + inv._key + '/sentAt').set(Date.now()).catch(function() {});
+        db.ref('admin/invites-pending/' + inv._key + '/sentAt').set(Date.now()).catch(function() {});
         showToast('Invite resent to ' + inv.email, 'success');
         writeAudit('invite_sent', 'Resent invite to ' + (inv.name || inv.email || ''));
         resendBtn.textContent = 'Sent ✓';
@@ -3405,7 +3405,7 @@ function buildPendingInviteCard(inv) {
     revokeBtn.textContent = 'Revoking…';
 
     /* Delete the invites-pending record -- tokens expire naturally after 24hrs */
-    db.ref('invites-pending/' + inv._key).remove()
+    db.ref('admin/invites-pending/' + inv._key).remove()
       .then(function() {
         writeAudit('invite_cancelled', (inv.name || inv.email || '') + ' invite revoked');
         showToast('Invite revoked for ' + (inv.name || inv.email || ''), 'success');
@@ -4975,7 +4975,7 @@ function initInviteForm() {
           sentAt:    Date.now(),
           sentBy:    (STATE.userData && STATE.userData.name) || ''
         };
-        db.ref('invites-pending').push(pendingRecord)
+        db.ref('admin/invites-pending').push(pendingRecord)
           .then(function() { loadPendingInvites(); })
           .catch(function() {});
 
@@ -5301,8 +5301,8 @@ function saveWmMessage() {
   };
 
   var ref = key
-    ? db.ref('welcome-messages/' + key)
-    : db.ref('welcome-messages').push();
+    ? db.ref('admin/welcome-messages/' + key)
+    : db.ref('admin/welcome-messages').push();
 
   if (!key) payload.createdAt = Date.now();
 
@@ -5331,7 +5331,7 @@ function deleteWmMessage(key, btn) {
   btn.addEventListener('click', function handler() {
     if (!confirmed) {
       confirmed = true;
-      db.ref('welcome-messages/' + key).remove()
+      db.ref('admin/welcome-messages/' + key).remove()
         .then(function() {
           showToast('Message deleted', 'success');
           loadWmList();
