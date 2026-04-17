@@ -1,11 +1,42 @@
 <!DOCTYPE html>
 <!--
   Team of the Week Builder — NL Tools
-  Version: 7.0
+  Version: 7.1
   Date: 17/04/2026
   File: /tools/graphics/totw/index.html
 
   CHANGELOG
+  v7.1 (17/04/2026) — UX rebuild + background path fix
+    - FIX: BG_URL path was wrong in v7.0. The background file lives at
+      /tools/assets/backgrounds/ (shared assets folder) not inside
+      /tools/graphics/assets/. Now references the canonical
+      raw.githubusercontent.com URL to match crests + divisions pattern
+      — fully consistent with the rest of the tools ecosystem.
+    - LAYOUT REBUILD (desktop):
+      - Preview moved to right column, capped at ~500px square
+        (preview is a preview — the exported PNG is still 1080x1080
+        regardless of preview size)
+      - Controls + lineup now get primary left column — wider, denser,
+        easier to fill in quickly
+      - Layout stacks to single column below 960px (was 1100px) so
+        tablets get the 2-col view they can accommodate
+      - Preview is sticky on desktop — stays visible while editing
+    - LAYOUT REBUILD (mobile):
+      - Preview above, controls below (natural scroll pattern)
+      - Lineup row collapses to single column stack so position
+        label sits above the team/name/perf fields. Thin divider
+        between logical rows (CSS :nth-child trick — no DOM changes
+        needed because the engine appends flat siblings)
+      - Control buttons drop to full-width below the selects on mobile
+        so they don't overflow
+    - DENSER LINEUP:
+      - Row padding tightened, font-size 12.5px
+      - Team select narrower (180px), name input narrower (150px min)
+      - Perf details gets the remaining space as before
+    - PREVIEW FRAME:
+      - Moved overflow to canvas container so preview frame matches
+        canvas aspect exactly — no more grey dead space
+
   v7.0 (17/04/2026) — Portal integration rebuild
     Shell (rebuilt):
       - Removed standalone app-header with hardcoded NL logo
@@ -176,35 +207,51 @@
       padding: 20px 20px 40px;
     }
 
-    /* ── App layout (2-col with sticky preview, stacks on tablet) ── */
+    /* ── App layout: controls LEFT, preview RIGHT (desktop) ── */
     .app {
       display: grid;
-      grid-template-columns: minmax(460px, 900px) minmax(340px, 1fr);
-      gap: 18px;
+      grid-template-columns: minmax(0, 1fr) 500px;
+      gap: 20px;
       align-items: start;
     }
-    @media (max-width: 1100px) {
+    @media (max-width: 960px) {
       .app { grid-template-columns: 1fr; }
     }
 
-    /* ── Preview ── */
+    /* Mobile: preview comes FIRST, then controls (order via flex on wrapper) */
+    @media (max-width: 960px) {
+      .app { display: flex; flex-direction: column; }
+      .panel { order: 2; }
+      .previewWrap { order: 1; }
+    }
+
+    /* ── Preview (right column, sticky, capped size) ── */
     .previewWrap {
       position: sticky;
-      top: 88px; /* sit below sticky topbar */
+      top: 88px; /* below sticky 72px topbar + gap */
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--off-white);
-      padding: 10px;
+      padding: 8px;
       box-shadow: var(--shadow);
+      max-width: 500px;
+      justify-self: end;
     }
     canvas {
       display: block;
       width: 100%;
       height: auto;
       border-radius: 4px;
+      aspect-ratio: 1 / 1;
     }
-    @media (max-width: 1100px) {
-      .previewWrap { position: static; }
+    @media (max-width: 960px) {
+      .previewWrap {
+        position: static;
+        max-width: min(500px, 100%);
+        justify-self: center;
+        margin: 0 auto;
+        width: 100%;
+      }
     }
 
     /* ── Panel ── */
@@ -223,6 +270,12 @@
     /* ── Control bar ── */
     .controls {
       display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    }
+    @media (max-width: 520px) {
+      .controls { gap: 6px; }
+      .controls button,
+      .controls select,
+      .controls input[type="date"] { font-size: 12px; padding: 7px 10px; }
     }
     .controls select,
     .controls input[type="date"] {
@@ -309,8 +362,8 @@
     /* ── Lineup grid ── */
     .lineup {
       display: grid;
-      grid-template-columns: 56px 220px minmax(150px, 1fr) minmax(250px, 2fr);
-      gap: 6px 8px;
+      grid-template-columns: 48px 180px minmax(140px, 1fr) minmax(200px, 1.6fr);
+      gap: 5px 8px;
       align-items: center;
     }
     .lineup .pos {
@@ -320,18 +373,20 @@
       text-align: center;
       text-transform: uppercase;
       letter-spacing: 0.06em;
+      white-space: nowrap;
     }
     .lineup input,
     .lineup select {
       width: 100%;
-      padding: 7px 10px;
+      padding: 6px 9px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       font: inherit;
-      font-size: 13px;
+      font-size: 12.5px;
       background: var(--white);
       color: var(--text);
       transition: border-color 0.12s;
+      line-height: 1.35;
     }
     .lineup input:hover,
     .lineup select:hover { border-color: var(--navy); }
@@ -340,11 +395,32 @@
       outline: 2px solid rgba(34,59,124,0.15);
       border-color: var(--navy);
     }
-    .lineup input.perf {
+    .lineup input.perf,
+    .lineup input:not(.perf) {
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+
+    /* Mobile: single column stack. The engine appends 4 flat elements per
+       row (pos, team, name, perf) as grid siblings — so on mobile we
+       collapse the grid to one column and add subtle spacing between
+       logical rows using :nth-child(4n+1) as the first-cell marker. */
     @media (max-width: 720px) {
-      .lineup { grid-template-columns: 56px 1fr; }
+      .lineup {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
+      .lineup .pos {
+        text-align: left;
+        padding: 8px 2px 2px;
+        font-size: 10px;
+      }
+      /* Add a top border between logical rows (every 4 children = 1 row).
+         :nth-child(4n+1) targets every pos cell EXCEPT the first */
+      .lineup > *:nth-child(4n+1):not(:first-child) {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
     }
 
     /* ── Section with label + textarea ── */
@@ -581,7 +657,7 @@
   }
 
   // Background + division badges
-  const BG_URL = "../assets/backgrounds/totw-pitch.jpg";
+  const BG_URL = "https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/backgrounds/totw-pitch.jpg";
 
   function isFontActiveForCanvas(fontStack){
     const t = document.createElement("canvas");
