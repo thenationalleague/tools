@@ -1,9 +1,17 @@
 <!--
   Chase HQ — NL Tools
-  Version: v2.0
+  Version: v2.1
   Date: 17/04/2026
 
   CHANGELOG
+  v2.1 (17/04/2026)
+  - Fix: moved firebase.initializeApp() into inline <script> in <head>
+    immediately after SDK loads, matching Vacancies pattern. Previously
+    initializeApp() was deferred to the bottom <script> block — auth-guard
+    fired before Firebase was ready, causing "No Firebase App" error and
+    infinite loading spinner.
+  - Removed duplicate firebase.apps.length guard (no longer needed)
+
   v2.0 (17/04/2026)
   - Full portal integration: auth-guard, Firebase RTDB, NL brand
   - Data persisted at chase-hq/{uid}/requests/{id} in RTDB
@@ -32,10 +40,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chase HQ — NL Tools</title>
 
-<script>var NL_TOOL_KEY = 'staff-chase-hq';</script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+  authDomain:        'nl-tools.firebaseapp.com',
+  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId:         'nl-tools',
+  storageBucket:     'nl-tools.firebasestorage.app',
+  messagingSenderId: '801354670005',
+  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
+});
+</script>
+<script>var NL_TOOL_KEY = 'staff-chase-hq';</script>
 <script src="/tools/auth-guard.js"></script>
 
 <style>
@@ -742,16 +761,7 @@ body {
 
 <script>
 /* ── FIREBASE CONFIG ─────────────────────────────────── */
-var firebaseConfig = {
-  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
-  authDomain:        'nl-tools.firebaseapp.com',
-  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId:         'nl-tools',
-  storageBucket:     'nl-tools.firebasestorage.app',
-  messagingSenderId: '801354670005',
-  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
-};
-if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+/* Firebase initialised in <head> — see top of file */
 var db = firebase.database();
 
 /* ── ESCAPE HELPERS ──────────────────────────────────── */
