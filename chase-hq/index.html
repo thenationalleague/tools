@@ -1,9 +1,16 @@
 <!--
   Chase HQ — NL Tools
-  Version: v2.1
+  Version: v2.2
   Date: 17/04/2026
 
   CHANGELOG
+  v2.2 (17/04/2026)
+  - Fix: wrapped loadRequests(), loadStaffUsers(), loadApiKey() in
+    ensureAuth() inside nlAuthReady. Auth-guard cached session means
+    Firebase Auth resolves async — reads were firing before auth was
+    live, causing permission_denied on /users and indefinite loading
+    spinner on requests list. Matches Vacancies v1.5 pattern.
+
   v2.1 (17/04/2026)
   - Fix: moved firebase.initializeApp() into inline <script> in <head>
     immediately after SDK loads, matching Vacancies pattern. Previously
@@ -1507,9 +1514,14 @@ function doLogout() {
 
 window.nlAuthReady = function(session) {
   STATE.session = session;
-  loadRequests();
-  loadStaffUsers();
-  loadApiKey();
+  ensureAuth().then(function() {
+    loadRequests();
+    loadStaffUsers();
+    loadApiKey();
+  }).catch(function(e) {
+    showToast('Auth error — please reload', 'error');
+    console.error('[nlAuthReady] ensureAuth failed:', e.message);
+  });
 };
 
 /* ── EVENT LISTENERS ─────────────────────────────────── */
