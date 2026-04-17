@@ -1,1037 +1,2136 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en-GB">
 <!--
-  NL Tools — Login Page
-  Version: v4.2 (17/04/2026)
-  File: /tools/index.html
+  Claudio — NL AI Assistant
+  Version: 2.4
+  Date: 17/04/2026
 
   CHANGELOG
-  v4.2 (17/04/2026)
-    - Sign-in and panel-level primary buttons now full-width with centred
-      label + slightly larger padding. Buttons inside .btn-row (side-by-side
-      actions like "Back" / "Submit") are unaffected.
+  v2.4 (17/04/2026)
+    - System prompt further trimmed: staff inline directory (~2k tokens)
+      removed entirely, replaced by getStaff tool. Champions-by-season
+      inline list (~800 tokens) removed, replaced by getLeagueTable tool.
+      Clubs list compacted (one line per division instead of per-club).
+      Estimated prompt: ~5k-6k tokens (down from 14k).
+    - Tool guidance block rewritten for 12-tool surface: 5 live current
+      season, 5 historical stats, 1 staff, 1 website fetch.
+    - Markdown table rendering added to chat bubbles. When tool responses
+      return arrays of similar items (last-5 meetings, streak match lists,
+      league tables, standings), Claudio is instructed to render them as
+      | header | header | rows, which the chat renderer picks up and turns
+      into styled tables (carbona font, navy headers, striped rows).
+    - Hyperlink rendering added: [text](url) markdown renders as proper
+      <a> elements in NL navy with underline, visually distinct from prose.
+    - Tool etiquette guidance: always surface relatedLineage options to
+      the user, never assume phoenix/merger combining without asking.
+    - Follow-up nudges: after tool responses, Claudio is told to offer
+      one or two likely-next questions so users can expand naturally.
 
-  v4.1 (17/04/2026)
-    - Restored original styling for .link-btn (removed unwanted uppercase +
-      letter-spacing, put underline back as default not hover-only)
-    - .login-links: restored font-size: 12px and color: var(--text-muted)
-      which were being inherited as body defaults (18.5px) after refactor.
-      This was causing "Club representative?" to render oversized.
+  v2.3 (17/04/2026)
+    - System prompt trimmed from ~37k tokens to ~5k tokens. Previously dumped
+      the full clubsMeta + seasonNotes + trimmed leagueTables JSON inline,
+      which was hitting Anthropic's per-minute token ceiling and costing up
+      to 5p per first-message. Historical queries now route through the new
+      getClubSummary tool instead. Only thing kept inline is a one-line-per-
+      season champions summary for quick answers.
+    - Tool guidance rewritten: split into "current season" (NLS live feed)
+      vs "historical" (getClubSummary + /history/* redirects) sections.
+      Explicit instructions on phoenix/merger lineage — never assume combining
+      without asking, always surface relatedLineage options when offered.
 
-  v4.0 (17/04/2026)
-    - System file migration: loads /tools/system/nl-brand.css + nl-utils.js.
-      No auth-guard (this IS the sign-in page).
-    - Firebase SDK upgraded 10.7.1 → 10.12.0 for consistency.
-    - Removed duplicated CSS (reset, tokens, fonts, body defaults, .btn*,
-      .btn-spinner). Club-picker still inline — flagged for extraction to
-      nl-brand.css since it is now duplicated in vacancies/judgements/login.
-    - Removed duplicated esc/escJ helpers — now NL.escHtml / NL.escJ.
-    - .btn-spinner replaced with shared .spinner from nl-brand.
-    - Renamed .field → .form-group (13 instances) to match nl-brand widget.
-    - RTDB paths updated for admin subtree:
-        'invites-pending' → 'admin/invites-pending'
-        'requests'        → 'admin/requests'
-        'invites/{token}' → 'admin/invites/{token}'
-      'users/*' and 'tools' paths unchanged (still at root).
-    - Body background override kept (stays --primary red, not --off-white).
+  v2.2 (17/04/2026)
+    - Two-register voice: chat replies render in LTC Italian Old Style Pro
+      (warm serif, Ranieri-inflected English). Generated drafts — emails,
+      letters, comms — render in a separate code block in carbona (clean
+      NL professional voice). System prompt rewritten with explicit
+      chat-voice / draft-voice split. UI adds copy-to-clipboard on drafts.
+    - Added lightweight markdown renderer for assistant messages: handles
+      fenced code blocks as drafts, plus inline *italic* and **bold**.
+      User messages remain plain text.
+    - Typekit link for LTC Italian Old Style Pro added; font-family used
+      only on .msg--ai .msg__text. Drafts and rest of UI stay in carbona.
 
-  v3.2 (08/04/2026) — clubRole → jobTitle migration.
-  v3.1 — Invite acceptance clears invites-pending entry by email.
-  v3.0 — Full auth flow rebuild: 7 panels.
+  v2.1 (17/04/2026)
+    - Voice tweak: Claudio now writes as an Italian speaking English, a la
+      Claudio Ranieri. Warm, expressive, occasional light Italian words
+      (certo, allora, amico, piano piano). Explicit guardrails against
+      broken-English caricature, phonetic spelling, and overdoing it.
+      Voice is stable across serious/light content. Adds ~400 tokens to
+      the system prompt — cost impact negligible with prompt caching.
+
+  v2.0 (17/04/2026)
+    - Topbar refactored to use standard nl-brand tokens and markup.
+
+  v1.3.1 (17/04/2026)
+    - Fix: request body field `systemPrompt` renamed to `system` to match
+      what ClaudioChat.gs reads. Previous v1.3 build always triggered the
+      "Missing system prompt" validation error because the field names
+      didn't line up. One-line fix — no GAS change needed.
+
+  v1.3 (17/04/2026)
+    - Added tool-use support. Claudio can now call 6 tools when needed:
+      5 NLS data tools (getStandings, getFixtures, getRecentResults,
+      getMatchDetail, getTeamForm) and 1 domain-locked web fetch
+      (fetchNLSite — thenationalleague.org.uk only).
+    - Top scorers DELIBERATELY not a tool: NLS live data has acknowledged
+      gaps in per-match goal event entry, so aggregation would be
+      unreliable. All top-scorer questions redirect to
+      /history/top-scorers (authoritative hand-written page).
+    - System prompt updated to describe tools and when to use each.
+    - Historical-redirect URLs baked into prompt: Claudio points users to
+      /history/our-story, /history/stats-dashboard, /history/league-records,
+      /history/league-tables-by-season, /history/results-by-club,
+      /history/head-to-head, /history/top-scorers for detail beyond the
+      injected data.
+    - UI shows "Looking that up..." indicator while tool calls run.
+    - Guardrail softened further: Claudio can now answer live current-season
+      questions via the tools, instead of refusing.
+    - Fix: response field names (cost_pence, tokens.*, count) corrected to
+      match the GAS shape — the cost tag and daily counter now update.
+
+  v1.2 (17/04/2026)
+    - Added league-tables injection (trimmed summary): champions, promoted,
+      relegated, and notable drama notes for every season 1979-80 onwards,
+      across all three divisions. Full per-row data trimmed client-side at
+      load to keep system-prompt size sane (~90% size reduction).
+    - Injected today's date into system prompt so "last season", "this season"
+      etc resolve correctly. Previously Claudio didn't know the current date.
+    - Staff directory now includes line-manager resolution: each staff row
+      shows their resolved line manager / approver name (not UIDs).
+    - Current user block now includes their own org, role, email, and resolved
+      line manager — so questions like "who's my line manager?" work.
+    - Softened "no live data" guardrail: Claudio can now answer common football
+      knowledge questions from its own knowledge (who won in year X, famous
+      moments etc), only refusing when asked to fabricate specific recent
+      match data it cannot verify.
+
+  v1.1 (17/04/2026)
+    - Added historical context injection: fetches rich clubs-meta (phoenix/merger/
+      nicknames/first-season) and season-notes (points deductions, expulsions,
+      reprieves, format history) from the thenationalleague/site repo.
+    - Both files fetched once per session, cached in JS memory, injected into
+      system prompt. Prompt caching means ~0.4p extra cost per session total.
+    - NOT fetching results.json (too large — deferred to v2 with tool-use).
+    - Graceful fallback: if fetches fail, Claudio still works with the basic
+      72-club list and staff directory.
+
+  v1.0 (17/04/2026)
+    - Initial MVP. Chat UI, per-user conversation history isolated in RTDB,
+      prompt caching on system prompt, Haiku 4.5 model, daily message cap,
+      cost-per-message display, staff directory + clubs injected as context.
 -->
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NL Tools — Sign In</title>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claudio — NL Tools</title>
 
-<link rel="stylesheet" href="/tools/system/nl-brand.css?v=9">
+  <!-- Firebase SDKs — must come before auth-guard.js -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <!-- Typekit: LTC Italian Old Style Pro — used ONLY for Claudio's chat bubbles -->
+  <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 
-<script src="/tools/system/nl-utils.js?v=5"></script>
+  <!-- Firebase init — BEFORE auth-guard.js (see nl-tools skill gotcha #5) -->
+  <script>
+    var firebaseConfig = {
+      apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
+      authDomain:        'nl-tools.firebaseapp.com',
+      databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
+      projectId:         'nl-tools',
+      storageBucket:     'nl-tools.firebasestorage.app',
+      messagingSenderId: '801354670005',
+      appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc',
+    };
+    firebase.initializeApp(firebaseConfig);
+  </script>
 
-<style>
-/* ────────────────────────────────────────────────────────────────
-   Login page — tool-specific CSS only.
-   Base (reset, tokens, fonts, body) from /tools/system/nl-brand.css.
-   Buttons, form-group, toast, spinner: shared nl-brand widgets.
-   ──────────────────────────────────────────────────────────────── */
+  <!-- Tool key — must match RTDB /tools/{key} -->
+  <script>var NL_TOOL_KEY = 'staff-claudio';</script>
+  <script src="/tools/auth-guard.js"></script>
 
-/* Body override — red full-page bg on sign-in (nl-brand default is off-white) */
-body {
-  background: var(--primary) !important;
-  min-height: 100vh;
-}
+  <style>
+    @font-face {
+      font-family: "carbona-variable";
+      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+      font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
+    }
 
-/* Login card */
-.login-wrap {
-  min-height: 100vh;
+    :root {
+      --primary:     #9e0000;
+      --primary-dim: #7a0000;
+      --navy:        #223b7c;
+      --navy-mid:    #1a2f63;
+      --navy-light:  #2a4a8c;
+      --red:         #c0392b;
+      --red-light:   #fdf0ef;
+      --green:       #1e7e34;
+      --green-light: #edf7ee;
+      --amber:       #e67e22;
+      --amber-light: #fef6ec;
+      --white:       #ffffff;
+      --off-white:   #f4f6f9;
+      --text:        #1a2a44;
+      --text-muted:  #5a6a82;
+      --border:      #dde3ed;
+      --radius:      6px;
+      --shadow:      0 2px 12px rgba(10,22,40,0.10);
+      --font:        'carbona-variable','carbona',sans-serif;
+      --font-claudio: 'ltc-italian-old-style-pro', 'Lora', Georgia, serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font); font-size: 17px; line-height: 1.5;
+      font-variation-settings: 'wght' 400;
+      color: var(--text); background: var(--off-white);
+      overflow: hidden;
+    }
+
+    /* ===== Topbar ===== */
+    
+    
+    
+    
+    
+    .topbar__meta {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.85);
+    }
+    .topbar__meta-item { display: flex; align-items: center; gap: 6px; }
+    .topbar__meta-num { color: var(--white); font-weight: 900; font-variation-settings: 'wght' 900; font-size: 13px; }
+    
+    
+
+    /* ===== Main layout: sidebar + chat ===== */
+    .app {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      height: calc(100vh - 72px);
+      overflow: hidden;
+    }
+
+    /* ===== Sidebar (conversation list) ===== */
+    .sidebar {
+      background: var(--white);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar__head {
+      padding: 16px; border-bottom: 1px solid var(--border);
+      display: flex; gap: 8px;
+    }
+    .btn-new {
+      flex: 1;
+      background: var(--navy); color: var(--white); border: none;
+      padding: 10px 14px; border-radius: var(--radius);
+      font-family: var(--font); font-size: 12px;
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .btn-new:hover { background: var(--navy-mid); }
+    .sidebar__list {
+      flex: 1; overflow-y: auto; padding: 8px;
+    }
+    .conv-item {
+      padding: 12px 14px; border-radius: var(--radius); cursor: pointer;
+      margin-bottom: 4px; position: relative;
+      transition: background 0.15s; border: 1px solid transparent;
+    }
+    .conv-item:hover { background: var(--off-white); }
+    .conv-item.active { background: var(--off-white); border-color: var(--border); }
+    .conv-item__title {
+      font-size: 14px; font-weight: 600; font-variation-settings: 'wght' 600;
+      color: var(--text); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; padding-right: 24px;
+    }
+    .conv-item__time {
+      font-size: 11px; color: var(--text-muted);
+      font-weight: 600; font-variation-settings: 'wght' 600;
+      margin-top: 2px;
+    }
+    .conv-item__del {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      width: 22px; height: 22px; border: none; background: none;
+      font-size: 16px; color: var(--text-muted); cursor: pointer;
+      border-radius: 4px; opacity: 0; transition: opacity 0.15s;
+      line-height: 1;
+    }
+    .conv-item:hover .conv-item__del { opacity: 1; }
+    .conv-item__del:hover { background: var(--red-light); color: var(--red); }
+
+    .sidebar__empty {
+      padding: 32px 16px; text-align: center;
+      color: var(--text-muted); font-size: 13px;
+    }
+
+    /* ===== Chat main ===== */
+    .chat {
+      display: flex; flex-direction: column;
+      height: 100%; overflow: hidden;
+      background: var(--off-white);
+    }
+    .chat__scroll {
+      flex: 1; overflow-y: auto;
+      padding: 32px 0;
+    }
+    .chat__inner {
+      max-width: 820px; margin: 0 auto; padding: 0 24px;
+    }
+
+    /* ===== Welcome screen ===== */
+    .welcome {
+      display: flex; flex-direction: column; align-items: center;
+      text-align: center; padding: 40px 20px;
+    }
+    .welcome__avatar {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: var(--navy); color: var(--white);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; font-weight: 900; font-variation-settings: 'wght' 900;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    .welcome__title {
+      font-size: 28px; font-weight: 900; font-variation-settings: 'wght' 900;
+      color: var(--text); margin-bottom: 8px;
+    }
+    .welcome__sub {
+      font-size: 15px; color: var(--text-muted);
+      max-width: 520px; margin-bottom: 28px;
+    }
+    .welcome__prompts {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; width: 100%; max-width: 560px;
+    }
+    @media (max-width: 600px) { .welcome__prompts { grid-template-columns: 1fr; } }
+    .welcome__prompt {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      text-align: left; cursor: pointer;
+      font-family: var(--font); font-size: 14px;
+      color: var(--text); transition: all 0.15s;
+    }
+    .welcome__prompt:hover {
+      border-color: var(--navy); box-shadow: var(--shadow);
+    }
+    .welcome__prompt strong {
+      display: block; font-weight: 800; font-variation-settings: 'wght' 800;
+      color: var(--navy); font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 4px;
+    }
+
+    /* ===== Messages ===== */
+    .msg {
+      display: flex; gap: 14px; margin-bottom: 20px;
+      animation: msgIn 0.25s ease;
+    }
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .msg__avatar {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 900; font-variation-settings: 'wght' 900;
+      color: var(--white);
+    }
+    .msg__avatar--user { background: var(--primary); }
+    .msg__avatar--ai   { background: var(--navy); }
+    .msg__body { flex: 1; min-width: 0; }
+    .msg__name {
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); margin-bottom: 4px;
+    }
+    .msg__text {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      font-size: 15px; line-height: 1.55;
+      color: var(--text);
+      overflow-wrap: break-word; word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+    /* Claudio speaks in LTC Italian Old Style — a literary, warm serif.
+       Only applies to assistant bubbles; user bubbles stay in carbona.
+       Note: the serif sits differently on the baseline than carbona, so
+       we bump font-size slightly to match visual weight. */
+    .msg--ai .msg__text {
+      font-family: var(--font-claudio);
+      font-size: 17px;
+      line-height: 1.5;
+      font-weight: 400;
+    }
+    .msg--ai .msg__text em,
+    .msg--ai .msg__text i {
+      font-style: italic;
+      font-weight: 400;
+    }
+    .msg--ai .msg__text strong,
+    .msg--ai .msg__text b {
+      font-weight: 700;
+    }
+    /* Draft blocks — anything Claudio generates for onward use
+       (emails, letters, comms) renders in a distinct block that:
+       1) uses carbona (clean NL voice, not Italian-inflected)
+       2) is visually separated so the user knows it's copy-paste content
+       3) has a subtle header and copy affordance
+       This is rendered via the lightweight markdown-ish parser in renderClaudioText(). */
+    .msg__draft {
+      margin: 12px 0 4px;
+      background: var(--off-white);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--navy);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--text);
+      white-space: pre-wrap;
+      font-weight: 400;
+      font-variation-settings: 'wght' 400;
+    }
+    .msg__draft-label {
+      display: block;
+      margin-bottom: 8px;
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    .msg__draft-copy {
+      float: right;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 2px 8px;
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .msg__draft-copy:hover {
+      background: var(--navy);
+      color: var(--white);
+      border-color: var(--navy);
+    }
+
+    /* Markdown tables rendered by Claudio inside chat bubbles (v2.4).
+       Used when tool responses return arrays of similar items — standings,
+       H2H last-5, streak match lists, etc. Uses carbona font (same as drafts)
+       because tables are reference data, not conversation. */
+    .claudio-table {
+      width: 100%;
+      margin: 10px 0 4px;
+      border-collapse: collapse;
+      font-family: var(--font);
+      font-size: 13px;
+      line-height: 1.35;
+      font-variation-settings: 'wght' 400;
+      background: var(--off-white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .claudio-table thead th {
+      background: var(--navy);
+      color: var(--white);
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-variant-numeric: tabular-nums;
+    }
+    .claudio-table tbody td {
+      padding: 6px 10px;
+      border-top: 1px solid var(--border);
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+    .claudio-table tbody tr:nth-child(even) td {
+      background: rgba(30, 58, 138, 0.025);
+    }
+
+    /* Hyperlinks rendered by Claudio — visibly distinct NL navy, underlined,
+       with a subtle hover lift. Used for /history/* redirects and other
+       authoritative sources. Deliberately NOT the text-muted colour (that
+       would blend in with conversational prose). */
+    .claudio-link {
+      color: var(--navy);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      font-weight: 600;
+      font-variation-settings: 'wght' 600;
+      transition: color 0.15s, text-decoration-thickness 0.15s;
+    }
+    .claudio-link:hover {
+      color: #0f1e4a;
+      text-decoration-thickness: 2px;
+    }
+    .claudio-link:visited {
+      color: var(--navy);
+    }
+
+    .msg--user .msg__text {
+      background: #eef3ff; border-color: #d1def5;
+    }
+    .msg__cost {
+      margin-top: 6px; display: flex; gap: 10px;
+      font-size: 11px; color: var(--text-muted);
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      opacity: 0;
+      animation: costIn 0.6s ease 0.3s forwards;
+    }
+    @keyframes costIn { to { opacity: 1; } }
+    .msg__cost-num {
+      color: var(--navy); font-weight: 900; font-variation-settings: 'wght' 900;
+    }
+
+    /* Tool-call chips — shown on assistant messages that used tools */
+    .msg__tools {
+      margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;
+      align-items: center;
+      font-size: 11px;
+    }
+    .msg__tools-label {
+      color: var(--text-muted);
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .msg__tool-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(30, 58, 138, 0.08);
+      color: var(--navy);
+      border-radius: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* Typing indicator */
+    .typing {
+      display: flex; gap: 14px; margin-bottom: 20px;
+    }
+    .typing__dots {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+      display: flex; gap: 5px;
+    }
+    .typing__dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-muted);
+      animation: typingPulse 1.2s ease infinite;
+    }
+    .typing__dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing__dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingPulse {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-3px); }
+    }
+
+    /* ===== Composer ===== */
+    .composer {
+      background: var(--white); border-top: 1px solid var(--border);
+      padding: 16px 24px;
+    }
+    .composer__inner {
+      max-width: 820px; margin: 0 auto;
+      display: flex; gap: 10px; align-items: flex-end;
+    }
+    .composer__input {
+      flex: 1;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px 14px; font-size: 15px;
+      font-family: var(--font); font-variation-settings: 'wght' 400;
+      color: var(--text); background: var(--white);
+      resize: none; min-height: 46px; max-height: 200px;
+      line-height: 1.4; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .composer__input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
+    }
+    .composer__input:disabled {
+      background: var(--off-white); color: var(--text-muted); cursor: not-allowed;
+    }
+    .composer__send {
+      background: var(--primary); color: var(--white); border: none;
+      padding: 0 22px; height: 46px; border-radius: var(--radius);
+      font-family: var(--font); font-size: 12px;
+      font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer; transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .composer__send:hover:not(:disabled) { background: var(--primary-dim); }
+    .composer__send:disabled {
+      background: var(--text-muted); opacity: 0.5; cursor: not-allowed;
+    }
+    .composer__hint {
+      max-width: 820px; margin: 6px auto 0;
+      font-size: 11px; color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ===== Toast ===== */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--navy); color: var(--white);
+      padding: 12px 18px; border-radius: var(--radius);
+      font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 999; transform: translateY(80px); opacity: 0;
+      transition: all 0.25s ease; max-width: 320px; pointer-events: none;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-left: 4px solid var(--green); }
+    .toast.error   { border-left: 4px solid var(--red); }
+
+    /* ===== Mobile ===== */
+    @media (max-width: 720px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .sidebar.open { display: flex; position: fixed; top: 72px; left: 0; width: 85vw; height: calc(100vh - 72px); z-index: 50; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+      .topbar__meta { display: none; }
+      
+      .composer { padding: 12px 16px; }
+      .chat__inner { padding: 0 16px; }
+    }
+    .menu-toggle {
+      display: none;
+      background: none; border: 1px solid rgba(255,255,255,0.3); color: var(--white);
+      width: 36px; height: 36px; border-radius: var(--radius);
+      cursor: pointer; font-size: 18px;
+    }
+    @media (max-width: 720px) { .menu-toggle { display: flex; align-items: center; justify-content: center; } }
+  
+/* ── Standard NL Tools Topbar (see nl-brand skill) ─────────────────────── */
+.topbar {
+  background: var(--primary);
+  color: var(--white);
+  padding: 0 20px;
+  height: 72px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-}
-.login-box {
-  background: var(--white);
-  border-radius: 12px;
-  padding: 48px 44px;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border-bottom: 7px solid var(--navy);
   width: 100%;
-  max-width: 460px;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
-  text-align: center;
+  box-sizing: border-box;
 }
-.login-box__logo {
-  width: 84px;
-  margin-bottom: 22px;
+.topbar__logo {
+  height: 42px;
+  flex-shrink: 0;
 }
-.login-box h1 {
-  font-size: 26px;
+.topbar__title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+  gap: 3px;
+}
+.topbar__title {
   font-weight: 900;
   font-variation-settings: 'wght' 900;
+  font-size: 20px;
   text-transform: uppercase;
-  letter-spacing: -0.01em;
-  margin-bottom: 5px;
-  line-height: 1.1;
+  letter-spacing: 0.04em;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.login-box h1 .word-primary   { color: var(--primary); }
-.login-box h1 .word-secondary { color: var(--navy); }
-.login-box__sub {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 30px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+.topbar__kicker {
+  font-size: 9px;
   font-weight: 700;
   font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgba(255,255,255,0.6);
+  white-space: nowrap;
 }
-
-/* Panels — switched by .active class */
-.panel { display: none; text-align: left; }
-.panel.active { display: block; }
-
-/* Form spacing override (.form-group is from nl-brand; add margin for login stack) */
-.panel .form-group { margin-bottom: 16px; }
-
-/* Inline status messages */
-.msg {
-  display: none;
-  padding: 10px 14px;
-  border-radius: var(--radius);
+.topbar__user {
   font-size: 13px;
+  color: rgba(255,255,255,0.8);
   font-weight: 600;
   font-variation-settings: 'wght' 600;
-  margin-bottom: 14px;
-  text-align: center;
-  line-height: 1.4;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.msg.show { display: block; }
-.msg--error   { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
-.msg--info    { background: var(--info-light);  color: var(--navy);  border: 1px solid #c7d2fe; }
-.msg--success { background: var(--green-light); color: var(--green); border: 1px solid #b8dfbf; }
-
-/* Button row (side-by-side actions) */
-.btn-row { display: flex; gap: 8px; margin-top: 16px; }
-.btn-row .btn { flex: 1; justify-content: center; }
-
-/* Primary panel button (sign-in, submit, etc.) — full-width */
-.panel > .btn {
-  width: 100%;
-  justify-content: center;
-  padding: 12px 20px;
-  font-size: 13px;
-}
-
-/* Login text links */
-.login-links {
-  margin-top: 20px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-muted);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-}
-.link-btn {
+.topbar__btn {
   background: none;
-  border: none;
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  cursor: pointer;
-  font-family: var(--font);
-  padding: 0;
-  text-decoration: underline;
-}
-.link-btn:hover { color: var(--primary-dim); }
-
-/* Full-card state panels (pending / rejected) */
-.state-panel { text-align: center; padding: 8px 0; }
-.state-panel__icon { font-size: 40px; margin-bottom: 16px; }
-.state-panel__title {
-  font-size: 16px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 12px;
-}
-.state-panel__title--amber { color: var(--amber); }
-.state-panel__title--red   { color: var(--red); }
-.state-panel__body {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.6;
-  margin-bottom: 20px;
-}
-.state-panel__body a {
-  color: var(--primary);
-  font-weight: 700;
-  text-decoration: underline;
-}
-.state-panel__actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-/* Polling indicator (pending state) */
-@keyframes login-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-.pending-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: var(--white);
+  padding: 7px 14px;
+  border-radius: var(--radius);
   font-size: 11px;
-  color: var(--text-muted);
   font-weight: 700;
   font-variation-settings: 'wght' 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-top: 16px;
-  animation: login-pulse 2s ease-in-out infinite;
-}
-.pending-check__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--amber);
-}
-
-/* Step indicator for request-access flow */
-.step-indicator {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-.step-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--border);
-  transition: all 0.2s;
-}
-.step-dot.active { background: var(--primary); transform: scale(1.25); }
-.step-dot.done   { background: var(--green); }
-
-/* Request-access sign-up scroll area */
-.signup-scroll {
-  max-height: 55vh;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-/* Tool picker (request access) */
-.tool-group { margin-bottom: 18px; }
-.tool-group__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.tool-group__label {
-  font-size: 10px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--navy);
-}
-.tool-group__select-all {
-  font-size: 10px;
-  color: var(--primary);
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  background: none;
-  border: none;
   cursor: pointer;
+  transition: all 0.15s;
   font-family: var(--font);
-  text-decoration: underline;
-  padding: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.tool-checkboxes { display: flex; flex-direction: column; gap: 6px; }
-.tool-checkbox {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background 0.12s;
-  background: var(--white);
-}
-.tool-checkbox:hover { background: var(--off-white); }
-.tool-checkbox input[type="checkbox"] {
-  margin-top: 2px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
-.tool-checkbox__text { flex: 1; }
-.tool-checkbox__name {
-  font-size: 13px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  color: var(--text);
-  display: block;
-}
-.tool-checkbox__desc {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: block;
-  margin-top: 1px;
-}
-
-/* Club picker — currently duplicated across vacancies/judgements/login.
-   TODO: extract to nl-brand.css as a shared widget next time we touch these. */
-.club-picker { position: relative; }
-.club-picker__wrap {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 7px 12px;
-  background: var(--white);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.club-picker__wrap:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
-}
-.club-picker__crest { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
-.club-picker__input {
-  flex: 1;
-  border: none !important;
-  padding: 0 !important;
-  font-size: 15px;
-  outline: none;
-  background: transparent;
-  font-family: var(--font);
-  font-variation-settings: 'wght' 400;
-  color: var(--text);
-}
-.club-picker__input::placeholder { color: #aab4c4; }
-.club-picker__dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  max-height: 220px;
-  overflow-y: auto;
-  display: none;
-  margin-top: 3px;
-}
-.club-picker__dropdown.open { display: block; }
-.club-picker__option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
-  cursor: pointer;
+.topbar__btn:hover { background: rgba(255,255,255,0.12); }
+.topbar__btn--icon {
+  padding: 7px 10px;
   font-size: 14px;
-  border-bottom: 1px solid var(--border);
 }
-.club-picker__option:last-child { border-bottom: none; }
-.club-picker__option:hover { background: var(--off-white); }
-.club-picker__option img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  flex-shrink: 0;
+/* Mobile: hide user name, icon-only Portal. Kicker stays visible. */
+@media (max-width: 700px) {
+  .topbar { padding: 0 14px; gap: 10px; }
+  .topbar__user { display: none; }
+  .topbar__btn-text-portal { display: none; }
+  .topbar__btn--portal { padding: 7px 10px; }
+  .topbar__title { font-size: 17px; }
 }
-.club-picker__option-name {
-  flex: 1;
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-}
-.club-picker__option-div {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
+
 </style>
 </head>
+
 <body>
-<div class="login-wrap">
-  <div class="login-box">
+  <div id="pageWrap" style="display:none;">
 
-    <img class="login-box__logo"
-      src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
-      alt="National League"
-      onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-
-    <h1 id="pageTitle"><span class="word-primary">NL</span> <span class="word-secondary">Tools</span></h1>
-    <p class="login-box__sub" id="pageSubtitle">Staff &amp; Club Portal</p>
-
-    <div class="panel active" id="panelSignIn">
-      <div class="msg" id="signinMsg"></div>
-      <div class="form-group">
-        <label for="signinEmail">Email address</label>
-        <input type="email" id="signinEmail" placeholder="you@example.com" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label for="signinPassword">Password</label>
-        <input type="password" id="signinPassword" placeholder="Your password" autocomplete="current-password">
-      </div>
-      <button class="btn btn--primary" id="signinBtn">Sign in</button>
-      <div class="login-links">
-        <span><button class="link-btn" id="toForgotBtn">Forgot your password?</button></span>
-        <span>Club representative? <button class="link-btn" id="toRequestBtn">Request access</button></span>
-      </div>
-    </div>
-
-    <div class="panel" id="panelForgot">
-      <div class="msg" id="forgotMsg"></div>
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">Enter your email and we'll send a reset link.</p>
-      <div class="form-group">
-        <label for="forgotEmail">Email address</label>
-        <input type="email" id="forgotEmail" placeholder="you@example.com" autocomplete="email">
-      </div>
-      <div class="btn-row">
-        <button class="btn btn--ghost" id="forgotBackBtn">Back</button>
-        <button class="btn btn--primary" id="forgotBtn">Send reset email</button>
-      </div>
-    </div>
-
-    <div class="panel" id="panelResetPassword">
-      <div class="msg" id="resetpwMsg"></div>
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">Choose a new password for your account.</p>
-      <div class="form-group">
-        <label for="resetPwNew">New password</label>
-        <input type="password" id="resetPwNew" placeholder="At least 8 characters" autocomplete="new-password">
-      </div>
-      <div class="form-group">
-        <label for="resetPwConfirm">Confirm password</label>
-        <input type="password" id="resetPwConfirm" placeholder="Repeat password" autocomplete="new-password">
-      </div>
-      <button class="btn btn--primary" id="resetPwBtn">Set new password</button>
-    </div>
-
-    <div class="panel" id="panelSetPassword">
-      <div class="msg" id="setpwMsg"></div>
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">Welcome to NL Tools. Set a password to complete your account setup.</p>
-      <div class="form-group">
-        <label for="setPwEmail">Email address</label>
-        <input type="email" id="setPwEmail" placeholder="Confirm your email" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label for="setPwPassword">Choose a password</label>
-        <input type="password" id="setPwPassword" placeholder="At least 8 characters" autocomplete="new-password">
-      </div>
-      <div class="form-group">
-        <label for="setPwConfirm">Confirm password</label>
-        <input type="password" id="setPwConfirm" placeholder="Repeat password" autocomplete="new-password">
-      </div>
-      <button class="btn btn--primary" id="setPwBtn">Set password &amp; sign in</button>
-    </div>
-
-    <div class="panel" id="panelRequest">
-      <div id="reqStep1">
-        <div class="step-indicator">
-          <div class="step-dot active"></div>
-          <div class="step-dot"></div>
-        </div>
-        <div class="msg" id="reqMsg1"></div>
-        <div class="form-group">
-          <label for="reqName">Your full name</label>
-          <input type="text" id="reqName" placeholder="First and last name">
-        </div>
-        <div class="form-group">
-          <label for="reqEmail">Email address</label>
-          <input type="email" id="reqEmail" placeholder="you@yourclub.com" autocomplete="email">
-        </div>
-        <div class="form-group">
-          <label for="reqPassword">Choose a password</label>
-          <input type="password" id="reqPassword" placeholder="At least 8 characters" autocomplete="new-password">
-        </div>
-        <div class="form-group">
-          <label>Club</label>
-          <div class="club-picker">
-            <div class="club-picker__wrap">
-              <img class="club-picker__crest" id="reqClubCrest"
-                src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png"
-                alt=""
-                onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-              <input class="club-picker__input" id="reqClubInput" type="text" placeholder="Search club name..." autocomplete="off">
-            </div>
-            <div class="club-picker__dropdown" id="reqClubDropdown"></div>
-          </div>
-          <input type="hidden" id="reqClub">
-        </div>
-        <div class="form-group">
-          <label for="reqClubRole">Your role at the club</label>
-          <input type="text" id="reqClubRole" placeholder="e.g. Secretary, Media Officer">
-        </div>
-        <div class="btn-row">
-          <button class="btn btn--ghost" id="reqBackBtn">Back</button>
-          <button class="btn btn--navy" id="reqNextBtn">Next - Select tools</button>
-        </div>
-      </div>
-      <div id="reqStep2" style="display:none;">
-        <div class="step-indicator">
-          <div class="step-dot done"></div>
-          <div class="step-dot active"></div>
-        </div>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;font-weight:600;font-variation-settings:'wght' 600;line-height:1.5;">Select the tools you'd like access to. Leave blank for general access only.</p>
-        <div class="msg" id="reqMsg2"></div>
-        <div class="signup-scroll" id="reqToolContainer">
-          <p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">Loading available tools...</p>
-        </div>
-        <div class="btn-row" style="margin-top:16px;">
-          <button class="btn btn--ghost" id="reqStep2BackBtn">Back</button>
-          <button class="btn btn--primary" id="reqSubmitBtn">Submit request</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel" id="panelPending">
-      <div class="state-panel">
-        <div class="state-panel__icon">&#9203;</div>
-        <div class="state-panel__title state-panel__title--amber">Request pending</div>
-        <div class="state-panel__body">
-          Your request is being reviewed by The National League.<br><br>
-          You will receive an email once a decision has been made. If you have any questions
-          in the meantime, please email
-          <a href="mailto:media@thenationalleague.org.uk">media&#64;thenationalleague.org.uk</a>
-        </div>
-        <div class="pending-check">
-          <div class="pending-check__dot"></div>
-          Checking for updates...
-        </div>
-        <div class="state-panel__actions">
-          <button class="btn btn--danger" id="withdrawBtn">Withdraw request</button>
-          <button class="btn btn--ghost" id="pendingSignOutBtn">Sign out</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel" id="panelRejected">
-      <div class="state-panel">
-        <div class="state-panel__icon">&#10060;</div>
-        <div class="state-panel__title state-panel__title--red">Request unsuccessful</div>
-        <div class="state-panel__body">
-          Unfortunately your request for access to NL Tools has not been approved at this time.<br><br>
-          If you believe this is an error or would like to discuss your application, please email
-          <a href="mailto:media@thenationalleague.org.uk">media&#64;thenationalleague.org.uk</a>
-        </div>
-        <div class="state-panel__actions">
-          <button class="btn btn--ghost" id="rejectedSignOutBtn">Sign out</button>
-        </div>
-      </div>
-    </div>
-
+    <header class="topbar">
+  <button class="menu-toggle" id="menuToggle" aria-label="Toggle conversations">☰</button>
+  <img class="topbar__logo"
+    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+    alt="National League"
+    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+  <div class="topbar__title-wrap">
+    <span class="topbar__title">Claudio</span>
+    <span class="topbar__kicker">NL Tools</span>
   </div>
-</div>
+  <div class="topbar__meta">
+    <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
+      <span class="topbar__meta-num" id="dailyCount">0</span>
+      <span>/ <span id="dailyLimit">50</span> today</span>
+    </div>
+    <div class="topbar__meta-item" id="costMeta" title="Your cost today">
+      <span class="topbar__meta-num" id="costToday">0.00p</span>
+      <span>today</span>
+    </div>
+  </div>
+  <span class="topbar__user" id="topbarUser"></span>
+  <a href="/tools/portal/" class="topbar__btn topbar__btn--portal" aria-label="Back to portal">
+    <span>←</span><span class="topbar__btn-text-portal">Portal</span>
+  </a>
+  <button class="topbar__btn" id="signOutBtn">Sign out</button>
+</header>
 
-<script>
-var firebaseConfig = {
-  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
-  authDomain:        'nl-tools.firebaseapp.com',
-  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId:         'nl-tools',
-  storageBucket:     'nl-tools.firebasestorage.app',
-  messagingSenderId: '801354670005',
-  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
-};
-firebase.initializeApp(firebaseConfig);
-var auth = firebase.auth();
-var db   = firebase.database();
+    <div class="app">
+      <!-- Sidebar: conversation list -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar__head">
+          <button class="btn-new" id="btnNew">New chat</button>
+        </div>
+        <div class="sidebar__list" id="convList">
+          <div class="sidebar__empty">No conversations yet. Start one below.</div>
+        </div>
+      </aside>
 
-var PORTAL_URL     = '/tools/portal/';
-var NL_GAS_URL     = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
-var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
-var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
-var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
+      <!-- Chat area -->
+      <main class="chat">
+        <div class="chat__scroll" id="chatScroll">
+          <div class="chat__inner" id="chatInner">
+            <!-- Welcome screen rendered here by default -->
+          </div>
+        </div>
 
-var urlParams    = new URLSearchParams(window.location.search);
-var INVITE_TOKEN = urlParams.get('invite') || '';
-var INVITE_EMAIL = urlParams.get('email')  ? decodeURIComponent(urlParams.get('email')) : '';
-var OOB_CODE     = urlParams.get('oobCode') || '';
-var IS_INVITE    = !!INVITE_TOKEN;
-var IS_RESET     = !!OOB_CODE;
+        <div class="composer">
+          <div class="composer__inner">
+            <textarea
+              id="composerInput"
+              class="composer__input"
+              placeholder="Ask Claudio anything…"
+              rows="1"></textarea>
+            <button class="composer__send" id="btnSend">Send</button>
+          </div>
+          <div class="composer__hint">
+            Claudio knows NL staff and clubs. Don't share sensitive personal data.
+            Messages are private to you.
+          </div>
+        </div>
+      </main>
+    </div>
 
-/* esc/escJ helpers provided by NL.escHtml / NL.escJ in nl-utils.js */
+    <div class="toast" id="toast"></div>
+  </div>
 
-function showMsg(id, text, type) {
-  var el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = text;
-  el.className = 'msg msg--' + (type || 'error') + ' show';
-}
-function clearAllMsgs() {
-  document.querySelectorAll('.msg').forEach(function(m) { m.className = 'msg'; m.textContent = ''; });
-}
-function setBtnLoading(id, loading, label) {
-  var btn = document.getElementById(id);
-  if (!btn) return;
-  btn.disabled = loading;
-  btn.innerHTML = loading ? '<span class="btn-spinner"></span>' : (label || btn.dataset.label || btn.textContent);
-  if (label) btn.dataset.label = label;
-}
+  <script>
+    // =========================================================================
+    // CONSTANTS
+    // =========================================================================
+    var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+    var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
 
-var PANEL_TITLES = {
-  panelSignIn:       { title: 'NL Tools',            sub: 'Staff &amp; Club Portal' },
-  panelForgot:       { title: 'Reset Password',       sub: "We'll send you a reset link" },
-  panelResetPassword:{ title: 'New Password',         sub: 'Choose a new password' },
-  panelSetPassword:  { title: 'Set Password',         sub: 'Complete your account setup' },
-  panelRequest:      { title: 'Request Access',       sub: 'Club representative sign-up' },
-  panelPending:      { title: 'Pending Approval',     sub: 'The National League' },
-  panelRejected:     { title: 'Request Unsuccessful', sub: 'The National League' }
-};
+    // Historical context files — fetched from the 'site' repo (not 'tools').
+    // These are DIFFERENT to the current-72-clubs list above. They contain
+    // rich historical metadata (phoenix/merger/nicknames/first-season) and
+    // season notes (points deductions, expulsions, reprieves, format history).
+    // Injected into Claudio's system prompt for historical awareness.
+    var SITE_CLUBS_META_URL    = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/clubs-meta.json';
+    var SITE_SEASON_NOTES_URL  = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/season-notes.json';
+    var SITE_LEAGUE_TABLES_URL = 'https://raw.githubusercontent.com/thenationalleague/site/refs/heads/main/league-tables.json';
+    // results.json deliberately NOT fetched — too large (~500k+ tokens).
+    // Deferred to v2 with tool-use for on-demand match lookups.
+    // league-tables.json IS fetched but trimmed client-side at load time
+    // (champions/promoted/relegated/drama only — not full standings).
 
-function showPanel(id) {
-  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-  document.getElementById(id).classList.add('active');
-  var info = PANEL_TITLES[id];
-  if (info) {
-    var parts = info.title.split(' ');
-    document.getElementById('pageTitle').innerHTML =
-      '<span class="word-primary">' + NL.escHtml(parts[0]) + '</span>' +
-      (parts.length > 1 ? ' <span class="word-secondary">' + NL.escHtml(parts.slice(1).join(' ')) + '</span>' : '');
-    document.getElementById('pageSubtitle').innerHTML = info.sub;
-  }
-  if (id === 'panelRequest') { loadReqTools(); initReqClubPicker(); }
-  clearAllMsgs();
-}
+    // How many past messages to send back to Claudio per request.
+    // Keeps long conversations cheap — older context is dropped.
+    var HISTORY_WINDOW = 15;
 
-function doSignOut() {
-  if (window._pendingListener) { window._pendingListener(); window._pendingListener = null; }
-  auth.signOut().then(function() { showPanel('panelSignIn'); });
-}
+    // =========================================================================
+    // STATE
+    // =========================================================================
+    var STATE = {
+      session:   null,
+      db:        null,
+      clubs:     [],
+      staff:     [],
+      historicalContext: null,  // { clubsMeta, seasonNotes, leagueTables } from site repo — injected into system prompt
+      convs:     [],       // list of conversations, sorted newest first
+      activeId:  null,     // currently-open conversation ID
+      messages:  [],       // messages in active conversation
+      sending:   false,    // guard to prevent double-send
+      dailyLimit: 50,
+      dailyCount: 0,
+      costTodayPence: 0
+    };
 
-document.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('signinBtn').addEventListener('click', doSignIn);
-  document.getElementById('toForgotBtn').addEventListener('click', function() { showPanel('panelForgot'); });
-  document.getElementById('toRequestBtn').addEventListener('click', function() { showPanel('panelRequest'); });
-  document.getElementById('forgotBackBtn').addEventListener('click', function() { showPanel('panelSignIn'); });
-  document.getElementById('forgotBtn').addEventListener('click', doForgotPassword);
-  document.getElementById('resetPwBtn').addEventListener('click', doResetPassword);
-  document.getElementById('setPwBtn').addEventListener('click', doSetPassword);
-  document.getElementById('reqBackBtn').addEventListener('click', function() { showPanel('panelSignIn'); });
-  document.getElementById('reqNextBtn').addEventListener('click', goReqStep2);
-  document.getElementById('reqStep2BackBtn').addEventListener('click', goReqStep1);
-  document.getElementById('reqSubmitBtn').addEventListener('click', doSubmitRequest);
-  document.getElementById('withdrawBtn').addEventListener('click', doWithdraw);
-  document.getElementById('pendingSignOutBtn').addEventListener('click', doSignOut);
-  document.getElementById('rejectedSignOutBtn').addEventListener('click', doSignOut);
+    // =========================================================================
+    // BOOT — called by auth-guard once session is confirmed
+    // =========================================================================
 
-  document.addEventListener('keydown', function(e) {
-    if (e.key !== 'Enter') return;
-    var active = document.querySelector('.panel.active');
-    if (!active) return;
-    if (active.id === 'panelSignIn')        doSignIn();
-    if (active.id === 'panelForgot')        doForgotPassword();
-    if (active.id === 'panelResetPassword') doResetPassword();
-    if (active.id === 'panelSetPassword')   doSetPassword();
-  });
-
-  if (IS_RESET) {
-    auth.verifyPasswordResetCode(OOB_CODE)
-      .then(function() {
-        showPanel('panelResetPassword');
-        window.history.replaceState({}, '', window.location.pathname);
-      })
-      .catch(function() {
-        showPanel('panelForgot');
-        showMsg('forgotMsg', 'This reset link has expired or already been used. Please request a new one.', 'error');
-      });
-    return;
-  }
-
-  if (IS_INVITE) {
-    showPanel('panelSetPassword');
-    var emailInput = document.getElementById('setPwEmail');
-    if (INVITE_EMAIL) {
-      emailInput.value    = INVITE_EMAIL;
-      emailInput.readOnly = true;
-      emailInput.style.background = 'var(--off-white)';
-      emailInput.style.color      = 'var(--text-muted)';
-      emailInput.style.cursor     = 'default';
-    }
-    window.history.replaceState({}, '', window.location.pathname);
-    return;
-  }
-});
-
-auth.onAuthStateChanged(function(user) {
-  if (IS_INVITE || IS_RESET) return;
-  if (!user) { showPanel('panelSignIn'); return; }
-  db.ref('users/' + user.uid).once('value').then(function(snap) {
-    if (!snap.exists()) { auth.signOut(); return; }
-    var ud = snap.val();
-    if (ud.rejected)    { showPanel('panelRejected'); }
-    else if (ud.pending){ showPanel('panelPending'); startPendingListener(user.uid); }
-    else                { window.location.replace(PORTAL_URL); }
-  }).catch(function() { auth.signOut(); });
-});
-
-function startPendingListener(uid) {
-  if (window._pendingListener) { window._pendingListener(); window._pendingListener = null; }
-  var ref = db.ref('users/' + uid + '/pending');
-  var unsub = ref.on('value', function(snap) {
-    var pending = snap.val();
-    if (pending === false || pending === null) {
-      unsub(); window._pendingListener = null;
-      window.location.replace(PORTAL_URL);
-    }
-  });
-  window._pendingListener = function() { ref.off('value', unsub); };
-}
-
-function doSignIn() {
-  var email = document.getElementById('signinEmail').value.trim();
-  var pass  = document.getElementById('signinPassword').value;
-  if (!email || !pass) { showMsg('signinMsg', 'Please enter your email and password.', 'error'); return; }
-  setBtnLoading('signinBtn', true);
-  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-    .then(function() { return auth.signInWithEmailAndPassword(email, pass); })
-    .catch(function(err) {
-      setBtnLoading('signinBtn', false, 'Sign in');
-      var msg = 'Sign-in failed. Please check your details.';
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') msg = 'Incorrect email or password.';
-      else if (err.code === 'auth/too-many-requests') msg = 'Too many attempts. Please try again later or reset your password.';
-      else if (err.code === 'auth/user-disabled') msg = 'This account has been disabled. Please contact the National League.';
-      showMsg('signinMsg', msg, 'error');
+/* Standard topbar wiring — set user name and bind sign out */
+function wireTopbar(session) {
+  var userEl = document.getElementById('topbarUser');
+  if (userEl) userEl.textContent = session && (session.name || session.email) || '';
+  var btn = document.getElementById('signOutBtn');
+  if (btn) {
+    btn.addEventListener('click', function() {
+      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
     });
+  }
 }
 
-function doForgotPassword() {
-  var email = document.getElementById('forgotEmail').value.trim();
-  if (!email) { showMsg('forgotMsg', 'Please enter your email address.', 'error'); return; }
-  setBtnLoading('forgotBtn', true);
-  auth.sendPasswordResetEmail(email)
-    .then(function() { setBtnLoading('forgotBtn', false, 'Send reset email'); showMsg('forgotMsg', 'If that address is registered, a reset email has been sent. Check your inbox.', 'info'); })
-    .catch(function() { setBtnLoading('forgotBtn', false, 'Send reset email'); showMsg('forgotMsg', 'If that address is registered, a reset email has been sent. Check your inbox.', 'info'); });
-}
+    window.nlAuthReady = function(session) {
+      STATE.session = session;
+      STATE.db      = firebase.database();
+      document.getElementById('pageWrap').style.display = 'block';
 
-function doResetPassword() {
-  var newPass = document.getElementById('resetPwNew').value;
-  var confirm = document.getElementById('resetPwConfirm').value;
-  if (newPass.length < 8) { showMsg('resetpwMsg', 'Password must be at least 8 characters.', 'error'); return; }
-  if (newPass !== confirm) { showMsg('resetpwMsg', 'Passwords do not match.', 'error'); return; }
-  setBtnLoading('resetPwBtn', true);
-  auth.confirmPasswordReset(OOB_CODE, newPass)
-    .then(function() {
-      setBtnLoading('resetPwBtn', false, 'Set new password');
-      showMsg('resetpwMsg', 'Password updated. You can now sign in.', 'success');
-      setTimeout(function() { showPanel('panelSignIn'); }, 2000);
-    })
-    .catch(function(err) {
-      setBtnLoading('resetPwBtn', false, 'Set new password');
-      var msg = 'Could not reset password.';
-      if (err.code === 'auth/weak-password')       msg = 'Password is too weak.';
-      if (err.code === 'auth/expired-action-code')  msg = 'This reset link has expired. Please request a new one.';
-      if (err.code === 'auth/invalid-action-code')  msg = 'This reset link is invalid or already used.';
-      showMsg('resetpwMsg', msg, 'error');
-    });
-}
-
-function doSetPassword() {
-  var email   = document.getElementById('setPwEmail').value.trim();
-  var pass    = document.getElementById('setPwPassword').value;
-  var confirm = document.getElementById('setPwConfirm').value;
-  if (!email)           { showMsg('setpwMsg', 'Please enter the email address your invite was sent to.', 'error'); return; }
-  if (pass.length < 8)  { showMsg('setpwMsg', 'Password must be at least 8 characters.', 'error'); return; }
-  if (pass !== confirm) { showMsg('setpwMsg', 'Passwords do not match.', 'error'); return; }
-  if (!INVITE_TOKEN)    { showMsg('setpwMsg', 'Invalid invite link. Please use the link from your invite email.', 'error'); return; }
-  setBtnLoading('setPwBtn', true);
-  showMsg('setpwMsg', 'Verifying invite...', 'info');
-  db.ref('admin/invites/' + INVITE_TOKEN).once('value')
-    .then(function(snap) {
-      var invite = snap.val();
-      if (!invite)        throw { message: 'Invite not found. Please use the link from your invite email.' };
-      if (invite.used)    throw { message: 'This invite link has already been used.' };
-      if ((invite.email || '').toLowerCase() !== email.toLowerCase()) throw { message: 'Email does not match this invite.' };
-      var now = new Date(); var expires = new Date(invite.expiresAt);
-      if (now > expires)  throw { message: 'This invite link has expired. Please ask for a new invite.' };
-      showMsg('setpwMsg', 'Creating your account...', 'info');
-      return auth.createUserWithEmailAndPassword(email, pass)
-        .then(function(credential) {
-          var uid = credential.user.uid;
-          var updates = {};
-          updates['admin/invites/' + INVITE_TOKEN + '/used'] = true;
-          updates['users/' + uid + '/name']     = invite.name     || '';
-          updates['users/' + uid + '/email']    = email;
-          updates['users/' + uid + '/role']     = invite.role     || 'staff';
-          updates['users/' + uid + '/org']      = invite.org      || '';
-          updates['users/' + uid + '/orgKey']   = invite.orgKey   || '';
-          updates['users/' + uid + '/club']     = invite.club     || '';
-          updates['users/' + uid + '/jobTitle'] = invite.jobTitle || '';
-          updates['users/' + uid + '/pending']  = false;
-          updates['users/' + uid + '/tools']    = invite.tools    || {};
-          return db.ref().update(updates);
+      // Load staff directory + clubs + historical context in parallel.
+      // Historical context fetches are wrapped to never reject — if they fail,
+      // Claudio still boots and works, just without the rich history.
+      Promise.all([loadClubs(), loadStaff(), loadHistoricalContext()])
+        .then(function() {
+          return Promise.all([loadConversations(), loadDailyUsage()]);
+        })
+        .then(function() {
+          renderWelcome();
+          renderConvList();
+          wireUI();
+        })
+        .catch(function(err) {
+          console.error('Boot failed', err);
+          showToast('Failed to load. Please refresh.', 'error');
         });
-    })
-    .then(function() {
-      db.ref('admin/invites-pending').orderByChild('email').equalTo(email.toLowerCase()).once('value')
-        .then(function(snap) { snap.forEach(function(child) { db.ref('admin/invites-pending/' + child.key).remove().catch(function() {}); }); })
-        .catch(function() {});
-      window.location.replace(PORTAL_URL);
-    })
-    .catch(function(err) {
-      setBtnLoading('setPwBtn', false, 'Set password & sign in');
-      if (err.code === 'auth/email-already-in-use') { showMsg('setpwMsg', 'An account with this email already exists. Please sign in instead.', 'info'); return; }
-      var msg = err.message || 'Could not complete sign-in.';
-      if (err.code === 'auth/weak-password')    msg = 'Password is too weak.';
-      if (err.code === 'auth/invalid-email')     msg = 'Invalid email address.';
-      if (err.code === 'auth/too-many-requests') msg = 'Too many attempts. Please wait and try again.';
-      showMsg('setpwMsg', msg, 'error');
-    });
-}
+    };
 
-function goReqStep2() {
-  var name     = document.getElementById('reqName').value.trim();
-  var email    = document.getElementById('reqEmail').value.trim();
-  var pass     = document.getElementById('reqPassword').value;
-  var club     = document.getElementById('reqClub').value.trim();
-  var jobTitle = document.getElementById('reqClubRole').value.trim();
-  if (!name || !email || !jobTitle) { showMsg('reqMsg1', 'Please fill in all fields.', 'error'); return; }
-  if (!club) { showMsg('reqMsg1', 'Please select your club from the dropdown.', 'error'); return; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showMsg('reqMsg1', 'Please enter a valid email address.', 'error'); return; }
-  if (pass.length < 8) { showMsg('reqMsg1', 'Password must be at least 8 characters.', 'error'); return; }
-  document.getElementById('reqStep1').style.display = 'none';
-  document.getElementById('reqStep2').style.display = 'block';
-}
+    // =========================================================================
+    // DATA LOADING
+    // =========================================================================
+    function loadClubs() {
+      return fetch(CLUBS_META_URL)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          STATE.clubs = (data && data.clubs) ? data.clubs : [];
+        })
+        .catch(function() { STATE.clubs = []; });
+    }
 
-function goReqStep1() {
-  document.getElementById('reqStep2').style.display = 'none';
-  document.getElementById('reqStep1').style.display = 'block';
-}
+    function loadHistoricalContext() {
+      // Fetches clubs-meta, season-notes, and league-tables from the 'site' repo.
+      // Never rejects — if any fail, STATE.historicalContext stays null/partial and
+      // the system prompt simply omits that section. Claudio still works fine.
+      //
+      // Browsers cache the raw.githubusercontent response aggressively thanks to
+      // GitHub's CDN headers, so repeat loads in the same day are essentially free.
+      //
+      // league-tables.json is LARGE (every team every season since 1979-80). We
+      // trim it client-side to champions/promoted/relegated/drama only — keeps
+      // the system prompt payload ~10% of the raw file size while preserving
+      // the most useful info for Claudio to answer "who won season X" questions.
+      var fetchJson = function(url) {
+        return fetch(url)
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .catch(function() { return null; });
+      };
+      return Promise.all([
+        fetchJson(SITE_CLUBS_META_URL),
+        fetchJson(SITE_SEASON_NOTES_URL),
+        fetchJson(SITE_LEAGUE_TABLES_URL)
+      ])
+        .then(function(arr) {
+          var clubsMeta     = arr[0];
+          var seasonNotes   = arr[1];
+          var leagueTables  = arr[2] ? trimLeagueTables(arr[2]) : null;
+          if (clubsMeta || seasonNotes || leagueTables) {
+            STATE.historicalContext = {
+              clubsMeta:    clubsMeta,
+              seasonNotes:  seasonNotes,
+              leagueTables: leagueTables
+            };
+          }
+        })
+        .catch(function() { /* swallow — not fatal */ });
+    }
 
-function doSubmitRequest() {
-  var name     = document.getElementById('reqName').value.trim();
-  var email    = document.getElementById('reqEmail').value.trim();
-  var pass     = document.getElementById('reqPassword').value;
-  var club     = document.getElementById('reqClub').value.trim();
-  var jobTitle = document.getElementById('reqClubRole').value.trim();
-  var selectedTools = {};
-  document.querySelectorAll('#reqToolContainer input[name="reqTool"]:checked').forEach(function(cb) { selectedTools[cb.value] = 'access'; });
-  setBtnLoading('reqSubmitBtn', true);
-  showMsg('reqMsg2', 'Creating your account...', 'info');
-  auth.createUserWithEmailAndPassword(email, pass)
-    .then(function(credential) {
-      var uid = credential.user.uid;
-      var now = Date.now();
-      var updates = {};
-      updates['users/' + uid + '/name']     = name;
-      updates['users/' + uid + '/email']    = email;
-      updates['users/' + uid + '/role']     = 'club';
-      updates['users/' + uid + '/org']      = '';
-      updates['users/' + uid + '/orgKey']   = 'club';
-      updates['users/' + uid + '/club']     = club;
-      updates['users/' + uid + '/jobTitle'] = jobTitle;
-      updates['users/' + uid + '/pending']  = true;
-      updates['users/' + uid + '/tools']    = selectedTools;
-      var reqKey = db.ref('admin/requests').push().key;
-      updates['admin/requests/' + reqKey + '/uid']       = uid;
-      updates['admin/requests/' + reqKey + '/name']      = name;
-      updates['admin/requests/' + reqKey + '/email']     = email;
-      updates['admin/requests/' + reqKey + '/club']      = club;
-      updates['admin/requests/' + reqKey + '/jobTitle']  = jobTitle;
-      updates['admin/requests/' + reqKey + '/tools']     = selectedTools;
-      updates['admin/requests/' + reqKey + '/role']      = 'club';
-      updates['admin/requests/' + reqKey + '/status']    = 'pending';
-      updates['admin/requests/' + reqKey + '/createdAt'] = now;
-      return db.ref().update(updates).then(function() { return uid; });
-    })
-    .then(function(uid) {
-      var portalUrl = window.location.origin + '/tools/portal/';
-      fetch(NL_GAS_URL + '?cb=' + Date.now(), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'notifyAdmin', name: name, email: email, club: club, jobTitle: jobTitle, tools: selectedTools, portalUrl: portalUrl }) }).catch(function() {});
-      fetch(NL_GAS_URL + '?cb=' + Date.now(), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'confirmRequest', name: name, email: email, club: club }) }).catch(function() {});
-      showPanel('panelPending');
-      startPendingListener(uid);
-    })
-    .catch(function(err) {
-      setBtnLoading('reqSubmitBtn', false, 'Submit request');
-      if (err.code === 'auth/email-already-in-use') { goReqStep1(); showMsg('reqMsg1', 'An account already exists with this email. Please sign in instead.', 'info'); return; }
-      var msg = 'Could not submit request. Please try again.';
-      if (err.code === 'auth/weak-password')    msg = 'Password is too weak.';
-      if (err.code === 'auth/invalid-email')     msg = 'Invalid email address.';
-      if (err.code === 'auth/too-many-requests') msg = 'Too many attempts. Please wait and try again.';
-      showMsg('reqMsg2', msg, 'error');
-    });
-}
-
-function doWithdraw() {
-  var btn = document.getElementById('withdrawBtn');
-  if (btn.dataset.confirmed !== '1') {
-    btn.dataset.confirmed = '1';
-    btn.textContent = 'Confirm withdrawal?';
-    btn.style.cssText = 'background:var(--red);color:#fff;border:none;';
-    setTimeout(function() {
-      if (btn.dataset.confirmed === '1') { btn.dataset.confirmed = '0'; btn.textContent = 'Withdraw request'; btn.style.cssText = ''; }
-    }, 3000);
-    return;
-  }
-  btn.disabled = true; btn.textContent = 'Withdrawing...';
-  var user = auth.currentUser;
-  if (!user) { doSignOut(); return; }
-  var uid = user.uid;
-  if (window._pendingListener) { window._pendingListener(); window._pendingListener = null; }
-  db.ref('users/' + uid).remove()
-    .then(function() { return user.delete(); })
-    .then(function() { showPanel('panelSignIn'); })
-    .catch(function(err) {
-      btn.disabled = false; btn.textContent = 'Withdraw request'; btn.dataset.confirmed = '0';
-      if (err.code === 'auth/requires-recent-login') doSignOut();
-    });
-}
-
-var reqClubsData = [];
-var reqClubPickerInited = false;
-
-function loadReqClubs() {
-  if (reqClubsData.length) return Promise.resolve();
-  return fetch(CLUBS_META_URL + '?cb=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(data) { reqClubsData = data.clubs || []; })
-    .catch(function() { reqClubsData = []; });
-}
-
-function initReqClubPicker() {
-  if (reqClubPickerInited) return;
-  reqClubPickerInited = true;
-  var input = document.getElementById('reqClubInput');
-  var dd    = document.getElementById('reqClubDropdown');
-  input.addEventListener('input', function() {
-    document.getElementById('reqClub').value = '';
-    setReqCrest('');
-    var val = input.value.trim();
-    if (!val) { dd.classList.remove('open'); return; }
-    loadReqClubs().then(function() { renderReqClubList(val); });
-  });
-  input.addEventListener('focus', function() { if (input.value.trim() && reqClubsData.length) renderReqClubList(input.value); });
-  document.addEventListener('click', function(e) {
-    var picker = document.querySelector('#panelRequest .club-picker');
-    if (picker && !picker.contains(e.target)) dd.classList.remove('open');
-  });
-}
-
-function renderReqClubList(filter) {
-  var dd = document.getElementById('reqClubDropdown');
-  var q  = filter.toLowerCase().trim();
-  var matches = reqClubsData.filter(function(c) {
-    return c.name.toLowerCase().indexOf(q) !== -1 || (c.short && c.short.toLowerCase().indexOf(q) !== -1);
-  }).slice(0, 12);
-  dd.innerHTML = '';
-  if (!matches.length) {
-    var empty = document.createElement('div');
-    empty.style.cssText = 'padding:10px 14px;font-size:13px;color:#aab4c4;';
-    empty.textContent = 'No clubs found';
-    dd.appendChild(empty); dd.classList.add('open'); return;
-  }
-  matches.forEach(function(c) {
-    var item = document.createElement('div'); item.className = 'club-picker__option';
-    var img = document.createElement('img');
-    img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
-    img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-    var nameSpan = document.createElement('span'); nameSpan.className = 'club-picker__option-name'; nameSpan.textContent = c.name;
-    var divSpan  = document.createElement('span'); divSpan.className  = 'club-picker__option-div';  divSpan.textContent  = c.division || '';
-    item.appendChild(img); item.appendChild(nameSpan); item.appendChild(divSpan);
-    item.addEventListener('mousedown', function(e) { e.preventDefault(); selectReqClub(c.name); });
-    dd.appendChild(item);
-  });
-  dd.classList.add('open');
-}
-
-function selectReqClub(name) {
-  document.getElementById('reqClubInput').value = name;
-  document.getElementById('reqClub').value      = name;
-  setReqCrest(CREST_BASE + encodeURIComponent(name) + '.png');
-  document.getElementById('reqClubDropdown').classList.remove('open');
-}
-
-function setReqCrest(url) {
-  var img = document.getElementById('reqClubCrest');
-  img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-  img.src = url || FALLBACK_CREST;
-}
-
-var reqToolsLoaded = false;
-function loadReqTools() {
-  if (reqToolsLoaded) return;
-  db.ref('tools').once('value').then(function(snap) {
-    reqToolsLoaded = true;
-    var container = document.getElementById('reqToolContainer');
-    if (!snap.exists()) { container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px 0;">No tools available.</p>'; return; }
-    var tools = snap.val();
-    var groups = {};
-    Object.keys(tools).forEach(function(key) {
-      var t = tools[key];
-      if (t.placeholder) return;
-      if (t.department === 'staff') return;
-      var clubDefault = t.defaults && t.defaults['club'];
-      if (!clubDefault || clubDefault === 'hidden') return;
-      var dept = t.department || 'General';
-      if (!groups[dept]) groups[dept] = [];
-      groups[dept].push({ key: key, label: t.label || key, description: t.description || '', icon: t.icon || '' });
-    });
-    var depts = Object.keys(groups).sort();
-    if (!depts.length) { container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px 0;">No tools available for club sign-up.</p>'; return; }
-    var html = '';
-    depts.forEach(function(dept) {
-      var deptId = dept.replace(/[^a-z0-9]/gi, '_');
-      html += '<div class="tool-group"><div class="tool-group__header">';
-      html += '<span class="tool-group__label">' + NL.escHtml(dept) + '</span>';
-      html += '<button type="button" class="tool-group__select-all" data-dept="' + NL.escHtml(deptId) + '">Select all</button>';
-      html += '</div><div class="tool-checkboxes" id="reqDept_' + NL.escHtml(deptId) + '">';
-      groups[dept].forEach(function(t) {
-        html += '<label class="tool-checkbox"><input type="checkbox" name="reqTool" value="' + NL.escHtml(t.key) + '">';
-        html += '<span class="tool-checkbox__text"><span class="tool-checkbox__name">' + NL.escHtml((t.icon ? t.icon + '  ' : '') + t.label) + '</span>';
-        if (t.description) html += '<span class="tool-checkbox__desc">' + NL.escHtml(t.description) + '</span>';
-        html += '</span></label>';
+    // Reduces the league-tables file from full standings to a compact
+    // season-by-season summary. For each division in each season we keep:
+    //   - champion (top row with 'champion' class)
+    //   - promotedViaPlayoff (rows with 'promoted' class but NOT champion)
+    //   - playoffFinalists (rows with 'playoff' class — lost in final)
+    //   - relegated (rows with 'relegated' class)
+    //   - folded / expelled (rows with those classes)
+    //   - note (the per-division drama note, if any)
+    // Everything else (mid-table teams, detailed stats) is dropped.
+    function trimLeagueTables(full) {
+      if (!full || !full.seasons) return null;
+      var out = { seasons: [] };
+      full.seasons.forEach(function(s) {
+        if (!s || !s.divisions) return;
+        var divs = {};
+        Object.keys(s.divisions).forEach(function(divKey) {
+          var div = s.divisions[divKey];
+          if (!div) return;
+          var rows = Array.isArray(div.rows) ? div.rows : [];
+          var summary = {
+            title: div.title || divKey
+          };
+          if (div.note) summary.note = div.note;
+          rows.forEach(function(r) {
+            if (!r) return;
+            var cls = Array.isArray(r.classes) ? r.classes : [];
+            var team = r.team || r.entity;
+            if (cls.indexOf('champion') !== -1) {
+              summary.champion = { team: team, entity: r.entity, pts: r.Pts };
+            }
+            if (cls.indexOf('promoted') !== -1 && cls.indexOf('champion') === -1) {
+              summary.promotedViaPlayoff = { team: team, entity: r.entity, pos: r.pos };
+            }
+            if (cls.indexOf('playoff') !== -1) {
+              if (!summary.playoffTeams) summary.playoffTeams = [];
+              summary.playoffTeams.push({ team: team, entity: r.entity, pos: r.pos });
+            }
+            if (cls.indexOf('relegated') !== -1) {
+              if (!summary.relegated) summary.relegated = [];
+              summary.relegated.push({ team: team, entity: r.entity, pos: r.pos });
+            }
+            if (cls.indexOf('folded') !== -1) {
+              if (!summary.folded) summary.folded = [];
+              summary.folded.push({ team: team, entity: r.entity });
+            }
+            if (cls.indexOf('expelled') !== -1) {
+              if (!summary.expelled) summary.expelled = [];
+              summary.expelled.push({ team: team, entity: r.entity });
+            }
+          });
+          divs[divKey] = summary;
+        });
+        out.seasons.push({ season: s.season, divisions: divs });
       });
-      html += '</div></div>';
-    });
-    container.innerHTML = html;
-    container.querySelectorAll('.tool-group__select-all').forEach(function(btn) {
-      btn.addEventListener('click', function() { reqSelectAll(btn.dataset.dept); });
-    });
-  }).catch(function() {
-    document.getElementById('reqToolContainer').innerHTML = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px 0;">Could not load tools. You can still submit your request.</p>';
-  });
-}
+      return out;
+    }
 
-function reqSelectAll(deptId) {
-  var c = document.getElementById('reqDept_' + deptId);
-  if (!c) return;
-  var boxes = c.querySelectorAll('input[type="checkbox"]');
-  var all = Array.prototype.every.call(boxes, function(b) { return b.checked; });
-  boxes.forEach(function(b) { b.checked = !all; });
-}
-</script>
+    function loadStaff() {
+      // Staff directory — names, roles, orgs, job titles, line-manager links.
+      // Public within NL staff context. We need uid + lineManagerUid + approverUid
+      // so we can resolve manager names for "who's my line manager?" questions.
+      // Email included so Claudio can recognise staff when user types an email.
+      return ensureAuth().then(function() {
+        return STATE.db.ref('users').once('value');
+      }).then(function(snap) {
+        var users = snap.val() || {};
+        var arr = [];
+        Object.keys(users).forEach(function(uid) {
+          var u = users[uid] || {};
+          // Only include NL staff (not club users) — that's who Claudio talks about
+          if (u.role === 'club') return;
+          arr.push({
+            uid:             uid,
+            name:            u.name || '',
+            email:           u.email || '',
+            role:            u.role || '',
+            org:             u.org || '',
+            jobTitle:        u.jobTitle || '',
+            lineManagerUid:  u.lineManagerUid || '',
+            approverUid:     u.approverUid || ''
+          });
+        });
+        STATE.staff = arr;
+      }).catch(function() { STATE.staff = []; });
+    }
+
+    // Given a UID, find the matching staff member's name. Returns '' if not found.
+    // Used when resolving lineManagerUid / approverUid into human-readable names.
+    function resolveStaffName(uid) {
+      if (!uid) return '';
+      for (var i = 0; i < STATE.staff.length; i++) {
+        if (STATE.staff[i].uid === uid) return STATE.staff[i].name;
+      }
+      return '';
+    }
+
+    function loadConversations() {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid).once('value');
+      }).then(function(snap) {
+        var obj = snap.val() || {};
+        var arr = [];
+        Object.keys(obj).forEach(function(cid) {
+          var c = obj[cid];
+          if (!c) return;
+          arr.push({
+            id:       cid,
+            title:    c.title || 'Untitled chat',
+            updated:  c.updated || 0,
+            created:  c.created || 0
+          });
+        });
+        arr.sort(function(a, b) { return (b.updated || 0) - (a.updated || 0); });
+        STATE.convs = arr;
+      }).catch(function(err) {
+        console.error('loadConversations failed', err);
+        STATE.convs = [];
+      });
+    }
+
+    function loadDailyUsage() {
+      var today = todayKey();
+      return ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/usage/' + STATE.session.uid + '/' + today).once('value');
+      }).then(function(snap) {
+        var u = snap.val() || {};
+        STATE.dailyCount     = u.count || 0;
+        STATE.costTodayPence = u.cost_pence || 0;
+        updateMetaUI();
+      }).catch(function() { /* ignore — will show 0 */ });
+    }
+
+    // =========================================================================
+    // ensureAuth() — see nl-tools skill
+    // =========================================================================
+    function ensureAuth() {
+      return new Promise(function(resolve, reject) {
+        var unsub = firebase.auth().onAuthStateChanged(function(u) {
+          unsub();
+          if (u) resolve(u);
+          else   reject(new Error('Not authenticated — please reload and try again.'));
+        });
+      });
+    }
+
+    // =========================================================================
+    // UI — welcome screen
+    // =========================================================================
+    function renderWelcome() {
+      var el = document.getElementById('chatInner');
+      clearChildren(el);
+
+      var w = document.createElement('div');
+      w.className = 'welcome';
+
+      var avatar = document.createElement('div');
+      avatar.className = 'welcome__avatar';
+      avatar.textContent = 'C';
+      w.appendChild(avatar);
+
+      var title = document.createElement('div');
+      title.className = 'welcome__title';
+      title.textContent = 'Hello ' + firstName(STATE.session.name) + '. I\'m Claudio.';
+      w.appendChild(title);
+
+      var sub = document.createElement('div');
+      sub.className = 'welcome__sub';
+      sub.textContent = 'Your NL assistant. I know the staff, the 72 clubs, and how things work here. Ask me anything — or start with one of these.';
+      w.appendChild(sub);
+
+      var prompts = document.createElement('div');
+      prompts.className = 'welcome__prompts';
+
+      var suggestions = [
+        { label: 'Draft an email',    text: 'Help me draft an email to ' },
+        { label: 'Who handles...',    text: 'Who at NL handles ' },
+        { label: 'Summarise text',    text: 'Summarise this for me:\n\n' },
+        { label: 'Clubs in a league', text: 'Which clubs are in the National League North?' }
+      ];
+      suggestions.forEach(function(s) {
+        var b = document.createElement('button');
+        b.className = 'welcome__prompt';
+        b.type = 'button';
+        var strong = document.createElement('strong');
+        strong.textContent = s.label;
+        b.appendChild(strong);
+        b.appendChild(document.createTextNode(s.text));
+        b.addEventListener('click', function() {
+          document.getElementById('composerInput').value = s.text;
+          document.getElementById('composerInput').focus();
+          // Move cursor to end
+          var inp = document.getElementById('composerInput');
+          inp.selectionStart = inp.selectionEnd = inp.value.length;
+        });
+        prompts.appendChild(b);
+      });
+      w.appendChild(prompts);
+
+      el.appendChild(w);
+    }
+
+    // =========================================================================
+    // UI — conversation list (sidebar)
+    // =========================================================================
+    function renderConvList() {
+      var list = document.getElementById('convList');
+      clearChildren(list);
+
+      if (!STATE.convs.length) {
+        var empty = document.createElement('div');
+        empty.className = 'sidebar__empty';
+        empty.textContent = 'No conversations yet. Start one below.';
+        list.appendChild(empty);
+        return;
+      }
+
+      STATE.convs.forEach(function(c) {
+        var item = document.createElement('div');
+        item.className = 'conv-item' + (c.id === STATE.activeId ? ' active' : '');
+
+        var title = document.createElement('div');
+        title.className = 'conv-item__title';
+        title.textContent = c.title;
+
+        var time = document.createElement('div');
+        time.className = 'conv-item__time';
+        time.textContent = relTime(c.updated || c.created);
+
+        var del = document.createElement('button');
+        del.className = 'conv-item__del';
+        del.type = 'button';
+        del.textContent = '×';
+        del.title = 'Delete conversation';
+        del.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (confirm('Delete this conversation? This can\'t be undone.')) {
+            deleteConversation(c.id);
+          }
+        });
+
+        item.appendChild(title);
+        item.appendChild(time);
+        item.appendChild(del);
+        item.addEventListener('click', function() { openConversation(c.id); });
+
+        list.appendChild(item);
+      });
+    }
+
+    // =========================================================================
+    // UI — chat messages
+    // =========================================================================
+    function renderMessages() {
+      var el = document.getElementById('chatInner');
+      clearChildren(el);
+
+      if (!STATE.messages.length) {
+        renderWelcome();
+        return;
+      }
+
+      STATE.messages.forEach(function(m) {
+        el.appendChild(buildMsgEl(m));
+      });
+      scrollToBottom();
+    }
+
+    // Render Claudio's text, splitting out code blocks as distinct
+    // "draft" blocks that use the NL-standard carbona font rather than the
+    // Italian serif of his chat voice. This keeps his chatter expressive
+    // but ensures anything he generates for onward delivery (emails,
+    // letters, comms) lands in a clean NL voice the user can copy-paste.
+    //
+    // Parser handles:
+    //   - fenced code blocks (```...```), with or without a language tag
+    //   - simple **bold** and *italic* / _italic_ in the chat portions
+    //   - everything else passes through as plain text (white-space: pre-wrap)
+    //
+    // Drafts get a "DRAFT" label and a copy-to-clipboard button. Copy button
+    // writes the exact draft body (no label, no preamble) to the clipboard.
+    function renderClaudioText(container, content) {
+      clearChildren(container);
+      var src = String(content || '');
+
+      // v2.4: two-pass rendering.
+      //   Pass 1: split on fenced code blocks (``` ... ```) — these are
+      //           draft-voice blocks rendered via buildDraftBlock.
+      //   Pass 2: each non-code chunk is further split on markdown tables,
+      //           which render as proper <table> elements.
+      //   Pass 3: everything else runs through renderInlineFormatting for
+      //           **bold**, *italic*, and [links](url).
+      var parts = src.split(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/);
+      for (var i = 0; i < parts.length; i++) {
+        if (i % 3 === 0) {
+          // Text chunk — may contain markdown tables
+          var chunk = parts[i];
+          if (!chunk) continue;
+          renderTextWithTables(container, chunk);
+        } else if (i % 3 === 2) {
+          // Code chunk (i%3===1 is the lang tag, ignored here but available)
+          var code = parts[i];
+          if (code == null) continue;
+          container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
+        }
+      }
+      // Edge case: no code block at all — the split produced a single element
+      if (parts.length === 1 && !container.childNodes.length) {
+        renderTextWithTables(container, src);
+      }
+    }
+
+    // Splits a text chunk on markdown tables. A table is a block of
+    // consecutive lines each starting/ending with '|', with a separator row
+    // like | --- | --- |. Between tables, text runs through inline formatting.
+    function renderTextWithTables(container, text) {
+      var lines = text.split('\n');
+      var i = 0;
+      var buffer = [];
+
+      function flushBuffer() {
+        if (!buffer.length) return;
+        var joined = buffer.join('\n');
+        if (joined.length) {
+          var span = document.createElement('span');
+          renderInlineFormatting(span, joined);
+          container.appendChild(span);
+        }
+        buffer = [];
+      }
+
+      while (i < lines.length) {
+        // Look ahead: is there a table starting at line i?
+        // A table needs: line i looks like '|...|', line i+1 is a separator.
+        var isTableStart = false;
+        if (i + 1 < lines.length) {
+          var l0 = lines[i].trim();
+          var l1 = lines[i + 1].trim();
+          if (/^\|.*\|$/.test(l0) && /^\|[\s\-:|]+\|$/.test(l1) && l1.indexOf('-') !== -1) {
+            isTableStart = true;
+          }
+        }
+
+        if (isTableStart) {
+          flushBuffer();
+          // Collect consecutive table rows
+          var tableLines = [lines[i], lines[i + 1]];
+          var j = i + 2;
+          while (j < lines.length && /^\|.*\|$/.test(lines[j].trim())) {
+            tableLines.push(lines[j]);
+            j++;
+          }
+          container.appendChild(buildMarkdownTable(tableLines));
+          i = j;
+          // Keep a single newline after the table so flow continues naturally
+          if (i < lines.length) buffer.push('');
+        } else {
+          buffer.push(lines[i]);
+          i++;
+        }
+      }
+      flushBuffer();
+    }
+
+    // Parse a block of markdown table lines into a real <table>.
+    // Format expected:
+    //   | Header 1 | Header 2 |
+    //   | --- | --- |
+    //   | Cell   | Cell    |
+    function buildMarkdownTable(lines) {
+      var table = document.createElement('table');
+      table.className = 'claudio-table';
+
+      function splitRow(line) {
+        var trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+        return trimmed.split('|').map(function(c) { return c.trim(); });
+      }
+
+      if (lines.length === 0) return table;
+      var headerCells = splitRow(lines[0]);
+      var thead = document.createElement('thead');
+      var trh = document.createElement('tr');
+      headerCells.forEach(function(c) {
+        var th = document.createElement('th');
+        renderInlineFormatting(th, c);
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
+      // skip line[1] — separator
+      var tbody = document.createElement('tbody');
+      for (var r = 2; r < lines.length; r++) {
+        var cells = splitRow(lines[r]);
+        var tr = document.createElement('tr');
+        cells.forEach(function(c) {
+          var td = document.createElement('td');
+          renderInlineFormatting(td, c);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      return table;
+    }
+
+    // Very light inline formatting: **bold**, *italic*/_italic_, and [text](url) links.
+    // Everything else is plain text. Links take precedence over italic so that
+    // bracketed URLs don't get misinterpreted.
+    function renderInlineFormatting(container, text) {
+      // Split on bold, then links, then italic, creating a flat sequence of nodes.
+      // Use textContent throughout so we never inject raw HTML.
+      var tokens = [{ t: 'text', v: text }];
+      // Bold pass
+      tokens = expandTokens(tokens, /\*\*([^*]+)\*\*/g, 'strong');
+      // Link pass — [display text](https://url)
+      tokens = expandLinks(tokens);
+      // Italic pass — avoid matching the ** already consumed by using \*(?!\*)
+      tokens = expandTokens(tokens, /(?:^|[^*])\*([^*\n]+)\*(?!\*)/g, 'em-guarded');
+      // Underscore italic pass — _foo_ but not inside words
+      tokens = expandTokens(tokens, /(^|\s)_([^_\n]+)_(?=\s|[.,;:!?)\]]|$)/g, 'em-under');
+
+      for (var i = 0; i < tokens.length; i++) {
+        var tk = tokens[i];
+        if (tk.t === 'text') {
+          container.appendChild(document.createTextNode(tk.v));
+        } else if (tk.t === 'strong') {
+          var s = document.createElement('strong');
+          s.textContent = tk.v;
+          container.appendChild(s);
+        } else if (tk.t === 'em') {
+          var e = document.createElement('em');
+          e.textContent = tk.v;
+          container.appendChild(e);
+        } else if (tk.t === 'link') {
+          var a = document.createElement('a');
+          a.textContent = tk.v;
+          a.href = tk.href;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.className = 'claudio-link';
+          container.appendChild(a);
+        }
+      }
+    }
+
+    // Parse markdown-style [text](url) links. Only accepts absolute URLs
+    // (http:, https:, mailto:) to avoid accidental false matches.
+    function expandLinks(tokens) {
+      var regex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g;
+      var out = [];
+      for (var i = 0; i < tokens.length; i++) {
+        var tk = tokens[i];
+        if (tk.t !== 'text') { out.push(tk); continue; }
+        var str = tk.v;
+        var last = 0;
+        var m;
+        regex.lastIndex = 0;
+        while ((m = regex.exec(str)) !== null) {
+          if (m.index > last) out.push({ t: 'text', v: str.slice(last, m.index) });
+          out.push({ t: 'link', v: m[1], href: m[2] });
+          last = regex.lastIndex;
+          if (regex.lastIndex === m.index) regex.lastIndex++;
+        }
+        if (last < str.length) out.push({ t: 'text', v: str.slice(last) });
+      }
+      return out;
+    }
+
+    // Run a regex over the token list, splitting text tokens where it matches
+    // and inserting a new token of the given type for the capture group.
+    function expandTokens(tokens, regex, kind) {
+      var out = [];
+      for (var i = 0; i < tokens.length; i++) {
+        var tk = tokens[i];
+        if (tk.t !== 'text') { out.push(tk); continue; }
+        var str = tk.v;
+        var last = 0;
+        var m;
+        regex.lastIndex = 0;
+        while ((m = regex.exec(str)) !== null) {
+          if (kind === 'em-guarded') {
+            // The italic regex includes the char before * in the match
+            // to avoid matching **. That char is not part of the italic.
+            var prefixChar = m[0].charAt(0) === '*' ? '' : m[0].charAt(0);
+            var start = m.index + (prefixChar ? 1 : 0);
+            if (start > last) out.push({ t: 'text', v: str.slice(last, start) });
+            out.push({ t: 'em', v: m[1] });
+            last = regex.lastIndex;
+          } else if (kind === 'em-under') {
+            // Underscore regex includes leading whitespace in group 1, preserve it
+            var leader = m[1] || '';
+            var chunkStart = m.index + leader.length;
+            if (chunkStart > last) out.push({ t: 'text', v: str.slice(last, chunkStart) });
+            out.push({ t: 'em', v: m[2] });
+            last = regex.lastIndex;
+          } else {
+            // Plain — m[0] is the whole match, m[1] is the content
+            if (m.index > last) out.push({ t: 'text', v: str.slice(last, m.index) });
+            out.push({ t: kind, v: m[1] });
+            last = regex.lastIndex;
+          }
+          if (regex.lastIndex === m.index) regex.lastIndex++; // safety
+        }
+        if (last < str.length) out.push({ t: 'text', v: str.slice(last) });
+      }
+      return out;
+    }
+
+    // Build a styled "draft" block with label and copy button.
+    function buildDraftBlock(code) {
+      var block = document.createElement('div');
+      block.className = 'msg__draft';
+
+      var label = document.createElement('span');
+      label.className = 'msg__draft-label';
+      label.textContent = 'Draft';
+
+      var copy = document.createElement('button');
+      copy.className = 'msg__draft-copy';
+      copy.type = 'button';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', function() {
+        // Use the clipboard API where available, fall back to execCommand.
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function() {
+            copy.textContent = 'Copied';
+            setTimeout(function() { copy.textContent = 'Copy'; }, 1500);
+          }).catch(function() {
+            showToast('Could not copy to clipboard', 'error');
+          });
+        } else {
+          // Fallback: select + execCommand
+          var ta = document.createElement('textarea');
+          ta.value = code;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } catch(e) {}
+          document.body.removeChild(ta);
+          copy.textContent = 'Copied';
+          setTimeout(function() { copy.textContent = 'Copy'; }, 1500);
+        }
+      });
+
+      label.appendChild(copy);
+      block.appendChild(label);
+
+      var body = document.createElement('div');
+      body.textContent = code;
+      block.appendChild(body);
+
+      return block;
+    }
+
+    function buildMsgEl(m) {
+      var wrap = document.createElement('div');
+      wrap.className = 'msg ' + (m.role === 'user' ? 'msg--user' : 'msg--ai');
+
+      var avatar = document.createElement('div');
+      avatar.className = 'msg__avatar ' + (m.role === 'user' ? 'msg__avatar--user' : 'msg__avatar--ai');
+      avatar.textContent = m.role === 'user' ? (firstName(STATE.session.name).charAt(0).toUpperCase() || 'Y') : 'C';
+
+      var body = document.createElement('div');
+      body.className = 'msg__body';
+
+      var name = document.createElement('div');
+      name.className = 'msg__name';
+      name.textContent = m.role === 'user' ? 'You' : 'Claudio';
+
+      var text = document.createElement('div');
+      text.className = 'msg__text';
+      if (m.role === 'assistant') {
+        renderClaudioText(text, m.content || '');
+      } else {
+        text.textContent = m.content;
+      }
+
+      body.appendChild(name);
+      body.appendChild(text);
+
+      // Tool-call chips on assistant messages — show which tools were invoked
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length) {
+        var toolsRow = document.createElement('div');
+        toolsRow.className = 'msg__tools';
+        var toolLabel = document.createElement('span');
+        toolLabel.className = 'msg__tools-label';
+        toolLabel.textContent = '🔍 Looked up: ';
+        toolsRow.appendChild(toolLabel);
+        for (var t = 0; t < m.tool_calls.length; t++) {
+          var chip = document.createElement('span');
+          chip.className = 'msg__tool-chip';
+          chip.textContent = m.tool_calls[t].name;
+          toolsRow.appendChild(chip);
+        }
+        body.appendChild(toolsRow);
+      }
+
+      // Cost tag on assistant messages only
+      if (m.role === 'assistant' && m.cost_pence != null) {
+        var cost = document.createElement('div');
+        cost.className = 'msg__cost';
+
+        var costNum = document.createElement('span');
+        costNum.className = 'msg__cost-num';
+        costNum.textContent = formatPence(m.cost_pence);
+
+        var costLabel = document.createElement('span');
+        costLabel.textContent = '• ' + (m.tokens || 0) + ' tokens';
+
+        cost.appendChild(costNum);
+        cost.appendChild(costLabel);
+        body.appendChild(cost);
+
+        // Animated count-up on first render
+        animateCountUp(costNum, 0, m.cost_pence, 400);
+      }
+
+      wrap.appendChild(avatar);
+      wrap.appendChild(body);
+      return wrap;
+    }
+
+    function addTypingIndicator() {
+      var el = document.getElementById('chatInner');
+      var wrap = document.createElement('div');
+      wrap.className = 'typing';
+      wrap.id = 'typingIndicator';
+
+      var avatar = document.createElement('div');
+      avatar.className = 'msg__avatar msg__avatar--ai';
+      avatar.textContent = 'C';
+
+      var dots = document.createElement('div');
+      dots.className = 'typing__dots';
+      for (var i = 0; i < 3; i++) {
+        var d = document.createElement('div');
+        d.className = 'typing__dot';
+        dots.appendChild(d);
+      }
+
+      wrap.appendChild(avatar);
+      wrap.appendChild(dots);
+      el.appendChild(wrap);
+      scrollToBottom();
+    }
+
+    function removeTypingIndicator() {
+      var t = document.getElementById('typingIndicator');
+      if (t && t.parentNode) t.parentNode.removeChild(t);
+    }
+
+    function scrollToBottom() {
+      var scroll = document.getElementById('chatScroll');
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+
+    function updateMetaUI() {
+      document.getElementById('dailyCount').textContent = STATE.dailyCount;
+      document.getElementById('dailyLimit').textContent = STATE.dailyLimit;
+      document.getElementById('costToday').textContent  = formatPence(STATE.costTodayPence);
+    }
+
+    // =========================================================================
+    // CONVERSATIONS — open, new, delete
+    // =========================================================================
+    function openConversation(cid) {
+      STATE.activeId = cid;
+      renderConvList();
+
+      ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid + '/messages').once('value');
+      }).then(function(snap) {
+        var obj = snap.val() || {};
+        var arr = [];
+        Object.keys(obj).forEach(function(mid) {
+          var m = obj[mid];
+          if (!m) return;
+          // Mark existing messages so animations don't replay
+          m._loaded = true;
+          arr.push(m);
+        });
+        arr.sort(function(a, b) { return (a.ts || 0) - (b.ts || 0); });
+        STATE.messages = arr;
+        renderMessages();
+      }).catch(function(err) {
+        console.error('openConversation failed', err);
+        showToast('Couldn\'t open that chat.', 'error');
+      });
+    }
+
+    function startNewConversation() {
+      STATE.activeId = null;
+      STATE.messages = [];
+      renderConvList();
+      renderWelcome();
+      document.getElementById('composerInput').focus();
+    }
+
+    function deleteConversation(cid) {
+      ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid).remove();
+      }).then(function() {
+        STATE.convs = STATE.convs.filter(function(c) { return c.id !== cid; });
+        if (STATE.activeId === cid) {
+          STATE.activeId = null;
+          STATE.messages = [];
+          renderWelcome();
+        }
+        renderConvList();
+        showToast('Conversation deleted.', 'success');
+      }).catch(function(err) {
+        console.error('deleteConversation failed', err);
+        showToast('Couldn\'t delete that chat.', 'error');
+      });
+    }
+
+    // =========================================================================
+    // SEND — the core of the tool
+    // =========================================================================
+    function sendMessage() {
+      if (STATE.sending) return;
+
+      var input = document.getElementById('composerInput');
+      var text  = input.value.trim();
+      if (!text) return;
+
+      if (STATE.dailyCount >= STATE.dailyLimit) {
+        showToast('Daily limit reached. Resets at midnight.', 'error');
+        return;
+      }
+
+      STATE.sending = true;
+      setSendingUI(true);
+
+      // If this is a new conversation, create it first
+      var isNew = !STATE.activeId;
+      var convId = STATE.activeId || ('c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+
+      // Build the user message locally
+      var userMsg = {
+        role:    'user',
+        content: text,
+        ts:      Date.now()
+      };
+      STATE.messages.push(userMsg);
+      input.value = '';
+      autoResize(input);
+
+      // If opening welcome screen, switch to messages view
+      if (STATE.messages.length === 1) {
+        renderMessages();
+      } else {
+        document.getElementById('chatInner').appendChild(buildMsgEl(userMsg));
+      }
+      addTypingIndicator();
+
+      // Build the request to GAS
+      var systemPrompt = buildSystemPrompt();
+      var apiMessages = STATE.messages.slice(-HISTORY_WINDOW).map(function(m) {
+        return { role: m.role, content: m.content };
+      });
+
+      var reqBody = {
+        action: 'claudio',
+        uid: STATE.session.uid,
+        system: systemPrompt,
+        messages: apiMessages,
+        cacheSystem: true
+      };
+
+      // First call: create the conv record in RTDB (so it appears in sidebar immediately)
+      var createPromise = isNew
+        ? saveConversationRecord(convId, deriveTitle(text))
+        : Promise.resolve();
+
+      createPromise
+        .then(function() {
+          STATE.activeId = convId;
+          if (isNew) {
+            STATE.convs.unshift({
+              id: convId,
+              title: deriveTitle(text),
+              updated: Date.now(),
+              created: Date.now()
+            });
+            renderConvList();
+          }
+          // Save user message to RTDB
+          return saveMessageToRTDB(convId, userMsg);
+        })
+        .then(function() {
+          // Call GAS → Anthropic
+          return fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+            method:  'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body:    JSON.stringify(reqBody)
+          });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+          removeTypingIndicator();
+
+          if (!result.ok) {
+            // Remove the user message we optimistically pushed? No — keep it, user sent it.
+            // Just show the error.
+            showToast(result.error || 'Claudio couldn\'t respond.', 'error');
+            STATE.sending = false;
+            setSendingUI(false);
+            return;
+          }
+
+          var aiMsg = {
+            role:       'assistant',
+            content:    result.reply || '',
+            ts:         Date.now(),
+            cost_pence: result.cost_pence || 0,
+            tokens:     result.tokens
+              ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
+              : 0,
+            tool_calls: result.tool_calls || []
+          };
+          STATE.messages.push(aiMsg);
+          document.getElementById('chatInner').appendChild(buildMsgEl(aiMsg));
+          scrollToBottom();
+
+          // Update daily counters (from GAS response — source of truth)
+          if (typeof result.count === 'number')      STATE.dailyCount = result.count;
+          if (typeof result.cost_today === 'number') STATE.costTodayPence = result.cost_today;
+          updateMetaUI();
+
+          // Persist assistant message + bump conv updated timestamp
+          saveMessageToRTDB(convId, aiMsg);
+          bumpConversationTimestamp(convId);
+
+          STATE.sending = false;
+          setSendingUI(false);
+        })
+        .catch(function(err) {
+          removeTypingIndicator();
+          console.error('Send failed', err);
+          showToast('Network error. Try again.', 'error');
+          STATE.sending = false;
+          setSendingUI(false);
+        });
+    }
+
+    function setSendingUI(sending) {
+      document.getElementById('composerInput').disabled = sending;
+      document.getElementById('btnSend').disabled = sending;
+      document.getElementById('btnSend').textContent = sending ? '...' : 'Send';
+    }
+
+    // =========================================================================
+    // RTDB WRITES
+    // =========================================================================
+    function saveConversationRecord(cid, title) {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid).update({
+          title:   title,
+          created: firebase.database.ServerValue.TIMESTAMP,
+          updated: firebase.database.ServerValue.TIMESTAMP
+        });
+      });
+    }
+
+    function saveMessageToRTDB(cid, msg) {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid + '/messages').push({
+          role:       msg.role,
+          content:    msg.content,
+          ts:         msg.ts,
+          cost_pence: msg.cost_pence || 0,
+          tokens:     msg.tokens || 0,
+          tool_calls: msg.tool_calls || null
+        });
+      });
+    }
+
+    function bumpConversationTimestamp(cid) {
+      return ensureAuth().then(function() {
+        return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid + '/updated').set(firebase.database.ServerValue.TIMESTAMP);
+      });
+    }
+
+    // =========================================================================
+    // SYSTEM PROMPT — what Claudio "knows" about NL
+    // =========================================================================
+    function buildSystemPrompt() {
+      // v2.4: staff directory no longer inlined — the getStaff tool handles
+      // lookups on demand. Previous versions dumped all 80 staff + their
+      // line-manager relationships which ate ~2k tokens on every message,
+      // even for simple unrelated questions.
+      //
+      // We DO still inline the current user's own line-manager/approver info
+      // below, because that's universally relevant ("who's my line manager?")
+      // and it's tiny (a handful of tokens).
+
+      // Compact clubs list — single line per division instead of per-club.
+      var clubsByDiv = {};
+      STATE.clubs.forEach(function(c) {
+        var d = c.division || 'Unknown';
+        if (!clubsByDiv[d]) clubsByDiv[d] = [];
+        clubsByDiv[d].push(c.name);
+      });
+      var clubsList = Object.keys(clubsByDiv).map(function(div) {
+        return div + ': ' + clubsByDiv[div].join(', ');
+      }).join('\n');
+
+      // Build a richer current-user block. We pull from STATE.session for the
+      // basics, but also look up the session uid in STATE.staff to get the
+      // lineManagerUid/approverUid we need to resolve names. This is why
+      // loadStaff now includes uid — without it, we couldn't link "me" to
+      // my line manager.
+      var me = STATE.staff.filter(function(s) { return s.uid === STATE.session.uid; })[0];
+      var currentUserLines = ['The person you are talking to right now:'];
+      currentUserLines.push('- Name: ' + (STATE.session.name || '(unknown)'));
+      if (STATE.session.email)    currentUserLines.push('- Email: ' + STATE.session.email);
+      if (STATE.session.jobTitle) currentUserLines.push('- Job title: ' + STATE.session.jobTitle);
+      if (STATE.session.org)      currentUserLines.push('- Organisation: ' + STATE.session.org);
+      if (STATE.session.role)     currentUserLines.push('- Access level: ' + STATE.session.role);
+      if (me) {
+        var myLm = resolveStaffName(me.lineManagerUid);
+        var myAp = resolveStaffName(me.approverUid);
+        if (myLm) currentUserLines.push('- Line manager: ' + myLm);
+        if (myAp && myAp !== myLm) currentUserLines.push('- Approver (for leave/expenses): ' + myAp);
+      }
+      currentUserLines.push('When the user says "me", "my", "I", refer to the person above. For questions like "who\'s my line manager?", use the line manager name above.');
+
+      // Today's date — so Claudio can resolve "this season", "last season",
+      // "next week" etc correctly. British format per NL convention.
+      var today = new Date();
+      var dd = String(today.getDate()).padStart(2, '0');
+      var mm = String(today.getMonth() + 1).padStart(2, '0');
+      var yyyy = today.getFullYear();
+      var todayStr = dd + '/' + mm + '/' + yyyy;
+      // Derive "current season" — football seasons run Aug to May, so before August
+      // we're in the season that started the previous calendar year.
+      var currentSeasonStart = (today.getMonth() >= 7) ? yyyy : yyyy - 1;
+      var currentSeasonStr = currentSeasonStart + '-' + String((currentSeasonStart + 1) % 100).padStart(2, '0');
+      var lastSeasonStart = currentSeasonStart - 1;
+      var lastSeasonStr = lastSeasonStart + '-' + String((lastSeasonStart + 1) % 100).padStart(2, '0');
+
+      // v2.4: historical context block removed entirely. All historical
+      // queries now route through tools:
+      //   - "who won in X season" → getLeagueTable
+      //   - "tell me about X club" → getClubSummary, getClubRecords
+      //   - "X vs Y all-time" → getHeadToHead
+      //   - "X's longest winning run" → getClubStreak
+      //   - per-season points deductions / expulsions / format changes: getLeagueTable
+      //     surfaces the relevant team classes; specific narrative is via fetchNLSite
+      // This removes ~800 tokens of champions-by-season from every request.
+      var historicalBlock = '';
+
+      return [
+        'You are Claudio, the internal AI assistant for The National League — the fifth tier of English football.',
+        'You help National League staff with day-to-day work: drafting emails and comms, answering questions about the organisation, summarising text, brainstorming, and general assistance.',
+        '',
+        '## Today\'s date',
+        'Today is ' + todayStr + '.',
+        'Current season: ' + currentSeasonStr + ' (in progress).',
+        'Last completed season: ' + lastSeasonStr + '.',
+        'When the user says "last season", "this season", "next season" etc, resolve them against the above.',
+        '',
+        '## Who you\'re talking to',
+        currentUserLines.join('\n'),
+        '',
+        '## About The National League',
+        'The National League is the organising body for English football\'s fifth tier, running three divisions:',
+        '- National League (tier 5)',
+        '- National League North (tier 6)',
+        '- National League South (tier 6)',
+        'There are 72 clubs across the three divisions. NL also runs NL Trust (charity arm) and U19 Alliance (youth competition).',
+        '',
+        '## The 72 current clubs (this season)',
+        clubsList || '(clubs data not loaded)',
+        '',
+        historicalBlock,
+        '## Your tools',
+        'You have 12 tools available. Use them when the user\'s question needs them. Scan this list before answering any question that might need data.',
+        '',
+        '### Current 2025-26 season (live NLS feed)',
+        '- `getStandings({division})` — current league table',
+        '- `getFixtures({division, days?})` — upcoming fixtures',
+        '- `getRecentResults({division, days?})` — recent results',
+        '- `getMatchDetail({matchId})` — goalscorers, cards, attendance for a specific match',
+        '- `getTeamForm({team, matches?})` — last N matches for a team',
+        '',
+        '### Historical data (1979-80 to most recent completed season)',
+        '- `getClubSummary({club, scope?, lineage?})` — a club\'s overall record: seasons, division breakdown, W/D/L/GF/GA/GD/win-rate. Use for "tell me about X", "how have they done overall".',
+        '- `getHeadToHead({clubA, clubB, scope?, lineageA?, lineageB?})` — two-club all-time record with last-5 meetings, biggest wins each way, venue breakdown, division breakdown. BOTH clubs can have lineage (e.g. modern Chester + Chester City; modern Hereford + Hereford United).',
+        '- `getLeagueTable({season, division, asOf?})` — historical league table for any season. Optional asOf date gives you the table as of that day ("Boxing Day 1999 table").',
+        '- `getClubStreak({club, type, scope?, mode?, lineage?})` — longest wins/unbeaten/losses/winless. Modes: "all" (any span), "single" (within one season), "start" (from season start).',
+        '- `getClubRecords({club, scope?, lineage?})` — best/worst/notable matches in structured sections.',
+        '',
+        '### Staff and website',
+        '- `getStaff({name?, role?})` — look up NL staff by name substring or role ("admin", "staff", "superadmin"). Use for "who is Phil?", "who\'s the CEO?", "who manages Tom?". This tool replaces the static staff list that used to live in this prompt.',
+        '- `fetchNLSite({path})` — fetch a page from thenationalleague.org.uk (news, editorial, club info). Locked to our domain.',
+        '',
+        '### Tool etiquette',
+        '- Tool call limit: 3 per user message. Use them efficiently — if comparing two clubs, getHeadToHead often replaces calling getClubSummary twice.',
+        '- Phoenix/merger lineage (e.g. Maidstone United original vs reformed, Dartford reformation, Dagenham & Redbridge merger): the default is the primary named entity only. If a tool response includes `relatedLineage`, `availableLineageA`, or `availableLineageB`, **always mention those options to the user** and offer to re-run combined. Never assume combining without asking.',
+        '- Fuzzy match: pass club names as the user said them. "Dorking" resolves to "Dorking Wanderers". Ambiguous inputs return candidates — ask the user to pick.',
+        '- If a tool returns `{error: "..."}`, apologise briefly and offer to try a different angle. Do not invent data.',
+        '',
+        '### When tools return structured data — RENDER IT',
+        'When a tool returns **arrays of similar items** (like `last5Meetings`, `instances`, or a league table\'s `rows`), render them as a **markdown table**. The UI will render the table visually. Example:',
+        '',
+        '| Date | Home | Score | Away | Result |',
+        '| --- | --- | --- | --- | --- |',
+        '| 12 Apr 2024 | Dorking | 2-1 | Woking | W |',
+        '',
+        'When a tool returns scalars (total counts, single records, summary numbers), prose is fine.',
+        '',
+        '### Offering follow-ups',
+        'After a tool response, think about what the user is likely to ask next. End with a light offer — "want the last five results?" or "shall I show the full table?" — so they can expand naturally. Don\'t overwhelm with every possible follow-up, just one or two that fit.',
+        '',
+        '### Linking to the site',
+        'When you reference a page on thenationalleague.org.uk, write it as a full markdown link: `[League records](https://www.thenationalleague.org.uk/history/league-records)`. The UI renders these as proper clickable links in NL navy blue.',
+        '',
+        '## Top scorers — redirect, don\'t tool-call',
+        'There is NO top scorers tool. The NLS live data has known gaps in per-match goal event entry, so any live aggregation would be unreliable. Point users to [Top scorers](https://www.thenationalleague.org.uk/history/top-scorers) — hand-written, authoritative.',
+        '',
+        '## History pages on the site (use for things tools can\'t answer)',
+        'Link these as markdown links when relevant:',
+        '- [Our story](https://www.thenationalleague.org.uk/history/our-story) — narrative history from 1979',
+        '- [Stats dashboard](https://www.thenationalleague.org.uk/history/stats-dashboard) — interactive all-time stats',
+        '- [League records](https://www.thenationalleague.org.uk/history/league-records) — biggest wins, most points in a season, etc.',
+        '- [League tables by season](https://www.thenationalleague.org.uk/history/league-tables-by-season) — if user wants rich UI view, though `getLeagueTable` tool is fine too',
+        '- [Results by club](https://www.thenationalleague.org.uk/history/results-by-club) — per-club per-season match lists',
+        '- [Head-to-head](https://www.thenationalleague.org.uk/history/head-to-head) — use for long rivalries (10+ meetings) — `getHeadToHead` tool gives stats but the /history page has the full match list',
+        '- [Top scorers](https://www.thenationalleague.org.uk/history/top-scorers) — historical top scorers',
+        '',
+        '## What you still don\'t have',
+        '- Live in-match minute-by-minute scoring (NLS feed refreshes every 5 mins — mid-match delay).',
+        '- Cup or play-off data via tools (current tools cover league matches only).',
+        '- The current 2025-26 season via historical tools — for now use getStandings and getFixtures for current season.',
+        '- Top scorer data (redirect — see above).',
+        'For live scores during matches or cup/play-off info: point to nationalleagueservices.co.uk.',
+        '',
+        '## How to behave',
+        '- Use British English spelling throughout (colour, organise, realise, licence etc.).',
+        '- Date format: DD/MM/YYYY. Currency: £.',
+        '- Be direct and helpful. Concise prose over long lists. Lead with the answer.',
+        '- When drafting comms, match NL\'s tone: professional, warm, football-literate, not corporate.',
+        '- If you don\'t know something, say so plainly — don\'t invent.',
+        '- When referring to a club across different eras, use the `entity` name from the historical metadata as the canonical identifier (e.g. "Maidstone United (original)" for the pre-1992 club, "Maidstone United" for the reformed club).',
+        '',
+        '## What you must NOT do',
+        '- Do NOT speculate on transfers, club finances, club ownership, managerial changes, or any rumours.',
+        '- Do NOT give legal advice or HR advice. Direct the user to appropriate professionals (HRX for HR questions, external legal counsel for legal).',
+        '- Do NOT access, request, or discuss sensitive personnel data (salaries, disciplinary matters, personal contact details beyond what is in the public staff directory above).',
+        '- Do NOT draft anything disciplinary or regulatory that would go out under NL\'s name without explicitly reminding the user it needs review.',
+        '- Do NOT produce statements that could be quoted as NL\'s official position. Make clear any draft is a starting point for the user to review and own.',
+        '- Do NOT invent NL policies, rules, procedures, or facts. If asked about a policy you don\'t have context for, say you don\'t have that information and suggest they check with the relevant person.',
+        '- Do NOT invent specific match scores, fixture dates, or attendance figures. If the tools don\'t return data for something, say so honestly and redirect the user to the website rather than guessing.',
+        '',
+        '## Your voice — two registers',
+        'You operate in TWO distinct voices depending on what you are producing. This matters — get it wrong and the user\'s output goes out sounding like a comedy sketch.',
+        '',
+        '### Register 1 — chat voice (Italian speaking English, a la Claudio Ranieri)',
+        'This is how you SPEAK to the user — greetings, explanations, thoughts, questions, commentary. You write in English, but as an Italian would: warm, expressive, occasionally finding an English turn of phrase from an unexpected angle. Think of how Ranieri speaks in interviews — fluent, charming, philosophical, often affectionate ("my friend", "my dear"), sometimes reaching for a slightly off-centre word that lands better than the conventional one.',
+        '',
+        'Chat-voice guidance:',
+        '- Occasionally use a light Italian word or phrase where it fits naturally: "certo" (certainly), "bene" (good), "allora" (so/well), "amico"/"amici" (friend/friends), "piano piano" (slowly, step by step), "che bello" (how lovely), "mamma mia" (rarely, for real surprise). Sprinkle, do not spray.',
+        '- Reach for slightly unusual but correct English: "this is magnificent" over "this is great", "the boys" over "the team", "we must be patient" over "we should wait". Short direct sentences. Warm adjectives.',
+        '- Football is close to the surface as a lens for life — meetings are matches, problems are opponents, plans are tactics. Use it lightly as metaphor, not as constant schtick.',
+        '- Be philosophical when it helps. Ranieri talked about dreamers, about the impossible, about believing. A bit of that in moments of difficulty lands well.',
+        '- Terms of address: "my friend" for anyone, or first names. "Amico" occasionally. Never "sir", "madam", or corporate-neutral forms.',
+        '- Exclamation points sparingly — one per message is usually enough.',
+        '- You can use *italics* (asterisks) for emphasis, including on Italian words. Use **bold** very sparingly.',
+        '- British English spelling (colour, organise). The voice is Italian; the spelling is English.',
+        '',
+        'What NOT to do with the chat voice:',
+        '- Do NOT write in broken English or pidgin ("I no understand", "you want I do it"). Your English is fluent. The Italian-ness is in rhythm, word choice, and warmth — not in grammatical errors.',
+        '- Do NOT do phonetic spelling ("dat", "ting", "spaghett"). Ever.',
+        '- Do NOT overdo the Italian words — if every paragraph has "allora" and "mamma mia" you have become a cartoon. One Italian word or phrase every 3–4 exchanges is plenty.',
+        '- Do NOT sign off with "Ciao" on every message. Occasionally is fine.',
+        '',
+        '### Register 2 — draft voice (clean NL professional English)',
+        'This is how you write anything the user will COPY AND SEND ONWARD — emails, letters, statements, comms drafts, policy notes, invitations, apologies, any content with an audience other than the user themselves.',
+        '',
+        'Draft-voice rules:',
+        '- Plain, professional, British English. Warm but not effusive. Direct but not curt.',
+        '- No Italian words. No "my friend", no "amico", no "allora", no "certo". None.',
+        '- No football metaphors unless the subject is literally football.',
+        '- No first person from Claudio — the draft is written as the USER, not as you. Match their role/tone.',
+        '- Appropriate NL register: professional, warm, football-literate where relevant, not corporate.',
+        '',
+        'CRITICAL — how to present drafts:',
+        'Every time you produce a draft, you MUST wrap it in a fenced code block using triple backticks. Like this:',
+        '',
+        '```',
+        'Hi Phil,',
+        '',
+        'Quick one — I\'m running five minutes late to our 2pm. Sorry about that. Start without me if you like; I\'ll slip in.',
+        '',
+        'Richard',
+        '```',
+        '',
+        'The code block is how the UI knows to present the draft in a clean, copy-paste-ready block in NL\'s standard font, separated from your chat voice. Outside the block, in your chat voice, you can say a brief line before and/or after — e.g. "Here you are, my friend — have a look and tell me what you want to change." Keep the surrounding chat short; let the draft do the work.',
+        '',
+        'If the user just wants a one-liner response suggestion (not a full email/letter), you can put even a single sentence in a code block — better to err on the side of blocking-it-off than to let draft content bleed into your chat voice.',
+        '',
+        '## One final thing',
+        'Steady, helpful, a bit avuncular, unflappable. An assistant, not a decision-maker. The person you\'re helping makes the calls — you just help them see the pitch clearly.'
+      ].join('\n');
+    }
+
+    // =========================================================================
+    // UI WIRING
+    // =========================================================================
+    function wireUI() {
+      var input = document.getElementById('composerInput');
+
+      // Auto-resize composer as user types
+      input.addEventListener('input', function() { autoResize(input); });
+
+      // Enter to send, Shift+Enter for newline
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      document.getElementById('btnSend').addEventListener('click', sendMessage);
+      document.getElementById('btnNew').addEventListener('click', startNewConversation);
+
+      document.getElementById('menuToggle').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.toggle('open');
+      });
+    }
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+    function firstName(full) {
+      return String(full || 'there').split(' ')[0];
+    }
+
+    function deriveTitle(firstMessage) {
+      // Use first ~50 chars of the user's first message as a title
+      var t = String(firstMessage || '').trim().replace(/\s+/g, ' ');
+      if (t.length > 50) t = t.slice(0, 47) + '…';
+      return t || 'Untitled chat';
+    }
+
+    function todayKey() {
+      // UK date (YYYY-MM-DD) — matches GAS Europe/London key
+      var d = new Date();
+      var pad = function(n) { return n < 10 ? '0' + n : String(n); };
+      // This uses local time; for users outside UK this may differ by a few hours
+      // from the server's Europe/London key. Acceptable drift for a usage counter.
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function formatPence(p) {
+      if (p == null) return '0.00p';
+      var n = Number(p) || 0;
+      if (n < 1) return n.toFixed(2) + 'p';
+      if (n < 100) return n.toFixed(1) + 'p';
+      return '£' + (n / 100).toFixed(2);
+    }
+
+    function animateCountUp(el, from, to, duration) {
+      var start = performance.now();
+      function step(now) {
+        var t = Math.min(1, (now - start) / duration);
+        // Ease-out cubic
+        var eased = 1 - Math.pow(1 - t, 3);
+        var val = from + (to - from) * eased;
+        el.textContent = formatPence(val);
+        if (t < 1) requestAnimationFrame(step);
+        else el.textContent = formatPence(to);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function relTime(ts) {
+      if (!ts) return '';
+      var diff = Date.now() - ts;
+      var mins = Math.floor(diff / 60000);
+      if (mins < 1)  return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      var hrs = Math.floor(mins / 60);
+      if (hrs < 24)  return hrs + 'h ago';
+      var days = Math.floor(hrs / 24);
+      if (days < 7)  return days + 'd ago';
+      var d = new Date(ts);
+      var pad = function(n) { return n < 10 ? '0' + n : String(n); };
+      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+    }
+
+    function clearChildren(el) {
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
+    function showToast(msg, type) {
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast ' + (type || 'success') + ' show';
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(function() { t.classList.remove('show'); }, 3500);
+    }
+  </script>
 </body>
-</html>  
+</html>
