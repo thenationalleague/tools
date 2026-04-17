@@ -2,10 +2,31 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 1.2
+  Version: 1.3
   Date: 17/04/2026
 
   CHANGELOG
+  v1.3 (17/04/2026)
+    - Added tool-use support. Claudio can now call 6 tools when needed:
+      5 NLS data tools (getStandings, getFixtures, getRecentResults,
+      getMatchDetail, getTeamForm) and 1 domain-locked web fetch
+      (fetchNLSite — thenationalleague.org.uk only).
+    - Top scorers DELIBERATELY not a tool: NLS live data has acknowledged
+      gaps in per-match goal event entry, so aggregation would be
+      unreliable. All top-scorer questions redirect to
+      /history/top-scorers (authoritative hand-written page).
+    - System prompt updated to describe tools and when to use each.
+    - Historical-redirect URLs baked into prompt: Claudio points users to
+      /history/our-story, /history/stats-dashboard, /history/league-records,
+      /history/league-tables-by-season, /history/results-by-club,
+      /history/head-to-head, /history/top-scorers for detail beyond the
+      injected data.
+    - UI shows "Looking that up..." indicator while tool calls run.
+    - Guardrail softened further: Claudio can now answer live current-season
+      questions via the tools, instead of refusing.
+    - Fix: response field names (cost_pence, tokens.*, count) corrected to
+      match the GAS shape — the cost tag and daily counter now update.
+
   v1.2 (17/04/2026)
     - Added league-tables injection (trimmed summary): champions, promoted,
       relegated, and notable drama notes for every season 1979-80 onwards,
@@ -304,6 +325,28 @@
     @keyframes costIn { to { opacity: 1; } }
     .msg__cost-num {
       color: var(--navy); font-weight: 900; font-variation-settings: 'wght' 900;
+    }
+
+    /* Tool-call chips — shown on assistant messages that used tools */
+    .msg__tools {
+      margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;
+      align-items: center;
+      font-size: 11px;
+    }
+    .msg__tools-label {
+      color: var(--text-muted);
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .msg__tool-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(30, 58, 138, 0.08);
+      color: var(--navy);
+      border-radius: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      font-weight: 600;
     }
 
     /* Typing indicator */
@@ -878,6 +921,23 @@
       body.appendChild(name);
       body.appendChild(text);
 
+      // Tool-call chips on assistant messages — show which tools were invoked
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length) {
+        var toolsRow = document.createElement('div');
+        toolsRow.className = 'msg__tools';
+        var toolLabel = document.createElement('span');
+        toolLabel.className = 'msg__tools-label';
+        toolLabel.textContent = '🔍 Looked up: ';
+        toolsRow.appendChild(toolLabel);
+        for (var t = 0; t < m.tool_calls.length; t++) {
+          var chip = document.createElement('span');
+          chip.className = 'msg__tool-chip';
+          chip.textContent = m.tool_calls[t].name;
+          toolsRow.appendChild(chip);
+        }
+        body.appendChild(toolsRow);
+      }
+
       // Cost tag on assistant messages only
       if (m.role === 'assistant' && m.cost_pence != null) {
         var cost = document.createElement('div');
@@ -1096,19 +1156,19 @@
             role:       'assistant',
             content:    result.reply || '',
             ts:         Date.now(),
-            cost_pence: result.usage ? result.usage.cost_pence : 0,
-            tokens:     result.usage
-              ? (result.usage.input_tokens + result.usage.cache_read_input_tokens + result.usage.cache_creation_input_tokens + result.usage.output_tokens)
-              : 0
+            cost_pence: result.cost_pence || 0,
+            tokens:     result.tokens
+              ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
+              : 0,
+            tool_calls: result.tool_calls || []
           };
           STATE.messages.push(aiMsg);
           document.getElementById('chatInner').appendChild(buildMsgEl(aiMsg));
           scrollToBottom();
 
           // Update daily counters (from GAS response — source of truth)
-          if (typeof result.dailyCount === 'number') STATE.dailyCount = result.dailyCount;
-          if (typeof result.dailyLimit === 'number') STATE.dailyLimit = result.dailyLimit;
-          if (result.usage && result.usage.cost_pence) STATE.costTodayPence += result.usage.cost_pence;
+          if (typeof result.count === 'number')      STATE.dailyCount = result.count;
+          if (typeof result.cost_today === 'number') STATE.costTodayPence = result.cost_today;
           updateMetaUI();
 
           // Persist assistant message + bump conv updated timestamp
@@ -1153,7 +1213,8 @@
           content:    msg.content,
           ts:         msg.ts,
           cost_pence: msg.cost_pence || 0,
-          tokens:     msg.tokens || 0
+          tokens:     msg.tokens || 0,
+          tool_calls: msg.tool_calls || null
         });
       });
     }
@@ -1288,12 +1349,33 @@
         clubsList || '(clubs data not loaded)',
         '',
         historicalBlock,
-        '## Live data — what you DO and DON\'T have',
-        'You DO have (in the historical context blocks above): every season\'s champion, promoted, relegated, playoff finalists, points deductions, expulsions, reprieves, format changes, club histories (phoenix/merger/nicknames), and season outcomes going back to 1979-80.',
-        'You DO have general football knowledge from your training (who won famous cup finals, well-known managerial tenures, widely-reported events) — it\'s fine to answer common football questions confidently where you know the answer.',
-        'You do NOT have: live fixtures, live scores, live standings, current top scorers, match attendances, match-by-match historical results (who-beat-whom scores), or this season\'s ongoing data.',
-        'If a user asks about live/current match data you can\'t answer from the blocks above, direct them to nationalleagueservices.co.uk or the main NL website. Do NOT invent specific match scores, dates, or attendance figures. But do NOT refuse reasonable historical questions that you can answer from the season outcomes block or from general football knowledge.',
-        'You WILL have access to live data in a future version (v2) via proper data lookups.',
+        '## Live data — your tools',
+        'You have TOOLS available for live current-season NL data. Use them when the user asks about:',
+        '- Current league standings or table position → call `getStandings({division})`',
+        '- Upcoming fixtures → call `getFixtures({division, days})`',
+        '- Recent match results → call `getRecentResults({division, days})`. For goalscorers or full detail on a specific match, follow up with `getMatchDetail({matchId})` using the matchId from the results.',
+        '- A team\'s recent form → call `getTeamForm({team, matches})`',
+        'Only use these for the CURRENT season (2025/26). For historical seasons use the injected data above, or redirect to the site.',
+        'You can also call `fetchNLSite({path})` to pull content from our own website (thenationalleague.org.uk). Use it for news articles, editorial, club info, announcements. It ONLY works on our domain — it cannot fetch any other site. Mention this restriction only if the user asks you to check another source.',
+        'You are limited to 3 tool calls per message. Use them efficiently.',
+        '',
+        '## Top scorers — redirect, don\'t tool-call',
+        'There is NO top scorers tool. The NLS live data has known gaps in per-match goal event entry, so any live aggregation would be unreliable. If a user asks about top scorers (current or historical), point them to https://www.thenationalleague.org.uk/history/top-scorers (hand-written, authoritative). Do not attempt to guess or aggregate scorer data from match detail.',
+        '',
+        '## When the tools can\'t answer it — redirect to the website',
+        'For historical detail beyond champions/promoted/relegated (in the injected data above), or for interactive exploration, point users to these pages on thenationalleague.org.uk:',
+        '- `/history/our-story` — narrative history of the league from 1979 onwards',
+        '- `/history/stats-dashboard` — large interactive statistics dashboard',
+        '- `/history/league-records` — all-time records (most wins in a season, all-time top scorer etc.)',
+        '- `/history/league-tables-by-season` — full league tables for every season (dropdown)',
+        '- `/history/results-by-club` — per-club results per season (dropdown)',
+        '- `/history/head-to-head` — head-to-head records between any two clubs (handles phoenix-club continuity)',
+        '- `/history/top-scorers` — historical top scorers per season with narrative context (use this for ANY top-scorer question)',
+        'When redirecting, use the full URL (https://www.thenationalleague.org.uk/history/...).',
+        '',
+        '## What you still don\'t have',
+        'You do NOT have: live in-match scores during matches (tools refresh every 5 minutes, so mid-match minute-by-minute isn\'t there), cup or play-off data (current tools cover NL / North / South league matches only), data from previous seasons via tools (tools are current season only), top scorer data (redirect instead — see above).',
+        'For live scores during matches or cup/play-off info, point users to nationalleagueservices.co.uk.',
         '',
         '## How to behave',
         '- Use British English spelling throughout (colour, organise, realise, licence etc.).',
@@ -1310,7 +1392,7 @@
         '- Do NOT draft anything disciplinary or regulatory that would go out under NL\'s name without explicitly reminding the user it needs review.',
         '- Do NOT produce statements that could be quoted as NL\'s official position. Make clear any draft is a starting point for the user to review and own.',
         '- Do NOT invent NL policies, rules, procedures, or facts. If asked about a policy you don\'t have context for, say you don\'t have that information and suggest they check with the relevant person.',
-        '- Do NOT invent specific match scores, fixture dates, or attendance figures you don\'t have data for.',
+        '- Do NOT invent specific match scores, fixture dates, or attendance figures. If the tools don\'t return data for something, say so honestly and redirect the user to the website rather than guessing.',
         '',
         'You are Claudio — named after Claudio Ranieri, the beloved Leicester manager. You have some of that warmth and experience: steady, helpful, a bit avuncular, unflappable. But you\'re an assistant, not a decision-maker. The person you\'re helping makes the calls.'
       ].join('\n');
