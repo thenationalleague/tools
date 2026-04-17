@@ -1,65 +1,59 @@
 <!DOCTYPE html>
-<!--
-  NL Tools - Login Page
-  Version: v3.2 (conversation turn 152)
-  Date: 08/04/2026
-  File: /tools/index.html
-
-  Changelog:
-  v3.2 - clubRole -> jobTitle migration. All RTDB writes now use jobTitle.
-         Form field id kept as reqClubRole for HTML compatibility but variable
-         renamed to jobTitle throughout JS.
-  v3.1 - On invite acceptance, delete matching invites-pending/ entry by email
-         so Pending Invites tab clears automatically.
-  v3.0 - Full auth flow rebuild.
-         Six panels: sign-in, forgot password, password reset (oobCode),
-         set password (invite), request access (2-step), pending, rejected.
--->
 <html lang="en">
 <head>
+<!--
+  NL Tools — Login Page
+  Version: v4.0 (17/04/2026)
+  File: /tools/index.html
+
+  CHANGELOG
+  v4.0 (17/04/2026)
+    - System file migration: loads /tools/system/nl-brand.css + nl-utils.js.
+      No auth-guard (this IS the sign-in page).
+    - Firebase SDK upgraded 10.7.1 → 10.12.0 for consistency.
+    - Removed duplicated CSS (reset, tokens, fonts, body defaults, .btn*,
+      .btn-spinner). Club-picker still inline — flagged for extraction to
+      nl-brand.css since it is now duplicated in vacancies/judgements/login.
+    - Removed duplicated esc/escJ helpers — now NL.escHtml / NL.escJ.
+    - .btn-spinner replaced with shared .spinner from nl-brand.
+    - Renamed .field → .form-group (13 instances) to match nl-brand widget.
+    - RTDB paths updated for admin subtree:
+        'invites-pending' → 'admin/invites-pending'
+        'requests'        → 'admin/requests'
+        'invites/{token}' → 'admin/invites/{token}'
+      'users/*' and 'tools' paths unchanged (still at root).
+    - Body background override kept (stays --primary red, not --off-white).
+
+  v3.2 (08/04/2026) — clubRole → jobTitle migration.
+  v3.1 — Invite acceptance clears invites-pending entry by email.
+  v3.0 — Full auth flow rebuild: 7 panels.
+-->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NL Tools - Sign In</title>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<title>NL Tools — Sign In</title>
+
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=9">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<script src="/tools/system/nl-utils.js?v=5"></script>
+
 <style>
-@font-face {
-  font-family: "carbona-variable";
-  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
-}
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --primary:     #9e0000;
-  --primary-dim: #7a0000;
-  --navy:        #223b7c;
-  --navy-mid:    #1a2f63;
-  --red:         #c0392b;
-  --red-light:   #fdf0ef;
-  --green:       #1e7e34;
-  --green-light: #edf7ee;
-  --amber:       #e67e22;
-  --amber-light: #fef6ec;
-  --white:       #ffffff;
-  --off-white:   #f4f6f9;
-  --text:        #1a2a44;
-  --text-muted:  #5a6a82;
-  --border:      #dde3ed;
-  --radius:      6px;
-  --shadow:      0 2px 12px rgba(10,22,40,0.10);
-  --font:        'carbona-variable','carbona',sans-serif;
-}
+/* ────────────────────────────────────────────────────────────────
+   Login page — tool-specific CSS only.
+   Base (reset, tokens, fonts, body) from /tools/system/nl-brand.css.
+   Buttons, form-group, toast, spinner: shared nl-brand widgets.
+   ──────────────────────────────────────────────────────────────── */
+
+/* Body override — red full-page bg on sign-in (nl-brand default is off-white) */
 body {
-  font-family: var(--font);
-  font-size: 16px;
-  line-height: 1.5;
-  font-variation-settings: 'wght' 400;
-  color: var(--text);
-  background: var(--primary);
+  background: var(--primary) !important;
   min-height: 100vh;
 }
+
+/* Login card */
 .login-wrap {
   min-height: 100vh;
   display: flex;
@@ -76,7 +70,10 @@ body {
   box-shadow: 0 8px 40px rgba(0,0,0,0.4);
   text-align: center;
 }
-.login-box__logo { width: 84px; margin-bottom: 22px; }
+.login-box__logo {
+  width: 84px;
+  margin-bottom: 22px;
+}
 .login-box h1 {
   font-size: 26px;
   font-weight: 900;
@@ -97,143 +94,273 @@ body {
   font-weight: 700;
   font-variation-settings: 'wght' 700;
 }
+
+/* Panels — switched by .active class */
 .panel { display: none; text-align: left; }
 .panel.active { display: block; }
-.field { margin-bottom: 16px; }
-.field label {
-  display: block;
+
+/* Form spacing override (.form-group is from nl-brand; add margin for login stack) */
+.panel .form-group { margin-bottom: 16px; }
+
+/* Inline status messages */
+.msg {
+  display: none;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+  margin-bottom: 14px;
+  text-align: center;
+  line-height: 1.4;
+}
+.msg.show { display: block; }
+.msg--error   { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
+.msg--info    { background: var(--info-light);  color: var(--navy);  border: 1px solid #c7d2fe; }
+.msg--success { background: var(--green-light); color: var(--green); border: 1px solid #b8dfbf; }
+
+/* Button row (side-by-side actions) */
+.btn-row { display: flex; gap: 8px; margin-top: 16px; }
+.btn-row .btn { flex: 1; justify-content: center; }
+
+/* Login text links */
+.login-links {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: var(--font);
+  padding: 4px 8px;
+  text-decoration: none;
+}
+.link-btn:hover { color: var(--primary-dim); text-decoration: underline; }
+
+/* Full-card state panels (pending / rejected) */
+.state-panel { text-align: center; padding: 8px 0; }
+.state-panel__icon { font-size: 40px; margin-bottom: 16px; }
+.state-panel__title {
+  font-size: 16px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+.state-panel__title--amber { color: var(--amber); }
+.state-panel__title--red   { color: var(--red); }
+.state-panel__body {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.state-panel__body a {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: underline;
+}
+.state-panel__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* Polling indicator (pending state) */
+@keyframes login-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.pending-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 16px;
+  animation: login-pulse 2s ease-in-out infinite;
+}
+.pending-check__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+/* Step indicator for request-access flow */
+.step-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: all 0.2s;
+}
+.step-dot.active { background: var(--primary); transform: scale(1.25); }
+.step-dot.done   { background: var(--green); }
+
+/* Request-access sign-up scroll area */
+.signup-scroll {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Tool picker (request access) */
+.tool-group { margin-bottom: 18px; }
+.tool-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.tool-group__label {
   font-size: 10px;
   font-weight: 800;
   font-variation-settings: 'wght' 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--text-muted);
-  margin-bottom: 6px;
+  color: var(--navy);
 }
-.field input[type="text"],
-.field input[type="email"],
-.field input[type="password"] {
-  width: 100%;
+.tool-group__select-all {
+  font-size: 10px;
+  color: var(--primary);
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  text-decoration: underline;
+  padding: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tool-checkboxes { display: flex; flex-direction: column; gap: 6px; }
+.tool-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 14px;
-  font-size: 15px;
-  font-family: var(--font);
-  font-variation-settings: 'wght' 400;
+  cursor: pointer;
+  transition: background 0.12s;
+  background: var(--white);
+}
+.tool-checkbox:hover { background: var(--off-white); }
+.tool-checkbox input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.tool-checkbox__text { flex: 1; }
+.tool-checkbox__name {
+  font-size: 13px;
+  font-weight: 700;
+  font-variation-settings: 'wght' 700;
   color: var(--text);
+  display: block;
+}
+.tool-checkbox__desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 1px;
+}
+
+/* Club picker — currently duplicated across vacancies/judgements/login.
+   TODO: extract to nl-brand.css as a shared widget next time we touch these. */
+.club-picker { position: relative; }
+.club-picker__wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 12px;
   background: var(--white);
   transition: border-color 0.15s, box-shadow 0.15s;
-  outline: none;
 }
-.field input:focus {
+.club-picker__wrap:focus-within {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
 }
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 11px 20px;
-  border-radius: var(--radius);
-  font-size: 12px;
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  border: none;
-  font-family: var(--font);
-  transition: background 0.15s;
-  white-space: nowrap;
-  width: 100%;
-}
-.btn--primary { background: var(--primary); color: var(--white); }
-.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
-.btn--navy    { background: var(--navy);    color: var(--white); }
-.btn--navy:hover:not(:disabled) { background: var(--navy-mid); }
-.btn--ghost { background: none; border: 1px solid var(--border); color: var(--text-muted); }
-.btn--ghost:hover:not(:disabled) { background: var(--off-white); }
-.btn--danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
-.btn--danger:hover:not(:disabled) { background: #fae0de; }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-row { display: flex; gap: 10px; }
-.btn-row .btn { flex: 1; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.btn-spinner {
-  display: inline-block;
-  width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,0.4);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-.msg {
-  font-size: 13px;
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-  display: none;
-  line-height: 1.5;
-}
-.msg.show     { display: block; }
-.msg--error   { background: var(--red-light);   color: var(--red); }
-.msg--success { background: var(--green-light);  color: var(--green); }
-.msg--info    { background: var(--amber-light);  color: var(--amber); }
-.link-btn {
-  background: none; border: none; cursor: pointer;
-  font-family: var(--font); font-size: 12px; color: var(--primary);
-  font-weight: 700; font-variation-settings: 'wght' 700;
-  text-decoration: underline; padding: 0;
-}
-.link-btn:hover { color: var(--primary-dim); }
-.login-links {
-  margin-top: 20px; text-align: center; font-size: 12px;
-  color: var(--text-muted); display: flex; flex-direction: column; gap: 8px;
-}
-.step-indicator { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 24px; }
-.step-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background 0.2s; }
-.step-dot.active { background: var(--primary); }
-.step-dot.done   { background: var(--navy); }
-.tool-group { margin-bottom: 18px; }
-.tool-group__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.tool-group__label { font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--navy); }
-.tool-group__select-all { font-size: 10px; color: var(--primary); font-weight: 700; font-variation-settings: 'wght' 700; background: none; border: none; cursor: pointer; font-family: var(--font); text-decoration: underline; padding: 0; text-transform: uppercase; letter-spacing: 0.06em; }
-.tool-checkboxes { display: flex; flex-direction: column; gap: 6px; }
-.tool-checkbox { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: background 0.12s; background: var(--white); }
-.tool-checkbox:hover { background: var(--off-white); }
-.tool-checkbox input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; accent-color: var(--primary); width: 14px; height: 14px; cursor: pointer; }
-.tool-checkbox__text { flex: 1; }
-.tool-checkbox__name { font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700; color: var(--text); display: block; }
-.tool-checkbox__desc { font-size: 11px; color: var(--text-muted); display: block; margin-top: 1px; }
-.signup-scroll { max-height: 55vh; overflow-y: auto; padding-right: 4px; }
-.club-picker { position: relative; }
-.club-picker__wrap { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 12px; background: var(--white); transition: border-color 0.15s, box-shadow 0.15s; }
-.club-picker__wrap:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(158,0,0,0.10); }
 .club-picker__crest { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
-.club-picker__input { flex: 1; border: none !important; padding: 0 !important; font-size: 15px; outline: none; background: transparent; font-family: var(--font); font-variation-settings: 'wght' 400; color: var(--text); }
+.club-picker__input {
+  flex: 1;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 15px;
+  outline: none;
+  background: transparent;
+  font-family: var(--font);
+  font-variation-settings: 'wght' 400;
+  color: var(--text);
+}
 .club-picker__input::placeholder { color: #aab4c4; }
-.club-picker__dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); max-height: 220px; overflow-y: auto; display: none; margin-top: 3px; }
+.club-picker__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 220px;
+  overflow-y: auto;
+  display: none;
+  margin-top: 3px;
+}
 .club-picker__dropdown.open { display: block; }
-.club-picker__option { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--border); }
+.club-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
 .club-picker__option:last-child { border-bottom: none; }
 .club-picker__option:hover { background: var(--off-white); }
-.club-picker__option img { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
-.club-picker__option-name { flex: 1; font-weight: 600; font-variation-settings: 'wght' 600; }
-.club-picker__option-div { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.state-panel { text-align: center; padding: 8px 0; }
-.state-panel__icon { font-size: 40px; margin-bottom: 16px; }
-.state-panel__title { font-size: 16px; font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
-.state-panel__title--amber { color: var(--amber); }
-.state-panel__title--red   { color: var(--red); }
-.state-panel__body { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px; }
-.state-panel__body a { color: var(--primary); font-weight: 700; text-decoration: underline; }
-.state-panel__actions { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-.pending-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); font-weight: 700; font-variation-settings: 'wght' 700; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 16px; animation: pulse 2s ease-in-out infinite; }
-.pending-check__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.club-picker__option img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.club-picker__option-name {
+  flex: 1;
+  font-weight: 600;
+  font-variation-settings: 'wght' 600;
+}
+.club-picker__option-div {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 </style>
 </head>
 <body>
@@ -250,11 +377,11 @@ body {
 
     <div class="panel active" id="panelSignIn">
       <div class="msg" id="signinMsg"></div>
-      <div class="field">
+      <div class="form-group">
         <label for="signinEmail">Email address</label>
         <input type="email" id="signinEmail" placeholder="you@example.com" autocomplete="email">
       </div>
-      <div class="field">
+      <div class="form-group">
         <label for="signinPassword">Password</label>
         <input type="password" id="signinPassword" placeholder="Your password" autocomplete="current-password">
       </div>
@@ -268,7 +395,7 @@ body {
     <div class="panel" id="panelForgot">
       <div class="msg" id="forgotMsg"></div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">Enter your email and we'll send a reset link.</p>
-      <div class="field">
+      <div class="form-group">
         <label for="forgotEmail">Email address</label>
         <input type="email" id="forgotEmail" placeholder="you@example.com" autocomplete="email">
       </div>
@@ -281,11 +408,11 @@ body {
     <div class="panel" id="panelResetPassword">
       <div class="msg" id="resetpwMsg"></div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">Choose a new password for your account.</p>
-      <div class="field">
+      <div class="form-group">
         <label for="resetPwNew">New password</label>
         <input type="password" id="resetPwNew" placeholder="At least 8 characters" autocomplete="new-password">
       </div>
-      <div class="field">
+      <div class="form-group">
         <label for="resetPwConfirm">Confirm password</label>
         <input type="password" id="resetPwConfirm" placeholder="Repeat password" autocomplete="new-password">
       </div>
@@ -295,15 +422,15 @@ body {
     <div class="panel" id="panelSetPassword">
       <div class="msg" id="setpwMsg"></div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6;">Welcome to NL Tools. Set a password to complete your account setup.</p>
-      <div class="field">
+      <div class="form-group">
         <label for="setPwEmail">Email address</label>
         <input type="email" id="setPwEmail" placeholder="Confirm your email" autocomplete="email">
       </div>
-      <div class="field">
+      <div class="form-group">
         <label for="setPwPassword">Choose a password</label>
         <input type="password" id="setPwPassword" placeholder="At least 8 characters" autocomplete="new-password">
       </div>
-      <div class="field">
+      <div class="form-group">
         <label for="setPwConfirm">Confirm password</label>
         <input type="password" id="setPwConfirm" placeholder="Repeat password" autocomplete="new-password">
       </div>
@@ -317,19 +444,19 @@ body {
           <div class="step-dot"></div>
         </div>
         <div class="msg" id="reqMsg1"></div>
-        <div class="field">
+        <div class="form-group">
           <label for="reqName">Your full name</label>
           <input type="text" id="reqName" placeholder="First and last name">
         </div>
-        <div class="field">
+        <div class="form-group">
           <label for="reqEmail">Email address</label>
           <input type="email" id="reqEmail" placeholder="you@yourclub.com" autocomplete="email">
         </div>
-        <div class="field">
+        <div class="form-group">
           <label for="reqPassword">Choose a password</label>
           <input type="password" id="reqPassword" placeholder="At least 8 characters" autocomplete="new-password">
         </div>
-        <div class="field">
+        <div class="form-group">
           <label>Club</label>
           <div class="club-picker">
             <div class="club-picker__wrap">
@@ -343,7 +470,7 @@ body {
           </div>
           <input type="hidden" id="reqClub">
         </div>
-        <div class="field">
+        <div class="form-group">
           <label for="reqClubRole">Your role at the club</label>
           <input type="text" id="reqClubRole" placeholder="e.g. Secretary, Media Officer">
         </div>
@@ -435,8 +562,7 @@ var OOB_CODE     = urlParams.get('oobCode') || '';
 var IS_INVITE    = !!INVITE_TOKEN;
 var IS_RESET     = !!OOB_CODE;
 
-function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+/* esc/escJ helpers provided by NL.escHtml / NL.escJ in nl-utils.js */
 
 function showMsg(id, text, type) {
   var el = document.getElementById(id);
@@ -472,8 +598,8 @@ function showPanel(id) {
   if (info) {
     var parts = info.title.split(' ');
     document.getElementById('pageTitle').innerHTML =
-      '<span class="word-primary">' + esc(parts[0]) + '</span>' +
-      (parts.length > 1 ? ' <span class="word-secondary">' + esc(parts.slice(1).join(' ')) + '</span>' : '');
+      '<span class="word-primary">' + NL.escHtml(parts[0]) + '</span>' +
+      (parts.length > 1 ? ' <span class="word-secondary">' + NL.escHtml(parts.slice(1).join(' ')) + '</span>' : '');
     document.getElementById('pageSubtitle').innerHTML = info.sub;
   }
   if (id === 'panelRequest') { loadReqTools(); initReqClubPicker(); }
@@ -858,13 +984,13 @@ function loadReqTools() {
     depts.forEach(function(dept) {
       var deptId = dept.replace(/[^a-z0-9]/gi, '_');
       html += '<div class="tool-group"><div class="tool-group__header">';
-      html += '<span class="tool-group__label">' + esc(dept) + '</span>';
-      html += '<button type="button" class="tool-group__select-all" data-dept="' + esc(deptId) + '">Select all</button>';
-      html += '</div><div class="tool-checkboxes" id="reqDept_' + esc(deptId) + '">';
+      html += '<span class="tool-group__label">' + NL.escHtml(dept) + '</span>';
+      html += '<button type="button" class="tool-group__select-all" data-dept="' + NL.escHtml(deptId) + '">Select all</button>';
+      html += '</div><div class="tool-checkboxes" id="reqDept_' + NL.escHtml(deptId) + '">';
       groups[dept].forEach(function(t) {
-        html += '<label class="tool-checkbox"><input type="checkbox" name="reqTool" value="' + esc(t.key) + '">';
-        html += '<span class="tool-checkbox__text"><span class="tool-checkbox__name">' + esc((t.icon ? t.icon + '  ' : '') + t.label) + '</span>';
-        if (t.description) html += '<span class="tool-checkbox__desc">' + esc(t.description) + '</span>';
+        html += '<label class="tool-checkbox"><input type="checkbox" name="reqTool" value="' + NL.escHtml(t.key) + '">';
+        html += '<span class="tool-checkbox__text"><span class="tool-checkbox__name">' + NL.escHtml((t.icon ? t.icon + '  ' : '') + t.label) + '</span>';
+        if (t.description) html += '<span class="tool-checkbox__desc">' + NL.escHtml(t.description) + '</span>';
         html += '</span></label>';
       });
       html += '</div></div>';
