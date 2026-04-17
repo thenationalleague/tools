@@ -623,7 +623,7 @@ function loadUsers(){
 
 function listenData(){
   ensureAuth().then(function(){
-    db.ref('tasks').on('value',function(snap){
+    db.ref('app-data/staff-tasks/items').on('value',function(snap){
       S.tasks={};
       var all=snap.val()||{};
       Object.keys(all).forEach(function(id){
@@ -633,7 +633,7 @@ function listenData(){
       });
       updateBadges(); renderView();
     });
-    db.ref('projects').on('value',function(snap){
+    db.ref('app-data/staff-tasks/projects').on('value',function(snap){
       S.projects={};
       var all=snap.val()||{};
       Object.keys(all).forEach(function(id){
@@ -649,7 +649,7 @@ function listenData(){
 function logActivity(projId, icon, text){
   if(!projId) return;
   var entry={ icon:icon, text:text, uid:SESSION.uid, name:SESSION.name||'', at:Date.now() };
-  ensureAuth().then(function(){ db.ref('projects/'+projId+'/activity').push(entry); }).catch(function(){});
+  ensureAuth().then(function(){ db.ref('app-data/staff-tasks/projects/'+projId+'/activity').push(entry); }).catch(function(){});
 }
 
 /* ─── BADGES ─────────────────────────────────────────────── */
@@ -683,7 +683,7 @@ function renderView(){
   var el=document.getElementById('viewContent');
   if(S.view==='myday')         renderMyDay(el);
   else if(S.view==='all')      renderAll(el);
-  else if(S.view==='projects') renderProjects(el);
+  else if(S.view==='app-data/staff-tasks/projects') renderProjects(el);
   else if(S.view.startsWith('proj:')) renderProjDetail(el,S.view.replace('proj:',''));
 }
 
@@ -770,7 +770,7 @@ function buildTaskRow(t){
   chk.addEventListener('click',function(e){
     e.stopPropagation();
     var ns=t.status==='done'?'to-do':'done';
-    ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/status').set(ns); })
+    ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/status').set(ns); })
       .then(function(){ if(t.projectId) logActivity(t.projectId,'✅',SESSION.name+' marked "'+t.title+'" as '+statusLabel(ns)); })
       .catch(function(e){ showToast(e.message,'error'); });
   });
@@ -808,7 +808,7 @@ function buildTaskRow(t){
   star.addEventListener('click',function(e){
     e.stopPropagation();
     var inMD=!!(t.myDay&&t.myDay[SESSION.uid]);
-    var u={}; u['tasks/'+t._id+'/myDay/'+SESSION.uid]=inMD?null:true;
+    var u={}; u['app-data/staff-tasks/items/'+t._id+'/myDay/'+SESSION.uid]=inMD?null:true;
     ensureAuth().then(function(){ return db.ref().update(u); }).then(function(){ showToast(inMD?'Removed from My Day':'Added to My Day','success'); }).catch(function(e){ showToast(e.message,'error'); });
   });
   right.appendChild(star);
@@ -917,7 +917,7 @@ function renderProjDetail(el, projId){
   var dot=document.createElement('div'); dot.className='proj-header__colour'; dot.style.background=projColour(proj);
   var title=document.createElement('div'); title.className='proj-header__title'; title.textContent=proj.title;
   var backBtn=document.createElement('button'); backBtn.className='btn btn-ghost btn-sm'; backBtn.textContent='← Back';
-  backBtn.addEventListener('click',function(){ setView('projects'); });
+  backBtn.addEventListener('click',function(){ setView('app-data/staff-tasks/projects'); });
   var addTaskBtn=document.createElement('button'); addTaskBtn.className='btn btn-primary btn-sm'; addTaskBtn.textContent='+ Task';
   addTaskBtn.addEventListener('click',function(){ openCreate(projId); });
   top.appendChild(dot); top.appendChild(title); top.appendChild(backBtn); top.appendChild(addTaskBtn);
@@ -952,7 +952,7 @@ function renderProjBoard(el,tasks,projId){
   var statuses=['to-do','in-progress','done'];
 
   function moveTask(taskId, newStatus) {
-    ensureAuth().then(function(){ return db.ref('tasks/'+taskId+'/status').set(newStatus); })
+    ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+taskId+'/status').set(newStatus); })
       .then(function(){
         var t=S.tasks[taskId];
         logActivity(projId,'✅',(SESSION.name||'Someone')+' moved "'+(t?t.title:taskId)+'" to '+statusLabel(newStatus));
@@ -1044,7 +1044,7 @@ function renderProjMembers(el, proj, projId){
       var chips=document.querySelectorAll('#projMemChips .person-chip');
       if(!chips.length){ showToast('Select a person first','error'); return; }
       var updates={};
-      chips.forEach(function(chip){ var uid=chip.dataset.uid; if(uid) updates['projects/'+projId+'/members/'+uid]=true; });
+      chips.forEach(function(chip){ var uid=chip.dataset.uid; if(uid) updates['app-data/staff-tasks/projects/'+projId+'/members/'+uid]=true; });
       ensureAuth().then(function(){ return db.ref().update(updates); })
         .then(function(){
           showToast('Member added','success');
@@ -1074,7 +1074,7 @@ function renderProjMembers(el, proj, projId){
       var rem=document.createElement('button'); rem.className='member-row__remove'; rem.textContent='Remove';
       rem.addEventListener('click',function(){
         if(rem.dataset.c!=='1'){ rem.dataset.c='1'; rem.textContent='Confirm?'; setTimeout(function(){ if(rem.dataset.c==='1'){ rem.dataset.c='0'; rem.textContent='Remove'; } },3000); return; }
-        ensureAuth().then(function(){ return db.ref('projects/'+projId+'/members/'+uid).remove(); })
+        ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/projects/'+projId+'/members/'+uid).remove(); })
           .then(function(){ showToast('Member removed','success'); logActivity(projId,'👤','Removed '+uname(uid)+' from project'); S.projView='members'; renderProjDetail(el,projId); })
           .catch(function(e){ showToast(e.message,'error'); });
       });
@@ -1156,7 +1156,7 @@ function renderProjSettings(el, proj, projId){
     var newStart=startField.inp.value?new Date(startField.inp.value).getTime():null;
     var newEnd=endField.inp.value?new Date(endField.inp.value).getTime():null;
     ensureAuth().then(function(){
-      return db.ref('projects/'+projId).update({ title:newTitle, description:descInput.value.trim(), status:statusSel.value, colour:selectedColour, startDate:newStart, deadline:newEnd });
+      return db.ref('app-data/staff-tasks/projects/'+projId).update({ title:newTitle, description:descInput.value.trim(), status:statusSel.value, colour:selectedColour, startDate:newStart, deadline:newEnd });
     }).then(function(){
       showToast('Project updated','success');
       logActivity(projId,'✏️',SESSION.name+' updated project details');
@@ -1174,14 +1174,14 @@ function renderProjSettings(el, proj, projId){
     var archBtn=document.createElement('button'); archBtn.className='btn btn-ghost'; archBtn.style.marginRight='8px'; archBtn.textContent='Archive Project';
     archBtn.addEventListener('click',function(){
       if(archBtn.dataset.c!=='1'){ archBtn.dataset.c='1'; archBtn.textContent='Confirm archive?'; setTimeout(function(){ if(archBtn.dataset.c==='1'){ archBtn.dataset.c='0'; archBtn.textContent='Archive Project'; } },3000); return; }
-      ensureAuth().then(function(){ return db.ref('projects/'+projId+'/archived').set(true); })
-        .then(function(){ showToast('Project archived','info'); setView('projects'); }).catch(function(e){ showToast(e.message,'error'); });
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/projects/'+projId+'/archived').set(true); })
+        .then(function(){ showToast('Project archived','info'); setView('app-data/staff-tasks/projects'); }).catch(function(e){ showToast(e.message,'error'); });
     });
     var delBtn=document.createElement('button'); delBtn.className='btn btn-danger'; delBtn.textContent='Delete Project';
     delBtn.addEventListener('click',function(){
       if(delBtn.dataset.c!=='1'){ delBtn.dataset.c='1'; delBtn.textContent='Confirm delete?'; delBtn.style.cssText='background:var(--red);color:#fff;'; setTimeout(function(){ if(delBtn.dataset.c==='1'){ delBtn.dataset.c='0'; delBtn.textContent='Delete Project'; delBtn.style.cssText=''; } },3000); return; }
-      ensureAuth().then(function(){ return db.ref('projects/'+projId).remove(); })
-        .then(function(){ showToast('Project deleted','success'); setView('projects'); }).catch(function(e){ showToast(e.message,'error'); });
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/projects/'+projId).remove(); })
+        .then(function(){ showToast('Project deleted','success'); setView('app-data/staff-tasks/projects'); }).catch(function(e){ showToast(e.message,'error'); });
     });
     dz.appendChild(dzl); dz.appendChild(archBtn); dz.appendChild(delBtn);
     el.appendChild(dz);
@@ -1295,7 +1295,7 @@ function saveCreate(){
   var projId=document.getElementById('cProject').value||null;
   var data={ title:title, description:'', status:document.getElementById('cStatus').value, priority:document.getElementById('cPriority').value, deadline:dlVal?new Date(dlVal).getTime():null, startDate:sdVal?new Date(sdVal).getTime():null, assignees:assignees, followers:{}, tags:S.cTags.slice(), dependsOn:[], projectId:projId, createdBy:SESSION.uid, createdAt:Date.now(), myDay:{}, steps:{}, notes:{}, archived:false };
   var btn=document.getElementById('createSave'); btn.disabled=true; btn.textContent='Saving…';
-  ensureAuth().then(function(){ return db.ref('tasks').push(data); })
+  ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items').push(data); })
     .then(function(ref){
       showToast('Task created','success'); closeCreate();
       if(projId) logActivity(projId,'📝',SESSION.name+' created task "'+title+'"');
@@ -1332,7 +1332,7 @@ function renderDetail(t){
   if(isCreator){
     titleEl.addEventListener('blur',function(){
       var v=titleEl.value.trim(); if(!v||v===t.title) return;
-      ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/title').set(v); })
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/title').set(v); })
         .then(function(){ showToast('Title updated','success'); if(t.projectId) logActivity(t.projectId,'✏️',SESSION.name+' renamed task to "'+v+'"'); })
         .catch(function(e){ showToast(e.message,'error'); });
     });
@@ -1344,7 +1344,7 @@ function renderDetail(t){
     var ds=mkSec('Description');
     if(isCreator){
       var descTA=document.createElement('textarea'); descTA.style.cssText='width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:14px;resize:vertical;min-height:72px'; descTA.value=t.description||''; descTA.placeholder='Add a description…';
-      descTA.addEventListener('blur',function(){ if(descTA.value!==t.description){ ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/description').set(descTA.value); }).catch(function(e){ showToast(e.message,'error'); }); } });
+      descTA.addEventListener('blur',function(){ if(descTA.value!==t.description){ ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/description').set(descTA.value); }).catch(function(e){ showToast(e.message,'error'); }); } });
       ds.appendChild(descTA);
     } else if(t.description){
       var dt=document.createElement('div'); dt.style.cssText='font-size:14px;line-height:1.6;white-space:pre-wrap'; dt.textContent=t.description; ds.appendChild(dt);
@@ -1364,14 +1364,14 @@ function renderDetail(t){
   if(isCreator||isAssignee){
     dueIn.addEventListener('change',function(){
       var val=dueIn.value?new Date(dueIn.value).getTime():null;
-      ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/deadline').set(val); })
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/deadline').set(val); })
         .then(function(){ showToast('Due date updated','success'); })
         .catch(function(e){ showToast(e.message,'error'); });
     });
     if(t.deadline&&proj&&proj.deadline){
       var resetLink=document.createElement('button'); resetLink.className='date-reset'; resetLink.textContent='Revert to project date';
       resetLink.addEventListener('click',function(){
-        ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/deadline').set(null); })
+        ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/deadline').set(null); })
           .then(function(){ showToast('Reverted to project date','success'); openDetail(t._id); })
           .catch(function(e){ showToast(e.message,'error'); });
       });
@@ -1387,7 +1387,7 @@ function renderDetail(t){
   if(isCreator||isAssignee){
     startIn.addEventListener('change',function(){
       var val=startIn.value?new Date(startIn.value).getTime():null;
-      ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/startDate').set(val); })
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/startDate').set(val); })
         .catch(function(e){ showToast(e.message,'error'); });
     });
   } else { startIn.readOnly=true; }
@@ -1406,7 +1406,7 @@ function renderDetail(t){
     var val=depSel.value; if(!val) return;
     var deps=(t.dependsOn||[]).slice(); if(deps.indexOf(val)!==-1) return;
     deps.push(val);
-    ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/dependsOn').set(deps); })
+    ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/dependsOn').set(deps); })
       .then(function(){ showToast('Dependency added','success'); openDetail(t._id); })
       .catch(function(e){ showToast(e.message,'error'); });
   });
@@ -1424,7 +1424,7 @@ function renderDetail(t){
     var rm=document.createElement('button'); rm.style.cssText='background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px;padding:0 3px'; rm.textContent='×'; rm.setAttribute('type','button');
     rm.addEventListener('click',function(){
       var deps=(t.dependsOn||[]).filter(function(d){ return d!==depId; });
-      ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/dependsOn').set(deps); })
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/dependsOn').set(deps); })
         .then(function(){ openDetail(t._id); }).catch(function(e){ showToast(e.message,'error'); });
     });
     row.appendChild(icon); row.appendChild(lbl); row.appendChild(rm); depFg.appendChild(row);
@@ -1438,7 +1438,7 @@ function renderDetail(t){
       var snapLbl=document.createElement('label'); snapLbl.htmlFor='snap_'+depId; snapLbl.textContent='Start when "'+( dep.title||depId)+'" ends ('+fmtDate(dep.deadline)+')';
       snapChk.addEventListener('change',function(){
         var newStart=snapChk.checked?dep.deadline:null;
-        ensureAuth().then(function(){ return db.ref('tasks/'+t._id+'/startDate').set(newStart); })
+        ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+t._id+'/startDate').set(newStart); })
           .then(function(){ showToast(snapChk.checked?'Start date snapped to dependency':'Start date cleared','success'); openDetail(t._id); })
           .catch(function(e){ showToast(e.message,'error'); });
       });
@@ -1472,7 +1472,7 @@ function renderDetail(t){
   stSel.style.cssText='padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:14px;background:var(--white);cursor:pointer;width:100%';
   for(var oi=0;oi<stSel.options.length;oi++){ if(stSel.options[oi].value===t.status) stSel.selectedIndex=oi; }
   stSel.addEventListener('change',function(){
-    ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/status').set(stSel.value); })
+    ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/status').set(stSel.value); })
       .then(function(){ showToast('Updated','success'); if(t.projectId) logActivity(t.projectId,'✅',SESSION.name+' changed "'+t.title+'" to '+statusLabel(stSel.value)); })
       .catch(function(e){ showToast(e.message,'error'); });
   });
@@ -1488,7 +1488,7 @@ function renderDetail(t){
   var mdS=mkSec('');
   var mdBtn=document.createElement('button'); mdBtn.className='btn btn-ghost'; mdBtn.style.width='100%';
   var inMD=!!(t.myDay&&t.myDay[SESSION.uid]); mdBtn.textContent=inMD?'⭐ Remove from My Day':'⭐ Add to My Day';
-  mdBtn.addEventListener('click',function(){ var u={}; u['tasks/'+S.detailId+'/myDay/'+SESSION.uid]=inMD?null:true; ensureAuth().then(function(){ return db.ref().update(u); }).then(function(){ showToast(inMD?'Removed':'Added to My Day','success'); openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); });
+  mdBtn.addEventListener('click',function(){ var u={}; u['app-data/staff-tasks/items/'+S.detailId+'/myDay/'+SESSION.uid]=inMD?null:true; ensureAuth().then(function(){ return db.ref().update(u); }).then(function(){ showToast(inMD?'Removed':'Added to My Day','success'); openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); });
   mdS.appendChild(mdBtn); body.appendChild(mdS);
 
   /* Archive/delete */
@@ -1497,11 +1497,11 @@ function renderDetail(t){
     var dz=document.createElement('div'); dz.className='danger-zone';
     var dzl=document.createElement('div'); dzl.className='danger-zone__lbl'; dzl.textContent='Actions';
     var archBtn=document.createElement('button'); archBtn.className='btn btn-ghost'; archBtn.style.marginRight='8px'; archBtn.textContent='Archive';
-    archBtn.addEventListener('click',function(){ ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/archived').set(true); }).then(function(){ showToast('Archived','info'); closeDetail(); }).catch(function(e){ showToast(e.message,'error'); }); });
+    archBtn.addEventListener('click',function(){ ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/archived').set(true); }).then(function(){ showToast('Archived','info'); closeDetail(); }).catch(function(e){ showToast(e.message,'error'); }); });
     var delBtn=document.createElement('button'); delBtn.className='btn btn-danger'; delBtn.textContent='Delete';
     delBtn.addEventListener('click',function(){
       if(delBtn.dataset.c!=='1'){ delBtn.dataset.c='1'; delBtn.textContent='Confirm?'; delBtn.style.cssText='background:var(--red);color:#fff;'; setTimeout(function(){ if(delBtn.dataset.c==='1'){ delBtn.dataset.c='0'; delBtn.textContent='Delete'; delBtn.style.cssText=''; } },3000); return; }
-      ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId).remove(); }).then(function(){ showToast('Deleted','success'); closeDetail(); }).catch(function(e){ showToast(e.message,'error'); });
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId).remove(); }).then(function(){ showToast('Deleted','success'); closeDetail(); }).catch(function(e){ showToast(e.message,'error'); });
     });
     dz.appendChild(dzl); dz.appendChild(archBtn); dz.appendChild(delBtn); body.appendChild(dz);
   }
@@ -1517,7 +1517,7 @@ function buildStepsSec(t,canEdit){
     var row=document.createElement('div'); row.className='step-add-row';
     var inp=document.createElement('input'); inp.placeholder='Add a step\u2026';
     var addBtn=document.createElement('button'); addBtn.className='btn btn-ghost btn-sm'; addBtn.textContent='Add'; addBtn.setAttribute('type','button');
-    function doAdd(){ var v=inp.value.trim(); if(!v) return; ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/steps').push({title:v,done:false}); }).then(function(){ inp.value=''; openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); }
+    function doAdd(){ var v=inp.value.trim(); if(!v) return; ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/steps').push({title:v,done:false}); }).then(function(){ inp.value=''; openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); }
     inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); doAdd(); } });
     addBtn.addEventListener('click',doAdd);
     row.appendChild(inp); row.appendChild(addBtn); sec.appendChild(row);
@@ -1527,10 +1527,10 @@ function buildStepsSec(t,canEdit){
 function buildStepEl(sid,step,canEdit){
   var el=document.createElement('div'); el.className='step-item';
   var chk=document.createElement('div'); chk.className='step-check'+(step.done?' step-check--done':'');
-  if(canEdit){ chk.addEventListener('click',function(e){ e.stopPropagation(); ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/steps/'+sid+'/done').set(!step.done); }).then(function(){ openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); }); }
+  if(canEdit){ chk.addEventListener('click',function(e){ e.stopPropagation(); ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/steps/'+sid+'/done').set(!step.done); }).then(function(){ openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); }); }
   var title=document.createElement('span'); title.className='step-title'+(step.done?' step-title--done':''); title.textContent=step.title;
   el.appendChild(chk); el.appendChild(title);
-  if(canEdit){ var del=document.createElement('button'); del.className='step-del'; del.textContent='×'; del.setAttribute('type','button'); del.addEventListener('click',function(e){ e.stopPropagation(); ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/steps/'+sid).remove(); }).then(function(){ openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); }); el.appendChild(del); }
+  if(canEdit){ var del=document.createElement('button'); del.className='step-del'; del.textContent='×'; del.setAttribute('type','button'); del.addEventListener('click',function(e){ e.stopPropagation(); ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/steps/'+sid).remove(); }).then(function(){ openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); }); el.appendChild(del); }
   return el;
 }
 
@@ -1546,7 +1546,7 @@ function buildNotesSec(t,isCreator){
   noteBtn.addEventListener('click',function(){
     var text=noteIn.value.trim(); if(!text) return;
     var note={uid:SESSION.uid,name:SESSION.name||'',text:text,timestamp:Date.now()};
-    ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/notes').push(note); })
+    ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/notes').push(note); })
       .then(function(){ showToast('Posted','success'); noteIn.value=''; openDetail(S.detailId); if(t.projectId) logActivity(t.projectId,'💬',SESSION.name+' commented on "'+t.title+'"'); })
       .catch(function(e){ showToast(e.message,'error'); });
   });
@@ -1567,12 +1567,12 @@ function buildNoteEl(nId,n,isCreator){
       var existing=nd.querySelector('.note-edit-ta'); if(existing){ existing.remove(); var sv2=nd.querySelector('.note-save-btn'); if(sv2) sv2.remove(); ea.textContent='Edit'; return; }
       var inp=document.createElement('textarea'); inp.className='note-edit-ta'; inp.value=nd.querySelector('.note__text').textContent; inp.style.cssText='width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;resize:vertical;min-height:56px';
       var sv=document.createElement('button'); sv.className='btn btn-primary btn-sm note-save-btn'; sv.textContent='Save'; sv.setAttribute('type','button'); sv.style.marginTop='6px';
-      sv.addEventListener('click',function(){ var txt=inp.value.trim(); if(!txt) return; ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/notes/'+nId+'/text').set(txt); }).then(function(){ showToast('Updated','success'); openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); });
+      sv.addEventListener('click',function(){ var txt=inp.value.trim(); if(!txt) return; ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/notes/'+nId+'/text').set(txt); }).then(function(){ showToast('Updated','success'); openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); }); });
       nd.appendChild(inp); nd.appendChild(sv); ea.textContent='Cancel';
     });
     da.addEventListener('click',function(){
       if(da.dataset.c!=='1'){ da.dataset.c='1'; da.textContent='Sure?'; setTimeout(function(){ if(da.dataset.c==='1'){ da.dataset.c='0'; da.textContent='Delete'; } },3000); return; }
-      ensureAuth().then(function(){ return db.ref('tasks/'+S.detailId+'/notes/'+nId).remove(); }).then(function(){ showToast('Deleted','success'); openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); });
+      ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/items/'+S.detailId+'/notes/'+nId).remove(); }).then(function(){ showToast('Deleted','success'); openDetail(S.detailId); }).catch(function(e){ showToast(e.message,'error'); });
     });
     nh.appendChild(ea); nh.appendChild(da);
   }
@@ -1641,7 +1641,7 @@ function saveProjModal(){
   var members={}; members[SESSION.uid]=true; S.pMembers.forEach(function(m){ members[m.uid]=true; });
   var data={ title:title, description:(document.getElementById('pDesc').value||'').trim(), status:document.getElementById('pStatus').value, priority:document.getElementById('pPriority').value, startDate:sdVal?new Date(sdVal).getTime():null, deadline:dlVal?new Date(dlVal).getTime():null, colour:S.pColour, members:members, tags:S.pTags.slice(), createdBy:SESSION.uid, createdAt:Date.now(), archived:false, activity:{} };
   var btn=document.getElementById('projModalSave'); btn.disabled=true; btn.textContent='Creating…';
-  ensureAuth().then(function(){ return db.ref('projects').push(data); })
+  ensureAuth().then(function(){ return db.ref('app-data/staff-tasks/projects').push(data); })
     .then(function(ref){
       logActivity(ref.key,'🎉',SESSION.name+' created the project');
       showToast('Project created','success'); closeProjModal(); setView('proj:'+ref.key);
