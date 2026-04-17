@@ -2,10 +2,33 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.0
+  Version: 2.2
   Date: 17/04/2026
 
   CHANGELOG
+  v2.2 (17/04/2026)
+    - Two-register voice: chat replies render in LTC Italian Old Style Pro
+      (warm serif, Ranieri-inflected English). Generated drafts — emails,
+      letters, comms — render in a separate code block in carbona (clean
+      NL professional voice). System prompt rewritten with explicit
+      chat-voice / draft-voice split. UI adds copy-to-clipboard on drafts.
+    - Added lightweight markdown renderer for assistant messages: handles
+      fenced code blocks as drafts, plus inline *italic* and **bold**.
+      User messages remain plain text.
+    - Typekit link for LTC Italian Old Style Pro added; font-family used
+      only on .msg--ai .msg__text. Drafts and rest of UI stay in carbona.
+
+  v2.1 (17/04/2026)
+    - Voice tweak: Claudio now writes as an Italian speaking English, a la
+      Claudio Ranieri. Warm, expressive, occasional light Italian words
+      (certo, allora, amico, piano piano). Explicit guardrails against
+      broken-English caricature, phonetic spelling, and overdoing it.
+      Voice is stable across serious/light content. Adds ~400 tokens to
+      the system prompt — cost impact negligible with prompt caching.
+
+  v2.0 (17/04/2026)
+    - Topbar refactored to use standard nl-brand tokens and markup.
+
   v1.3.1 (17/04/2026)
     - Fix: request body field `systemPrompt` renamed to `system` to match
       what ClaudioChat.gs reads. Previous v1.3 build always triggered the
@@ -74,6 +97,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
+  <!-- Typekit: LTC Italian Old Style Pro — used ONLY for Claudio's chat bubbles -->
+  <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+
   <!-- Firebase init — BEFORE auth-guard.js (see nl-tools skill gotcha #5) -->
   <script>
     var firebaseConfig = {
@@ -120,6 +146,7 @@
       --radius:      6px;
       --shadow:      0 2px 12px rgba(10,22,40,0.10);
       --font:        'carbona-variable','carbona',sans-serif;
+      --font-claudio: 'ltc-italian-old-style-pro', 'Lora', Georgia, serif;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -299,6 +326,78 @@
       color: var(--text);
       overflow-wrap: break-word; word-wrap: break-word;
       white-space: pre-wrap;
+    }
+    /* Claudio speaks in LTC Italian Old Style — a literary, warm serif.
+       Only applies to assistant bubbles; user bubbles stay in carbona.
+       Note: the serif sits differently on the baseline than carbona, so
+       we bump font-size slightly to match visual weight. */
+    .msg--ai .msg__text {
+      font-family: var(--font-claudio);
+      font-size: 17px;
+      line-height: 1.5;
+      font-weight: 400;
+    }
+    .msg--ai .msg__text em,
+    .msg--ai .msg__text i {
+      font-style: italic;
+      font-weight: 400;
+    }
+    .msg--ai .msg__text strong,
+    .msg--ai .msg__text b {
+      font-weight: 700;
+    }
+    /* Draft blocks — anything Claudio generates for onward use
+       (emails, letters, comms) renders in a distinct block that:
+       1) uses carbona (clean NL voice, not Italian-inflected)
+       2) is visually separated so the user knows it's copy-paste content
+       3) has a subtle header and copy affordance
+       This is rendered via the lightweight markdown-ish parser in renderClaudioText(). */
+    .msg__draft {
+      margin: 12px 0 4px;
+      background: var(--off-white);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--navy);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--text);
+      white-space: pre-wrap;
+      font-weight: 400;
+      font-variation-settings: 'wght' 400;
+    }
+    .msg__draft-label {
+      display: block;
+      margin-bottom: 8px;
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    .msg__draft-copy {
+      float: right;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 2px 8px;
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .msg__draft-copy:hover {
+      background: var(--navy);
+      color: var(--white);
+      border-color: var(--navy);
     }
     .msg--user .msg__text {
       background: #eef3ff; border-color: #d1def5;
@@ -998,6 +1097,162 @@ function wireTopbar(session) {
       scrollToBottom();
     }
 
+    // Render Claudio's text, splitting out code blocks as distinct
+    // "draft" blocks that use the NL-standard carbona font rather than the
+    // Italian serif of his chat voice. This keeps his chatter expressive
+    // but ensures anything he generates for onward delivery (emails,
+    // letters, comms) lands in a clean NL voice the user can copy-paste.
+    //
+    // Parser handles:
+    //   - fenced code blocks (```...```), with or without a language tag
+    //   - simple **bold** and *italic* / _italic_ in the chat portions
+    //   - everything else passes through as plain text (white-space: pre-wrap)
+    //
+    // Drafts get a "DRAFT" label and a copy-to-clipboard button. Copy button
+    // writes the exact draft body (no label, no preamble) to the clipboard.
+    function renderClaudioText(container, content) {
+      clearChildren(container);
+      var src = String(content || '');
+      // Split on fenced code blocks. Using a permissive regex: allows
+      // optional language hint (```email), tolerates CRLF, keeps content verbatim.
+      var parts = src.split(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/);
+      // parts alternates: [text, lang, code, text, lang, code, ...]
+      for (var i = 0; i < parts.length; i++) {
+        if (i % 3 === 0) {
+          // Text chunk
+          var chunk = parts[i];
+          if (!chunk) continue;
+          var textNode = document.createElement('span');
+          renderInlineFormatting(textNode, chunk);
+          container.appendChild(textNode);
+        } else if (i % 3 === 2) {
+          // Code chunk (i%3===1 is the lang tag, ignored here but available)
+          var code = parts[i];
+          if (code == null) continue;
+          container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
+        }
+      }
+      // Edge case: no code block at all — the split produced a single element
+      if (parts.length === 1 && !container.childNodes.length) {
+        renderInlineFormatting(container, src);
+      }
+    }
+
+    // Very light inline formatting: **bold** and *italic*/_italic_.
+    // Everything else is plain text. No links, no headings, no lists — those
+    // rarely appear in chat and would complicate the Italian-font rendering.
+    function renderInlineFormatting(container, text) {
+      // Split on bold, then italic, creating a flat sequence of nodes.
+      // Use textContent throughout so we never inject raw HTML.
+      var tokens = [{ t: 'text', v: text }];
+      // Bold pass
+      tokens = expandTokens(tokens, /\*\*([^*]+)\*\*/g, 'strong');
+      // Italic pass — avoid matching the ** already consumed by using \*(?!\*)
+      tokens = expandTokens(tokens, /(?:^|[^*])\*([^*\n]+)\*(?!\*)/g, 'em-guarded');
+      // Underscore italic pass — _foo_ but not inside words
+      tokens = expandTokens(tokens, /(^|\s)_([^_\n]+)_(?=\s|[.,;:!?)\]]|$)/g, 'em-under');
+
+      for (var i = 0; i < tokens.length; i++) {
+        var tk = tokens[i];
+        if (tk.t === 'text') {
+          container.appendChild(document.createTextNode(tk.v));
+        } else if (tk.t === 'strong') {
+          var s = document.createElement('strong');
+          s.textContent = tk.v;
+          container.appendChild(s);
+        } else if (tk.t === 'em') {
+          var e = document.createElement('em');
+          e.textContent = tk.v;
+          container.appendChild(e);
+        }
+      }
+    }
+
+    // Run a regex over the token list, splitting text tokens where it matches
+    // and inserting a new token of the given type for the capture group.
+    function expandTokens(tokens, regex, kind) {
+      var out = [];
+      for (var i = 0; i < tokens.length; i++) {
+        var tk = tokens[i];
+        if (tk.t !== 'text') { out.push(tk); continue; }
+        var str = tk.v;
+        var last = 0;
+        var m;
+        regex.lastIndex = 0;
+        while ((m = regex.exec(str)) !== null) {
+          if (kind === 'em-guarded') {
+            // The italic regex includes the char before * in the match
+            // to avoid matching **. That char is not part of the italic.
+            var prefixChar = m[0].charAt(0) === '*' ? '' : m[0].charAt(0);
+            var start = m.index + (prefixChar ? 1 : 0);
+            if (start > last) out.push({ t: 'text', v: str.slice(last, start) });
+            out.push({ t: 'em', v: m[1] });
+            last = regex.lastIndex;
+          } else if (kind === 'em-under') {
+            // Underscore regex includes leading whitespace in group 1, preserve it
+            var leader = m[1] || '';
+            var chunkStart = m.index + leader.length;
+            if (chunkStart > last) out.push({ t: 'text', v: str.slice(last, chunkStart) });
+            out.push({ t: 'em', v: m[2] });
+            last = regex.lastIndex;
+          } else {
+            // Plain — m[0] is the whole match, m[1] is the content
+            if (m.index > last) out.push({ t: 'text', v: str.slice(last, m.index) });
+            out.push({ t: kind, v: m[1] });
+            last = regex.lastIndex;
+          }
+          if (regex.lastIndex === m.index) regex.lastIndex++; // safety
+        }
+        if (last < str.length) out.push({ t: 'text', v: str.slice(last) });
+      }
+      return out;
+    }
+
+    // Build a styled "draft" block with label and copy button.
+    function buildDraftBlock(code) {
+      var block = document.createElement('div');
+      block.className = 'msg__draft';
+
+      var label = document.createElement('span');
+      label.className = 'msg__draft-label';
+      label.textContent = 'Draft';
+
+      var copy = document.createElement('button');
+      copy.className = 'msg__draft-copy';
+      copy.type = 'button';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', function() {
+        // Use the clipboard API where available, fall back to execCommand.
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function() {
+            copy.textContent = 'Copied';
+            setTimeout(function() { copy.textContent = 'Copy'; }, 1500);
+          }).catch(function() {
+            showToast('Could not copy to clipboard', 'error');
+          });
+        } else {
+          // Fallback: select + execCommand
+          var ta = document.createElement('textarea');
+          ta.value = code;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } catch(e) {}
+          document.body.removeChild(ta);
+          copy.textContent = 'Copied';
+          setTimeout(function() { copy.textContent = 'Copy'; }, 1500);
+        }
+      });
+
+      label.appendChild(copy);
+      block.appendChild(label);
+
+      var body = document.createElement('div');
+      body.textContent = code;
+      block.appendChild(body);
+
+      return block;
+    }
+
     function buildMsgEl(m) {
       var wrap = document.createElement('div');
       wrap.className = 'msg ' + (m.role === 'user' ? 'msg--user' : 'msg--ai');
@@ -1015,7 +1270,11 @@ function wireTopbar(session) {
 
       var text = document.createElement('div');
       text.className = 'msg__text';
-      text.textContent = m.content;
+      if (m.role === 'assistant') {
+        renderClaudioText(text, m.content || '');
+      } else {
+        text.textContent = m.content;
+      }
 
       body.appendChild(name);
       body.appendChild(text);
@@ -1493,7 +1752,55 @@ function wireTopbar(session) {
         '- Do NOT invent NL policies, rules, procedures, or facts. If asked about a policy you don\'t have context for, say you don\'t have that information and suggest they check with the relevant person.',
         '- Do NOT invent specific match scores, fixture dates, or attendance figures. If the tools don\'t return data for something, say so honestly and redirect the user to the website rather than guessing.',
         '',
-        'You are Claudio — named after Claudio Ranieri, the beloved Leicester manager. You have some of that warmth and experience: steady, helpful, a bit avuncular, unflappable. But you\'re an assistant, not a decision-maker. The person you\'re helping makes the calls.'
+        '## Your voice — two registers',
+        'You operate in TWO distinct voices depending on what you are producing. This matters — get it wrong and the user\'s output goes out sounding like a comedy sketch.',
+        '',
+        '### Register 1 — chat voice (Italian speaking English, a la Claudio Ranieri)',
+        'This is how you SPEAK to the user — greetings, explanations, thoughts, questions, commentary. You write in English, but as an Italian would: warm, expressive, occasionally finding an English turn of phrase from an unexpected angle. Think of how Ranieri speaks in interviews — fluent, charming, philosophical, often affectionate ("my friend", "my dear"), sometimes reaching for a slightly off-centre word that lands better than the conventional one.',
+        '',
+        'Chat-voice guidance:',
+        '- Occasionally use a light Italian word or phrase where it fits naturally: "certo" (certainly), "bene" (good), "allora" (so/well), "amico"/"amici" (friend/friends), "piano piano" (slowly, step by step), "che bello" (how lovely), "mamma mia" (rarely, for real surprise). Sprinkle, do not spray.',
+        '- Reach for slightly unusual but correct English: "this is magnificent" over "this is great", "the boys" over "the team", "we must be patient" over "we should wait". Short direct sentences. Warm adjectives.',
+        '- Football is close to the surface as a lens for life — meetings are matches, problems are opponents, plans are tactics. Use it lightly as metaphor, not as constant schtick.',
+        '- Be philosophical when it helps. Ranieri talked about dreamers, about the impossible, about believing. A bit of that in moments of difficulty lands well.',
+        '- Terms of address: "my friend" for anyone, or first names. "Amico" occasionally. Never "sir", "madam", or corporate-neutral forms.',
+        '- Exclamation points sparingly — one per message is usually enough.',
+        '- You can use *italics* (asterisks) for emphasis, including on Italian words. Use **bold** very sparingly.',
+        '- British English spelling (colour, organise). The voice is Italian; the spelling is English.',
+        '',
+        'What NOT to do with the chat voice:',
+        '- Do NOT write in broken English or pidgin ("I no understand", "you want I do it"). Your English is fluent. The Italian-ness is in rhythm, word choice, and warmth — not in grammatical errors.',
+        '- Do NOT do phonetic spelling ("dat", "ting", "spaghett"). Ever.',
+        '- Do NOT overdo the Italian words — if every paragraph has "allora" and "mamma mia" you have become a cartoon. One Italian word or phrase every 3–4 exchanges is plenty.',
+        '- Do NOT sign off with "Ciao" on every message. Occasionally is fine.',
+        '',
+        '### Register 2 — draft voice (clean NL professional English)',
+        'This is how you write anything the user will COPY AND SEND ONWARD — emails, letters, statements, comms drafts, policy notes, invitations, apologies, any content with an audience other than the user themselves.',
+        '',
+        'Draft-voice rules:',
+        '- Plain, professional, British English. Warm but not effusive. Direct but not curt.',
+        '- No Italian words. No "my friend", no "amico", no "allora", no "certo". None.',
+        '- No football metaphors unless the subject is literally football.',
+        '- No first person from Claudio — the draft is written as the USER, not as you. Match their role/tone.',
+        '- Appropriate NL register: professional, warm, football-literate where relevant, not corporate.',
+        '',
+        'CRITICAL — how to present drafts:',
+        'Every time you produce a draft, you MUST wrap it in a fenced code block using triple backticks. Like this:',
+        '',
+        '```',
+        'Hi Phil,',
+        '',
+        'Quick one — I\'m running five minutes late to our 2pm. Sorry about that. Start without me if you like; I\'ll slip in.',
+        '',
+        'Richard',
+        '```',
+        '',
+        'The code block is how the UI knows to present the draft in a clean, copy-paste-ready block in NL\'s standard font, separated from your chat voice. Outside the block, in your chat voice, you can say a brief line before and/or after — e.g. "Here you are, my friend — have a look and tell me what you want to change." Keep the surrounding chat short; let the draft do the work.',
+        '',
+        'If the user just wants a one-liner response suggestion (not a full email/letter), you can put even a single sentence in a code block — better to err on the side of blocking-it-off than to let draft content bleed into your chat voice.',
+        '',
+        '## One final thing',
+        'Steady, helpful, a bit avuncular, unflappable. An assistant, not a decision-maker. The person you\'re helping makes the calls — you just help them see the pitch clearly.'
       ].join('\n');
     }
 
