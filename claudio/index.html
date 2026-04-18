@@ -2,10 +2,47 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.14
+  Version: 2.16
   Date: 18/04/2026
 
   CHANGELOG
+  v2.16 (18/04/2026) — Phase 1 Session 1: Team infrastructure
+    - Sidebar gains a "Your team" roster below the chat list. Shows
+      all five personas (Claudio, Roger, Seth, Mark, Jacqueline) with
+      avatar + name + role. Only Claudio is clickable; the rest are
+      visibly strikethrough with "coming soon" labels. Click Claudio
+      to start a new chat; click any other to see a "coming soon"
+      toast. Foundation for persona routing in Session 2.
+    - New PERSONAS constant: name, initial, role, availability, colour
+      for each team member. PERSONA_ORDER controls display order.
+    - Each conversation is now tagged with a persona field (default
+      'claudio'). Stored in RTDB, carried through to load/save.
+    - Conversation list items now show a small coloured persona avatar
+      before the title \u2014 so users can see which colleague a past
+      chat was with.
+    - Composer drafts auto-save to localStorage per-chat as the user
+      types, and restore when a chat is opened. Cleared on send.
+      Keyed by user UID so multi-user safe.
+    - `startNewChat(personaKey)` wrapper function added for Session 2's
+      persona-scoped new chats; `startNewConversation` still used by
+      the "New chat" button in the sidebar head.
+    - All additions backward-compatible: existing conversations
+      without a persona field default to 'claudio' and behave as
+      before.
+
+  v2.15 (18/04/2026)
+    - Tier 2 prompt updates for the new tools (5 new, 20 total).
+    - Tools list rewritten: grouped into "current season" / "club-scoped"
+      / "cross-club" / "calendar-date" sections. Easier for Claudio to
+      route queries to the narrowest tool.
+    - Filter composition expanded with dayOfWeek and monthOf examples
+      ("their Tuesday form", "in December").
+    - NEW "What you definitively don't have" section: explicit list of
+      omissions (attendance, referees, goalscorers, managers, stadiums,
+      bookings, etc). Claudio is now told plainly to confess these
+      rather than invent or silently redirect. Addresses the pattern
+      where he'd fudge data he didn't have.
+
   v2.14 (18/04/2026)
     - Hard prompt rule: "pass club names LITERALLY from the user".
       Claudio was silently substituting "Team Bath" → "Bath City"
@@ -413,6 +450,67 @@
       padding: 32px 16px; text-align: center;
       color: var(--text-muted); font-size: 13px;
     }
+
+    /* ===== v3.0 — persona roster in sidebar ===== */
+    .persona-roster {
+      border-top: 1px solid var(--border);
+      padding: 12px 8px 8px;
+    }
+    .persona-roster__title {
+      font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text-muted); padding: 0 8px 8px;
+    }
+    .persona-roster__item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: var(--radius); cursor: pointer;
+      margin-bottom: 2px; transition: background 0.15s;
+    }
+    .persona-roster__item:hover { background: var(--off-white); }
+    .persona-roster__item.is-unavailable {
+      cursor: not-allowed; opacity: 0.55;
+    }
+    .persona-roster__item.is-unavailable:hover { background: transparent; }
+    .persona-roster__name {
+      font-size: 13px; font-weight: 700; font-variation-settings: 'wght' 700;
+      color: var(--text); line-height: 1.2;
+    }
+    .persona-roster__item.is-unavailable .persona-roster__name {
+      text-decoration: line-through; color: var(--text-muted);
+    }
+    .persona-roster__role {
+      font-size: 11px; color: var(--text-muted); line-height: 1.3;
+      font-weight: 500; font-variation-settings: 'wght' 500;
+    }
+    .persona-roster__status {
+      font-size: 9px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); margin-top: 1px;
+    }
+    .persona-roster__body { flex: 1; min-width: 0; }
+
+    /* Persona avatars (initials in coloured circle) */
+    .persona-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 800; font-variation-settings: 'wght' 800;
+      color: var(--white); flex-shrink: 0;
+      font-family: var(--font);
+    }
+    .persona-avatar--sm {
+      width: 22px; height: 22px; font-size: 10px;
+    }
+    .persona-avatar--claudio    { background: #223b7c; }  /* NL navy */
+    .persona-avatar--roger      { background: #4a7c59; }  /* sage green */
+    .persona-avatar--seth       { background: #9e0000; }  /* NL red */
+    .persona-avatar--mark       { background: #33383d; }  /* charcoal */
+    .persona-avatar--jacqueline { background: #2c7a7b; }  /* teal */
+
+    /* Conv-item: small persona avatar next to title */
+    .conv-item__head {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .conv-item__body { flex: 1; min-width: 0; }
 
     /* ===== Chat main ===== */
     .chat {
@@ -1222,13 +1320,17 @@
 </header>
 
     <div class="app">
-      <!-- Sidebar: conversation list -->
+      <!-- Sidebar: conversation list + persona roster -->
       <aside class="sidebar" id="sidebar">
         <div class="sidebar__head">
           <button class="btn-new" id="btnNew">New chat</button>
         </div>
         <div class="sidebar__list" id="convList">
           <div class="sidebar__empty">No conversations yet. Start one below.</div>
+        </div>
+        <div class="persona-roster" id="personaRoster">
+          <div class="persona-roster__title">Your team</div>
+          <!-- Populated by renderPersonaRoster() -->
         </div>
       </aside>
 
@@ -1287,6 +1389,61 @@
     // =========================================================================
     // STATE
     // =========================================================================
+    // PERSONAS — v3.0 Phase 1 scaffolding
+    // Only Claudio is "live" in Phase 1. The rest are shown for visual
+    // continuity but are flagged { available: false } and don't route.
+    // =========================================================================
+    var PERSONAS = {
+      claudio: {
+        key: 'claudio',
+        name: 'Claudio',
+        initial: 'C',
+        role: 'Manager & front desk',
+        roleShort: 'Front desk',
+        available: true,
+        colour: '#223b7c'
+      },
+      roger: {
+        key: 'roger',
+        name: 'Roger',
+        initial: 'R',
+        role: 'Club historian \u2014 1979-80 onwards',
+        roleShort: 'Club historian',
+        available: false,  // Flip to true in Session 3
+        colour: '#4a7c59'
+      },
+      seth: {
+        key: 'seth',
+        name: 'Seth',
+        initial: 'S',
+        role: 'Current season \u2014 live data',
+        roleShort: 'Current season',
+        available: false,
+        colour: '#9e0000'
+      },
+      mark: {
+        key: 'mark',
+        name: 'Mark',
+        initial: 'M',
+        role: 'Comms & drafting',
+        roleShort: 'Drafts & comms',
+        available: false,
+        colour: '#33383d'
+      },
+      jacqueline: {
+        key: 'jacqueline',
+        name: 'Jacqueline',
+        initial: 'J',
+        role: 'HR, handbook & leave',
+        roleShort: 'HR',
+        available: false,
+        colour: '#2c7a7b'
+      }
+    };
+    // Display order for the sidebar roster
+    var PERSONA_ORDER = ['claudio', 'roger', 'seth', 'mark', 'jacqueline'];
+
+    // =========================================================================
     var STATE = {
       session:   null,
       db:        null,
@@ -1333,6 +1490,7 @@ function wireTopbar(session) {
         .then(function() {
           renderWelcome();
           renderConvList();
+          renderPersonaRoster();   // v3.0: render the "your team" sidebar section
           wireUI();
         })
         .catch(function(err) {
@@ -1498,6 +1656,7 @@ function wireTopbar(session) {
           arr.push({
             id:       cid,
             title:    c.title || 'Untitled chat',
+            persona:  c.persona || 'claudio',
             updated:  c.updated || 0,
             created:  c.created || 0
           });
@@ -1610,6 +1769,20 @@ function wireTopbar(session) {
         var item = document.createElement('div');
         item.className = 'conv-item' + (c.id === STATE.activeId ? ' active' : '');
 
+        // v3.0: persona avatar on each conv-item
+        var head = document.createElement('div');
+        head.className = 'conv-item__head';
+
+        var personaKey = c.persona || 'claudio';
+        var persona = PERSONAS[personaKey] || PERSONAS.claudio;
+
+        var av = document.createElement('div');
+        av.className = 'persona-avatar persona-avatar--sm persona-avatar--' + persona.key;
+        av.textContent = persona.initial;
+
+        var body = document.createElement('div');
+        body.className = 'conv-item__body';
+
         var title = document.createElement('div');
         title.className = 'conv-item__title';
         title.textContent = c.title;
@@ -1617,6 +1790,12 @@ function wireTopbar(session) {
         var time = document.createElement('div');
         time.className = 'conv-item__time';
         time.textContent = relTime(c.updated || c.created);
+
+        body.appendChild(title);
+        body.appendChild(time);
+
+        head.appendChild(av);
+        head.appendChild(body);
 
         var del = document.createElement('button');
         del.className = 'conv-item__del';
@@ -1630,12 +1809,73 @@ function wireTopbar(session) {
           }
         });
 
-        item.appendChild(title);
-        item.appendChild(time);
+        item.appendChild(head);
         item.appendChild(del);
         item.addEventListener('click', function() { openConversation(c.id); });
 
         list.appendChild(item);
+      });
+    }
+
+    // =========================================================================
+    // UI — persona roster (sidebar) — v3.0 Phase 1
+    // Shows the "team" of personas. In Phase 1 only Claudio is clickable.
+    // Others are visibly strikethrough with "coming soon" labels.
+    // =========================================================================
+    function renderPersonaRoster() {
+      var roster = document.getElementById('personaRoster');
+      if (!roster) return;
+      // Clear everything except the title
+      while (roster.children.length > 1) roster.removeChild(roster.lastChild);
+
+      PERSONA_ORDER.forEach(function(key) {
+        var p = PERSONAS[key];
+        if (!p) return;
+
+        var item = document.createElement('div');
+        item.className = 'persona-roster__item' + (p.available ? '' : ' is-unavailable');
+        item.title = p.available ? ('Start a new chat with ' + p.name) : (p.name + ' isn\'t with us yet \u2014 coming soon');
+
+        var av = document.createElement('div');
+        av.className = 'persona-avatar persona-avatar--sm persona-avatar--' + p.key;
+        av.textContent = p.initial;
+
+        var body = document.createElement('div');
+        body.className = 'persona-roster__body';
+
+        var name = document.createElement('div');
+        name.className = 'persona-roster__name';
+        name.textContent = p.name;
+
+        var role = document.createElement('div');
+        role.className = 'persona-roster__role';
+        role.textContent = p.roleShort;
+
+        body.appendChild(name);
+        body.appendChild(role);
+
+        if (!p.available) {
+          var status = document.createElement('div');
+          status.className = 'persona-roster__status';
+          status.textContent = 'Coming soon';
+          body.appendChild(status);
+        }
+
+        item.appendChild(av);
+        item.appendChild(body);
+
+        item.addEventListener('click', function() {
+          if (!p.available) {
+            showToast(p.name + ' isn\'t with us yet \u2014 coming soon', 'info');
+            return;
+          }
+          // Available persona click \u2014 start a new chat "with" that persona.
+          // In Phase 1 this just means new Claudio chat; the persona plumbing
+          // becomes real in Session 2.
+          startNewChat(p.key);
+        });
+
+        roster.appendChild(item);
       });
     }
 
@@ -2575,9 +2815,38 @@ function wireTopbar(session) {
     // =========================================================================
     // CONVERSATIONS — open, new, delete
     // =========================================================================
+    // v3.0: composer draft auto-save per chat, localStorage-backed.
+    // Restores when a chat opens, saves as user types, clears on send.
+    function draftKey(cid) {
+      return 'claudio.draft.' + (STATE.session && STATE.session.uid || 'anon') + '.' + (cid || 'NEW');
+    }
+    function saveDraft(cid, text) {
+      try { localStorage.setItem(draftKey(cid), text || ''); }
+      catch (e) { /* quota etc. \u2014 not fatal */ }
+    }
+    function restoreDraft(cid) {
+      var input = document.getElementById('composerInput');
+      if (!input) return;
+      var saved = '';
+      try { saved = localStorage.getItem(draftKey(cid)) || ''; }
+      catch (e) {}
+      input.value = saved;
+      autoResize(input);
+    }
+    function clearDraft(cid) {
+      try { localStorage.removeItem(draftKey(cid)); }
+      catch (e) {}
+    }
+
     function openConversation(cid) {
       STATE.activeId = cid;
+      // Carry the conv's persona into pendingPersona so future triage / header
+      // treatments know who this chat "belongs to". Harmless in Phase 1 where
+      // everything is still Claudio.
+      var conv = STATE.convs.filter(function(c) { return c.id === cid; })[0];
+      STATE.pendingPersona = (conv && conv.persona) || 'claudio';
       renderConvList();
+      restoreDraft(cid);
 
       ensureAuth().then(function() {
         return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid + '/messages').once('value');
@@ -2603,8 +2872,25 @@ function wireTopbar(session) {
     function startNewConversation() {
       STATE.activeId = null;
       STATE.messages = [];
+      STATE.pendingPersona = 'claudio';  // v3.0: default persona for the next chat
       renderConvList();
       renderWelcome();
+      var input = document.getElementById('composerInput');
+      restoreDraft(null);
+      input.focus();
+    }
+
+    // v3.0 Phase 1 — `startNewChat(personaKey)` is called from the team
+    // roster. Currently all active personas go through the same path
+    // (Claudio chat); in Session 2 the pendingPersona will actually
+    // branch the prompt / tools on first send.
+    function startNewChat(personaKey) {
+      STATE.pendingPersona = personaKey || 'claudio';
+      STATE.activeId = null;
+      STATE.messages = [];
+      renderConvList();
+      renderWelcome();
+      restoreDraft(null);
       document.getElementById('composerInput').focus();
     }
 
@@ -2656,6 +2942,8 @@ function wireTopbar(session) {
       };
       STATE.messages.push(userMsg);
       input.value = '';
+      clearDraft(convId);
+      clearDraft(null);  // also clear the 'NEW' draft if this was a new chat
       autoResize(input);
 
       // If opening welcome screen, switch to messages view
@@ -2681,8 +2969,9 @@ function wireTopbar(session) {
       };
 
       // First call: create the conv record in RTDB (so it appears in sidebar immediately)
+      var personaForConv = STATE.pendingPersona || 'claudio';
       var createPromise = isNew
-        ? saveConversationRecord(convId, deriveTitle(text))
+        ? saveConversationRecord(convId, deriveTitle(text), personaForConv)
         : Promise.resolve();
 
       createPromise
@@ -2692,9 +2981,11 @@ function wireTopbar(session) {
             STATE.convs.unshift({
               id: convId,
               title: deriveTitle(text),
+              persona: personaForConv,
               updated: Date.now(),
               created: Date.now()
             });
+            STATE.pendingPersona = null;  // consumed
             renderConvList();
           }
           // Save user message to RTDB
@@ -2765,10 +3056,11 @@ function wireTopbar(session) {
     // =========================================================================
     // RTDB WRITES
     // =========================================================================
-    function saveConversationRecord(cid, title) {
+    function saveConversationRecord(cid, title, persona) {
       return ensureAuth().then(function() {
         return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid).update({
           title:   title,
+          persona: persona || 'claudio',   // v3.0: tag each conv with its persona
           created: firebase.database.ServerValue.TIMESTAMP,
           updated: firebase.database.ServerValue.TIMESTAMP
         });
@@ -2888,7 +3180,7 @@ function wireTopbar(session) {
         '',
         historicalBlock,
         '## Your tools',
-        'You have 12 tools available. Use them when the user\'s question needs them. Scan this list before answering any question that might need data.',
+        'You have 20 tools available. Use them when the user\'s question needs them. Scan this list before answering any question that might need data.',
         '',
         '### Current 2025-26 season (live data)',
         '- `getStandings({division})` — current league table',
@@ -2897,16 +3189,27 @@ function wireTopbar(session) {
         '- `getMatchDetail({matchId})` — goalscorers, cards, attendance for a specific match',
         '- `getTeamForm({team, matches?})` — last N matches for a team',
         '',
-        '### Historical data (1979-80 to most recent completed season)',
-        'IMPORTANT: The historical match data covers every match from 1979-80 (the first Alliance Premier League season) to the most recent completed season. That\'s over four decades of full match detail. If a user asks about a historical club, season, or match from that range, the data IS there \u2014 do not claim it isn\'t.',
-        '- `getClubSummary({club, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 a club\'s historical record with dynamic filters (see below). Use for "tell me about X", "how have they done overall", "their home record", "their record in the 2000s".',
-        '- `getClubMatches({club, limit?, order?, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 flat match list. Returns scores and outcomes for each match. Use for "show me their results", "their 2008-09 season results", "their last 20 matches", "every match Dorking played in the play-offs". Pairs with a styled nl-table renderer.',
-        '- `getHeadToHead({clubA, clubB, scope?, lineageA?, lineageB?, perspective?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 two-club record with filters. BOTH clubs can have lineage. Default perspective is clubA; use "neutral" when the question doesn\'t frame one club as subject.',
-        '- `getMostFrequentOpponents({club, limit?, lineage?, scope?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 ranked list of a club\'s most-played opponents. Use for "who have Altrincham played most?", "who\'s their biggest rival by meetings?", "most-played away opponent".',
-        '- `getLeagueTable({season, division, asOf?})` \u2014 historical league table for any season. Optional asOf date gives you the table as of that day ("Boxing Day 1999 table").',
-        '- `getClubStreak({club, type, scope?, mode?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 longest wins/unbeaten/losses/winless with filters. "longest home winning run" \u2192 venue:home. Modes: "all" (any span), "single" (within one season), "start" (from season start).',
-        '- `getClubRecords({club, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 best/worst/notable matches, with filters. "biggest home wins" \u2192 venue:home.',
-        '- `getAllTimeChampions({type?, scope?})` \u2014 cross-club, cross-season tallies. Answers "who\'s won the play-offs most times?", "most champions?", "most promoted?", "most relegated?". Walks every historical season on demand so it\'s slower (5-10s) \u2014 reserve it for questions that genuinely need cross-season aggregation.',
+        '### Historical data (1979-80 to 2024-25 \u2014 46 seasons, 41,859 matches, 199 clubs)',
+        'IMPORTANT: the historical data covers every match from 1979-80 (the first Alliance Premier League season) to 2024-25. If a user asks about a historical club, season, or match from that range, the data IS there.',
+        '',
+        '**Club-scoped tools** (all accept filters: venue/competition/season/seasonFrom/seasonTo/scope/dayOfWeek/monthOf/lineage):',
+        '- `getClubSummary` \u2014 overall record. For "tell me about X", "their home record", "their record in the 2000s".',
+        '- `getClubMatches` \u2014 flat match list. For "show me their results", "their 2008-09 season", "their last 20".',
+        '- `getHeadToHead` \u2014 two-club record. BOTH clubs accept lineage. Default perspective "clubA"; use "neutral" when question doesn\'t frame one club as subject.',
+        '- `getMostFrequentOpponents` \u2014 ranked list of a club\'s most-played opponents.',
+        '- `getClubStreak` \u2014 longest wins/unbeaten/losses/winless. Modes: all | single | start.',
+        '- `getClubRecords` \u2014 best/worst/notable match records (biggest win, heaviest defeat, etc).',
+        '',
+        '**Cross-club / cross-season tools:**',
+        '- `getLeagueTable({season, division, asOf?})` \u2014 historical league table. asOf date gives "table on Boxing Day 1999".',
+        '- `getAllTimeChampions({type?, scope?})` \u2014 ranked by honours (champions, playoff winners, promoted, relegated). SLOW (5-10s) \u2014 reserve for genuine cross-season aggregation.',
+        '- `getAllTimeMatchRecords({category, filters?})` \u2014 all-time match records. Categories: biggestWin | highestScoring | mostGoalsOneTeam.',
+        '- `getPlayoffs({season, division})` \u2014 playoff bracket (QF/SF/Final) with aet/pens/aggregate.',
+        '',
+        '**Calendar/date tools:**',
+        '- `getMatchesByCalendarDate({month, day, filters?})` \u2014 "Boxing Day matches", "Jan 1 fixtures". Not club-scoped.',
+        '- `getMatchesByDayOfWeek({dayOfWeek, club?, filters?})` \u2014 "Altrincham\'s midweek record". Accepts Mon-Sun or "weekend"/"midweek"/"weekday".',
+        '- `getMatchesByCalendarYear({year, club?, filters?})` \u2014 "in 2000", Jan-Dec. Distinct from football season.',
         '',
         '### Dynamic filter composition',
         'The club-based tools (getClubSummary, getClubMatches, getHeadToHead, getMostFrequentOpponents, getClubStreak, getClubRecords) share the same filter params. Compose them from the user\'s phrasing and combine freely:',
@@ -2914,8 +3217,10 @@ function wireTopbar(session) {
         '- **competition**: "in the play-offs" or "play-off record" \u2192 `competition: "playoff"`; "league only" \u2192 `competition: "league"`. Default is "all" (league + play-offs combined).',
         '- **single season**: "in 2005-06" or "their 2005/06 season" \u2192 `season: "2005-06"`',
         '- **season range**: "since 2015" \u2192 `seasonFrom: "2015-16"`; "in the 2000s" \u2192 `seasonFrom: "2000-01", seasonTo: "2009-10"`; "between 1990 and 2000" \u2192 `seasonFrom: "1990-91", seasonTo: "2000-01"`',
+        '- **dayOfWeek** (v2.8): "their Tuesday form" \u2192 `dayOfWeek: "Tuesday"`; "weekend matches" \u2192 `dayOfWeek: "weekend"`; "midweek record" \u2192 `dayOfWeek: "midweek"`. Accepts Mon-Sun or weekend/midweek/weekday.',
+        '- **monthOf** (v2.8): "their December record" \u2192 `monthOf: "December"`; "in April" \u2192 `monthOf: 4`. Accepts month name or number.',
         '',
-        'Combine them naturally. "Altrincham\'s home record in the play-offs since 2015" \u2192 `{club:"Altrincham", venue:"home", competition:"playoff", seasonFrom:"2015-16"}`. Tool responses include a `filterDescription` field \u2014 use that phrasing when confirming back what you queried so the user sees you understood correctly.',
+        'Combine them naturally. "Altrincham\'s home record in the play-offs since 2015" \u2192 `{club:"Altrincham", venue:"home", competition:"playoff", seasonFrom:"2015-16"}`. "Their December home form" \u2192 `{venue:"home", monthOf:"December"}`. Tool responses include a `filterDescription` field \u2014 use that phrasing when confirming back so the user sees you understood correctly.',
         '',
         '### Staff and website',
         '- `getStaff({name?, role?})` \u2014 look up NL staff by name substring or role ("admin", "staff", "superadmin"). Use for "who is Phil?", "who\'s the CEO?", "who manages Tom?". This tool replaces the static staff list that used to live in this prompt.',
@@ -3009,12 +3314,26 @@ function wireTopbar(session) {
         '- [Head-to-head](https://www.thenationalleague.org.uk/history/head-to-head) — use for long rivalries (10+ meetings) — `getHeadToHead` tool gives stats but the /history page has the full match list',
         '- [Top scorers](https://www.thenationalleague.org.uk/history/top-scorers) — historical top scorers',
         '',
-        '## What you still don\'t have',
-        '- Live in-match minute-by-minute scoring (live data refreshes every 5 mins \u2014 mid-match delay).',
-        '- FA Cup / FA Trophy / other cup data via tools (current tools cover league + play-offs only).',
-        '- The current 2025-26 season via historical tools \u2014 for now use getStandings and getFixtures for current season.',
-        '- Top scorer data (redirect \u2014 see above).',
-        'If the user asks for something you can\'t deliver, just tell them plainly \u2014 don\'t send them to a different site.',
+        '## What you definitively don\'t have (confess clearly)',
+        'These are NOT in the data. When asked, just say so plainly \u2014 don\'t redirect, don\'t speculate, don\'t fudge with "roughly" numbers.',
+        '- **Attendance / crowd figures** \u2014 not in the match data. Say: "I don\'t have attendance data, I\'m afraid." Do not invent figures.',
+        '- **Referees** \u2014 not in the match data.',
+        '- **Goalscorers, goal times, assists** \u2014 not in the match data. Top scorers page is hand-curated \u2014 point people to it if they ask about league-level top scorers.',
+        '- **Stadium / ground names** \u2014 no ground names in data (only a "neutral" marker for play-off finals).',
+        '- **Managers, coaching staff, signings, transfers** \u2014 not in any of the data files.',
+        '- **Yellow/red cards, bookings** \u2014 not in the data.',
+        '- **Minute-by-minute live scoring** \u2014 live data refreshes every 5 mins, mid-match delay.',
+        '- **FA Cup / FA Trophy / cup data** \u2014 tools cover league + play-offs only.',
+        '- **Current 2025-26 season in HISTORICAL tools** \u2014 historical engine is 1979-80 to 2024-25. For current season use getStandings, getFixtures, getRecentResults.',
+        'If a user asks for any of these, just tell them plainly \u2014 don\'t pretend, don\'t send them to a different site unless they ask.',
+        '',
+        '### New date-based tools (v2.8) \u2014 when to use',
+        '- **`getMatchesByCalendarDate`** \u2014 specific calendar date across history. "What happened on Boxing Day?", "matches on January 1st". Not club-scoped \u2014 if user asks "Altrincham on Boxing Day" use getClubMatches with filters instead.',
+        '- **`getMatchesByDayOfWeek`** \u2014 day-of-week patterns. Accepts Mon-Sun or "weekend"/"midweek"/"weekday". For "their Tuesday form", "midweek record".',
+        '- **`getMatchesByCalendarYear`** \u2014 calendar year Jan-Dec (NOT season). "In 2000", "during 2010". Important: the calendar year is different from a season \u2014 "in 2000" spans two half-seasons (1999-00 Jan-May + 2000-01 Aug-Dec).',
+        '- **`getAllTimeMatchRecords`** \u2014 cross-club records across history. Categories: biggestWin (by margin), highestScoring (total goals), mostGoalsOneTeam. For "biggest win ever", "highest-scoring match".',
+        '- **`getPlayoffs`** \u2014 playoff bracket for a season+division with aet/pens/aggregate. For "who won the 2010 play-offs?", "show me the 2023-24 National bracket".',
+        '- **New filters on existing tools**: `dayOfWeek` and `monthOf` now work on every club tool. "Altrincham\'s December record" \u2192 getClubSummary with monthOf:"December".',
         '',
         '## How to behave',
         'British English (colour, organise) \u00b7 dates DD/MM/YYYY \u00b7 currency \u00a3 \u00b7 direct and helpful, lead with the answer, concise prose over long lists \u00b7 match NL\'s tone for comms (professional, warm, football-literate, not corporate) \u00b7 say plainly when you don\'t know \u2014 don\'t invent \u00b7 when referring to a club across eras, use the canonical `entity` name (e.g. "Maidstone United (original)" for pre-1992, "Maidstone United" for reformed).',
@@ -3064,8 +3383,11 @@ function wireTopbar(session) {
     function wireUI() {
       var input = document.getElementById('composerInput');
 
-      // Auto-resize composer as user types
-      input.addEventListener('input', function() { autoResize(input); });
+      // Auto-resize + draft auto-save as user types
+      input.addEventListener('input', function() {
+        autoResize(input);
+        saveDraft(STATE.activeId, input.value);
+      });
 
       // Enter to send, Shift+Enter for newline
       input.addEventListener('keydown', function(e) {
