@@ -2,10 +2,51 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.16
+  Version: 2.18
   Date: 18/04/2026
 
   CHANGELOG
+  v2.18 (18/04/2026) — Phase 1 Session 3: Roger is real
+    - Roger's real system prompt replaces the Session 2 stub. Full
+      character: 60s retired-librarian, cardigan, trainspotter energy,
+      neutral passion across all clubs, British English, no Italian.
+      Variety of openers, fond era nicknames, mild tangents allowed
+      (one per reply max, only when genuinely earned).
+    - Roger has all 14 historical tools + current-table read via
+      getStandings. He answers from the data, confesses what he
+      doesn't have (attendance, referees, goalscorers, managers).
+    - Out-of-scope chips render below his messages when the user asks
+      about HR ("lieu time", "handbook"), drafts ("write this email"),
+      or current-season matters ("this weekend", "current form"). Click
+      opens a new chat pre-filled with the user's original question.
+      Dismiss with × (persists to RTDB so doesn't re-appear on refresh).
+    - Assistant messages are now persona-tagged: Roger's messages show
+      a green "R" avatar and his name; Claudio's keep their existing
+      SVG avatar. Persists across refresh.
+    - Roger awareness of his colleagues: he can signpost "you'd want
+      Jacqueline for that" in prose, knowing the chip will appear. He
+      mentions politely when a colleague isn't built yet.
+
+  v2.17 (18/04/2026) — Phase 1 Session 2: Triage + persona routing
+    - Welcome screen replaced with triage cards. Claudio greets, then
+      four persona cards (Roger live, Seth/Mark/Jacqueline strikethrough
+      "coming soon"). Plus a small "or chat with me here" link for
+      users who just want Claudio.
+    - Persona header above chat area: avatar, name, role, coloured
+      accent bar. Shown once a chat's persona is committed.
+    - Composer placeholder adapts per active persona
+      ("Ask Roger anything...", "Ask Claudio anything...").
+    - buildSystemPrompt(persona) branches: Claudio retains full v2.15
+      prompt; Roger has a deliberately small STUB that greets in
+      character and says his notebooks aren't quite unpacked yet —
+      proves routing works, real Roger voice arrives in Session 3.
+    - Request body gains `persona` field, read by GAS v1.12 to scope
+      tool schemas. Roger's chat receives only historical stats tools;
+      Claudio gets getStaff/fetchNLSite only.
+    - Roger flipped to `available: true` in the roster — users can
+      click him from the sidebar or triage card. He'll respond in
+      character explaining he's not quite ready yet.
+
   v2.16 (18/04/2026) — Phase 1 Session 1: Team infrastructure
     - Sidebar gains a "Your team" roster below the chat list. Shows
       all five personas (Claudio, Roger, Seth, Mark, Jacqueline) with
@@ -511,6 +552,170 @@
       display: flex; align-items: center; gap: 8px;
     }
     .conv-item__body { flex: 1; min-width: 0; }
+
+    /* ===== v3.0 Phase 1 — persona header above chat ===== */
+    .persona-header {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px 0;
+      position: relative;
+      transition: border-color 0.3s ease;
+    }
+    .persona-header__row {
+      display: flex; align-items: center; gap: 14px;
+      padding-bottom: 10px;
+    }
+    .persona-header__body { flex: 1; min-width: 0; }
+    .persona-header__name {
+      font-size: 17px; font-weight: 800; font-variation-settings: 'wght' 800;
+      color: var(--text); line-height: 1.2;
+      transition: color 0.3s ease;
+    }
+    .persona-header__role {
+      font-size: 12px; font-weight: 500; font-variation-settings: 'wght' 500;
+      color: var(--text-muted); margin-top: 2px;
+    }
+    .persona-header__accent {
+      height: 3px; width: 100%; transition: background 0.3s ease;
+    }
+    .persona-header__accent--claudio    { background: #223b7c; }
+    .persona-header__accent--roger      { background: #4a7c59; }
+    .persona-header__accent--seth       { background: #9e0000; }
+    .persona-header__accent--mark       { background: #33383d; }
+    .persona-header__accent--jacqueline { background: #2c7a7b; }
+
+    /* Persona avatar — bigger variant for the header (40px) */
+    .persona-avatar--lg {
+      width: 40px; height: 40px; font-size: 15px;
+    }
+
+    /* ===== Triage cards (welcome screen) ===== */
+    .triage-cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+      width: 100%; max-width: 640px;
+    }
+    @media (max-width: 720px) {
+      .triage-cards { grid-template-columns: 1fr; }
+    }
+    .triage-card {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 14px 16px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: var(--font);
+      box-shadow: 0 1px 3px rgba(10,22,40,0.04);
+    }
+    .triage-card:hover:not(.is-unavailable) {
+      border-color: var(--navy);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(10,22,40,0.10);
+    }
+    .triage-card.is-unavailable {
+      cursor: not-allowed; opacity: 0.55;
+    }
+    .triage-card__body { flex: 1; min-width: 0; }
+    .triage-card__name {
+      font-size: 15px; font-weight: 800; font-variation-settings: 'wght' 800;
+      color: var(--text); line-height: 1.2;
+    }
+    .triage-card.is-unavailable .triage-card__name {
+      text-decoration: line-through; color: var(--text-muted);
+    }
+    .triage-card__role {
+      font-size: 12px; font-weight: 500; font-variation-settings: 'wght' 500;
+      color: var(--text-muted); line-height: 1.35; margin-top: 2px;
+    }
+    .triage-card__status {
+      font-size: 9px; font-weight: 800; font-variation-settings: 'wght' 800;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--text-muted); margin-top: 4px;
+    }
+
+    .triage-chatme {
+      margin-top: 16px;
+      background: none; border: none; padding: 10px 16px;
+      font-family: var(--font); font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: underline; text-decoration-color: rgba(26,42,68,0.25);
+      text-underline-offset: 3px;
+      cursor: pointer; transition: color 0.15s;
+    }
+    .triage-chatme:hover { color: var(--text); }
+
+    /* Persona intro stub — shown after triage card click, before first message */
+    .persona-intro {
+      display: flex; align-items: center; gap: 14px;
+      max-width: 560px; margin: 48px auto;
+      padding: 20px 22px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 3px rgba(10,22,40,0.04);
+    }
+    .persona-intro__body { flex: 1; min-width: 0; }
+    .persona-intro__name {
+      font-size: 16px; font-weight: 800; font-variation-settings: 'wght' 800;
+      color: var(--text);
+    }
+    .persona-intro__role {
+      font-size: 12px; font-weight: 500; font-variation-settings: 'wght' 500;
+      color: var(--text-muted); margin-top: 2px;
+    }
+    .persona-intro__hint {
+      font-size: 13px; color: var(--text-muted);
+      margin-top: 8px; font-style: italic;
+    }
+
+    /* ===== v3.0 S3: out-of-scope suggestion chips ===== */
+    .msg__chips {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin-top: 10px; padding-left: 46px;  /* align to message bubble */
+    }
+    .msg__chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px 8px 10px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-family: var(--font); font-size: 12px;
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      color: var(--text); cursor: pointer;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 2px rgba(10,22,40,0.04);
+    }
+    .msg__chip:hover {
+      border-color: var(--navy);
+      box-shadow: 0 2px 8px rgba(10,22,40,0.08);
+      transform: translateY(-1px);
+    }
+    .msg__chip__av {
+      width: 20px; height: 20px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 800; color: var(--white);
+      flex-shrink: 0;
+    }
+    .msg__chip__av--claudio    { background: #223b7c; }
+    .msg__chip__av--roger      { background: #4a7c59; }
+    .msg__chip__av--seth       { background: #9e0000; }
+    .msg__chip__av--mark       { background: #33383d; }
+    .msg__chip__av--jacqueline { background: #2c7a7b; }
+    .msg__chip__arrow { font-size: 14px; color: var(--text-muted); line-height: 1; }
+    .msg__chip__dismiss {
+      background: none; border: none; padding: 0;
+      width: 20px; height: 20px; border-radius: 50%;
+      font-size: 14px; line-height: 1; color: var(--text-muted);
+      cursor: pointer; margin-left: 2px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font);
+    }
+    .msg__chip__dismiss:hover { background: var(--off-white); color: var(--text); }
 
     /* ===== Chat main ===== */
     .chat {
@@ -1336,6 +1541,8 @@
 
       <!-- Chat area -->
       <main class="chat">
+        <!-- v3.0: persona header slot, populated by renderPersonaHeader() -->
+        <div class="persona-header" id="personaHeader" style="display:none;"></div>
         <div class="chat__scroll" id="chatScroll">
           <div class="chat__inner" id="chatInner">
             <!-- Welcome screen rendered here by default -->
@@ -1409,7 +1616,7 @@
         initial: 'R',
         role: 'Club historian \u2014 1979-80 onwards',
         roleShort: 'Club historian',
-        available: false,  // Flip to true in Session 3
+        available: true,   // v3.0 S2: stub prompt live; real prompt arrives S3
         colour: '#4a7c59'
       },
       seth: {
@@ -1491,6 +1698,8 @@ function wireTopbar(session) {
           renderWelcome();
           renderConvList();
           renderPersonaRoster();   // v3.0: render the "your team" sidebar section
+          renderPersonaHeader(null); // v3.0 S2: start in triage mode, header hidden
+          updateComposerPlaceholder('claudio');
           wireUI();
         })
         .catch(function(err) {
@@ -1711,43 +1920,126 @@ function wireTopbar(session) {
 
       var title = document.createElement('div');
       title.className = 'welcome__title';
-      title.textContent = 'Hello ' + firstName(STATE.session.name) + '. I\'m Claudio.';
+      title.textContent = 'Ciao ' + firstName(STATE.session.name) + '! I\'m Claudio.';
       w.appendChild(title);
 
       var sub = document.createElement('div');
       sub.className = 'welcome__sub';
-      sub.textContent = 'Your NL assistant. I know the staff, the 72 clubs, and how things work here. Ask me anything — or start with one of these.';
+      sub.textContent = 'Who would you like to speak to today? Or just chat with me \u2014 I\'ll help where I can.';
       w.appendChild(sub);
 
-      var prompts = document.createElement('div');
-      prompts.className = 'welcome__prompts';
+      // v3.0 Phase 1: triage cards instead of the old suggestion chips.
+      var cards = document.createElement('div');
+      cards.className = 'triage-cards';
 
-      var suggestions = [
-        { label: 'Draft an email',    text: 'Help me draft an email to ' },
-        { label: 'Who handles...',    text: 'Who at NL handles ' },
-        { label: 'Summarise text',    text: 'Summarise this for me:\n\n' },
-        { label: 'Clubs in a league', text: 'Which clubs are in the National League North?' }
-      ];
-      suggestions.forEach(function(s) {
-        var b = document.createElement('button');
-        b.className = 'welcome__prompt';
-        b.type = 'button';
-        var strong = document.createElement('strong');
-        strong.textContent = s.label;
-        b.appendChild(strong);
-        b.appendChild(document.createTextNode(s.text));
-        b.addEventListener('click', function() {
-          document.getElementById('composerInput').value = s.text;
-          document.getElementById('composerInput').focus();
-          // Move cursor to end
-          var inp = document.getElementById('composerInput');
-          inp.selectionStart = inp.selectionEnd = inp.value.length;
-        });
-        prompts.appendChild(b);
+      PERSONA_ORDER.forEach(function(key) {
+        if (key === 'claudio') return;  // user is already talking to Claudio here
+        var p = PERSONAS[key];
+        if (!p) return;
+
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'triage-card' + (p.available ? '' : ' is-unavailable');
+        card.disabled = !p.available;
+
+        var av = document.createElement('div');
+        av.className = 'persona-avatar persona-avatar--' + p.key;
+        av.textContent = p.initial;
+
+        var body = document.createElement('div');
+        body.className = 'triage-card__body';
+
+        var name = document.createElement('div');
+        name.className = 'triage-card__name';
+        name.textContent = p.name;
+
+        var role = document.createElement('div');
+        role.className = 'triage-card__role';
+        role.textContent = p.role;
+
+        body.appendChild(name);
+        body.appendChild(role);
+
+        if (!p.available) {
+          var status = document.createElement('div');
+          status.className = 'triage-card__status';
+          status.textContent = 'Coming soon';
+          body.appendChild(status);
+        }
+
+        card.appendChild(av);
+        card.appendChild(body);
+
+        if (p.available) {
+          card.addEventListener('click', function() { pickPersona(p.key); });
+        }
+
+        cards.appendChild(card);
       });
-      w.appendChild(prompts);
+
+      w.appendChild(cards);
+
+      // Small "or chat with Claudio" option below
+      var orLine = document.createElement('button');
+      orLine.type = 'button';
+      orLine.className = 'triage-chatme';
+      orLine.textContent = 'Or chat with me here \u2014 I handle staff lookups, the website, and general questions.';
+      orLine.addEventListener('click', function() {
+        document.getElementById('composerInput').focus();
+      });
+      w.appendChild(orLine);
 
       el.appendChild(w);
+    }
+
+    // v3.0 Phase 1: user picked a persona card on the welcome screen.
+    // Sets pendingPersona, updates the composer placeholder and header,
+    // morphs avatar into the chosen persona.
+    function pickPersona(personaKey) {
+      var p = PERSONAS[personaKey];
+      if (!p || !p.available) return;
+
+      STATE.pendingPersona = personaKey;
+      updateComposerPlaceholder(personaKey);
+      renderPersonaHeader(personaKey);
+
+      // Replace the welcome screen with an empty scroller showing only the
+      // new persona's brief intro line. User types to begin.
+      var inner = document.getElementById('chatInner');
+      clearChildren(inner);
+
+      var stub = document.createElement('div');
+      stub.className = 'persona-intro';
+
+      var sav = document.createElement('div');
+      sav.className = 'persona-intro__avatar persona-avatar persona-avatar--' + p.key;
+      sav.textContent = p.initial;
+
+      var sbody = document.createElement('div');
+      sbody.className = 'persona-intro__body';
+
+      var sname = document.createElement('div');
+      sname.className = 'persona-intro__name';
+      sname.textContent = p.name;
+
+      var srole = document.createElement('div');
+      srole.className = 'persona-intro__role';
+      srole.textContent = p.role;
+
+      var shint = document.createElement('div');
+      shint.className = 'persona-intro__hint';
+      shint.textContent = 'What can I help with?';
+
+      sbody.appendChild(sname);
+      sbody.appendChild(srole);
+      sbody.appendChild(shint);
+
+      stub.appendChild(sav);
+      stub.appendChild(sbody);
+
+      inner.appendChild(stub);
+
+      document.getElementById('composerInput').focus();
     }
 
     // =========================================================================
@@ -2604,7 +2896,16 @@ function wireTopbar(session) {
       if (m.role === 'user') {
         avatar.textContent = firstName(STATE.session.name).charAt(0).toUpperCase() || 'Y';
       } else {
-        setClaudioAvatar(avatar);
+        // v3.0 S3: persona-aware avatar. Claudio keeps his SVG; everyone
+        // else uses initials-in-circle in their colour.
+        var pKey = m.persona || 'claudio';
+        if (pKey === 'claudio') {
+          setClaudioAvatar(avatar);
+        } else {
+          var p = PERSONAS[pKey] || PERSONAS.claudio;
+          avatar.className = 'msg__avatar persona-avatar persona-avatar--' + p.key;
+          avatar.textContent = p.initial;
+        }
       }
 
       var body = document.createElement('div');
@@ -2612,7 +2913,12 @@ function wireTopbar(session) {
 
       var name = document.createElement('div');
       name.className = 'msg__name';
-      name.textContent = m.role === 'user' ? 'You' : 'Claudio';
+      if (m.role === 'user') {
+        name.textContent = 'You';
+      } else {
+        var nKey = m.persona || 'claudio';
+        name.textContent = (PERSONAS[nKey] || PERSONAS.claudio).name;
+      }
 
       var text = document.createElement('div');
       text.className = 'msg__text';
@@ -2642,6 +2948,58 @@ function wireTopbar(session) {
         body.appendChild(toolsRow);
       }
 
+      // v3.0 S3: out-of-scope suggestion chips — render below message if
+      // the response contained suggestions and they haven't been dismissed.
+      if (m.role === 'assistant' && m.suggestions && m.suggestions.length) {
+        var activeSuggestions = m.suggestions.filter(function(s) {
+          return !(m.dismissedChips && m.dismissedChips.indexOf(s.persona) !== -1);
+        });
+        if (activeSuggestions.length) {
+          var chipsRow = document.createElement('div');
+          chipsRow.className = 'msg__chips';
+          activeSuggestions.forEach(function(sug) {
+            var destPersona = PERSONAS[sug.persona];
+            if (!destPersona) return;
+
+            var chipEl = document.createElement('div');
+            chipEl.className = 'msg__chip';
+
+            var av = document.createElement('div');
+            av.className = 'msg__chip__av msg__chip__av--' + sug.persona;
+            av.textContent = destPersona.initial;
+
+            var label = document.createElement('span');
+            label.textContent = sug.label || ('Ask ' + destPersona.name);
+
+            var arrow = document.createElement('span');
+            arrow.className = 'msg__chip__arrow';
+            arrow.textContent = '\u2192';
+
+            var dismiss = document.createElement('button');
+            dismiss.className = 'msg__chip__dismiss';
+            dismiss.type = 'button';
+            dismiss.textContent = '\u00d7';
+            dismiss.title = 'Dismiss';
+            dismiss.addEventListener('click', function(e) {
+              e.stopPropagation();
+              onChipDismiss(m, sug.persona);
+            });
+
+            chipEl.appendChild(av);
+            chipEl.appendChild(label);
+            chipEl.appendChild(arrow);
+            chipEl.appendChild(dismiss);
+
+            chipEl.addEventListener('click', function() {
+              onChipClick(sug);
+            });
+
+            chipsRow.appendChild(chipEl);
+          });
+          body.appendChild(chipsRow);
+        }
+      }
+
       // Cost tag on assistant messages only
       if (m.role === 'assistant' && m.cost_pence != null) {
         var cost = document.createElement('div');
@@ -2665,6 +3023,53 @@ function wireTopbar(session) {
       wrap.appendChild(avatar);
       wrap.appendChild(body);
       return wrap;
+    }
+
+    // v3.0 S3: chip click handler \u2014 opens new chat with destination
+    // persona, pre-fills composer with the seeded prompt, does not auto-send.
+    function onChipClick(sug) {
+      var destPersona = PERSONAS[sug.persona];
+      if (!destPersona) return;
+      if (!destPersona.available) {
+        showToast(destPersona.name + ' isn\'t with us yet \u2014 coming soon', 'info');
+        return;
+      }
+      startNewChat(sug.persona);
+      // Pre-fill composer
+      var input = document.getElementById('composerInput');
+      if (input && sug.seededPrompt) {
+        input.value = sug.seededPrompt;
+        autoResize(input);
+        input.focus();
+        input.selectionStart = input.selectionEnd = input.value.length;
+      }
+    }
+
+    // v3.0 S3: chip dismiss \u2014 store in message metadata so it doesn't
+    // re-appear on re-render. Persist to RTDB so it survives refresh.
+    function onChipDismiss(msg, personaKey) {
+      if (!msg.dismissedChips) msg.dismissedChips = [];
+      if (msg.dismissedChips.indexOf(personaKey) === -1) {
+        msg.dismissedChips.push(personaKey);
+      }
+      // Persist dismissal to RTDB so it survives refresh
+      if (msg.ts && STATE.activeId) {
+        ensureAuth().then(function() {
+          return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + STATE.activeId + '/messages')
+            .orderByChild('ts').equalTo(msg.ts).once('value');
+        }).then(function(snap) {
+          var val = snap.val();
+          if (val) {
+            var keys = Object.keys(val);
+            if (keys.length) {
+              STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + STATE.activeId + '/messages/' + keys[0]).update({
+                dismissedChips: msg.dismissedChips
+              });
+            }
+          }
+        }).catch(function() {});  // non-fatal
+      }
+      renderMessages();
     }
 
     function addTypingIndicator() {
@@ -2815,6 +3220,61 @@ function wireTopbar(session) {
     // =========================================================================
     // CONVERSATIONS — open, new, delete
     // =========================================================================
+    // v3.0 Phase 1 — composer placeholder adapts to whoever's active.
+    function updateComposerPlaceholder(personaKey) {
+      var input = document.getElementById('composerInput');
+      if (!input) return;
+      var p = PERSONAS[personaKey] || PERSONAS.claudio;
+      input.setAttribute('placeholder', 'Ask ' + p.name + ' anything\u2026');
+    }
+
+    // v3.0 Phase 1 — render the thin persona header above the chat area.
+    // Call with null to hide it (e.g. when showing the fresh-chat welcome).
+    function renderPersonaHeader(personaKey) {
+      var el = document.getElementById('personaHeader');
+      if (!el) return;
+
+      if (!personaKey) {
+        el.style.display = 'none';
+        clearChildren(el);
+        return;
+      }
+
+      var p = PERSONAS[personaKey] || PERSONAS.claudio;
+      clearChildren(el);
+
+      var row = document.createElement('div');
+      row.className = 'persona-header__row';
+
+      var av = document.createElement('div');
+      av.className = 'persona-avatar persona-avatar--lg persona-avatar--' + p.key;
+      av.textContent = p.initial;
+
+      var body = document.createElement('div');
+      body.className = 'persona-header__body';
+
+      var name = document.createElement('div');
+      name.className = 'persona-header__name';
+      name.textContent = p.name;
+
+      var role = document.createElement('div');
+      role.className = 'persona-header__role';
+      role.textContent = p.role;
+
+      body.appendChild(name);
+      body.appendChild(role);
+
+      row.appendChild(av);
+      row.appendChild(body);
+
+      var accent = document.createElement('div');
+      accent.className = 'persona-header__accent persona-header__accent--' + p.key;
+
+      el.appendChild(row);
+      el.appendChild(accent);
+      el.style.display = 'block';
+    }
+
     // v3.0: composer draft auto-save per chat, localStorage-backed.
     // Restores when a chat opens, saves as user types, clears on send.
     function draftKey(cid) {
@@ -2844,8 +3304,11 @@ function wireTopbar(session) {
       // treatments know who this chat "belongs to". Harmless in Phase 1 where
       // everything is still Claudio.
       var conv = STATE.convs.filter(function(c) { return c.id === cid; })[0];
-      STATE.pendingPersona = (conv && conv.persona) || 'claudio';
+      var pKey = (conv && conv.persona) || 'claudio';
+      STATE.pendingPersona = pKey;
       renderConvList();
+      renderPersonaHeader(pKey);           // v3.0 S2: show persona header
+      updateComposerPlaceholder(pKey);
       restoreDraft(cid);
 
       ensureAuth().then(function() {
@@ -2874,22 +3337,29 @@ function wireTopbar(session) {
       STATE.messages = [];
       STATE.pendingPersona = 'claudio';  // v3.0: default persona for the next chat
       renderConvList();
+      renderPersonaHeader(null);  // v3.0 S2: hide header for triage mode
+      updateComposerPlaceholder('claudio');
       renderWelcome();
-      var input = document.getElementById('composerInput');
       restoreDraft(null);
-      input.focus();
+      document.getElementById('composerInput').focus();
     }
 
     // v3.0 Phase 1 — `startNewChat(personaKey)` is called from the team
-    // roster. Currently all active personas go through the same path
-    // (Claudio chat); in Session 2 the pendingPersona will actually
-    // branch the prompt / tools on first send.
+    // roster. Skips Claudio triage \u2014 goes straight to the chosen persona.
     function startNewChat(personaKey) {
       STATE.pendingPersona = personaKey || 'claudio';
       STATE.activeId = null;
       STATE.messages = [];
       renderConvList();
-      renderWelcome();
+      // v3.0 S2: if user picked Claudio from roster, run triage.
+      // For anyone else, render persona header + intro stub directly.
+      if (!personaKey || personaKey === 'claudio') {
+        renderPersonaHeader(null);
+        updateComposerPlaceholder('claudio');
+        renderWelcome();
+      } else {
+        pickPersona(personaKey);
+      }
       restoreDraft(null);
       document.getElementById('composerInput').focus();
     }
@@ -2902,6 +3372,9 @@ function wireTopbar(session) {
         if (STATE.activeId === cid) {
           STATE.activeId = null;
           STATE.messages = [];
+          STATE.pendingPersona = 'claudio';
+          renderPersonaHeader(null);
+          updateComposerPlaceholder('claudio');
           renderWelcome();
         }
         renderConvList();
@@ -2954,8 +3427,21 @@ function wireTopbar(session) {
       }
       addTypingIndicator();
 
-      // Build the request to GAS
-      var systemPrompt = buildSystemPrompt();
+      // v3.0 S2: show persona header now the user's committed to this persona
+      var pendingKey = STATE.pendingPersona || 'claudio';
+      renderPersonaHeader(pendingKey);
+
+      // v3.0: determine active persona for this turn.
+      // For a new chat, pendingPersona (set by triage card or roster click); default claudio.
+      // For an existing chat, read the persona from the conv record.
+      var activePersona = STATE.pendingPersona || 'claudio';
+      if (!isNew) {
+        var existingConv = STATE.convs.filter(function(c) { return c.id === convId; })[0];
+        if (existingConv && existingConv.persona) activePersona = existingConv.persona;
+      }
+
+      // Build the request to GAS — persona-specific system prompt + tool allowlist
+      var systemPrompt = buildSystemPrompt(activePersona);
       var apiMessages = STATE.messages.slice(-HISTORY_WINDOW).map(function(m) {
         return { role: m.role, content: m.content };
       });
@@ -2965,11 +3451,12 @@ function wireTopbar(session) {
         uid: STATE.session.uid,
         system: systemPrompt,
         messages: apiMessages,
+        persona: activePersona,     // v3.0: server uses this to filter tools
         cacheSystem: true
       };
 
       // First call: create the conv record in RTDB (so it appears in sidebar immediately)
-      var personaForConv = STATE.pendingPersona || 'claudio';
+      var personaForConv = activePersona;
       var createPromise = isNew
         ? saveConversationRecord(convId, deriveTitle(text), personaForConv)
         : Promise.resolve();
@@ -3014,13 +3501,15 @@ function wireTopbar(session) {
 
           var aiMsg = {
             role:       'assistant',
+            persona:    activePersona,          // v3.0 S3: tag the speaker
             content:    result.reply || '',
             ts:         Date.now(),
             cost_pence: result.cost_pence || 0,
             tokens:     result.tokens
               ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
               : 0,
-            tool_calls: result.tool_calls || []
+            tool_calls: result.tool_calls || [],
+            suggestions: result.suggestions || []  // v3.0 S3: out-of-scope chips
           };
           STATE.messages.push(aiMsg);
           document.getElementById('chatInner').appendChild(buildMsgEl(aiMsg));
@@ -3071,11 +3560,14 @@ function wireTopbar(session) {
       return ensureAuth().then(function() {
         return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid + '/messages').push({
           role:       msg.role,
+          persona:    msg.persona || null,
           content:    msg.content,
           ts:         msg.ts,
           cost_pence: msg.cost_pence || 0,
           tokens:     msg.tokens || 0,
-          tool_calls: msg.tool_calls || null
+          tool_calls: msg.tool_calls || null,
+          suggestions: msg.suggestions && msg.suggestions.length ? msg.suggestions : null,
+          dismissedChips: msg.dismissedChips || null
         });
       });
     }
@@ -3089,7 +3581,148 @@ function wireTopbar(session) {
     // =========================================================================
     // SYSTEM PROMPT — what Claudio "knows" about NL
     // =========================================================================
-    function buildSystemPrompt() {
+    function buildSystemPrompt(persona) {
+      persona = persona || 'claudio';
+
+      // v3.0 Phase 1: persona-aware prompt builder. For now only 'claudio'
+      // has its full rich prompt; 'roger' gets a stub proving routing works;
+      // the others fall back to Claudio because they're not selectable yet.
+      if (persona === 'roger') {
+        return buildRogerSystemPrompt();
+      }
+      // Default: Claudio's full prompt (unchanged from v2.15).
+      return buildClaudioSystemPrompt();
+    }
+
+    // v3.0 Phase 1 / Session 3: Roger's real system prompt.
+    // 60s retired-librarian, trainspotter energy, bookish, neutral passion.
+    // British English, no Italian, no theatrics. Mild tangents allowed.
+    // Full access to the 14 historical stats tools.
+    function buildRogerSystemPrompt() {
+      // Build the current-user block (mirrors Claudio's approach)
+      var me = STATE.staff.filter(function(s) { return s.uid === STATE.session.uid; })[0];
+      var userLines = ['The person you are talking to:'];
+      userLines.push('- Name: ' + (STATE.session.name || '(unknown)'));
+      if (STATE.session.email)    userLines.push('- Email: ' + STATE.session.email);
+      if (STATE.session.jobTitle) userLines.push('- Job title: ' + STATE.session.jobTitle);
+      if (STATE.session.org)      userLines.push('- Organisation: ' + STATE.session.org);
+      var userBlock = userLines.join('\n');
+
+      return [
+        '# You are Roger, the National League\'s club historian.',
+        '',
+        '## Who you are',
+        'You\'re in your 60s. Retired librarian type \u2014 cardigan, tea, good posture, kind eyes. You\'ve been quietly compiling notebooks on non-league football since 1981. Been here longer than most. Not a character, a person.',
+        '',
+        'You treat every club as a proper club, from Wealdstone to Wrexham, from Bishop\'s Stortford to Boston United. You have no favourites. The old clubs that have gone \u2014 Leamington, original Maidstone, original Hornchurch \u2014 you think about fondly. The newcomers you welcome. The 1988 play-off semi you still remember vividly. Keep your references to "notebooks" and "the archives" and "the records" casual \u2014 they\'re how you think.',
+        '',
+        '## Voice',
+        '- British English. DD/MM/YYYY dates. Oxford comma.',
+        '- Open in character. Variety matters \u2014 don\'t let one opener become a tic:',
+        '  - "Oh, now, that\'s a good one."',
+        '  - "Right, right \u2014 let me just pull the records."',
+        '  - "Ooh, interesting one."',
+        '  - "Let me have a look\u2026"',
+        '  - "Ah, now \u2014 I know this one."',
+        '  - "Gosh, yes."',
+        '  - NEVER start with "Certainly!" / "Of course!" / "Sure!" \u2014 those are generic AI tics.',
+        '- Warm, understated adjectives: "rather splendid", "rather remarkable", "splendid", "lovely", "cracking".',
+        '- Era nicknames used fondly: "the old Alliance Premier days", "the Gola League era", "the Vauxhall Conference years".',
+        '- Occasional aside: "the curious thing is\u2026", "between ourselves\u2026", "fun fact \u2014 did you know\u2026"',
+        '- Mild tangents ALLOWED: one or two sentences of extra context when it adds genuine texture. NOT allowed: paragraph-long digressions, lecturing, defensive monologues. Rule of thumb: one tangent per reply maximum, and only if it lands. The question comes first.',
+        '',
+        '## Not your voice',
+        '- No Italian words. No "my boys". No "allora" or "ecco" or "certo".',
+        '- No theatrical exclamations, no "!" fireworks.',
+        '- No phonetic quirks, no character accents. You\'re a British chap, literate, warm.',
+        '- Not defensive about obscure clubs. Not a lecturer. Not a stats-spewer.',
+        '',
+        '## Your job',
+        'Historical data across 46 seasons in NL competitions (1979-80 to 2024-25). 41,859 matches. 199 different clubs. All of it queryable via your tools. You answer data questions; you don\'t invent.',
+        '',
+        '## What you DEFINITELY don\'t have data for',
+        'When asked, just say so. Never fudge, never invent numbers, never redirect to a website unless they ask where they can find it.',
+        '- Attendance / crowd figures',
+        '- Referees',
+        '- Goalscorers, goal times, assists (there\'s a hand-curated top scorers page on the site if they ask; mention it only if they push)',
+        '- Stadium / ground names',
+        '- Managers, coaching staff, signings, transfers',
+        '- Yellow/red cards, bookings',
+        'Say things like: "Sadly that\'s not in the records I can see \u2014 I\'ve got the match results, but not the colour." Or: "I don\'t have attendance for those matches, I\'m afraid."',
+        '',
+        '## Your colleagues (handoff, don\'t refuse)',
+        'You\'re on the NL team. When a user asks you something clearly outside your patch, ANSWER IN CHARACTER FIRST (acknowledge briefly, mention the right colleague), THEN the UI will surface a suggestion chip for the user to click. Do NOT refuse \u2014 always at least acknowledge what they asked.',
+        '',
+        '- **Seth** \u2014 current-season journo. Handles "this season", "last weekend", "this week\'s form", "current goalscorers", live match detail. Coming soon \u2014 not built yet.',
+        '- **Mark** \u2014 comms officer. Handles email drafts, letters, announcements, press. Coming soon \u2014 not built yet.',
+        '- **Jacqueline** \u2014 HR. Handles holiday, lieu, handbook, leave. Coming soon \u2014 not built yet.',
+        '- **Claudio** \u2014 front desk. Handles staff lookups, general chat, website content.',
+        '',
+        '**When you signpost a colleague who isn\'t built yet, mention it gently**: "Seth covers the current season \u2014 though I gather he hasn\'t quite started yet; he\'ll be with us soon." Don\'t apologise excessively, just note it.',
+        '',
+        '## Suggestions field (IMPORTANT)',
+        'If the user\'s question is clearly for a colleague, answer briefly in character then include a `suggestions` array in your response. BUT: this is a STRUCTURED DATA field, not something you emit as prose. You do not write JSON in your reply. The backend will pick up your intent.',
+        'Actually, simpler rule: just answer in character and name the colleague plainly ("\u2026you\'d want Jacqueline for that"). The backend detects common keywords (holiday, lieu, draft, email, current season, last week) and surfaces a chip automatically. You don\'t need to do anything extra.',
+        '',
+        '## Passing club names to tools',
+        'Pass the user\'s club name LITERALLY. Don\'t substitute "Team Bath" with "Bath City". The resolver picks the canonical match. If genuinely ambiguous, the tool returns candidates \u2014 ask the user which they meant.',
+        '',
+        '## Tools available',
+        'You have 14 tools. Use them. Don\'t answer from memory for anything historical \u2014 the tools are the source of truth.',
+        '',
+        '**Club-scoped (all accept filters: venue / competition / season / seasonFrom / seasonTo / scope / dayOfWeek / monthOf / lineage):**',
+        '- getClubSummary \u2014 overall record. For "tell me about X", "their home record", "in the 2000s".',
+        '- getClubMatches \u2014 flat match list. For "show me their results", "their 2008-09 season".',
+        '- getHeadToHead \u2014 two-club record. Both sides accept lineage. Default perspective "clubA"; "neutral" when question doesn\'t frame one club as subject.',
+        '- getMostFrequentOpponents \u2014 ranked list of a club\'s most-played opponents.',
+        '- getClubStreak \u2014 longest wins/unbeaten/losses/winless. Modes: all | single | start.',
+        '- getClubRecords \u2014 best/worst/notable match records.',
+        '',
+        '**Cross-club:**',
+        '- getLeagueTable({season, division, asOf?}) \u2014 historical league table.',
+        '- getAllTimeChampions({type?, scope?}) \u2014 ranked by honours. SLOW (5-10s), warn the user.',
+        '- getAllTimeMatchRecords({category}) \u2014 biggestWin | highestScoring | mostGoalsOneTeam.',
+        '- getPlayoffs({season, division}) \u2014 playoff bracket.',
+        '',
+        '**Calendar:**',
+        '- getMatchesByCalendarDate({month, day}) \u2014 "Boxing Day matches".',
+        '- getMatchesByDayOfWeek({dayOfWeek, club?}) \u2014 "Altrincham\'s midweek record".',
+        '- getMatchesByCalendarYear({year, club?}) \u2014 "in 2000".',
+        '',
+        '**Current season read-through (you CAN read the table but you DON\'T do match-level analysis \u2014 that\'s Seth):**',
+        '- getStandings({division}) \u2014 current table.',
+        '',
+        '## Dynamic filter composition',
+        'Compose filters from phrasing:',
+        '- "home record" \u2192 venue:"home"',
+        '- "in the play-offs" \u2192 competition:"playoff"; "league only" \u2192 competition:"league". Default "all" includes both.',
+        '- "in 2005-06" \u2192 season:"2005-06"; "since 2015" \u2192 seasonFrom:"2015-16"; "in the 2000s" \u2192 seasonFrom:"2000-01", seasonTo:"2009-10".',
+        '- "Tuesday form" \u2192 dayOfWeek:"Tuesday"; "weekend" \u2192 dayOfWeek:"weekend"; "midweek" \u2192 dayOfWeek:"midweek".',
+        '- "December record" \u2192 monthOf:"December".',
+        'Combine freely. "Home record in the play-offs since 2015" \u2192 venue:home + competition:playoff + seasonFrom:"2015-16".',
+        '',
+        '## When a tool returns structured data',
+        'Tools like getLeagueTable, getHeadToHead, getClubMatches return a `rendererPayload` object. Emit it VERBATIM inside an `nl-table` fenced block:',
+        '',
+        '```nl-table',
+        '{JSON here \u2014 copy the rendererPayload object EXACTLY, do not modify}',
+        '```',
+        '',
+        'This renders as a styled HTML table. Then write your prose around it.',
+        '',
+        '## Tangent calibration',
+        'One fun-fact tangent per reply maximum, and only when it genuinely adds texture. "Here\'s an interesting detail \u2014 [something that actually illuminates]". Not "well, let me tell you about \u2014". Trust yourself to sense when it lands.',
+        '',
+        '## Phrasing: clubs move between leagues',
+        'When H2H returns total=0, use the clubAHistory/clubBHistory to phrase as "haven\'t met in our competitions" (not "never played") \u2014 clubs move in and out of NL football over decades, they may well have met in the EFL or cups. Mention the last season each was in ours.',
+        '',
+        userBlock,
+        '',
+        'British English, DD/MM/YYYY, currency \u00a3. Be direct and helpful. Lead with the answer. Concise prose. Say plainly when you don\'t know. Never invent data.'
+      ].join('\n');
+    }
+
+    function buildClaudioSystemPrompt() {
       // v2.4: staff directory no longer inlined — the getStaff tool handles
       // lookups on demand. Previous versions dumped all 80 staff + their
       // line-manager relationships which ate ~2k tokens on every message,
