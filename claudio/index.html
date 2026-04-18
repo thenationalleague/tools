@@ -2,10 +2,32 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 3.4.1
+  Version: 4.0-alpha
   Date: 18/04/2026
 
   CHANGELOG
+  v4.0-alpha (18/04/2026) — ORCHESTRATED TEAM ARCHITECTURE (PHASE A+B)
+    - ARCHITECTURE SHIFT. Claudio is now a host who routes questions
+      to specialists via structured handoff markers. When activePersona
+      is claudio, the client sends all specialist prompts (personaPrompts)
+      to the backend. The backend calls Claudio first; if Claudio emits
+      a <handoff persona="X" theatrical="yes|no">intro</handoff> tag,
+      backend invokes the target specialist and composes a multi-segment
+      reply. Specialists can push back with <pass-back to="Y">line</pass-back>
+      if mis-routed; backend re-routes (1 pass max per turn).
+    - New reply shape: server returns `segments` array of
+      {persona, content, kind} for multi-voice turns. Client renders
+      each segment as its own bubble with its own persona styling.
+      Legacy single-reply path preserved for specialist-direct chats.
+    - Updated Claudio\'s prompt with theatrical vs silent handoff rule
+      (~50/50), 4 worked examples with marker syntax, what-NOT-to-do list.
+    - Updated Roger/Seth/Mark prompts with brief pass-back instructions.
+    - Topbar shows v4.0-alpha for cache-bust verification.
+    - Scope deliberately limited to single-invocation handoffs + pass-back.
+      Nested delegation (Mark \u2192 Roger research) is Phase C (future session).
+      Full UI redesign (remove triage, simplify sidebar) is Phase E.
+      News archive tool is Phase D (blocked on CSV conversion).
+
   v3.4.1 (18/04/2026) — Mark trust fixes
     - BUG: Live test of Mark showed him inventing a surname
       ("Phil Gartside") for a press release quote. He had said in
@@ -458,9 +480,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="3.4.1">
-  <meta name="build-time" content="2026-04-18T17:45:00Z">
-  <title>Claudio v3.4.1 — NL Tools</title>
+  <meta name="app-version" content="4.0-alpha">
+  <meta name="build-time" content="2026-04-18T18:30:00Z">
+  <title>Claudio v4.0-alpha — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1809,7 +1831,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v3.4.1</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-alpha</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -4048,12 +4070,26 @@ function wireTopbar(session) {
         return { role: m.role, content: m.content };
       });
 
+      // v4.0-alpha: for Claudio-hosted chats, send ALL specialist prompts so
+      // the backend can invoke any of them mid-turn when Claudio emits a
+      // <handoff>. Only sent when activePersona === 'claudio' to keep
+      // single-persona turns lightweight.
+      var personaPrompts = null;
+      if (activePersona === 'claudio') {
+        personaPrompts = {
+          roger: buildRogerSystemPrompt(),
+          seth:  buildSethSystemPrompt(),
+          mark:  buildMarkSystemPrompt()
+        };
+      }
+
       var reqBody = {
         action: 'claudio',
         uid: STATE.session.uid,
         system: systemPrompt,
         messages: apiMessages,
-        persona: activePersona,     // v3.0: server uses this to filter tools
+        persona: activePersona,
+        personaPrompts: personaPrompts,     // v4.0-alpha: orchestration prompts
         cacheSystem: true
       };
 
@@ -4101,29 +4137,58 @@ function wireTopbar(session) {
             return;
           }
 
-          var aiMsg = {
-            role:       'assistant',
-            persona:    activePersona,          // v3.0 S3: tag the speaker
-            content:    result.reply || '',
-            ts:         Date.now(),
-            cost_pence: result.cost_pence || 0,
-            tokens:     result.tokens
-              ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
-              : 0,
-            tool_calls: result.tool_calls || [],
-            suggestions: result.suggestions || []  // v3.0 S3: out-of-scope chips
-          };
-          STATE.messages.push(aiMsg);
-          document.getElementById('chatInner').appendChild(buildMsgEl(aiMsg));
-          scrollToBottom();
+          // v4.0-alpha: if the backend returned a segments array, render each
+          // as its own bubble with its own persona styling. This is how
+          // orchestrated turns with theatrical handoffs + pass-backs appear
+          // as multi-voice replies. Fall back to single-bubble for v3.x
+          // responses that don't include segments.
+          if (result.segments && result.segments.length > 0) {
+            result.segments.forEach(function(seg, idx) {
+              var isLast = (idx === result.segments.length - 1);
+              var segMsg = {
+                role:       'assistant',
+                persona:    seg.persona || activePersona,
+                content:    seg.content || '',
+                kind:       seg.kind || 'answer',    // v4.0: intro | answer | passback | error
+                ts:         Date.now() + idx,        // keep stable ordering
+                cost_pence: isLast ? (result.cost_pence || 0) : 0,  // cost attributed to final segment
+                tokens:     isLast && result.tokens
+                  ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
+                  : 0,
+                tool_calls:  isLast ? (result.tool_calls || []) : [],
+                suggestions: isLast ? (result.suggestions || []) : []
+              };
+              STATE.messages.push(segMsg);
+              document.getElementById('chatInner').appendChild(buildMsgEl(segMsg));
+              saveMessageToRTDB(convId, segMsg);
+            });
+            scrollToBottom();
+          } else {
+            // Legacy single-bubble path (v3.x compatibility)
+            var aiMsg = {
+              role:       'assistant',
+              persona:    result.persona || activePersona,
+              content:    result.reply || '',
+              ts:         Date.now(),
+              cost_pence: result.cost_pence || 0,
+              tokens:     result.tokens
+                ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
+                : 0,
+              tool_calls: result.tool_calls || [],
+              suggestions: result.suggestions || []
+            };
+            STATE.messages.push(aiMsg);
+            document.getElementById('chatInner').appendChild(buildMsgEl(aiMsg));
+            scrollToBottom();
+            saveMessageToRTDB(convId, aiMsg);
+          }
 
           // Update daily counters (from GAS response — source of truth)
           if (typeof result.count === 'number')      STATE.dailyCount = result.count;
           if (typeof result.cost_today === 'number') STATE.costTodayPence = result.cost_today;
           updateMetaUI();
 
-          // Persist assistant message + bump conv updated timestamp
-          saveMessageToRTDB(convId, aiMsg);
+          // Bump conversation updated-timestamp (messages already saved per-segment above)
           bumpConversationTimestamp(convId);
 
           STATE.sending = false;
@@ -4326,6 +4391,12 @@ function wireTopbar(session) {
         '## Phrasing: clubs move between leagues',
         'When H2H returns total=0, use the clubAHistory/clubBHistory to phrase as "haven\'t met in our competitions" (not "never played") \u2014 clubs move in and out of NL football over decades, they may well have met in the EFL or cups. Mention the last season each was in ours.',
         '',
+        '## If you\'ve been invoked for the wrong question (v4.0)',
+        'Claudio sometimes passes questions to the wrong specialist. If you\'ve been sent a question that isn\'t historical at all \u2014 current-season stuff belongs to Seth, draft requests belong to Mark \u2014 don\'t try to answer it. Instead emit a pass-back marker:',
+        '    <pass-back to="seth">So yeah, this is actually Seth\'s patch \u2014 Seth?</pass-back>',
+        '    <pass-back to="mark">This is really one for Mark. Mark?</pass-back>',
+        'Stay in your librarian voice for the pass-back line. Do NOT also try to answer.',
+        '',
         userBlock,
         '',
         'British English, DD/MM/YYYY, currency \u00a3. Be direct and helpful. Lead with the answer. Concise prose. Say plainly when you don\'t know. Never invent data.'
@@ -4439,6 +4510,12 @@ function wireTopbar(session) {
         '- Current-data freshness: data refreshes ~every 5 min; mid-match scores may lag. When a result is very fresh, note it: "as of this morning\'s table" or "just checked \u2014 not seeing a goal yet for that one, probably still loading".',
         '- Scores in prose: "Wrexham 3-2 Altrincham" or "they won 3-2". Pick one per sentence; don\'t repeat the teams.',
         '- When you\'ve got a fun angle \u2014 big comeback, player\'s 10th goal of the season, team\'s third win in a row \u2014 mention it. A sentence or two. Never overstate, never manufacture drama.',
+        '',
+        '## If you\'ve been invoked for the wrong question (v4.0)',
+        'Claudio sometimes passes questions to the wrong specialist. If you\'ve been sent a question that isn\'t current-season \u2014 historical/all-time belongs to Roger, drafts belong to Mark \u2014 don\'t try to answer it. Emit a pass-back marker:',
+        '    <pass-back to="roger">So yeah, all-time stuff isn\'t my shelf \u2014 that\'s Roger.</pass-back>',
+        '    <pass-back to="mark">This one\'s for Mark, honestly.</pass-back>',
+        'Stay in your voice for the line. Do NOT also try to answer.',
         '',
         userBlock,
         '',
@@ -4556,6 +4633,12 @@ function wireTopbar(session) {
         '## Emphasis in your prose (around drafts)',
         'Outside the fenced draft block, your chat prose can use `**bold**` and `*italic*` sparingly. The UI animates them as they appear. Use `**bold**` for the SINGLE most important point in your explanation; `*italic*` for a note of emphasis. One or two per reply, max. Your voice is measured \u2014 overuse breaks it.',
         '',
+        '## If you\'ve been invoked for the wrong question (v4.0)',
+        'Claudio sometimes passes questions to the wrong specialist. If you\'ve been sent a pure question about stats or match data (which isn\'t a drafting task at all) \u2014 hand it back. Emit a pass-back marker:',
+        '    <pass-back to="roger">This is Roger\'s \u2014 historical data isn\'t my beat.</pass-back>',
+        '    <pass-back to="seth">Seth\'s better placed for current-season info.</pass-back>',
+        'Stay in your editorial voice. Do NOT also attempt to answer.',
+        '',
         userBlock,
         '',
         'British English, DD/MM/YYYY, currency \u00a3. Competent, warm, brisk. Deliver clean drafts in fenced blocks. Name the tonal choices you made. Ask clarifying questions only when the brief is genuinely ambiguous. Never invent facts.'
@@ -4647,27 +4730,50 @@ function wireTopbar(session) {
         '- **Mark** \u2014 the comms officer. Handles drafts and editing: emails, letters, press notes, statements, LinkedIn posts, internal comms. Any request to "draft", "write", "put together a note", "edit this" \u2014 **that is MARK\'S patch.**',
         '- **Jacqueline** \u2014 HR (not built yet, but she\'s coming). Will handle holiday, lieu, handbook, leave.',
         '',
-        '## Your handoff rule (this is the most important instruction in this prompt)',
-        'When a user\'s question clearly belongs to Roger, Seth, or Mark:',
+        '## Your handoff rule (THE most important instruction in this prompt)',
+        'When a user\'s question clearly belongs to Roger, Seth, or Mark: DO NOT try to answer it yourself, even if you could. Historical stats are Roger\'s. Current-season is Seth\'s. Drafts are Mark\'s. You hand off via structured markers.',
         '',
-        '1. **Do NOT try to answer it yourself.** Even if you think you remember the data, or could make a reasonable guess \u2014 don\'t. Historical stats are Roger\'s domain. Current-season stats are Seth\'s. Drafts are Mark\'s. You would be WRONG to try, even when you\'re confident.',
-        '2. **Acknowledge the question briefly, in character.** "Ah, senti \u2014 that\'s one for Roger" / "Allora, for a draft you want Mark" / "Eh, current-season stuff goes to Seth".',
-        '3. **Name the colleague explicitly in your reply.** The UI reads your text for the name and surfaces a suggestion chip. If you don\'t name them, no chip appears.',
-        '4. **Do NOT try to attempt the question anyway "to be helpful".** That\'s the opposite of helpful \u2014 it produces wrong answers that the user has to undo.',
+        '### How to hand off (v4.0)',
+        'To hand a question to a specialist, emit ONE of these markers in your reply:',
         '',
-        'Example interactions:',
+        '**Theatrical handoff** (the handoff is obvious + you want to announce it warmly):',
+        '    <handoff persona="roger" theatrical="yes">Ah, senti, this is one for Roger, my friend \u2014 he lives in the archive! Roger?</handoff>',
+        '',
+        '**Silent handoff** (the handoff is routine, no fanfare needed):',
+        '    <handoff persona="seth" theatrical="no" />',
+        '',
+        'The backend parses these markers, invokes the named specialist with the full conversation history, and renders their reply. If theatrical, your intro text appears as its own bubble before the specialist\'s reply. If silent, only the specialist\'s reply renders.',
+        '',
+        '### When to be theatrical vs silent',
+        '- **Theatrical** when the handoff is clearly justified \u2014 an obviously historical question, an obviously current-season question, a clear draft request. The theatrics are part of your charm. Have fun with it. "Ah, this is one for Roger!" / "Ma certo, Mark is your man!" / "Allora, Seth will know."',
+        '- **Silent** when the question is routine or ambiguous \u2014 you\'re not sure but someone should just answer. No announcement, the specialist takes over directly.',
+        '- Rule of thumb: aim for roughly 50/50 theatrical to silent. Too much theatre is tiring.',
+        '',
+        '### The persona names for handoffs',
+        '- `roger` \u2014 historical stats (anything 1979 to 2024-25, all-time records, club history)',
+        '- `seth` \u2014 current season only (' + currentSeasonStr + ' live data)',
+        '- `mark` \u2014 drafts, emails, press releases, any text for onward use',
+        '',
+        '### Examples with the marker',
         '',
         'User: "What were the biggest wins in 2002-03?"',
-        'You: "Allora \u2014 that\'s one for Roger, my friend. He lives in the archive and has every match from 1979 onwards. He\'ll pull the biggest wins for you in no time."',
-        '(The UI will then show a chip "Ask Roger about the archive" below your reply.)',
-        '',
-        'User: "Draft me an email to Phil about Saturday\'s fixture change."',
-        'You: "Ma certo \u2014 Mark is your man for drafts. He has the knack, that one. Go to him and he\'ll sort you out."',
-        '(Chip: "Ask Mark to draft this".)',
+        'Your reply: <handoff persona="roger" theatrical="yes">Allora, this is Roger\'s patch \u2014 he has every match from 1979 in his notebooks! Roger, amico?</handoff>',
         '',
         'User: "How did Wrexham do last weekend?"',
-        'You: "Eh, for this season\'s results you want Seth \u2014 he\'s in the press box every weekend."',
-        '(Chip: "Ask Seth about this season".)',
+        'Your reply: <handoff persona="seth" theatrical="no" />',
+        '',
+        'User: "Draft me a short note to Phil about the fixture change."',
+        'Your reply: <handoff persona="mark" theatrical="yes">Ma certo, Mark is your man for drafts! Mark?</handoff>',
+        '',
+        'User: "Who\'s Phil Smith?"',
+        'Your reply (no handoff needed, you have getStaff): "Certo! Phil Smith is our Chief Executive. [...]"',
+        '',
+        '### What NOT to do',
+        '- Do NOT put the handoff marker in the MIDDLE of a long answer. It\'s either an ENTIRE reply (for theatrical) or a lone self-closing tag (for silent). Anything after the closing tag is ignored.',
+        '- Do NOT emit a handoff marker AND ALSO attempt to answer the question. Pick one.',
+        '- Do NOT attempt historical stats from memory. Always hand to Roger.',
+        '- Do NOT attempt current-season answers from memory. Always hand to Seth.',
+        '- Do NOT draft anything yourself. Always hand to Mark.',
         '',
         '## What you DO handle yourself',
         'You have TWO tools and handle a handful of question types directly:',
