@@ -2,10 +2,34 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 4.0-alpha
+  Version: 4.0-alpha-fix1
   Date: 18/04/2026
 
   CHANGELOG
+  v4.0-alpha-fix1 (18/04/2026) — UX + error surfacing fixes for v4.0
+    - FIX UX: multi-segment replies now play SEQUENTIALLY. Each bubble is
+      hidden (display:none) until its predecessor\'s typewriter completes,
+      at which point it appears, briefly shows a typing indicator for the
+      new persona (~450ms), then begins its own typewriter. Before this
+      fix, all segments mounted simultaneously with full layout height
+      reserved, so "both chats wrote at once and space appeared first".
+      Now segments reveal one at a time, layout grows naturally as each
+      voice takes its turn.
+    - FIX: scheduleTypewriterReveal now returns a Promise that resolves
+      when reveal completes. Enables sequencing.
+    - FIX: buildMsgEl supports _deferTypewriter option. Deferred bubbles
+      mount hidden and expose wrap._startTypewriter() for the caller.
+    - FIX diagnostic: orchestration errors now surface the actual
+      Anthropic/tool error message in the visible reply (truncated to
+      120 chars) instead of swallowing it as "hit a snag". Also logged
+      to GAS Executions. Next failure, we\'ll see what broke.
+    - FIX: new guard for empty specialist replies \u2014 previously rendered
+      as "hit a snag" with 4000 tokens charged and no visible reason.
+      Now separately handled with diagnostic logging.
+    - FIX: Roger\'s + Seth\'s prompts now explicitly instruct them to
+      reply in prose if a tool errors rather than silently returning
+      empty. Likely root cause of the observed Roger failure.
+
   v4.0-alpha (18/04/2026) — ORCHESTRATED TEAM ARCHITECTURE (PHASE A+B)
     - ARCHITECTURE SHIFT. Claudio is now a host who routes questions
       to specialists via structured handoff markers. When activePersona
@@ -480,9 +504,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="4.0-alpha">
-  <meta name="build-time" content="2026-04-18T18:30:00Z">
-  <title>Claudio v4.0-alpha — NL Tools</title>
+  <meta name="app-version" content="4.0-alpha-fix1">
+  <meta name="build-time" content="2026-04-18T19:15:00Z">
+  <title>Claudio v4.0-alpha-fix1 — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1831,7 +1855,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-alpha</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-alpha-fix1</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -3279,79 +3303,79 @@ function wireTopbar(session) {
     var TW_EMPH_PEAK_MS     = 400;   // how long the peak class stays applied
     var TW_MAX_WORDS        = 600;   // safety cap \u2014 beyond this, just show it
 
+    // v4.0-alpha: returns a Promise that resolves when the reveal completes
+    // (or immediately if no reveal is needed). Callers can await this to
+    // render multi-segment orchestrated replies sequentially rather than
+    // starting all typewriters at once.
     function scheduleTypewriterReveal(textContainer) {
-      try {
-        // Walk tree, find leaf text nodes NOT inside .nl-table, table, pre, code.
-        // Wrap each run of non-whitespace into a tw-word span. Also mark
-        // words inside <strong>/<em> so we know to animate them.
-        var wordSpans = [];
-        wrapWordsInNode(textContainer, null, wordSpans);
+      return new Promise(function(resolveOuter) {
+        try {
+          var wordSpans = [];
+          wrapWordsInNode(textContainer, null, wordSpans);
 
-        if (wordSpans.length === 0) return;
-        if (wordSpans.length > TW_MAX_WORDS) {
-          // Too long \u2014 reveal everything instantly
-          for (var q = 0; q < wordSpans.length; q++) {
-            wordSpans[q].el.classList.add('tw-visible');
-          }
-          return;
-        }
-
-        // Add caret at end of container
-        var caret = document.createElement('span');
-        caret.className = 'tw-caret';
-        textContainer.appendChild(caret);
-
-        // Kick off reveal loop
-        var i = 0;
-        var reveal = function() {
-          if (i >= wordSpans.length) {
-            if (caret.parentNode) caret.parentNode.removeChild(caret);
+          if (wordSpans.length === 0) {
+            resolveOuter();
             return;
           }
-          var w = wordSpans[i];
-          w.el.classList.add('tw-visible');
-
-          // If this word is inside emphasis, play peak-then-settle
-          if (w.emph) {
-            var emphEl = w.emphEl;
-            // Accumulate emphasis \u2014 mark peak, schedule un-peak
-            if (emphEl && !emphEl._twPeakScheduled) {
-              emphEl._twPeakScheduled = true;
-              emphEl.classList.add('tw-emph--peak');
-              setTimeout(function() {
-                emphEl.classList.remove('tw-emph--peak');
-              }, TW_EMPH_PEAK_MS);
+          if (wordSpans.length > TW_MAX_WORDS) {
+            for (var q = 0; q < wordSpans.length; q++) {
+              wordSpans[q].el.classList.add('tw-visible');
             }
+            resolveOuter();
+            return;
           }
 
-          // Autoscroll every few words
-          if ((i % 4) === 0) {
-            var scroller = document.getElementById('chatScroll');
-            if (scroller) scroller.scrollTop = scroller.scrollHeight;
-          }
+          var caret = document.createElement('span');
+          caret.className = 'tw-caret';
+          textContainer.appendChild(caret);
 
-          // Decide pause before next word
-          var delay = TW_MS_PER_WORD;
-          var last = w.word.charAt(w.word.length - 1);
-          if (last === ',' || last === ';' || last === ':') {
-            delay += TW_PAUSE_COMMA;
-          } else if (last === '.' || last === '!' || last === '?') {
-            delay += TW_PAUSE_FULLSTOP;
-          }
-          if (w.emph) delay += TW_PAUSE_EMPH;
+          var i = 0;
+          var reveal = function() {
+            if (i >= wordSpans.length) {
+              if (caret.parentNode) caret.parentNode.removeChild(caret);
+              resolveOuter();
+              return;
+            }
+            var w = wordSpans[i];
+            w.el.classList.add('tw-visible');
 
-          i++;
-          setTimeout(reveal, delay);
-        };
+            if (w.emph) {
+              var emphEl = w.emphEl;
+              if (emphEl && !emphEl._twPeakScheduled) {
+                emphEl._twPeakScheduled = true;
+                emphEl.classList.add('tw-emph--peak');
+                setTimeout(function() {
+                  emphEl.classList.remove('tw-emph--peak');
+                }, TW_EMPH_PEAK_MS);
+              }
+            }
 
-        // Tiny initial delay so mount and fade-in don't collide
-        setTimeout(reveal, 80);
-      } catch (err) {
-        // Fatal typewriter error \u2014 reveal everything so user isn't stuck
-        console.warn('typewriter failed', err);
-        var els = textContainer.querySelectorAll('.tw-word');
-        for (var z = 0; z < els.length; z++) els[z].classList.add('tw-visible');
-      }
+            if ((i % 4) === 0) {
+              var scroller = document.getElementById('chatScroll');
+              if (scroller) scroller.scrollTop = scroller.scrollHeight;
+            }
+
+            var delay = TW_MS_PER_WORD;
+            var last = w.word.charAt(w.word.length - 1);
+            if (last === ',' || last === ';' || last === ':') {
+              delay += TW_PAUSE_COMMA;
+            } else if (last === '.' || last === '!' || last === '?') {
+              delay += TW_PAUSE_FULLSTOP;
+            }
+            if (w.emph) delay += TW_PAUSE_EMPH;
+
+            i++;
+            setTimeout(reveal, delay);
+          };
+
+          setTimeout(reveal, 80);
+        } catch (err) {
+          console.warn('typewriter failed', err);
+          var els = textContainer.querySelectorAll('.tw-word');
+          for (var z = 0; z < els.length; z++) els[z].classList.add('tw-visible');
+          resolveOuter();
+        }
+      });
     }
 
     // Walk a DOM node and wrap each word in a text descendant with a tw-word
@@ -3466,8 +3490,26 @@ function wireTopbar(session) {
         renderClaudioText(text, m.content || '');
         // v3.1: typewriter reveal on fresh messages only. Loaded-from-RTDB
         // messages carry _loaded=true and appear instantly.
+        // v4.0-alpha: if _deferTypewriter=true, don't auto-start AND hide
+        // the whole bubble until the caller starts it. This makes
+        // multi-segment replies play sequentially \u2014 each bubble appears
+        // only when its turn arrives, and grows naturally as words reveal
+        // instead of reserving full height upfront.
         if (!m._loaded) {
-          scheduleTypewriterReveal(text);
+          if (m._deferTypewriter) {
+            var pre = [];
+            wrapWordsInNode(text, null, pre);
+            // Hide the whole bubble until reveal is triggered
+            wrap.style.display = 'none';
+            wrap._startTypewriter = function() {
+              // Show the bubble, then start the reveal
+              wrap.style.display = '';
+              scrollToBottom();
+              return scheduleTypewriterReveal(text);
+            };
+          } else {
+            scheduleTypewriterReveal(text);
+          }
         }
       } else {
         text.textContent = m.content;
@@ -4138,31 +4180,84 @@ function wireTopbar(session) {
           }
 
           // v4.0-alpha: if the backend returned a segments array, render each
-          // as its own bubble with its own persona styling. This is how
-          // orchestrated turns with theatrical handoffs + pass-backs appear
-          // as multi-voice replies. Fall back to single-bubble for v3.x
-          // responses that don't include segments.
+          // as its own bubble IN SEQUENCE \u2014 one segment's typewriter must
+          // finish before the next begins. Each bubble starts hidden and
+          // appears only when its turn arrives, so there's no empty-space
+          // reservation before text types in. Between segments, the typing
+          // indicator briefly shows for the next persona to make the pacing
+          // feel alive.
           if (result.segments && result.segments.length > 0) {
-            result.segments.forEach(function(seg, idx) {
-              var isLast = (idx === result.segments.length - 1);
-              var segMsg = {
+            var segs = result.segments;
+
+            // Build all segment message objects now, but mark them deferred
+            // so their bubbles mount hidden.
+            var segMsgs = segs.map(function(seg, idx) {
+              var isLast = (idx === segs.length - 1);
+              return {
                 role:       'assistant',
                 persona:    seg.persona || activePersona,
                 content:    seg.content || '',
-                kind:       seg.kind || 'answer',    // v4.0: intro | answer | passback | error
-                ts:         Date.now() + idx,        // keep stable ordering
-                cost_pence: isLast ? (result.cost_pence || 0) : 0,  // cost attributed to final segment
+                kind:       seg.kind || 'answer',
+                ts:         Date.now() + idx,
+                cost_pence: isLast ? (result.cost_pence || 0) : 0,
                 tokens:     isLast && result.tokens
                   ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
                   : 0,
                 tool_calls:  isLast ? (result.tool_calls || []) : [],
-                suggestions: isLast ? (result.suggestions || []) : []
+                suggestions: isLast ? (result.suggestions || []) : [],
+                _deferTypewriter: true      // v4.0-alpha: don't auto-start
               };
+            });
+
+            // Push all into state + persist immediately (so reload is accurate)
+            segMsgs.forEach(function(segMsg) {
               STATE.messages.push(segMsg);
-              document.getElementById('chatInner').appendChild(buildMsgEl(segMsg));
               saveMessageToRTDB(convId, segMsg);
             });
-            scrollToBottom();
+
+            // Mount all bubbles (hidden via display:none) and collect starters
+            var chatInner = document.getElementById('chatInner');
+            var bubbles = segMsgs.map(function(segMsg) {
+              var el = buildMsgEl(segMsg);
+              chatInner.appendChild(el);
+              return el;
+            });
+
+            // Play them sequentially: show bubble, run typewriter, wait,
+            // optionally show typing indicator for next persona, then next.
+            // Using Promise chain rather than async/await for ES5 consistency.
+            var chain = Promise.resolve();
+            bubbles.forEach(function(bubble, idx) {
+              chain = chain.then(function() {
+                // Show typing indicator for this segment's persona BEFORE
+                // the bubble appears \u2014 but only between segments (the
+                // indicator for segment 0 was already visible before the
+                // API call returned).
+                if (idx > 0) {
+                  STATE.pendingPersona = segMsgs[idx].persona;
+                  addTypingIndicator();
+                  // Brief natural-feeling pause before the next voice chimes in
+                  return new Promise(function(r) { setTimeout(r, 450); });
+                }
+              }).then(function() {
+                // Remove typing indicator, start this segment's typewriter
+                removeTypingIndicator();
+                if (typeof bubble._startTypewriter === 'function') {
+                  return bubble._startTypewriter();
+                }
+              });
+            });
+
+            // When all segments have finished, update counters + UI state
+            chain.then(function() {
+              if (typeof result.count === 'number')      STATE.dailyCount = result.count;
+              if (typeof result.cost_today === 'number') STATE.costTodayPence = result.cost_today;
+              updateMetaUI();
+              bumpConversationTimestamp(convId);
+              STATE.sending = false;
+              setSendingUI(false);
+            });
+            return;   // early-return; counters update inside the chain
           } else {
             // Legacy single-bubble path (v3.x compatibility)
             var aiMsg = {
@@ -4391,6 +4486,9 @@ function wireTopbar(session) {
         '## Phrasing: clubs move between leagues',
         'When H2H returns total=0, use the clubAHistory/clubBHistory to phrase as "haven\'t met in our competitions" (not "never played") \u2014 clubs move in and out of NL football over decades, they may well have met in the EFL or cups. Mention the last season each was in ours.',
         '',
+        '## If a tool returns an error or unexpected data',
+        'If a tool call returns `{error: "..."}` or surprising empty data, STOP and reply in prose \u2014 don\'t keep retrying the same thing. Your reply should acknowledge the limitation in your voice: "Ah, something\'s amiss with the ledger on that one \u2014 let me try a different angle" or "That query\'s coming back empty \u2014 could be a data gap. Want me to try [alternative]?". Never return a silent blank reply. Always have SOMETHING to say.',
+        '',
         '## If you\'ve been invoked for the wrong question (v4.0)',
         'Claudio sometimes passes questions to the wrong specialist. If you\'ve been sent a question that isn\'t historical at all \u2014 current-season stuff belongs to Seth, draft requests belong to Mark \u2014 don\'t try to answer it. Instead emit a pass-back marker:',
         '    <pass-back to="seth">So yeah, this is actually Seth\'s patch \u2014 Seth?</pass-back>',
@@ -4510,6 +4608,9 @@ function wireTopbar(session) {
         '- Current-data freshness: data refreshes ~every 5 min; mid-match scores may lag. When a result is very fresh, note it: "as of this morning\'s table" or "just checked \u2014 not seeing a goal yet for that one, probably still loading".',
         '- Scores in prose: "Wrexham 3-2 Altrincham" or "they won 3-2". Pick one per sentence; don\'t repeat the teams.',
         '- When you\'ve got a fun angle \u2014 big comeback, player\'s 10th goal of the season, team\'s third win in a row \u2014 mention it. A sentence or two. Never overstate, never manufacture drama.',
+        '',
+        '## If a tool returns an error or unexpected data',
+        'If a tool call returns `{error: "..."}` or surprising empty data, STOP and reply in prose \u2014 don\'t keep retrying the same thing. Acknowledge in your voice: "So yeah, I\'m not seeing anything \u2014 feed might be loading" or "That one\'s throwing me an error, sorry." Never return a silent blank reply. Always have SOMETHING to say.',
         '',
         '## If you\'ve been invoked for the wrong question (v4.0)',
         'Claudio sometimes passes questions to the wrong specialist. If you\'ve been sent a question that isn\'t current-season \u2014 historical/all-time belongs to Roger, drafts belong to Mark \u2014 don\'t try to answer it. Emit a pass-back marker:',
