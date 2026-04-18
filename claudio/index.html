@@ -2,10 +2,36 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.20
+  Version: 3.1
   Date: 18/04/2026
 
   CHANGELOG
+  v3.1 (18/04/2026) — Typography system + word-by-word typewriter
+    - Per-persona typography: every persona now has their own face.
+      Claudio moves from LTC Italian to PINOT GRIGIO MODERN (variable
+      display sans, weight 500 base). Roger inherits LTC Italian
+      Old Style Pro (classical serif, librarian register). Seth gets
+      STINGER VARIABLE (sport broadcast, wght + wdth variable axes).
+      Mark gets EDITA (editorial serif). Jacqueline gets FUZZY
+      BUBBLES (hand-drawn script, warm + human).
+    - Requires Adobe Fonts kit gff4ipy to include all five faces.
+      Fallbacks are sensible but the experience is designed around
+      the real faces loading.
+    - Word-by-word typewriter on all fresh assistant messages.
+      ~35ms per word, +40ms at commas, +120ms at full stops. Caret
+      blinks at the end. Scroller auto-follows every 4th word.
+      Messages loaded from history (reopened chats) appear instantly.
+    - Emphasis animation: bold and italic words play a brief peak-
+      and-settle when revealed. Each persona has their own "DNA":
+      Seth's is biggest (wght 400\u2192800, wdth 100\u2192125, broadcast energy),
+      Roger's is subtlest (scale 1.03, no weight axis on static font),
+      Jacqueline's is playful (scale + slight rotate, no weight on
+      static font). Claudio and Mark fall between.
+    - Typing indicator now uses the active persona's avatar, not
+      Claudio's permanent SVG.
+    - Heckle bubbles (crowd chants, broadcast clich\u00e9s) are Claudio's
+      character \u2014 suppressed for Roger / Seth / Mark / Jacqueline.
+
   v2.20 (18/04/2026) — Phase 1 Session 4: Polish
     - Avatar morphs on persona switch: 400ms scale+rotate animation on
       the header avatar when user changes persona. Silent re-renders
@@ -372,7 +398,10 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
-  <!-- Typekit: LTC Italian Old Style Pro — used ONLY for Claudio's chat bubbles -->
+  <!-- Typekit kit gff4ipy \u2014 assumed to include: ltc-italian-old-style,
+       carbona-variable, pinot-grigio-modern, stinger-variable, edita,
+       fuzzy-bubbles. If the browser shows fallback fonts, verify all six
+       faces are activated for this web project in Adobe Fonts. -->
   <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
 
   <!-- Firebase init — BEFORE auth-guard.js (see nl-tools skill gotcha #5) -->
@@ -421,7 +450,15 @@
       --radius:      6px;
       --shadow:      0 2px 12px rgba(10,22,40,0.10);
       --font:        'carbona-variable','carbona',sans-serif;
-      --font-claudio: 'ltc-italian-old-style-pro', 'Lora', Georgia, serif;
+
+      /* v3.1: per-persona prose fonts. Each persona's message bubbles
+         render in their own face. Fallbacks chosen to match the character
+         if Typekit fails to load.                                    */
+      --font-claudio:    'pinot-grigio-modern', 'carbona-variable', sans-serif;
+      --font-roger:      'ltc-italian-old-style-pro', 'Lora', Georgia, serif;
+      --font-seth:       'stinger-variable', 'stinger', 'Impact', sans-serif;
+      --font-mark:       'edita', 'Charter', Georgia, serif;
+      --font-jacqueline: 'fuzzy-bubbles', 'Comic Sans MS', 'Marker Felt', sans-serif;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -794,6 +831,94 @@
       animation: header-slide 400ms ease-out;
     }
 
+    /* ===== v3.1: typewriter + emphasis animations ===== */
+
+    /* Typewriter \u2014 words fade-in as they get revealed. Uses per-word
+       <span class="tw-word"> wrappers emitted by the typewriter engine. */
+    .tw-word {
+      opacity: 0;
+      display: inline;
+      transition: opacity 150ms ease-out;
+    }
+    .tw-word.tw-visible {
+      opacity: 1;
+    }
+    /* Blinking caret while typing */
+    .tw-caret {
+      display: inline-block;
+      width: 2px; height: 1.1em;
+      vertical-align: text-bottom;
+      background: currentColor;
+      opacity: 0.6;
+      animation: tw-caret-blink 600ms steps(1) infinite;
+      margin-left: 1px;
+    }
+    @keyframes tw-caret-blink {
+      50% { opacity: 0; }
+    }
+
+    /* Emphasis animation \u2014 applies to <strong> and <em> as each is revealed.
+       Animation differs per persona. Base: word briefly expands then settles. */
+    .msg__text .tw-emph {
+      display: inline-block;
+      transition:
+        font-variation-settings 350ms cubic-bezier(0.34, 1.56, 0.64, 1),
+        transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1),
+        color 350ms ease-out;
+    }
+    /* Landing state \u2014 animation peak. Removed after ~400ms to settle. */
+    .msg__text .tw-emph.tw-emph--peak {
+      /* default peak (used if no persona-specific override) */
+      transform: scale(1.05);
+    }
+
+    /* Claudio \u2014 pinot-grigio-modern (variable sans).
+       Weight 500 \u2192 700 with tiny scale on emphasis. */
+    .msg--ai[data-persona="claudio"] .msg__text .tw-emph {
+      font-variation-settings: 'wght' 700;
+    }
+    .msg--ai[data-persona="claudio"] .msg__text .tw-emph.tw-emph--peak {
+      font-variation-settings: 'wght' 900;
+      transform: scale(1.04);
+    }
+
+    /* Roger \u2014 LTC Italian Old Style Pro (static serif, not variable).
+       Can't animate weight axis. Use subtle scale pop. Understated. */
+    .msg--ai[data-persona="roger"] .msg__text .tw-emph {
+      font-weight: 700;
+    }
+    .msg--ai[data-persona="roger"] .msg__text .tw-emph.tw-emph--peak {
+      transform: scale(1.03);
+    }
+
+    /* Seth \u2014 stinger-variable. Full broadcast-graphic energy:
+       width AND weight both animate. Biggest peak. */
+    .msg--ai[data-persona="seth"] .msg__text .tw-emph {
+      font-variation-settings: 'wght' 700, 'wdth' 110;
+    }
+    .msg--ai[data-persona="seth"] .msg__text .tw-emph.tw-emph--peak {
+      font-variation-settings: 'wght' 800, 'wdth' 125;
+      transform: scale(1.02);
+    }
+
+    /* Mark \u2014 edita (static serif with multiple weights).
+       Dignified editor's emphasis: swap to bold, tiny scale. */
+    .msg--ai[data-persona="mark"] .msg__text .tw-emph {
+      font-weight: 700;
+    }
+    .msg--ai[data-persona="mark"] .msg__text .tw-emph.tw-emph--peak {
+      transform: scale(1.03);
+    }
+
+    /* Jacqueline \u2014 fuzzy-bubbles (hand-drawn, not variable).
+       Can't animate weight smoothly; use a playful scale pop with rotate. */
+    .msg--ai[data-persona="jacqueline"] .msg__text .tw-emph {
+      font-weight: 700;
+    }
+    .msg--ai[data-persona="jacqueline"] .msg__text .tw-emph.tw-emph--peak {
+      transform: scale(1.08) rotate(-1deg);
+    }
+
     /* ===== Chat main ===== */
     .chat {
       display: flex; flex-direction: column;
@@ -912,20 +1037,49 @@
       overflow-wrap: break-word; word-wrap: break-word;
       white-space: pre-wrap;
     }
-    /* Claudio speaks in LTC Italian Old Style — a literary, warm serif.
-       Only applies to assistant bubbles; user bubbles stay in carbona.
-       Note: the serif sits differently on the baseline than carbona, so
-       we bump font-size slightly to match visual weight. */
+    /* v3.1: per-persona prose \u2014 each persona gets their own face.
+       Applied via data-persona on the .msg element. Fallback is serif
+       (preserves the old Claudio-in-LTC default if no persona set). */
     .msg--ai .msg__text {
       font-family: var(--font-claudio);
       font-size: 17px;
       line-height: 1.5;
       font-weight: 400;
     }
+    .msg--ai[data-persona="claudio"] .msg__text {
+      font-family: var(--font-claudio);
+      font-weight: 500;
+      font-variation-settings: 'wght' 500;
+    }
+    .msg--ai[data-persona="roger"] .msg__text {
+      font-family: var(--font-roger);
+      font-size: 17px;
+      line-height: 1.55;
+      font-weight: 400;
+    }
+    .msg--ai[data-persona="seth"] .msg__text {
+      font-family: var(--font-seth);
+      font-size: 17px;
+      font-weight: 400;
+      line-height: 1.55;
+      font-variation-settings: 'wght' 400, 'wdth' 100;
+    }
+    .msg--ai[data-persona="mark"] .msg__text {
+      font-family: var(--font-mark);
+      font-size: 16px;
+      line-height: 1.6;
+      font-weight: 400;
+    }
+    .msg--ai[data-persona="jacqueline"] .msg__text {
+      font-family: var(--font-jacqueline);
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 400;
+    }
     .msg--ai .msg__text em,
     .msg--ai .msg__text i {
       font-style: italic;
-      font-weight: 400;
+      font-weight: inherit;
     }
     .msg--ai .msg__text strong,
     .msg--ai .msg__text b {
@@ -3005,9 +3159,183 @@ function wireTopbar(session) {
       el.appendChild(img);
     }
 
+    // =========================================================================
+    // v3.1: Typewriter reveal engine
+    // =========================================================================
+    // On fresh assistant messages, post-process the rendered DOM to wrap each
+    // word in a <span class="tw-word">, then reveal them word-by-word on a
+    // timer. When a word sits inside <strong> or <em>, it plays the persona's
+    // emphasis animation (peak-and-settle) as it appears.
+    //
+    // Works with any existing content rendered by renderClaudioText \u2014 including
+    // tables, nl-table blocks, draft blocks, links. We only walk text nodes
+    // that live inside .msg__text, we never touch tables/code/drafts.
+    //
+    // Pacing:
+    //   - 35ms between ordinary words
+    //   - +40ms extra pause at commas
+    //   - +120ms extra pause at full stops / question marks
+    //   - +300ms pause when landing on an emphasised word (lets the animation breathe)
+    // =========================================================================
+
+    var TW_MS_PER_WORD      = 35;
+    var TW_PAUSE_COMMA      = 40;
+    var TW_PAUSE_FULLSTOP   = 120;
+    var TW_PAUSE_EMPH       = 300;
+    var TW_EMPH_PEAK_MS     = 400;   // how long the peak class stays applied
+    var TW_MAX_WORDS        = 600;   // safety cap \u2014 beyond this, just show it
+
+    function scheduleTypewriterReveal(textContainer) {
+      try {
+        // Walk tree, find leaf text nodes NOT inside .nl-table, table, pre, code.
+        // Wrap each run of non-whitespace into a tw-word span. Also mark
+        // words inside <strong>/<em> so we know to animate them.
+        var wordSpans = [];
+        wrapWordsInNode(textContainer, null, wordSpans);
+
+        if (wordSpans.length === 0) return;
+        if (wordSpans.length > TW_MAX_WORDS) {
+          // Too long \u2014 reveal everything instantly
+          for (var q = 0; q < wordSpans.length; q++) {
+            wordSpans[q].el.classList.add('tw-visible');
+          }
+          return;
+        }
+
+        // Add caret at end of container
+        var caret = document.createElement('span');
+        caret.className = 'tw-caret';
+        textContainer.appendChild(caret);
+
+        // Kick off reveal loop
+        var i = 0;
+        var reveal = function() {
+          if (i >= wordSpans.length) {
+            if (caret.parentNode) caret.parentNode.removeChild(caret);
+            return;
+          }
+          var w = wordSpans[i];
+          w.el.classList.add('tw-visible');
+
+          // If this word is inside emphasis, play peak-then-settle
+          if (w.emph) {
+            var emphEl = w.emphEl;
+            // Accumulate emphasis \u2014 mark peak, schedule un-peak
+            if (emphEl && !emphEl._twPeakScheduled) {
+              emphEl._twPeakScheduled = true;
+              emphEl.classList.add('tw-emph--peak');
+              setTimeout(function() {
+                emphEl.classList.remove('tw-emph--peak');
+              }, TW_EMPH_PEAK_MS);
+            }
+          }
+
+          // Autoscroll every few words
+          if ((i % 4) === 0) {
+            var scroller = document.getElementById('chatScroll');
+            if (scroller) scroller.scrollTop = scroller.scrollHeight;
+          }
+
+          // Decide pause before next word
+          var delay = TW_MS_PER_WORD;
+          var last = w.word.charAt(w.word.length - 1);
+          if (last === ',' || last === ';' || last === ':') {
+            delay += TW_PAUSE_COMMA;
+          } else if (last === '.' || last === '!' || last === '?') {
+            delay += TW_PAUSE_FULLSTOP;
+          }
+          if (w.emph) delay += TW_PAUSE_EMPH;
+
+          i++;
+          setTimeout(reveal, delay);
+        };
+
+        // Tiny initial delay so mount and fade-in don't collide
+        setTimeout(reveal, 80);
+      } catch (err) {
+        // Fatal typewriter error \u2014 reveal everything so user isn't stuck
+        console.warn('typewriter failed', err);
+        var els = textContainer.querySelectorAll('.tw-word');
+        for (var z = 0; z < els.length; z++) els[z].classList.add('tw-visible');
+      }
+    }
+
+    // Walk a DOM node and wrap each word in a text descendant with a tw-word
+    // span. Skips content inside tables, pre, code, nl-table containers,
+    // links (so links stay intact), and draft blocks.
+    //
+    // `emphEl` is the CURRENT containing emphasis element (strong/em/b/i),
+    // passed by reference through the recursion. Null at top level.
+    function wrapWordsInNode(node, emphEl, wordSpans) {
+      // Skip nodes we shouldn't walk into
+      if (node.nodeType === 1) {
+        var tag = node.tagName.toUpperCase();
+        if (tag === 'TABLE' || tag === 'PRE' || tag === 'CODE' || tag === 'A') {
+          return;
+        }
+        if (node.classList && (
+              node.classList.contains('msg__draft') ||
+              node.classList.contains('nl-table'))) {
+          return;
+        }
+      }
+
+      // If entering an emphasis element, use THIS as the emph parent for
+      // descendants. Also tag it so the CSS base transition applies.
+      var currentEmph = emphEl;
+      if (node.nodeType === 1) {
+        var t = node.tagName.toUpperCase();
+        if (t === 'STRONG' || t === 'EM' || t === 'B' || t === 'I') {
+          node.classList.add('tw-emph');
+          currentEmph = node;
+        }
+      }
+
+      // Text node: split into word spans in place
+      if (node.nodeType === 3) {
+        var text = node.nodeValue;
+        if (!text) return;
+        var frag = document.createDocumentFragment();
+        var tokens = text.split(/(\s+)/);
+        for (var k = 0; k < tokens.length; k++) {
+          var tk = tokens[k];
+          if (tk === '') continue;
+          if (/^\s+$/.test(tk)) {
+            frag.appendChild(document.createTextNode(tk));
+          } else {
+            var span = document.createElement('span');
+            span.className = 'tw-word';
+            span.textContent = tk;
+            frag.appendChild(span);
+            wordSpans.push({
+              el: span,
+              word: tk,
+              emph: !!emphEl,
+              emphEl: emphEl
+            });
+          }
+        }
+        if (node.parentNode) node.parentNode.replaceChild(frag, node);
+        return;
+      }
+
+      // Element node: recurse children (snapshot \u2014 we mutate during iteration)
+      if (node.childNodes) {
+        var children = [];
+        for (var c = 0; c < node.childNodes.length; c++) children.push(node.childNodes[c]);
+        for (var cc = 0; cc < children.length; cc++) {
+          wrapWordsInNode(children[cc], currentEmph, wordSpans);
+        }
+      }
+    }
+
     function buildMsgEl(m) {
       var wrap = document.createElement('div');
       wrap.className = 'msg ' + (m.role === 'user' ? 'msg--user' : 'msg--ai');
+      // v3.1: set data-persona so per-persona CSS takes hold
+      if (m.role === 'assistant') {
+        wrap.setAttribute('data-persona', m.persona || 'claudio');
+      }
 
       var avatar = document.createElement('div');
       avatar.className = 'msg__avatar ' + (m.role === 'user' ? 'msg__avatar--user' : 'msg__avatar--ai');
@@ -3042,6 +3370,11 @@ function wireTopbar(session) {
       text.className = 'msg__text';
       if (m.role === 'assistant') {
         renderClaudioText(text, m.content || '');
+        // v3.1: typewriter reveal on fresh messages only. Loaded-from-RTDB
+        // messages carry _loaded=true and appear instantly.
+        if (!m._loaded) {
+          scheduleTypewriterReveal(text);
+        }
       } else {
         text.textContent = m.content;
       }
@@ -3196,9 +3529,17 @@ function wireTopbar(session) {
       wrap.className = 'typing';
       wrap.id = 'typingIndicator';
 
+      // v3.1: typing indicator uses the active persona's avatar
       var avatar = document.createElement('div');
-      avatar.className = 'msg__avatar msg__avatar--ai';
-      setClaudioAvatar(avatar);
+      var pKey = STATE.pendingPersona || 'claudio';
+      if (pKey === 'claudio') {
+        avatar.className = 'msg__avatar msg__avatar--ai';
+        setClaudioAvatar(avatar);
+      } else {
+        var p = PERSONAS[pKey] || PERSONAS.claudio;
+        avatar.className = 'msg__avatar persona-avatar persona-avatar--' + p.key;
+        avatar.textContent = p.initial;
+      }
 
       var dots = document.createElement('div');
       dots.className = 'typing__dots';
@@ -3219,9 +3560,10 @@ function wireTopbar(session) {
       el.appendChild(wrap);
       scrollToBottom();
 
-      // Fire up the heckle cycler (kicks in after a short delay — no
-      // heckles if Claudio answers instantly)
-      startHeckleCycle();
+      // v3.1: Heckles are Claudio's character \u2014 no heckles for others.
+      if ((STATE.pendingPersona || 'claudio') === 'claudio') {
+        startHeckleCycle();
+      }
     }
 
     function removeTypingIndicator() {
