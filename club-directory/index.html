@@ -6,29 +6,77 @@
 <title>Club Directory — NL Tools</title>
 <!--
   club-directory / index.html
-  v0.14 — Polish round.
+  v0.15 — Design polish round. Button + pill language unified, content clarity pass.
 
   Changelog:
-  v0.14 — UI cleanup driven by v0.13 test feedback:
-          - Removed the Dense table / Role-first view switcher. Dense table is
-            the only club-page view now. Eliminates a bug where switching away
-            from a club (e.g. to List builder) and back could reset the view
-            state incorrectly. Role-first renderer is kept in the source but
-            no longer referenced. Can revive if we want mobile-specific views.
-          - Fixed crest stretching everywhere: width+height CSS now paired with
-            object-fit: contain so non-square crests keep their aspect ratio
-            within their container. Applies to listing cards, club page header,
-            editor club picker, editor header, list builder warnings and
-            results tables.
-          - Removed duplicate "Demo mode" banner from the editor view. Kept on
-            the club-picker (landing) surface only; redundant on editor view.
-          - Person side-panel: primary-role row now wraps cleanly for long role
-            titles (e.g. "Club Welfare / Safeguarding Officer") instead of
-            squashing the fields side-by-side.
-          - Dense table: first section header gets consistent breathing room
-            above so Leadership doesn't jam against the column headers.
-          - Club topbar balances back-link when the Manage button is hidden
-            (non-admin personas on any club page).
+  v0.15 — Complete UI consistency overhaul based on v0.14 feedback. No feature
+          changes; all visual/structural cleanup.
+
+          NEW COMPONENT LANGUAGE
+          Five button variants defined at the top of the CSS:
+          - .btn.btn--primary   — navy fill, main affirmative (Save, Copy, etc)
+          - .btn.btn--secondary — outline, contextual (Cancel, Edit, Back)
+          - .btn.btn--danger    — red fill, destructive (Delete)
+          - .btn.btn--link      — text-only, low emphasis (all/none controls)
+          - .btn.btn--toggle    — tab/state (Directory, People tab, heads mode)
+          Plus .btn--toggle-dark (persona bar), .btn--sm / .btn--lg size mods,
+          .btn-icon (round 26px structural), .btn-add (dashed-border creation).
+
+          Four pill variants:
+          - .pill.pill--count       — neutral metadata, goes coloured only when .is-active
+          - .pill.pill--status[-good|-warn|-error] — meaning = colour
+          - .pill.pill--marker      — meaningful flag (dept head badge)
+          - .pill.pill--identifier  — neutral label (division, role key)
+
+          MIGRATED CLASSES (old → new)
+          .mc-save-btn, .mc-primary-btn, .lb-copybtn, .mc-add-person-btn → btn btn--primary
+          .mc-cancel-btn, .mc-dept-edit-btn, .mc-person-card-btn → btn btn--secondary
+          .mc-danger-btn, .mc-person-panel__danger → btn btn--danger
+          .lb-linkbtn → btn btn--link
+          .demo-bar__btn, .lb-mode-btn, .mc-picker-pill → btn btn--toggle
+          .persona-btn → btn btn--toggle-dark
+          .mc-dept-add-btn → btn-add
+          .mc-assignment-remove, .mc-person-panel__close, .lb-omit-btn → btn-icon
+          .mc-tab-count → pill pill--count (gains .is-active when tab is current)
+          .mc-status-pill + modifiers → pill pill--status*
+          .mc-person-panel__dept-head-pill, .mc-assignment-headpill → pill pill--marker
+          .mc-checklist-roleKey → pill pill--identifier
+          .mc-div-pill (division colour coding) → pill pill--identifier (neutral)
+          .mc-dept-warning → pill pill--status pill--status-warn
+
+          Old CSS rules for migrated classes are still in the file but unused —
+          flagged for cleanup in a later pass.
+
+          CONTENT CHANGES
+          - Decorative ⚡ (List builder) and ✏ (Manage) symbols stripped from
+            button labels — they rendered inconsistently across OSes and added
+            nothing. Labels are now plain text.
+          - View-switcher bar hides entirely when persona has only Directory
+            access (viewer, club-editor). No single-button "switcher" pollution.
+          - Club-editor persona sees a prominent "Your club" hero card at the
+            top of the directory listing — gradient navy background, big
+            crest, direct "Manage my club" button. Their regular card still
+            appears in the division grid below.
+          - Division headers renamed to full league titles:
+            'National League', 'National League North', 'National League South'.
+            Colour coding (navy/amber/green) removed. New styling: navy
+            uppercase with red underline — matches section-header language
+            elsewhere in the tool.
+          - Club listing cards stripped back: crest, name, stadium only.
+            Club Secretary line removed (weird summary field). Town-only
+            sub-line and "N people" redundant count removed. Cards now have
+            consistent 72px min-height.
+          - "← back to directory" changed from inline link to proper
+            secondary button — rest of the tool's button language applied.
+          - .lb-div-badge coloured square dropped from list builder division
+            rows; full division name shown instead.
+          - Tab count pills neutral grey by default, navy-highlighted only
+            when the tab is active.
+
+          Stadium name derived from first comma-token of the raw address.
+          Good coverage (~85%), with a fallback that suppresses false matches
+          like 'Hartlepool United FC'.
+  v0.14 — Polish round: switcher removed, crest aspect, banner dedup, panel wrap, etc.
   v0.13 — Primary role, duplicate-dept soft warn, Programme Editor flag.
   v0.12 — Section metadata + checklist type.
   v0.11 — (skipped).
@@ -114,6 +162,141 @@
     .topbar__title { font-size: 17px; }
   }
 
+  /* ====================================================
+     v0.15 BUTTON SYSTEM
+     5 semantic variants: primary, secondary, danger, link, toggle
+     Plus toggle-dark (persona bar), size modifiers, icon helpers, add helper.
+     Existing component-specific button classes (.mc-save-btn, .lb-copybtn
+     etc) are migrated to use this system in v0.15.
+     ==================================================== */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font); font-size: 12px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 8px 16px; border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+
+  .btn--primary { background: var(--navy); color: var(--white); }
+  .btn--primary:hover:not(:disabled) { background: var(--navy-mid); }
+
+  .btn--secondary {
+    background: var(--white); color: var(--text);
+    border-color: var(--border);
+  }
+  .btn--secondary:hover:not(:disabled) { border-color: var(--navy); color: var(--navy); }
+
+  .btn--danger { background: var(--red); color: var(--white); }
+  .btn--danger:hover:not(:disabled) { background: #a23225; }
+
+  .btn--link {
+    background: none; border: none; padding: 4px 6px;
+    font-size: 12px; font-weight: 600; font-variation-settings: 'wght' 600;
+    text-transform: none; letter-spacing: normal;
+    color: var(--navy); text-decoration: underline;
+  }
+  .btn--link:hover:not(:disabled) { color: var(--primary); }
+
+  .btn--toggle {
+    background: none; color: var(--text);
+    border-color: transparent;
+    font-weight: 600; font-variation-settings: 'wght' 600;
+  }
+  .btn--toggle:hover:not([aria-pressed="true"]) { background: var(--off-white); }
+  .btn--toggle[aria-pressed="true"] { background: var(--navy); color: var(--white); }
+
+  .btn--toggle-dark {
+    background: none; color: rgba(255,255,255,0.75);
+    border: 1px solid rgba(255,255,255,0.18);
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    padding: 3px 10px; font-size: 11px;
+  }
+  .btn--toggle-dark:hover:not([aria-pressed="true"]) { border-color: rgba(255,255,255,0.4); color: #fff; }
+  .btn--toggle-dark[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+  .btn--sm { padding: 5px 11px; font-size: 11px; letter-spacing: 0.06em; }
+  .btn--lg { padding: 11px 22px; font-size: 13px; }
+
+  /* Icon button — round, no text, structural */
+  .btn-icon {
+    background: none;
+    border: 1px solid var(--border);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px; line-height: 1;
+    color: var(--text-muted);
+    padding: 0;
+    transition: all 0.12s;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font);
+  }
+  .btn-icon:hover { border-color: var(--navy); color: var(--navy); }
+  .btn-icon--danger:hover { border-color: var(--red); color: var(--red); }
+  .btn-icon[aria-pressed="true"] {
+    background: var(--red); border-color: var(--red); color: var(--white);
+  }
+
+  /* Add button — dashed border creation affordance */
+  .btn-add {
+    background: var(--white); border: 1px dashed var(--border);
+    padding: 8px 14px; border-radius: var(--radius);
+    font-family: var(--font); font-size: 12px;
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    color: var(--navy);
+    cursor: pointer; transition: all 0.12s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-add:hover { border-color: var(--navy); background: var(--off-white); }
+
+  /* ====================================================
+     v0.15 PILL SYSTEM
+     4 variants: count, status, marker, identifier.
+     ==================================================== */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; padding: 2px 9px; border-radius: 3px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.05em; line-height: 1.5;
+  }
+
+  .pill--count {
+    background: var(--off-white); color: var(--text-muted);
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    font-size: 10px;
+    padding: 1px 8px; border-radius: 10px;
+  }
+  .pill--count.is-active { background: var(--navy); color: var(--white); }
+
+  .pill--status { background: var(--off-white); color: var(--text-muted); }
+  .pill--status-good  { background: #edf7ee; color: var(--green); }
+  .pill--status-warn  { background: var(--amber-light, #fef6ec); color: #8a5a00; }
+  .pill--status-error { background: var(--red-light); color: var(--red); }
+
+  .pill--marker {
+    background: var(--amber); color: var(--white);
+    font-size: 9px; text-transform: uppercase;
+    letter-spacing: 0.1em; padding: 2px 7px;
+  }
+  .pill--marker-primary { background: var(--primary); color: var(--white); }
+
+  .pill--identifier {
+    background: var(--white); color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2px 9px;
+  }
+
+  /* Amber token for light amber background (used in pill--status-warn) */
+  :root { --amber-light: #fef6ec; }
+
   .demo-bar {
     background: var(--white); border-bottom: 1px solid var(--border);
     padding: 10px 20px;
@@ -129,8 +312,8 @@
   .demo-bar__search:focus { outline: none; border-color: var(--navy); }
 
   .page { max-width: 1200px; margin: 0 auto; padding: 24px 20px 80px; }
-  .back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; color: var(--navy); cursor: pointer; margin-bottom: 16px; padding: 6px 0; }
-  .back-link:hover { text-decoration: underline; }
+  /* .back-link superseded by .btn.btn--secondary.btn--sm in v0.15 */
+
   .scene { display: none; }
   .scene--active { display: block; }
 
@@ -242,22 +425,95 @@
      LISTING 1 — Card Grid
      ================================================================ */
   .l1-division { margin-bottom: 32px; }
-  .l1-div-hd { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 800; font-variation-settings: 'wght' 800; padding: 8px 14px; display: inline-flex; align-items: baseline; gap: 10px; color: var(--white); margin: 0 0 14px 0; border-radius: 3px; }
-  .l1-div-hd span { font-size: 10px; opacity: 0.75; letter-spacing: 0.1em; font-weight: 600; font-variation-settings: 'wght' 600; }
-  .l1-div-hd--national { background: var(--navy); }
-  .l1-div-hd--north { background: var(--amber); }
-  .l1-div-hd--south { background: var(--green); }
+  /* Division headers — navy uppercase with red underline, matches section-header language elsewhere */
+  .l1-div-hd {
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    padding: 0 0 6px 0;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+    color: var(--navy);
+    margin: 0 0 18px 0;
+    border-bottom: 2px solid var(--primary);
+  }
+  .l1-div-hd .pill { vertical-align: baseline; }
+  /* Club-editor "your club" hero — big full-width card on directory landing */
+  .l1-hero {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
+    color: var(--white);
+    padding: 24px 28px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 18px;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .l1-hero:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(10,22,40,0.2); }
+  .l1-hero__crest {
+    width: 64px; height: 64px; background: var(--white);
+    border-radius: 6px; padding: 6px;
+    object-fit: contain;
+  }
+  .l1-hero__kicker {
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.22em; opacity: 0.7;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+  }
+  .l1-hero__name {
+    font-size: 22px;
+    font-weight: 800; font-variation-settings: 'wght' 800;
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .l1-hero__meta {
+    font-size: 13px; opacity: 0.8; margin-top: 2px;
+  }
+  .l1-hero .btn--primary {
+    background: var(--primary);
+  }
+  .l1-hero .btn--primary:hover { background: var(--primary-dim); }
+  @media (max-width: 700px) {
+    .l1-hero {
+      grid-template-columns: 56px 1fr;
+      padding: 18px;
+    }
+    .l1-hero__crest { width: 56px; height: 56px; }
+    .l1-hero .btn--primary {
+      grid-column: 1 / -1;
+      justify-content: center;
+    }
+    .l1-hero__name { font-size: 18px; }
+  }
+
   .l1-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
-  .l1-card { background: var(--white); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; display: flex; gap: 12px; align-items: flex-start; }
+  .l1-card {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px 16px;
+    cursor: pointer; transition: all 0.15s;
+    display: flex; gap: 12px; align-items: center;
+    min-height: 72px;
+  }
   .l1-card:hover { border-color: var(--navy); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(10,22,40,0.08); }
   .l1-crest { width: 40px; height: 40px; flex-shrink: 0; object-fit: contain; }
   .l1-card-body { flex: 1; min-width: 0; }
-  .l1-card h3 { margin: 0; font-size: 15px; font-weight: 700; font-variation-settings: 'wght' 700; letter-spacing: -0.01em; }
-  .l1-addr { font-size: 12px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .l1-key { margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f2f5; }
-  .l1-key-role { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; font-variation-settings: 'wght' 700; }
-  .l1-key-name { font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; margin-top: 1px; }
-  .l1-stats { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+  .l1-card h3 {
+    margin: 0; font-size: 15px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: -0.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .l1-stadium {
+    font-size: 12px; color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   /* ================================================================
      LIST BUILDER (staff view)
@@ -589,7 +845,8 @@
   }
   .lb-copybtn:hover { background: var(--navy-mid); }
   .lb-copybtn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .lb-copybtn.is-copied { background: var(--green); }
+  .btn.is-copied { background: var(--green) !important; }
+  .btn.is-copied:hover { background: var(--green) !important; }
 
   .lb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .lb-table th {
@@ -682,28 +939,12 @@
     gap: 12px;
     margin-bottom: 16px;
   }
-  .club-topbar .manage-club-btn {
+  .club-topbar #manageMyClubBtn {
     margin-left: auto;  /* when shown, pushes to right; when hidden, nothing to push */
-  }
-  .manage-club-btn {
+    /* Use brand red for "Manage my club" to make it distinctive from the navy */
     background: var(--primary);
-    color: var(--white);
-    border: none;
-    padding: 8px 16px;
-    border-radius: var(--radius);
-    font-family: var(--font);
-    font-size: 12px;
-    font-weight: 700;
-    font-variation-settings: 'wght' 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-    transition: all 0.12s;
-    align-items: center;
-    gap: 6px;
   }
-  .manage-club-btn:hover { background: var(--primary-dim); }
-  .manage-club-btn.persona-gated.is-shown { display: inline-flex; }
+  .club-topbar #manageMyClubBtn:hover { background: var(--primary-dim); }
 
   /* ================================================================
      MANAGE CONTACTS (v0.9 — two-surface model)
@@ -798,7 +1039,7 @@
     display: flex; align-items: center; gap: 12px;
     margin-bottom: 16px;
   }
-  .mc-back-bar .back-link { margin: 0; }
+  .mc-back-bar .btn { margin: 0; }
   .mc-title h2 {
     margin: 0; font-size: 20px;
     font-weight: 900; font-variation-settings: 'wght' 900;
@@ -1521,17 +1762,17 @@
 <!-- Demo persona bar — in production this is determined by the logged-in user -->
 <div class="persona-bar" id="personaBar">
   <span class="persona-bar__label">Demo persona:</span>
-  <button class="persona-btn" data-persona="viewer" aria-pressed="false">Viewer</button>
-  <button class="persona-btn" data-persona="staff" aria-pressed="false">NL staff</button>
-  <button class="persona-btn" data-persona="admin" aria-pressed="true">NL admin</button>
-  <button class="persona-btn" data-persona="club-editor" aria-pressed="false">Club editor <span id="personaClubName">(Tonbridge Angels)</span></button>
+  <button class="btn btn--toggle-dark" data-persona="viewer" aria-pressed="false">Viewer</button>
+  <button class="btn btn--toggle-dark" data-persona="staff" aria-pressed="false">NL staff</button>
+  <button class="btn btn--toggle-dark" data-persona="admin" aria-pressed="true">NL admin</button>
+  <button class="btn btn--toggle-dark" data-persona="club-editor" aria-pressed="false">Club editor <span id="personaClubName">(Tonbridge Angels)</span></button>
 </div>
 
 <div class="demo-bar">
   <div class="demo-bar__group" id="clubStyleGroup">
-    <button class="demo-bar__btn" data-view-mode="directory" aria-pressed="true">Directory</button>
-    <button class="demo-bar__btn demo-bar__btn--staff persona-gated" data-view-mode="builder" data-requires="listBuilder">⚡ List builder</button>
-    <button class="demo-bar__btn demo-bar__btn--staff persona-gated" data-view-mode="manage" data-requires="manageContacts">✏ Manage contacts</button>
+    <button class="btn btn--toggle btn--sm" data-view-mode="directory" aria-pressed="true">Directory</button>
+    <button class="btn btn--toggle btn--sm persona-gated" data-view-mode="builder" data-requires="listBuilder">List builder</button>
+    <button class="btn btn--toggle btn--sm persona-gated" data-view-mode="manage" data-requires="manageContacts">Manage contacts</button>
   </div>
   <input type="search" class="demo-bar__search" id="searchBox" placeholder="Search clubs, people, roles…">
 </div>
@@ -1542,8 +1783,8 @@
   </div>
   <div class="scene" id="scene-club">
     <div class="club-topbar">
-      <a class="back-link" id="backLink">← back to directory</a>
-      <button class="manage-club-btn persona-gated" id="manageMyClubBtn" data-requires="manageOwnClub" style="display:none;">✏ Manage my club</button>
+      <button class="btn btn--secondary btn--sm" id="backLink">← back to directory</button>
+      <button class="btn btn--primary persona-gated" id="manageMyClubBtn" data-requires="manageOwnClub" style="display:none;">Manage my club</button>
     </div>
     <div id="club-root"></div>
   </div>
@@ -1555,8 +1796,8 @@
 
     <div class="lb-modebar">
       <div class="lb-modebar__group" id="lbModeGroup">
-        <button class="lb-mode-btn" data-lb-mode="heads" aria-pressed="true">Dept heads only</button>
-        <button class="lb-mode-btn" data-lb-mode="whole">Whole department</button>
+        <button class="btn btn--toggle btn--sm" data-lb-mode="heads" aria-pressed="true">Dept heads only</button>
+        <button class="btn btn--toggle btn--sm" data-lb-mode="whole">Whole department</button>
       </div>
     </div>
 
@@ -1565,8 +1806,8 @@
         <div class="lb-panel-hd">
           <h3>Departments</h3>
           <div class="lb-panel-actions">
-            <button class="lb-linkbtn" id="lbDeptsAll">all</button>
-            <button class="lb-linkbtn" id="lbDeptsNone">none</button>
+            <button class="btn btn--link" id="lbDeptsAll">all</button>
+            <button class="btn btn--link" id="lbDeptsNone">none</button>
           </div>
         </div>
         <div id="lbDepts"></div>
@@ -1576,8 +1817,8 @@
         <div class="lb-panel-hd">
           <h3>Divisions &amp; clubs</h3>
           <div class="lb-panel-actions">
-            <button class="lb-linkbtn" id="lbClubsAll">all</button>
-            <button class="lb-linkbtn" id="lbClubsNone">none</button>
+            <button class="btn btn--link" id="lbClubsAll">all</button>
+            <button class="btn btn--link" id="lbClubsNone">none</button>
           </div>
         </div>
         <div id="lbDivisions"></div>
@@ -1593,9 +1834,9 @@
           <span class="lb-count-sub" id="lbCountSub">people match</span>
         </div>
         <div class="lb-results-actions">
-          <button class="lb-copybtn" data-copy-fmt="named">Copy named emails</button>
-          <button class="lb-copybtn" data-copy-fmt="plain">Copy plain emails</button>
-          <button class="lb-copybtn" data-copy-fmt="csv">Copy as CSV</button>
+          <button class="btn btn--primary" data-copy-fmt="named">Copy named emails</button>
+          <button class="btn btn--primary" data-copy-fmt="plain">Copy plain emails</button>
+          <button class="btn btn--primary" data-copy-fmt="csv">Copy as CSV</button>
         </div>
       </div>
       <div id="lbResults"></div>
@@ -1711,6 +1952,26 @@ function townFromAddr(addr) {
   var parts = addr.split(',').map(function(s){ return s.trim(); });
   if (parts.length >= 2) return parts[parts.length - 2];
   return parts[0] || '';
+}
+
+// Best-effort extraction of stadium name from the raw address string.
+// First comma-separated token is usually the stadium. Filters out tokens
+// that are clearly not stadium names (clubs that start their address with
+// the club name itself, like "Hartlepool United FC"). Returns empty string
+// if nothing usable.
+function stadiumFromAddr(addr) {
+  if (!addr) return '';
+  var first = addr.split(',')[0].trim();
+  if (!first) return '';
+  // If the first chunk is clearly the whole address (no comma anywhere),
+  // it's not a stadium — bail.
+  if (addr.indexOf(',') === -1) return '';
+  // Reject tokens that are just "<name> FC" or "<name> Football Club".
+  // These clubs didn't list a stadium name at the start.
+  var lower = first.toLowerCase();
+  if (/\b(fc|football club|afc)\s*$/i.test(first)) return '';
+  if (lower === '' || first.length > 60) return '';
+  return first;
 }
 
 function mainRole(p) {
@@ -1919,32 +2180,29 @@ function renderListStyle1(clubs) {
   ['National','North','South'].forEach(function(d) {
     if (!byDiv[d].length) return;
     var cards = byDiv[d].map(function(c) {
-      var key = firstPersonWithMainRole(c, 'Club Secretary') || firstPersonInSection(c, 'Leadership');
-      var keyRole = key ? (key.roles.filter(function(r){return r.main;})[0] || key.roles[0]) : null;
-      var keyHtml = '';
-      if (key && keyRole) {
-        keyHtml = '<div class="l1-key">' +
-          '<div class="l1-key-role">' + esc(keyRole.title) + '</div>' +
-          '<div class="l1-key-name">' + esc(key.name) + '</div>' +
-        '</div>';
-      }
+      var stadium = stadiumFromAddr(c.address_raw);
       return '<div class="l1-card" data-club="' + esc(c.name) + '">' +
         '<img class="l1-crest" src="' + crestUrl(c.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
         '<div class="l1-card-body">' +
           '<h3>' + esc(c.name) + '</h3>' +
-          '<div class="l1-addr">' + esc(townFromAddr(c.address_raw)) + '</div>' +
-          keyHtml +
-          '<div class="l1-stats">' + c.people.length + ' people</div>' +
+          (stadium ? '<div class="l1-stadium">' + esc(stadium) + '</div>' : '') +
         '</div>' +
       '</div>';
     }).join('');
     html += '<div class="l1-division">' +
-      '<div class="l1-div-hd l1-div-hd--' + d.toLowerCase() + '">' + esc(d) + ' <span>' + byDiv[d].length + ' clubs</span></div>' +
+      '<div><div class="l1-div-hd">' + esc(DIVISION_FULL_NAMES[d] || d) + ' <span class="pill pill--count">' + byDiv[d].length + ' clubs</span></div></div>' +
       '<div class="l1-grid">' + cards + '</div>' +
     '</div>';
   });
   return html;
 }
+
+// Division shorthand in data → full display name.
+var DIVISION_FULL_NAMES = {
+  'National': 'National League',
+  'North':    'National League North',
+  'South':    'National League South',
+};
 
 /* ================= STATE ================= */
 // Demo-only club assigned to the "club editor" persona. In production this is
@@ -2024,8 +2282,54 @@ function renderListing() {
     root.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">No clubs match "' + esc(state.searchQuery) + '"</div>';
     return;
   }
-  root.innerHTML = renderListStyle1(clubs);
-  var cards = root.querySelectorAll('[data-club]');
+
+  // Club-editor persona: render a prominent "your club" hero card on top.
+  // The regular card still appears in its division grid below (not removed).
+  var heroHtml = '';
+  if (state.persona === 'club-editor') {
+    var ownClub = window.CLUBS.filter(function(c){ return c.name === DEMO_EDITOR_CLUB; })[0];
+    if (ownClub) {
+      var stadium = stadiumFromAddr(ownClub.address_raw);
+      var divLabel = DIVISION_FULL_NAMES[ownClub.division] || ownClub.division;
+      heroHtml =
+        '<div class="l1-hero" id="ownClubHero" data-club="' + esc(ownClub.name) + '">' +
+          '<img class="l1-hero__crest" src="' + crestUrl(ownClub.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
+          '<div class="l1-hero__body">' +
+            '<div class="l1-hero__kicker">Your club</div>' +
+            '<div class="l1-hero__name">' + esc(ownClub.name) + '</div>' +
+            '<div class="l1-hero__meta">' +
+              (stadium ? esc(stadium) + ' · ' : '') +
+              esc(divLabel) +
+            '</div>' +
+          '</div>' +
+          '<button class="btn btn--primary" id="ownClubManageBtn">Manage my club</button>' +
+        '</div>';
+    }
+  }
+
+  root.innerHTML = heroHtml + renderListStyle1(clubs);
+
+  // Hero card → open club page on click of the card, or go straight to manage on button
+  var hero = document.getElementById('ownClubHero');
+  if (hero) {
+    hero.addEventListener('click', function(e) {
+      if (e.target.closest('#ownClubManageBtn')) return; // let button's own handler fire
+      state.viewing = hero.getAttribute('data-club');
+      showScene();
+    });
+  }
+  var heroManageBtn = document.getElementById('ownClubManageBtn');
+  if (heroManageBtn) {
+    heroManageBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      state.manage.editingClub = DEMO_EDITOR_CLUB;
+      state.viewMode = 'manage';
+      state.viewing = null;
+      showScene();
+    });
+  }
+
+  var cards = root.querySelectorAll('.l1-card[data-club]');
   cards.forEach(function(el) {
     el.addEventListener('click', function(e) {
       e.preventDefault();
@@ -2083,6 +2387,14 @@ function updatePersonaGatedElements() {
     if (personaCan(cap)) el.classList.add('is-shown');
     else el.classList.remove('is-shown');
   });
+
+  // Hide the whole view-switcher bar when persona only has Directory access.
+  // No point showing a single-button "switcher".
+  var clubStyleGroup = document.getElementById('clubStyleGroup');
+  if (clubStyleGroup) {
+    var hasOtherView = personaCan('listBuilder') || personaCan('manageContacts');
+    clubStyleGroup.style.display = hasOtherView ? '' : 'none';
+  }
 }
 
 function updateManageMyClubButton() {
@@ -2349,8 +2661,7 @@ function renderBuilderDivisions() {
         '<input type="checkbox" id="' + divId + '" class="lb-division-check" data-division="' + d + '"' +
           (allSelected ? ' checked' : '') + '>' +
         '<label for="' + divId + '">' +
-          '<span class="lb-div-badge lb-div-badge--' + d.toLowerCase() + '"></span>' +
-          d +
+          esc(DIVISION_FULL_NAMES[d] || d) +
         '</label>' +
         '<span class="lb-division-stats">' + selCount + ' / ' + totCount + '</span>' +
         '<button class="lb-section-toggle" data-division-toggle="' + d + '">' + (collapsed ? '▸' : '▾') + '</button>' +
@@ -2430,7 +2741,7 @@ function renderBuilderResults() {
       : '<span class="lb-no-email">no email</span>';
     return '<tr class="' + (r.omitted ? 'lb-row-omitted' : '') + '" data-key="' + esc(r.key) + '">' +
       '<td class="lb-col-omit">' +
-        '<button class="lb-omit-btn" data-omit-key="' + esc(r.key) + '" aria-pressed="' + (r.omitted ? 'true' : 'false') + '" title="' + (r.omitted ? 'Include row' : 'Omit row') + '">' +
+        '<button class="btn-icon" data-omit-key="' + esc(r.key) + '" aria-pressed="' + (r.omitted ? 'true' : 'false') + '" title="' + (r.omitted ? 'Include row' : 'Omit row') + '">' +
         (r.omitted ? '+' : '×') +
         '</button>' +
       '</td>' +
@@ -2551,14 +2862,14 @@ function renderClubPicker(root) {
       return !hasHead;
     });
     var status = missing.length === 0
-      ? '<span class="mc-status-pill mc-status-pill--good">✓ all heads set</span>'
-      : '<span class="mc-status-pill mc-status-pill--warn">⚠ ' + missing.length + ' missing head' + (missing.length===1?'':'s') + '</span>';
+      ? '<span class="pill pill--status pill--status-good">✓ all heads set</span>'
+      : '<span class="pill pill--status pill--status-warn">⚠ ' + missing.length + ' missing head' + (missing.length===1?'':'s') + '</span>';
     return '<tr data-club="' + esc(c.name) + '">' +
       '<td><div class="mc-club-cell">' +
         '<img src="' + crestUrl(c.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
         '<span>' + esc(c.name) + '</span>' +
       '</div></td>' +
-      '<td><span class="mc-div-pill mc-div-pill--' + c.division.toLowerCase() + '">' + esc(c.division) + '</span></td>' +
+      '<td><span class="pill pill--identifier">' + esc(DIVISION_FULL_NAMES[c.division] || c.division) + '</span></td>' +
       '<td>' + c.people.length + ' people</td>' +
       '<td>' + status + '</td>' +
       '<td class="mc-action-col"><a href="#">Edit →</a></td>' +
@@ -2575,10 +2886,10 @@ function renderClubPicker(root) {
     '</div>' +
     '<div class="mc-picker-filter">' +
       '<input type="search" placeholder="Search clubs..." id="mcPickerSearch" value="' + esc(state.manage.pickerSearch||'') + '">' +
-      '<button class="mc-picker-pill" data-div-filter=""' + (!divFilter ? ' aria-pressed="true"' : '') + '>All</button>' +
-      '<button class="mc-picker-pill" data-div-filter="National"' + (divFilter==='National' ? ' aria-pressed="true"' : '') + '>National</button>' +
-      '<button class="mc-picker-pill" data-div-filter="North"' + (divFilter==='North' ? ' aria-pressed="true"' : '') + '>North</button>' +
-      '<button class="mc-picker-pill" data-div-filter="South"' + (divFilter==='South' ? ' aria-pressed="true"' : '') + '>South</button>' +
+      '<button class="btn btn--toggle btn--sm" data-div-filter=""' + (!divFilter ? ' aria-pressed="true"' : '') + '>All</button>' +
+      '<button class="btn btn--toggle btn--sm" data-div-filter="National"' + (divFilter==='National' ? ' aria-pressed="true"' : '') + '>National</button>' +
+      '<button class="btn btn--toggle btn--sm" data-div-filter="North"' + (divFilter==='North' ? ' aria-pressed="true"' : '') + '>North</button>' +
+      '<button class="btn btn--toggle btn--sm" data-div-filter="South"' + (divFilter==='South' ? ' aria-pressed="true"' : '') + '>South</button>' +
     '</div>' +
     '<div class="mc-clubs-table">' +
       '<table>' +
@@ -2596,8 +2907,8 @@ function renderEditor(root) {
   if (!club) { root.innerHTML = '<div>Club not found</div>'; return; }
 
   var backBar = state.persona === 'admin'
-    ? '<div class="mc-back-bar"><a class="back-link" id="mcBackToPicker">← back to club list</a></div>'
-    : '<div class="mc-back-bar"><a class="back-link" id="mcBackToDirectory">← back to directory</a></div>';
+    ? '<div class="mc-back-bar"><button class="btn btn--secondary btn--sm" id="mcBackToPicker">← back to club list</button></div>'
+    : '<div class="mc-back-bar"><button class="btn btn--secondary btn--sm" id="mcBackToDirectory">← back to directory</button></div>';
 
   var title = '<div class="mc-title">' +
     '<h2>' +
@@ -2611,7 +2922,7 @@ function renderEditor(root) {
   var canEditDetails = personaCan('editClubDetails');
   var tabs = '<div class="mc-surface-tabs">' +
     '<button class="mc-surface-tab" data-surface="people" aria-selected="' + (state.manage.surface === 'people' ? 'true' : 'false') + '">' +
-      'People <span class="mc-tab-count">' + club.people.length + '</span>' +
+      'People <span class="pill pill--count' + (state.manage.surface === 'people' ? ' is-active' : '') + '">' + club.people.length + '</span>' +
     '</button>' +
     '<button class="mc-surface-tab" data-surface="departments" aria-selected="' + (state.manage.surface === 'departments' ? 'true' : 'false') + '">' +
       'Department assignments' +
@@ -2687,7 +2998,7 @@ function renderPeopleSurface(club) {
         (deptParts.length ? '<div class="mc-person-card-depts">' + deptParts.join(' · ') + '</div>' : '<div class="mc-person-card-depts"><i>No department assignments</i></div>') +
       '</div>' +
       '<div class="mc-person-card-actions">' +
-        '<button class="mc-person-card-btn" data-edit-person="' + esc(p._id) + '">Edit</button>' +
+        '<button class="btn btn--secondary btn--sm" data-edit-person="' + esc(p._id) + '">Edit</button>' +
       '</div>' +
     '</div>';
   }).filter(Boolean).join('');
@@ -2700,7 +3011,7 @@ function renderPeopleSurface(club) {
 
   return '<div class="mc-people-actions">' +
     '<input type="search" class="mc-people-search" placeholder="Search people by name or email..." id="mcPeopleSearch" value="' + esc(state.manage.peopleSearch||'') + '">' +
-    '<button class="mc-add-person-btn" id="mcAddPersonBtn">+ Add person</button>' +
+    '<button class="btn btn--primary" id="mcAddPersonBtn">+ Add person</button>' +
   '</div>' +
   '<div class="mc-people-list">' + rowsHtml + '</div>';
 }
@@ -2740,7 +3051,7 @@ function renderPersonPanel(club) {
           '<span class="mc-person-panel__primary-mark">primary</span>' +
         '</label>' +
         '<span class="mc-person-panel__dept-info"><b>' + esc(r.section) + '</b> — ' + esc(r.title) + '</span>' +
-        (r.deptHead ? '<span class="mc-person-panel__dept-head-pill">Head</span>' : '') +
+        (r.deptHead ? '<span class="pill pill--marker">Head</span>' : '') +
       '</div>';
     }).join('');
   } else if (!isNew) {
@@ -2754,7 +3065,7 @@ function renderPersonPanel(club) {
           '<h3>' + (isNew ? 'Add new person' : 'Edit person') + '</h3>' +
           '<div class="mc-person-panel__hd-sub">' + esc(club.name) + '</div>' +
         '</div>' +
-        '<button class="mc-person-panel__close" id="mcPanelClose">×</button>' +
+        '<button class="btn-icon" id="mcPanelClose">×</button>' +
       '</div>' +
       '<div class="mc-person-panel__body">' +
         '<div class="mc-person-panel__field">' +
@@ -2776,10 +3087,10 @@ function renderPersonPanel(club) {
         '</div>' : '<div class="mc-person-panel__help">After saving, assign this person to a department in the <b>Department assignments</b> tab. Their first role becomes their primary automatically.</div>') +
       '</div>' +
       '<div class="mc-person-panel__ftr">' +
-        (isNew ? '<span></span>' : '<button class="mc-person-panel__danger" id="mcPanelDelete">Delete person entirely</button>') +
+        (isNew ? '<span></span>' : '<button class="btn btn--danger" id="mcPanelDelete">Delete person entirely</button>') +
         '<div style="display:flex;gap:8px;">' +
-          '<button class="mc-cancel-btn" id="mcPanelCancel">Cancel</button>' +
-          '<button class="mc-save-btn" id="mcPanelSave">Save</button>' +
+          '<button class="btn btn--secondary" id="mcPanelCancel">Cancel</button>' +
+          '<button class="btn btn--primary" id="mcPanelSave">Save</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -2821,13 +3132,13 @@ function renderDeptCard(club, section) {
     });
     if (missingKeys.length) {
       hasMissingRequired = true;
-      warning = '<span class="mc-dept-warning">⚠ Missing: ' + missingKeys.join(', ') + '</span>';
+      warning = '<span class="pill pill--status pill--status-warn">⚠ Missing: ' + missingKeys.join(', ') + '</span>';
     }
   } else if (isRequiredHead) {
     var missingHead = hasData && !entries.some(function(e){ return e.role.deptHead; });
     var multipleHeads = entries.filter(function(e){ return e.role.deptHead; }).length > 1;
-    if (missingHead) { warning = '<span class="mc-dept-warning">⚠ No dept head</span>'; hasMissingRequired = true; }
-    else if (multipleHeads) warning = '<span class="mc-dept-warning">⚠ Multiple heads</span>';
+    if (missingHead) { warning = '<span class="pill pill--status pill--status-warn">⚠ No dept head</span>'; hasMissingRequired = true; }
+    else if (multipleHeads) warning = '<span class="pill pill--status pill--status-warn">⚠ Multiple heads</span>';
   }
 
   // Skip empty hierarchical sections that don't have a head concept (Directors with no directors etc)
@@ -2837,7 +3148,7 @@ function renderDeptCard(club, section) {
 
   var headerActions = '';
   if (!isEditing) {
-    headerActions = '<button class="mc-dept-edit-btn" data-edit-dept-section="' + esc(section) + '">Edit</button>';
+    headerActions = '<button class="btn btn--secondary btn--sm" data-edit-dept-section="' + esc(section) + '">Edit</button>';
   }
 
   // Body — route by section type and edit state
@@ -2877,7 +3188,7 @@ function renderChecklistViewBody(section, meta, entries) {
 
     if (!filled.length) {
       return '<div class="mc-assignment-row mc-checklist-slot' + (isOpt ? ' mc-checklist-slot--optional' : ' mc-checklist-slot--missing') + '">' +
-        '<div class="mc-assignment-name"><span class="mc-checklist-roleKey">' + esc(rk) + '</span> ' + esc(label) + '</div>' +
+        '<div class="mc-assignment-name"><span class="pill pill--identifier">' + esc(rk) + '</span> ' + esc(label) + '</div>' +
         '<div class="mc-assignment-role"><i style="color:var(--text-muted);">— not assigned' + (isOpt ? ' (optional)' : '') + ' —</i></div>' +
         '<div></div><div></div>' +
       '</div>';
@@ -2886,7 +3197,7 @@ function renderChecklistViewBody(section, meta, entries) {
     return filled.map(function(e) {
       var p = e.person, r = e.role;
       return '<div class="mc-assignment-row mc-checklist-slot">' +
-        '<div class="mc-assignment-name"><span class="mc-checklist-roleKey">' + esc(rk) + '</span> ' + esc(p.name) + '</div>' +
+        '<div class="mc-assignment-name"><span class="pill pill--identifier">' + esc(rk) + '</span> ' + esc(p.name) + '</div>' +
         '<div class="mc-assignment-role">' + esc(r.title) + '</div>' +
         '<div></div><div></div>' +
       '</div>';
@@ -2939,10 +3250,10 @@ function renderChecklistEditBody(club, section, meta, entries) {
     }
     var d = drafts[draftKey];
     var removeBtn = existing
-      ? '<button class="mc-assignment-remove" data-clear-slot="' + esc(draftKey) + '" title="Clear">×</button>'
+      ? '<button class="btn-icon btn-icon--danger" data-clear-slot="' + esc(draftKey) + '" title="Clear">×</button>'
       : '<span></span>';
     return '<div class="mc-assignment-edit-row" data-draft-key="' + esc(draftKey) + '">' +
-      '<div><span class="mc-checklist-roleKey">' + esc(rk) + '</span> ' + esc(label) + (isOpt ? ' <span style="color:var(--text-muted);font-size:11px;">(optional)</span>' : '') + '</div>' +
+      '<div><span class="pill pill--identifier">' + esc(rk) + '</span> ' + esc(label) + (isOpt ? ' <span style="color:var(--text-muted);font-size:11px;">(optional)</span>' : '') + '</div>' +
       '<select data-checklist-draft-key="' + esc(draftKey) + '">' + personOptions(d.personId) + '</select>' +
       '<span></span>' +
       removeBtn +
@@ -2968,7 +3279,7 @@ function renderChecklistEditBody(club, section, meta, entries) {
       '<select data-checklist-draft-key="' + esc(extraKey) + '" data-draft-field="personId">' + personOptions(d.personId) + '</select>' +
       '<input type="text" data-checklist-draft-key="' + esc(extraKey) + '" data-draft-field="roleTitle" value="' + esc(d.roleTitle) + '" placeholder="Role title">' +
       '<span></span>' +
-      '<button class="mc-assignment-remove" data-remove-extra="' + esc(extraKey) + '" title="Remove">×</button>' +
+      '<button class="btn-icon btn-icon--danger" data-remove-extra="' + esc(extraKey) + '" title="Remove">×</button>' +
     '</div>';
   }).join('');
 
@@ -2980,7 +3291,7 @@ function renderChecklistEditBody(club, section, meta, entries) {
       '<select id="mcChecklistAddPerson">' + personOptions(nd.personId) + '</select>' +
       '<input type="text" id="mcChecklistAddTitle" value="' + esc(nd.roleTitle||'') + '" placeholder="Role title (e.g. Deputy DLO)">' +
       '<span></span>' +
-      '<button class="mc-assignment-remove" id="mcChecklistAddCancel">×</button>' +
+      '<button class="btn-icon btn-icon--danger" id="mcChecklistAddCancel">×</button>' +
     '</div>';
   }
 
@@ -2988,13 +3299,13 @@ function renderChecklistEditBody(club, section, meta, entries) {
 
   var addBtn = state.manage.checklistAddDraft
     ? ''
-    : '<button class="mc-dept-add-btn" data-add-checklist-extra="' + esc(section) + '">+ Add other liaison role</button>';
+    : '<button class="btn-add" data-add-checklist-extra="' + esc(section) + '">+ Add other liaison role</button>';
 
   var extrasLabel = (extras.length || state.manage.checklistAddDraft) ? '<div class="mc-checklist-extras-label">Other liaison roles</div>' : '';
 
   var footer = '<div class="mc-dept-footer">' +
-    '<button class="mc-cancel-btn" data-cancel-dept="' + esc(section) + '">Cancel</button>' +
-    '<button class="mc-save-btn" data-save-checklist="' + esc(section) + '">Save changes</button>' +
+    '<button class="btn btn--secondary" data-cancel-dept="' + esc(section) + '">Cancel</button>' +
+    '<button class="btn btn--primary" data-save-checklist="' + esc(section) + '">Save changes</button>' +
   '</div>';
 
   return slotRows + extrasLabel + extrasRows + addExtraHtml + addBtn + footer;
@@ -3009,7 +3320,7 @@ function renderDeptViewBody(section, entries) {
     return '<div class="mc-assignment-row' + (r.deptHead ? ' is-head' : '') + '">' +
       '<div class="mc-assignment-name">' + esc(p.name) + '</div>' +
       '<div class="mc-assignment-role">' + esc(r.title) + '</div>' +
-      (r.deptHead ? '<div class="mc-assignment-headpill">Head</div>' : '<div></div>') +
+      (r.deptHead ? '<div class="pill pill--marker">Head</div>' : '<div></div>') +
       '<div></div>' +
     '</div>';
   }).join('');
@@ -3059,7 +3370,7 @@ function renderDeptEditBody(club, section, entries) {
         '<input type="checkbox" data-draft-key="' + esc(key) + '" data-draft-field="deptHead"' + (d.deptHead ? ' checked' : '') + '>' +
         'Head' +
       '</label>' +
-      '<button class="mc-assignment-remove" data-remove-draft-key="' + esc(key) + '" title="Remove assignment">×</button>' +
+      '<button class="btn-icon btn-icon--danger" data-remove-draft-key="' + esc(key) + '" title="Remove assignment">×</button>' +
       flagsHtml +
     '</div>';
   }).join('');
@@ -3092,19 +3403,19 @@ function renderDeptEditBody(club, section, entries) {
         '<input type="checkbox" id="mcAddDraftHead"' + (nd.deptHead ? ' checked' : '') + '>' +
         'Head' +
       '</label>' +
-      '<button class="mc-assignment-remove" id="mcAddDraftCancel">×</button>' +
+      '<button class="btn-icon btn-icon--danger" id="mcAddDraftCancel">×</button>' +
       addFlagsHtml +
     '</div>';
   }
 
   var footer = '<div class="mc-dept-footer">' +
-    '<button class="mc-cancel-btn" data-cancel-dept="' + esc(section) + '">Cancel</button>' +
-    '<button class="mc-save-btn" data-save-dept="' + esc(section) + '">Save changes</button>' +
+    '<button class="btn btn--secondary" data-cancel-dept="' + esc(section) + '">Cancel</button>' +
+    '<button class="btn btn--primary" data-save-dept="' + esc(section) + '">Save changes</button>' +
   '</div>';
 
   var addBtn = state.manage.deptAddDraft
     ? ''
-    : '<button class="mc-dept-add-btn" data-add-to-dept="' + esc(section) + '">+ Assign a person to ' + esc(section) + '</button>';
+    : '<button class="btn-add" data-add-to-dept="' + esc(section) + '">+ Assign a person to ' + esc(section) + '</button>';
 
   return (entries.length ? rowsHtml : '<div class="mc-dept-empty">No assignments yet. Add one below.</div>') +
     addHtml +
@@ -3133,10 +3444,10 @@ function renderClubDetails(club) {
 
   var actions = isEditing
     ? '<div class="mc-dept-footer" style="border-top:none;padding-top:0;margin-top:10px;">' +
-        '<button class="mc-cancel-btn" id="mcDetailsCancel">Cancel</button>' +
-        '<button class="mc-save-btn" id="mcDetailsSave">Save</button>' +
+        '<button class="btn btn--secondary" id="mcDetailsCancel">Cancel</button>' +
+        '<button class="btn btn--primary" id="mcDetailsSave">Save</button>' +
       '</div>'
-    : '<div style="margin-top:14px;text-align:right;"><button class="mc-dept-edit-btn" id="mcDetailsEdit">Edit details</button></div>';
+    : '<div style="margin-top:14px;text-align:right;"><button class="btn btn--secondary btn--sm" id="mcDetailsEdit">Edit details</button></div>';
 
   return '<div class="mc-details">' +
     row('Address', 'address_raw') +
@@ -3157,7 +3468,7 @@ function renderConfirmDialog(d) {
       '<p>' + d.message + '</p>' +
       (d.sub ? '<p class="mc-confirm-sub">' + esc(d.sub) + '</p>' : '') +
       '<div class="mc-confirm-box-actions">' +
-        '<button class="mc-cancel-btn" id="mcConfirmCancel">' + esc(d.cancelText || 'Cancel') + '</button>' +
+        '<button class="btn btn--secondary" id="mcConfirmCancel">' + esc(d.cancelText || 'Cancel') + '</button>' +
         '<button class="' + btnClass + '" id="mcConfirmOk">' + esc(d.confirmText || 'Confirm') + '</button>' +
       '</div>' +
     '</div>' +
