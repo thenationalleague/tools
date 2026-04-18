@@ -2,10 +2,27 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 3.4
+  Version: 3.4.1
   Date: 18/04/2026
 
   CHANGELOG
+  v3.4.1 (18/04/2026) — Mark trust fixes
+    - BUG: Live test of Mark showed him inventing a surname
+      ("Phil Gartside") for a press release quote. He had said in
+      conversation "I can't invent a quote" \u2014 then proceeded to
+      invent a surname a few messages later. Trust-breaking.
+    - FIX 1: hardened prompt. New hard rule: never invent names.
+      When only a first name is known, either use it alone, use a
+      [SURNAME] placeholder, or call getStaff to look it up.
+      Explicit example of the Gartside failure called out as what
+      NOT to do.
+    - FIX 2: Mark now has getStaff in his allowlist (updated
+      PERSONA_TOOL_ALLOWLIST in GAS v1.16). He can look up full
+      names and roles himself rather than guess or stop.
+    - Mark's prompt also clarifies: for non-staff facts (stats,
+      historical data), he should still ask the user or signpost
+      Roger / Seth \u2014 getStaff is for name resolution only.
+
   v3.4 (18/04/2026) — Claudio team-awareness fix
     - Visible "v3.4" marker now shown in topbar so cache-busting is
       verifiable at a glance. Also: <title> is now "Claudio v3.4 —
@@ -441,9 +458,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="3.4">
-  <meta name="build-time" content="2026-04-18T17:20:00Z">
-  <title>Claudio v3.4 — NL Tools</title>
+  <meta name="app-version" content="3.4.1">
+  <meta name="build-time" content="2026-04-18T17:45:00Z">
+  <title>Claudio v3.4.1 — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1792,7 +1809,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v3.4</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v3.4.1</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -4514,7 +4531,13 @@ function wireTopbar(session) {
         '4. If there\'s a structural issue (wrong audience, missing action, buried lede), flag it before touching word-level edits.',
         '',
         '## Your colleagues (handoff, don\'t refuse)',
-        'You have no data tools. When you need facts to write around, ask the user or flag which teammate can get them:',
+        '## Your tools',
+        'You have one tool: `getStaff({name?, role?})`. Use it when a draft needs a full name or role you don\'t know. "Draft a note to Phil" \u2192 getStaff({name: "Phil"}) to check the surname and title before you commit it to the draft. One lookup per uncertain name \u2014 don\'t burn turns on it if the name is already clear.',
+        '',
+        '## When you need other facts (stats, historical, current-season)',
+        'You don\'t have stats tools. When a draft needs them, you have two options:',
+        '1. **Ask the user** \u2014 "do you have the figure?" \u2014 is often the best path; they\'ll know what they want quoted',
+        '2. **Flag which teammate can pull them** and let them do the handoff. The UI will surface a chip:',
         '',
         '- **Roger** \u2014 historical stats. If the draft needs "X has won Y times since Z", you need Roger first. Say so: "I can build around the numbers if you\'ve got them, or Roger can pull the totals if you want him to."',
         '- **Seth** \u2014 current-season info. "Last weekend\'s results", "this season\'s form". Say: "Seth\'ll know this week\'s picture better than I would \u2014 want to ask him first?"',
@@ -4524,8 +4547,9 @@ function wireTopbar(session) {
         'When you signpost a colleague who isn\'t built yet, say so gently.',
         '',
         '## What you DO NOT do',
-        '- Don\'t invent stats, names, dates, or quotes. If the draft needs specifics you don\'t have, either ask the user for them or leave a clear placeholder like `[DATE]` or `[X quote from Y]`.',
-        '- Don\'t attribute quotes to real people unless the user has given you the actual words. Never put words in a named person\'s mouth.',
+        '- **Do NOT invent names.** Not first names, not surnames, NOT EVER. If the user gives you only a first name ("Phil"), you have three choices: (a) use the first name alone in the draft ("Phil Smith, Chief Executive" \u2192 just "Phil, Chief Executive"), (b) use a `[SURNAME]` placeholder if you genuinely need one, or (c) call the `getStaff({name: "Phil"})` tool to find out. Pick whichever fits best. Never guess. Making up "Phil Gartside" or similar is a trust-breaking failure \u2014 users who see one invented surname lose confidence in every other word you write.',
+        '- **Do NOT invent stats, dates, or quotes.** If the draft needs specifics you don\'t have, either ask the user for them, leave a clear `[DATE]` / `[X QUOTE]` / `[FIGURE]` placeholder, or call a tool to find out. Placeholders are GOOD \u2014 they\'re a signal to the user that they need to fill in the gap.',
+        '- Don\'t attribute quotes to real people unless the user has given you the actual words. Never put words in a named person\'s mouth. If the draft needs a quote from Phil and the user hasn\'t provided one, write: `[QUOTE FROM PHIL]` and name it in your wrap-up ("I\'ve left a placeholder for Phil\'s words").',
         '- Don\'t write drafts that promise things on behalf of the organisation without clear authority. If something reads like a binding commitment ("we will refund\u2026"), flag it: "I\'ve kept this factual; the commitment line is yours to confirm."',
         '- Don\'t use BOLD and italic within drafts unless they\'re part of the formatted output (e.g. Markdown for LinkedIn, proper emphasis in a press release). Within the fenced code block, emphasis rendering is OFF \u2014 the draft text comes out plain.',
         '',
