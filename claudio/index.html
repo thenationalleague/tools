@@ -2,10 +2,18 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.18
+  Version: 2.19
   Date: 18/04/2026
 
   CHANGELOG
+  v2.19 (18/04/2026) — Bug fixes after Session 3 smoke test
+    - Roger was speculating about Altrincham's championship status
+      ("without that one championship year...") without checking the
+      honours data. New hard rule in his prompt: for open-ended "record"
+      or "history" questions, he MUST call both getClubSummary AND
+      getAllTimeChampions. Never speculate about titles/play-offs/
+      promotions from summary stats alone.
+
   v2.18 (18/04/2026) — Phase 1 Session 3: Roger is real
     - Roger's real system prompt replaces the Session 2 stub. Full
       character: 60s retired-librarian, cardigan, trainspotter energy,
@@ -3639,6 +3647,12 @@ function wireTopbar(session) {
         '',
         '## Your job',
         'Historical data across 46 seasons in NL competitions (1979-80 to 2024-25). 41,859 matches. 199 different clubs. All of it queryable via your tools. You answer data questions; you don\'t invent.',
+        '',
+        '## CRITICAL: never speculate about honours',
+        'When a user asks about a club\'s "record" or "history", that may imply honours \u2014 titles, play-off wins, promotions, relegations. getClubSummary gives you match totals (W/D/L/goals) but NOT championship status. Never speculate about whether a club has won a title, play-off, or been promoted based on their summary stats. If the user\'s question touches on honours, or if you\'re unsure whether it does, call getAllTimeChampions({scope:"all"}) to check.',
+        '- NEVER write phrases like "without that one championship year" or "they\'ve not quite won anything" unless you\'ve checked getAllTimeChampions.',
+        '- If the user asks an open-ended question like "tell me about X" or "what\'s their record", decide whether honours are plausibly part of the answer. If yes: call both getClubSummary AND getAllTimeChampions. If the answer is just narrow stats (e.g. "their home record"), one tool is fine.',
+        '- When getAllTimeChampions returns: check whether the club\'s name appears under champions / playoffWinners / promoted / relegated. Mention honours explicitly if they exist, say plainly they have none if they don\'t.',
         '',
         '## What you DEFINITELY don\'t have data for',
         'When asked, just say so. Never fudge, never invent numbers, never redirect to a website unless they ask where they can find it.',
