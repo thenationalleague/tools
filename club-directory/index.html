@@ -6,10 +6,14 @@
 <title>Club Directory — NL Tools</title>
 <!--
   club-directory / index.html
-  v0.2 — Roles model rewrite, clean multi-section rendering
+  v0.3 — Same-section role collapse + Editorial style removed
 
   Changelog:
-  v0.2 — NEW DATA MODEL:
+  v0.3 — - Multiple roles in the same section now collapse into ONE card per person,
+           roles joined with " / " (e.g. "Press Officer / Programme Editor").
+         - Removed Editorial style (kept Cards, Dense table, Role-first).
+         - Removed amber main-role dot — `main` still exists in data for future use.
+  v0.2 — Roles model rewrite:
          - person.roles: [{ title, section, main }] (was primaryRole + secondaryRoles[])
          - Every role a person holds earns a card in that section
          - No more "also X" tags or cross-reference notes
@@ -108,20 +112,6 @@
   .scene { display: none; }
   .scene--active { display: block; }
 
-  /* ============ MAIN-ROLE STAR (subtle, optional indicator) ============ */
-  /* When a person appears in multiple sections, the role with main=true gets a
-     small orange dot beside it. Helps identify their primary role at a glance
-     without introducing visual clutter for single-role people. */
-  .main-dot {
-    display: inline-block;
-    width: 6px; height: 6px;
-    background: var(--amber);
-    border-radius: 50%;
-    margin-left: 6px;
-    vertical-align: middle;
-  }
-  .main-dot[title] { cursor: help; }
-
   /* ================================================================
      STYLE 1 — Clean Cards (focus style per your feedback)
      ================================================================ */
@@ -168,30 +158,6 @@
   .s2-name { width: 22%; font-weight: 600; font-variation-settings: 'wght' 600; }
   .s2-phone { width: 18%; color: var(--text-muted); font-size: 12px; }
   .s2-email { width: 32%; font-size: 12px; }
-
-  /* ================================================================
-     STYLE 3 — Editorial
-     ================================================================ */
-  .s3-club { padding: 56px 56px; background: var(--white); border-radius: 8px; max-width: 820px; margin: 0 auto; border: 1px solid var(--border); }
-  .s3-kicker { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--primary); font-weight: 800; font-variation-settings: 'wght' 800; margin-bottom: 14px; }
-  .s3-top { display: flex; gap: 28px; align-items: flex-start; }
-  .s3-crest { width: 88px; height: 88px; flex-shrink: 0; }
-  .s3-name-lg { margin: 0; font-size: 56px; font-weight: 200; font-variation-settings: 'wght' 200; letter-spacing: -0.02em; line-height: 0.95; color: var(--text); }
-  .s3-addr { margin-top: 16px; font-size: 15px; color: var(--text-muted); font-style: italic; }
-  .s3-club-meta { margin-top: 6px; font-size: 13px; color: var(--text-muted); display: flex; gap: 10px; flex-wrap: wrap; }
-  .s3-club-meta a { color: var(--navy); }
-  .s3-section { margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 60px 1fr; gap: 28px; }
-  .s3-sec-num { font-weight: 200; font-variation-settings: 'wght' 200; font-size: 44px; color: var(--primary); line-height: 1; letter-spacing: -0.03em; }
-  .s3-sec-title { font-weight: 800; font-variation-settings: 'wght' 800; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text); padding-top: 14px; }
-  .s3-dir-list { grid-column: 2; font-size: 16px; line-height: 1.9; color: var(--text); margin-top: 10px; }
-  .s3-person { grid-column: 2; margin-top: 22px; }
-  .s3-person:first-of-type { margin-top: 8px; }
-  .s3-role { font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--primary); }
-  .s3-name-person { font-size: 22px; font-weight: 500; font-variation-settings: 'wght' 500; margin-top: 3px; letter-spacing: -0.01em; }
-  .s3-note { font-size: 13px; color: var(--text-muted); font-style: italic; }
-  .s3-contact { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
-  .s3-contact a { color: var(--navy); border-bottom: 1px solid var(--border); }
-  .s3-contact a:hover { text-decoration: none; border-bottom-color: var(--navy); }
 
   /* ================================================================
      STYLE 4 — Role-First
@@ -265,12 +231,6 @@
   @media (max-width: 700px) {
     .page { padding: 16px 12px 60px; }
     .s1-club, .s2-club, .s4-club { padding: 20px 18px; }
-    .s3-club { padding: 32px 24px; }
-    .s3-top { flex-direction: column; gap: 16px; }
-    .s3-crest { width: 64px; height: 64px; }
-    .s3-name-lg { font-size: 40px; }
-    .s3-section { grid-template-columns: 40px 1fr; gap: 16px; }
-    .s3-sec-num { font-size: 30px; }
     .s4-row { grid-template-columns: 1fr; gap: 4px; }
     .s4-role-pill { justify-self: start; }
     .s4-meta { margin-left: 0; }
@@ -305,7 +265,6 @@
     <span class="demo-bar__label">Club page</span>
     <button class="demo-bar__btn" data-club-style="1" aria-pressed="true">Clean cards</button>
     <button class="demo-bar__btn" data-club-style="2">Dense table</button>
-    <button class="demo-bar__btn" data-club-style="3">Editorial</button>
     <button class="demo-bar__btn" data-club-style="4">Role-first</button>
   </div>
   <div class="demo-bar__group" id="listStyleGroup">
@@ -347,20 +306,30 @@ function fallbackCrest() {
   return 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png';
 }
 
-/* Expand a club's people[] into a list of (person, role) pairs grouped by section.
-   Each role a person holds = one pair in its section. This is the core of the
-   new model — sections never lie. */
+/* Expand a club's people[] into a list of (person, roleTitles[]) groups per section.
+   If a person has >1 role in the same section they collapse into ONE entry with
+   roleTitles joined by " / " at render time. */
 function peopleBySection(club) {
   var out = {};
   for (var i = 0; i < club.people.length; i++) {
     var p = club.people[i];
+    // bucket this person's roles by section
+    var bucket = {};
     for (var j = 0; j < p.roles.length; j++) {
       var r = p.roles[j];
-      if (!out[r.section]) out[r.section] = [];
-      out[r.section].push({ person: p, role: r });
+      if (!bucket[r.section]) bucket[r.section] = [];
+      bucket[r.section].push(r.title);
+    }
+    for (var section in bucket) {
+      if (!out[section]) out[section] = [];
+      out[section].push({ person: p, roleTitles: bucket[section] });
     }
   }
   return out;
+}
+
+function joinRoles(titles) {
+  return titles.join(' / ');
 }
 
 function townFromAddr(addr) {
@@ -373,13 +342,6 @@ function townFromAddr(addr) {
 function mainRole(p) {
   for (var i = 0; i < p.roles.length; i++) if (p.roles[i].main) return p.roles[i];
   return p.roles[0];
-}
-
-// small dot shown against a role only when person has >1 roles AND this is their main
-function mainDot(person, role) {
-  if (person.roles.length <= 1) return '';
-  if (!role.main) return '';
-  return '<span class="main-dot" title="Main role — ' + esc(role.title) + '"></span>';
 }
 
 function contactBits(p) {
@@ -395,30 +357,31 @@ function renderClubStyle1(club) {
   var sections = '';
   SECTION_ORDER.forEach(function(s) {
     if (!bySec[s]) return;
-    var pairs = bySec[s];
+    var entries = bySec[s];
     if (s === 'Directors') {
-      var chips = pairs.map(function(pair){
-        return '<span class="s1-dir-chip">' + esc(pair.person.name) + mainDot(pair.person, pair.role) + '</span>';
+      var chips = entries.map(function(e){
+        return '<span class="s1-dir-chip">' + esc(e.person.name) + '</span>';
       }).join(' · ');
       sections += '<div class="s1-section">' +
-        '<div class="s1-sec-label">Directors <span class="s1-sec-count">' + pairs.length + '</span></div>' +
+        '<div class="s1-sec-label">Directors <span class="s1-sec-count">' + entries.length + '</span></div>' +
         '<div class="s1-dir-list">' + chips + '</div>' +
       '</div>';
       return;
     }
-    var items = pairs.map(function(pair) {
-      var p = pair.person, r = pair.role;
+    var items = entries.map(function(e) {
+      var p = e.person;
+      var roleLabel = joinRoles(e.roleTitles);
       var note = p.note ? '<div class="s1-note">' + esc(p.note) + '</div>' : '';
       var bits = contactBits(p);
       var contact = bits.length ? '<div class="s1-contact">' + bits.join(' · ') + '</div>' : '';
       return '<div class="s1-person">' +
         '<div class="s1-name">' + esc(p.name) + '</div>' +
-        '<div class="s1-role">' + esc(r.title) + mainDot(p, r) + '</div>' +
+        '<div class="s1-role">' + esc(roleLabel) + '</div>' +
         note + contact +
       '</div>';
     }).join('');
     sections += '<div class="s1-section">' +
-      '<div class="s1-sec-label">' + esc(s) + ' <span class="s1-sec-count">' + pairs.length + '</span></div>' +
+      '<div class="s1-sec-label">' + esc(s) + ' <span class="s1-sec-count">' + entries.length + '</span></div>' +
       '<div class="s1-grid">' + items + '</div>' +
     '</div>';
   });
@@ -448,20 +411,19 @@ function renderClubStyle2(club) {
   var rows = '';
   SECTION_ORDER.forEach(function(s) {
     if (!bySec[s]) return;
-    var pairs = bySec[s];
-    rows += '<tr><td colspan="4" class="s2-sec-hd">' + esc(s) + '  ·  ' + pairs.length + '</td></tr>';
+    var entries = bySec[s];
+    rows += '<tr><td colspan="4" class="s2-sec-hd">' + esc(s) + '  ·  ' + entries.length + '</td></tr>';
     if (s === 'Directors') {
-      var names = pairs.map(function(pair){
-        return esc(pair.person.name) + mainDot(pair.person, pair.role);
-      }).join(' · ');
+      var names = entries.map(function(e){ return esc(e.person.name); }).join(' · ');
       rows += '<tr><td colspan="4" class="s2-dir-list">' + names + '</td></tr>';
       return;
     }
-    pairs.forEach(function(pair) {
-      var p = pair.person, r = pair.role;
+    entries.forEach(function(e) {
+      var p = e.person;
+      var roleLabel = joinRoles(e.roleTitles);
       var email = p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : '';
       rows += '<tr>' +
-        '<td class="s2-role">' + esc(r.title) + mainDot(p, r) + '</td>' +
+        '<td class="s2-role">' + esc(roleLabel) + '</td>' +
         '<td class="s2-name">' + esc(p.name) + '</td>' +
         '<td class="s2-phone">' + esc(p.phone||'') + '</td>' +
         '<td class="s2-email">' + email + '</td>' +
@@ -487,94 +449,39 @@ function renderClubStyle2(club) {
   '</div>';
 }
 
-/* ================= STYLE 3 — Editorial ================= */
-function renderClubStyle3(club) {
-  var bySec = peopleBySection(club);
-  var sections = '';
-  var secCount = 0;
-  SECTION_ORDER.forEach(function(s) {
-    if (!bySec[s]) return;
-    secCount++;
-    var numLabel = ('0' + secCount).slice(-2);
-    var pairs = bySec[s];
-    if (s === 'Directors') {
-      var names = pairs.map(function(pair){ return esc(pair.person.name); }).join('  ·  ');
-      sections += '<div class="s3-section">' +
-        '<div class="s3-sec-num">' + numLabel + '</div>' +
-        '<div class="s3-sec-title">Directors</div>' +
-        '<div class="s3-dir-list">' + names + '</div>' +
-      '</div>';
-      return;
-    }
-    var items = pairs.map(function(pair) {
-      var p = pair.person, r = pair.role;
-      var note = p.note ? ' <span class="s3-note">(' + esc(p.note) + ')</span>' : '';
-      var bits = [];
-      if (p.phone) bits.push(esc(p.phone));
-      if (p.email) bits.push('<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>');
-      var contact = bits.length ? '<div class="s3-contact">' + bits.join('  —  ') + '</div>' : '';
-      return '<div class="s3-person">' +
-        '<div class="s3-role">' + esc(r.title) + '</div>' +
-        '<div class="s3-name-person">' + esc(p.name) + note + '</div>' +
-        contact +
-      '</div>';
-    }).join('');
-    sections += '<div class="s3-section">' +
-      '<div class="s3-sec-num">' + numLabel + '</div>' +
-      '<div class="s3-sec-title">' + esc(s) + '</div>' +
-      items +
-    '</div>';
-  });
-  return '<div class="s3-club">' +
-    '<div class="s3-kicker">' + esc(club.division) + ' · Enterprise National League</div>' +
-    '<div class="s3-top">' +
-      '<img class="s3-crest" src="' + crestUrl(club.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
-      '<div>' +
-        '<h1 class="s3-name-lg">' + esc(club.name) + '</h1>' +
-        '<div class="s3-addr">' + esc(club.address_raw) + '</div>' +
-        '<div class="s3-club-meta">' +
-          (club.phone ? '<span>' + esc(club.phone) + '</span> <span>·</span>' : '') +
-          (club.email ? ' <a href="mailto:' + esc(club.email) + '">' + esc(club.email) + '</a> <span>·</span>' : '') +
-          (club.website ? ' <a href="https://' + esc(club.website) + '">' + esc(club.website) + '</a>' : '') +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    sections +
-  '</div>';
-}
-
 /* ================= STYLE 4 — Role-first ================= */
 function renderClubStyle4(club) {
   var bySec = peopleBySection(club);
   var sections = '';
   SECTION_ORDER.forEach(function(s) {
     if (!bySec[s]) return;
-    var pairs = bySec[s];
+    var entries = bySec[s];
     if (s === 'Directors') {
-      var chips = pairs.map(function(pair){
-        return '<span class="s4-dir-chip">' + esc(pair.person.name) + mainDot(pair.person, pair.role) + '</span>';
+      var chips = entries.map(function(e){
+        return '<span class="s4-dir-chip">' + esc(e.person.name) + '</span>';
       }).join('');
       sections += '<div class="s4-section">' +
-        '<div class="s4-sec-bar">Directors · ' + pairs.length + '</div>' +
+        '<div class="s4-sec-bar">Directors · ' + entries.length + '</div>' +
         '<div class="s4-chips">' + chips + '</div>' +
       '</div>';
       return;
     }
-    var items = pairs.map(function(pair) {
-      var p = pair.person, r = pair.role;
+    var items = entries.map(function(e) {
+      var p = e.person;
+      var roleLabel = joinRoles(e.roleTitles);
       var bits = [];
       if (p.phone) bits.push('<span>📞 ' + esc(p.phone) + '</span>');
       if (p.email) bits.push('<a href="mailto:' + esc(p.email) + '">✉ ' + esc(p.email) + '</a>');
       return '<div class="s4-row">' +
-        '<div class="s4-role-pill">' + esc(r.title) + '</div>' +
+        '<div class="s4-role-pill">' + esc(roleLabel) + '</div>' +
         '<div>' +
-          '<div class="s4-name">' + esc(p.name) + mainDot(p, r) + '</div>' +
+          '<div class="s4-name">' + esc(p.name) + '</div>' +
           (bits.length ? '<div class="s4-contact">' + bits.join(' ') + '</div>' : '') +
         '</div>' +
       '</div>';
     }).join('');
     sections += '<div class="s4-section">' +
-      '<div class="s4-sec-bar">' + esc(s) + ' · ' + pairs.length + '</div>' +
+      '<div class="s4-sec-bar">' + esc(s) + ' · ' + entries.length + '</div>' +
       items +
     '</div>';
   });
@@ -595,7 +502,7 @@ function renderClubStyle4(club) {
 }
 
 var CLUB_STYLE_RENDERERS = {
-  '1': renderClubStyle1, '2': renderClubStyle2, '3': renderClubStyle3, '4': renderClubStyle4
+  '1': renderClubStyle1, '2': renderClubStyle2, '4': renderClubStyle4
 };
 
 /* ================= LISTING ================= */
