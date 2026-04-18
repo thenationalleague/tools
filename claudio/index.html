@@ -2,10 +2,25 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.19
+  Version: 2.20
   Date: 18/04/2026
 
   CHANGELOG
+  v2.20 (18/04/2026) — Phase 1 Session 4: Polish
+    - Avatar morphs on persona switch: 400ms scale+rotate animation on
+      the header avatar when user changes persona. Silent re-renders
+      (same persona) don't trigger the animation \u2014 cleaner feel.
+    - Smarter auto-titling: strips common question starters
+      ("tell me", "what's", "how did", "can you") and trims to
+      ~48 chars. "Tell me Altrincham's all-time record" \u2192
+      "Altrincham's all-time record" instead of "Tell me Altrincham's\u2026"
+    - Inline title renaming: double-click a chat's title in the
+      sidebar to edit. Enter saves, Esc cancels. userRenamed flag
+      persists to RTDB so future auto-logic won't overwrite.
+    - Long-chat collapse: when a chat has >20 messages, older ones
+      hide behind a "Show earlier messages (N)" pill. Click to
+      expand; click again to collapse. State resets on chat switch.
+
   v2.19 (18/04/2026) — Bug fixes after Session 3 smoke test
     - Roger was speculating about Altrincham's championship status
       ("without that one championship year...") without checking the
@@ -724,6 +739,60 @@
       font-family: var(--font);
     }
     .msg__chip__dismiss:hover { background: var(--off-white); color: var(--text); }
+
+    /* ===== v2.20: long-chat collapse ===== */
+    .show-earlier {
+      display: block; margin: 10px auto 20px;
+      padding: 8px 18px;
+      background: var(--white);
+      border: 1px dashed var(--border);
+      border-radius: 20px;
+      font-family: var(--font); font-size: 12px;
+      font-weight: 700; font-variation-settings: 'wght' 700;
+      color: var(--text-muted);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .show-earlier:hover {
+      border-style: solid; border-color: var(--navy);
+      color: var(--text);
+      background: var(--off-white);
+    }
+
+    /* ===== v2.20: inline title editing in sidebar ===== */
+    .conv-item__title--editing {
+      background: var(--white); border: 1px solid var(--navy);
+      border-radius: 4px; padding: 2px 6px;
+      outline: none; font: inherit; color: var(--text);
+      width: 100%;
+    }
+    .conv-item__actions {
+      display: flex; gap: 2px; align-items: center;
+    }
+    .conv-item__rename {
+      background: none; border: none; padding: 2px 4px;
+      color: var(--text-muted); font-size: 11px;
+      cursor: pointer; opacity: 0; transition: opacity 0.15s;
+      font-family: var(--font);
+    }
+    .conv-item:hover .conv-item__rename { opacity: 1; }
+    .conv-item__rename:hover { color: var(--text); }
+
+    /* v2.20: avatar morph animation */
+    @keyframes avatar-morph-in {
+      0% { transform: scale(0.6) rotate(-10deg); opacity: 0; }
+      60% { transform: scale(1.08) rotate(2deg); opacity: 1; }
+      100% { transform: scale(1) rotate(0); opacity: 1; }
+    }
+    .persona-avatar.is-morphing {
+      animation: avatar-morph-in 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes header-slide {
+      0% { transform: translateX(-4px); opacity: 0; }
+      100% { transform: translateX(0); opacity: 1; }
+    }
+    .persona-header.is-morphing {
+      animation: header-slide 400ms ease-out;
+    }
 
     /* ===== Chat main ===== */
     .chat {
@@ -1874,6 +1943,7 @@ function wireTopbar(session) {
             id:       cid,
             title:    c.title || 'Untitled chat',
             persona:  c.persona || 'claudio',
+            userRenamed: !!c.userRenamed,
             updated:  c.updated || 0,
             created:  c.created || 0
           });
@@ -2086,6 +2156,13 @@ function wireTopbar(session) {
         var title = document.createElement('div');
         title.className = 'conv-item__title';
         title.textContent = c.title;
+        title.title = 'Double-click to rename';
+
+        // v2.20: double-click to rename
+        title.addEventListener('dblclick', function(e) {
+          e.stopPropagation();
+          beginRenameConv(c.id, title);
+        });
 
         var time = document.createElement('div');
         time.className = 'conv-item__time';
@@ -2191,9 +2268,42 @@ function wireTopbar(session) {
         return;
       }
 
-      STATE.messages.forEach(function(m) {
-        el.appendChild(buildMsgEl(m));
-      });
+      // v2.20: collapse messages older than the most recent 20 turns
+      // (where a "turn" is roughly a user+assistant pair, so 20 messages
+      // shown by default). Show a "Show earlier messages (N)" toggle.
+      // User can click to expand; click again to collapse.
+      var COLLAPSE_AT = 20;
+      var total = STATE.messages.length;
+      var showAll = !!STATE._showAllMessages;
+      var startIdx = 0;
+
+      if (total > COLLAPSE_AT && !showAll) {
+        startIdx = total - COLLAPSE_AT;
+
+        var earlierBtn = document.createElement('button');
+        earlierBtn.type = 'button';
+        earlierBtn.className = 'show-earlier';
+        earlierBtn.textContent = 'Show earlier messages (' + startIdx + ')';
+        earlierBtn.addEventListener('click', function() {
+          STATE._showAllMessages = true;
+          renderMessages();
+        });
+        el.appendChild(earlierBtn);
+      } else if (showAll && total > COLLAPSE_AT) {
+        var collapseBtn = document.createElement('button');
+        collapseBtn.type = 'button';
+        collapseBtn.className = 'show-earlier';
+        collapseBtn.textContent = 'Collapse earlier messages';
+        collapseBtn.addEventListener('click', function() {
+          STATE._showAllMessages = false;
+          renderMessages();
+        });
+        el.appendChild(collapseBtn);
+      }
+
+      for (var i = startIdx; i < total; i++) {
+        el.appendChild(buildMsgEl(STATE.messages[i]));
+      }
       scrollToBottom();
     }
 
@@ -3245,17 +3355,26 @@ function wireTopbar(session) {
       if (!personaKey) {
         el.style.display = 'none';
         clearChildren(el);
+        el.classList.remove('is-morphing');
+        el.removeAttribute('data-persona');
         return;
       }
 
+      // v2.20: only animate if the persona is actually CHANGING. A re-render
+      // of the same persona (e.g. on message append) should be silent.
+      var prevKey = el.getAttribute('data-persona');
+      var shouldAnimate = prevKey && prevKey !== personaKey;
+
       var p = PERSONAS[personaKey] || PERSONAS.claudio;
       clearChildren(el);
+      el.setAttribute('data-persona', p.key);
 
       var row = document.createElement('div');
       row.className = 'persona-header__row';
 
       var av = document.createElement('div');
       av.className = 'persona-avatar persona-avatar--lg persona-avatar--' + p.key;
+      if (shouldAnimate) av.classList.add('is-morphing');
       av.textContent = p.initial;
 
       var body = document.createElement('div');
@@ -3281,6 +3400,14 @@ function wireTopbar(session) {
       el.appendChild(row);
       el.appendChild(accent);
       el.style.display = 'block';
+
+      if (shouldAnimate) {
+        el.classList.add('is-morphing');
+        setTimeout(function() {
+          el.classList.remove('is-morphing');
+          av.classList.remove('is-morphing');
+        }, 450);
+      }
     }
 
     // v3.0: composer draft auto-save per chat, localStorage-backed.
@@ -3308,6 +3435,7 @@ function wireTopbar(session) {
 
     function openConversation(cid) {
       STATE.activeId = cid;
+      STATE._showAllMessages = false;   // v2.20: reset collapse state per chat
       // Carry the conv's persona into pendingPersona so future triage / header
       // treatments know who this chat "belongs to". Harmless in Phase 1 where
       // everything is still Claudio.
@@ -3370,6 +3498,58 @@ function wireTopbar(session) {
       }
       restoreDraft(null);
       document.getElementById('composerInput').focus();
+    }
+
+    // v2.20: inline title editing. Double-click a conv title in the
+    // sidebar \u2192 turns into an input \u2192 Enter saves, Esc cancels,
+    // blur saves.
+    function beginRenameConv(cid, titleEl) {
+      var conv = STATE.convs.filter(function(c) { return c.id === cid; })[0];
+      if (!conv) return;
+
+      var originalTitle = conv.title;
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'conv-item__title conv-item__title--editing';
+      input.value = originalTitle;
+      input.setAttribute('maxlength', '80');
+
+      titleEl.parentNode.replaceChild(input, titleEl);
+
+      input.focus();
+      input.select();
+
+      var done = false;
+      var finish = function(save) {
+        if (done) return;
+        done = true;
+        var newTitle = (input.value || '').trim();
+        if (save && newTitle && newTitle !== originalTitle) {
+          conv.title = newTitle;
+          conv.userRenamed = true;
+          // Persist to RTDB
+          ensureAuth().then(function() {
+            return STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + cid).update({
+              title: newTitle,
+              userRenamed: true
+            });
+          }).catch(function(err) {
+            console.error('Rename failed', err);
+            conv.title = originalTitle;
+            renderConvList();
+            showToast('Couldn\'t save rename.', 'error');
+            return;
+          });
+        }
+        renderConvList();
+      };
+
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter')     { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape'){ e.preventDefault(); finish(false); }
+      });
+      input.addEventListener('blur', function() { finish(true); });
+      input.addEventListener('click', function(e) { e.stopPropagation(); });
     }
 
     function deleteConversation(cid) {
@@ -4065,10 +4245,32 @@ function wireTopbar(session) {
     }
 
     function deriveTitle(firstMessage) {
-      // Use first ~50 chars of the user's first message as a title
+      // v2.20: smarter title heuristic. Strips common question starters
+      // ("tell me", "show me", "what's", "how did" etc) and trims to
+      // something more scannable. If nothing's left, falls back to the
+      // full trimmed message.
       var t = String(firstMessage || '').trim().replace(/\s+/g, ' ');
-      if (t.length > 50) t = t.slice(0, 47) + '…';
-      return t || 'Untitled chat';
+      if (!t) return 'Untitled chat';
+
+      var cleaned = t
+        // Common question starters
+        .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+|would\s+you\s+)?/i, '')
+        .replace(/^(tell\s+me|show\s+me|give\s+me|find\s+me|look\s+up)(\s+about)?\s+/i, '')
+        .replace(/^(what(\'s|s|\s+is|\s+are|\s+was|\s+were)?)\s+/i, '')
+        .replace(/^(who(\'s|s|\s+is|\s+are|\s+was|\s+were)?)\s+/i, '')
+        .replace(/^(how(\'s|s|\s+did|\s+have|\s+has|\s+do|\s+does)?)\s+/i, '')
+        .replace(/^(when\s+(did|was|were|is|are))\s+/i, '')
+        .replace(/^(i\s+(want|need|would like)\s+to\s+know\s+)/i, '')
+        .replace(/\?+\s*$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      // Capitalise first letter
+      if (cleaned) cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+
+      var result = cleaned || t;
+      if (result.length > 48) result = result.slice(0, 45) + '\u2026';
+      return result || 'Untitled chat';
     }
 
     function todayKey() {
