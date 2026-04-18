@@ -2,10 +2,25 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.11
+  Version: 2.12
   Date: 18/04/2026
 
   CHANGELOG
+  v2.12 (18/04/2026)
+    - Prompt efficiency pass: new "Choosing the right tool" section
+      teaches Claudio to pick the narrowest tool for each question
+      (H2H for two-club queries, getClubSummary for overviews,
+      getMostFrequentOpponents only for ranked lists). Specifically
+      flags that getAllTimeChampions is SLOW so he warns users and
+      only reaches for it when needed.
+    - Also instructs Claudio not to pass `detailed: true` unless the
+      user explicitly asks for full breakdowns — the default response
+      shapes are compact on purpose.
+    - Pairs with ClaudioStats.gs v2.5 + ClaudioChat.gs v1.9 token
+      efficiency changes: narrowed loader + tiered responses cut
+      response sizes by ~60-70%, which should stop the rate-limit
+      hits on fresh sessions.
+
   v2.11 (18/04/2026)
     - Three new tools wired into the prompt and renderer:
       getMostFrequentOpponents (ranked opponents list),
@@ -2862,10 +2877,26 @@ function wireTopbar(session) {
         '- `getStaff({name?, role?})` \u2014 look up NL staff by name substring or role ("admin", "staff", "superadmin"). Use for "who is Phil?", "who\'s the CEO?", "who manages Tom?". This tool replaces the static staff list that used to live in this prompt.',
         '- `fetchNLSite({path})` \u2014 fetch a page from thenationalleague.org.uk (news, editorial, club info). Locked to our domain.',
         '',
+        '### Choosing the right tool (efficiency matters)',
+        'Some tools are heavier than others. Pick the narrowest tool for the question:',
+        '- **"How has X done against Y?"** \u2014 use `getHeadToHead`, not `getMostFrequentOpponents`. H2H is cheap and direct.',
+        '- **"Who have X played most?"** or "biggest rivals by meetings" \u2014 `getMostFrequentOpponents`. This is the only tool for ranked opponent lists.',
+        '- **"Tell me about X"** \u2014 `getClubSummary`. Returns aggregate stats without match-by-match detail.',
+        '- **"Show me X\'s results"** \u2014 `getClubMatches`. Returns actual match list with scores.',
+        '- **"X in 2005-06"** \u2014 for "how did they do", use `getClubSummary` with `season`. For "show me the matches", use `getClubMatches` with `season`.',
+        '- **"Biggest win"** / **"Worst defeat"** \u2014 `getClubRecords`, not `getClubMatches`. Records is pre-sorted.',
+        '- **"Longest winning run"** \u2014 `getClubStreak`, not by scanning match lists yourself.',
+        '- **"Who\'s won the most titles / play-offs?"** \u2014 `getAllTimeChampions`. This tool is SLOW (5-10s) because it computes every season\'s final table. Only reach for it when the question genuinely needs cross-season aggregation. Warn the user it\'ll take a moment.',
+        '- **Specific historical season\'s table** \u2014 `getLeagueTable`, never `getAllTimeChampions`.',
+        '',
+        '**Token efficiency:** don\'t pass `detailed: true` unless the user explicitly asks for full breakdowns. Default responses are compact on purpose.',
+        '',
+        '**Parallelism:** prefer ONE tool call that answers the whole question over multiple narrow ones. If the user asks "home record AND away record", call getClubSummary twice (once with venue:home, once with venue:away) \u2014 that\'s fine, the venue filter makes each cheap. But don\'t call getClubMatches three times with different limits when one call with limit:25 does it.',
+        '',
         '### Tool etiquette',
-        '- Tool call limit: 3 per user message. Use them efficiently — if comparing two clubs, getHeadToHead often replaces calling getClubSummary twice.',
+        '- Tool call limit: 3 per user message. Use them efficiently \u2014 if comparing two clubs, getHeadToHead often replaces calling getClubSummary twice.',
         '- Phoenix/merger lineage (e.g. Maidstone United original vs reformed, Dartford reformation, Dagenham & Redbridge merger): the default is the primary named entity only. If a tool response includes `relatedLineage`, `availableLineageA`, or `availableLineageB`, **always mention those options to the user** and offer to re-run combined. Never assume combining without asking.',
-        '- Fuzzy match: pass club names as the user said them. "Dorking" resolves to "Dorking Wanderers". Ambiguous inputs return candidates — ask the user to pick.',
+        '- Fuzzy match: pass club names as the user said them. "Dorking" resolves to "Dorking Wanderers". Ambiguous inputs return candidates \u2014 ask the user to pick.',
         '- If a tool returns `{error: "..."}`, apologise briefly and offer to try a different angle. Do not invent data.',
         '',
         '### When tools return structured data \u2014 RENDER IT',
