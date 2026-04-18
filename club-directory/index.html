@@ -6,19 +6,23 @@
 <title>Club Directory — NL Tools</title>
 <!--
   club-directory / index.html
-  v0.3 — Same-section role collapse + Editorial style removed
+  v0.4 — Names-joined treatment for Directors/Co-Chairs, layout toggles trimmed,
+         bolder dense-table section headers.
 
   Changelog:
-  v0.3 — - Multiple roles in the same section now collapse into ONE card per person,
-           roles joined with " / " (e.g. "Press Officer / Programme Editor").
-         - Removed Editorial style (kept Cards, Dense table, Role-first).
-         - Removed amber main-role dot — `main` still exists in data for future use.
-  v0.2 — Roles model rewrite:
-         - person.roles: [{ title, section, main }] (was primaryRole + secondaryRoles[])
-         - Every role a person holds earns a card in that section
-         - No more "also X" tags or cross-reference notes
-         - main=true on one role per person (used for future business-card view + exports)
-         - Sections never lie: if person does Safeguarding, Safeguarding section shows them
+  v0.4 — - Removed Clean Cards view (club page) and Table view (listing) per spec.
+         - Club page toggle now: Dense table / Role-first only.
+         - Dense-table section headers: full-width navy rows, white uppercase,
+           proper visual chapter breaks. No per-section counts.
+         - Directors and Co-Chairs render as ONE "names-joined" entry per section.
+           Title pluralises automatically (Directors / Co-Chairs).
+           Data shape unchanged — same person record regardless of role.
+         - If a director/co-chair also holds another role, they appear normally
+           in that section's rendering (full card with contact).
+  v0.3 — Same-section multi-role collapse (Press Officer / Programme Editor),
+         Editorial style removed, orange main-role dot removed.
+  v0.2 — Roles model rewrite: person.roles[] replaces primaryRole + secondaryRoles[].
+         Every role a person holds earns a card in that section. main=true flag retained.
   v0.1 — Initial static demo, 4 club-page styles, 2 listing styles
 
   Notes for future work:
@@ -113,34 +117,9 @@
   .scene--active { display: block; }
 
   /* ================================================================
-     STYLE 1 — Clean Cards (focus style per your feedback)
-     ================================================================ */
-  .s1-club { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 28px 32px; }
-  .s1-header { border-bottom: 3px solid var(--navy); padding-bottom: 18px; margin-bottom: 4px; display: flex; gap: 20px; align-items: flex-start; }
-  .s1-crest { width: 64px; height: 64px; flex-shrink: 0; object-fit: contain; }
-  .s1-header h2 { margin: 0 0 6px 0; font-size: 26px; font-weight: 900; font-variation-settings: 'wght' 900; letter-spacing: -0.01em; color: var(--text); }
-  .s1-meta { font-size: 13px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
-  .s1-meta a { color: var(--navy); }
-  .s1-div { font-size: 10px; padding: 3px 9px; border-radius: 2px; color: var(--white); font-weight: 800; font-variation-settings: 'wght' 800; letter-spacing: 0.12em; }
-  .s1-div--national { background: var(--navy); }
-  .s1-div--north { background: var(--amber); }
-  .s1-div--south { background: var(--green); }
-  .s1-section { margin-top: 28px; }
-  .s1-sec-label { font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800; color: var(--primary); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: baseline; gap: 10px; }
-  .s1-sec-count { font-size: 10px; color: var(--text-muted); font-weight: 600; font-variation-settings: 'wght' 600; letter-spacing: 0.05em; }
-  .s1-dir-list { font-size: 14px; color: var(--text); padding: 12px 16px; background: var(--off-white); border-left: 3px solid var(--navy); border-radius: 0 4px 4px 0; line-height: 1.7; }
-  .s1-dir-chip { display: inline-block; padding: 2px 0; }
-  .s1-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-  .s1-person { padding: 12px 14px; border: 1px solid var(--border); border-radius: 4px; background: var(--white); transition: border-color 0.15s; }
-  .s1-person:hover { border-color: var(--navy); }
-  .s1-name { font-weight: 700; font-variation-settings: 'wght' 700; font-size: 15px; }
-  .s1-role { font-size: 13px; color: var(--text-muted); margin-top: 1px; }
-  .s1-note { font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 3px; }
-  .s1-contact { font-size: 12px; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid #f0f2f5; display: flex; flex-wrap: wrap; gap: 8px; }
-  .s1-contact a { color: var(--navy); }
-
-  /* ================================================================
      STYLE 2 — Dense Table
+     Section headers = full-width navy bar (chapter break).
+     Joined rows (Directors / Co-Chairs) = tinted background, names merged.
      ================================================================ */
   .s2-club { background: var(--white); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
   .s2-header { padding: 24px 28px 22px; background: var(--navy); color: var(--white); display: flex; gap: 20px; align-items: flex-start; }
@@ -150,14 +129,58 @@
   .s2-addr { font-size: 12px; color: rgba(255,255,255,0.8); margin-top: 6px; }
   .s2-addr a { color: rgba(255,255,255,0.95); }
   .s2-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .s2-table th { text-align: left; padding: 10px 16px; background: #f0f2f5; font-weight: 800; font-variation-settings: 'wght' 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-  .s2-table td { padding: 9px 16px; border-bottom: 1px solid #f0f2f5; vertical-align: top; }
-  .s2-sec-hd { background: #fafbfc !important; font-weight: 800 !important; font-variation-settings: 'wght' 800 !important; font-size: 10px !important; text-transform: uppercase; letter-spacing: 0.14em; color: var(--primary) !important; padding: 10px 16px !important; }
-  .s2-dir-list { font-size: 13px; color: var(--text); background: #fafbfc; font-style: italic; line-height: 1.7; }
+
+  /* column headers (Role / Name / Phone / Email) — subtle, fixed-width guides */
+  .s2-table th {
+    text-align: left; padding: 8px 16px; background: var(--off-white);
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .s2-table td { padding: 9px 16px; border-bottom: 1px solid #eef1f5; vertical-align: top; }
+
+  /* section header row — navy band with white uppercase, 20px height */
+  .s2-sec-hd {
+    background: var(--navy) !important;
+    color: var(--white) !important;
+    font-weight: 800 !important;
+    font-variation-settings: 'wght' 800 !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.2em !important;
+    padding: 9px 16px !important;
+    border-bottom: none !important;
+    border-top: 1px solid var(--navy-mid);
+  }
+  /* first section header no top-border (sits right below the main header) */
+  .s2-table tbody tr:first-child .s2-sec-hd { border-top: none; }
+
+  /* joined-names row — tinted background, red role label */
+  .s2-joined-row td {
+    background: #fbf4f4;
+    border-bottom: 1px solid #f1dede;
+  }
+  .s2-joined-row .s2-role {
+    color: var(--primary) !important;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+  }
+  .s2-joined-row .s2-name {
+    font-weight: 500 !important;
+    font-variation-settings: 'wght' 500 !important;
+    color: var(--text);
+    line-height: 1.65;
+  }
+
+  /* regular rows */
   .s2-role { font-weight: 600; font-variation-settings: 'wght' 600; color: var(--text); width: 28%; }
   .s2-name { width: 22%; font-weight: 600; font-variation-settings: 'wght' 600; }
   .s2-phone { width: 18%; color: var(--text-muted); font-size: 12px; }
   .s2-email { width: 32%; font-size: 12px; }
+  .s2-table tbody tr:not(.s2-sec-row):not(.s2-joined-row):hover td {
+    background: #fbfcfd;
+  }
 
   /* ================================================================
      STYLE 4 — Role-First
@@ -183,6 +206,20 @@
   .s4-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .s4-dir-chip { font-size: 12px; padding: 5px 11px; background: var(--off-white); border: 1px solid var(--border); border-radius: 14px; color: var(--text); }
 
+  /* joined-row variant — red pill + merged names line */
+  .s4-row--joined .s4-role-pill {
+    color: var(--primary);
+    background: #fbf4f4;
+    border-left-color: var(--primary);
+  }
+  .s4-joined-names {
+    font-size: 14px;
+    font-weight: 500;
+    font-variation-settings: 'wght' 500;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
   /* ================================================================
      LISTING 1 — Card Grid
      ================================================================ */
@@ -204,43 +241,19 @@
   .l1-key-name { font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; margin-top: 1px; }
   .l1-stats { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
 
-  /* ================================================================
-     LISTING 2 — Compact Table
-     ================================================================ */
-  .l2-division { margin-bottom: 30px; }
-  .l2-div-hd { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 800; font-variation-settings: 'wght' 800; padding: 8px 14px; color: var(--white); margin: 0; display: flex; align-items: baseline; gap: 10px; border-radius: 3px 3px 0 0; }
-  .l2-div-hd span { font-size: 10px; opacity: 0.75; letter-spacing: 0.1em; font-weight: 600; font-variation-settings: 'wght' 600; }
-  .l2-div-hd--national { background: var(--navy); }
-  .l2-div-hd--north { background: var(--amber); }
-  .l2-div-hd--south { background: var(--green); }
-  .l2-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--white); border: 1px solid var(--border); border-top: none; }
-  .l2-table th { text-align: left; padding: 9px 14px; background: #fafbfc; font-weight: 800; font-variation-settings: 'wght' 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-  .l2-table td { padding: 8px 14px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
-  .l2-table tr { cursor: pointer; transition: background 0.1s; }
-  .l2-table tbody tr:hover { background: var(--off-white); }
-  .l2-name-cell { display: flex; align-items: center; gap: 10px; }
-  .l2-crest { width: 22px; height: 22px; flex-shrink: 0; }
-  .l2-name { font-weight: 700; font-variation-settings: 'wght' 700; }
-  .l2-sec { color: var(--text); }
-  .l2-email { font-size: 12px; }
-  .l2-email a { color: var(--navy); }
-  .l2-ppl { text-align: center; font-size: 12px; color: var(--text-muted); font-weight: 600; font-variation-settings: 'wght' 600; width: 60px; }
-  .l2-action { width: 60px; text-align: right; }
-  .l2-action a { font-size: 12px; color: var(--primary); font-weight: 700; font-variation-settings: 'wght' 700; }
-
   @media (max-width: 700px) {
     .page { padding: 16px 12px 60px; }
-    .s1-club, .s2-club, .s4-club { padding: 20px 18px; }
+    .s2-club, .s4-club { padding: 20px 18px; }
     .s4-row { grid-template-columns: 1fr; gap: 4px; }
     .s4-role-pill { justify-self: start; }
     .s4-meta { margin-left: 0; }
-    .s1-header, .s4-header, .s2-header { flex-direction: column; gap: 10px; }
-    .s2-table, .l2-table { font-size: 12px; }
-    .s2-table td, .l2-table td { padding: 8px 10px; }
+    .s4-header, .s2-header { flex-direction: column; gap: 10px; }
+    .s2-table { font-size: 12px; }
+    .s2-table td { padding: 8px 10px; }
     .l1-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 500px) {
-    .s2-phone, .l2-email { display: none; }
+    .s2-phone { display: none; }
   }
 </style>
 </head>
@@ -262,15 +275,9 @@
 
 <div class="demo-bar">
   <div class="demo-bar__group" id="clubStyleGroup">
-    <span class="demo-bar__label">Club page</span>
-    <button class="demo-bar__btn" data-club-style="1" aria-pressed="true">Clean cards</button>
-    <button class="demo-bar__btn" data-club-style="2">Dense table</button>
+    <span class="demo-bar__label">View</span>
+    <button class="demo-bar__btn" data-club-style="2" aria-pressed="true">Dense table</button>
     <button class="demo-bar__btn" data-club-style="4">Role-first</button>
-  </div>
-  <div class="demo-bar__group" id="listStyleGroup">
-    <span class="demo-bar__label">Listing</span>
-    <button class="demo-bar__btn" data-list-style="1" aria-pressed="true">Cards</button>
-    <button class="demo-bar__btn" data-list-style="2">Table</button>
   </div>
   <input type="search" class="demo-bar__search" id="searchBox" placeholder="Search clubs, people, roles…">
 </div>
@@ -351,74 +358,61 @@ function contactBits(p) {
   return bits;
 }
 
-/* ================= STYLE 1 — Clean cards ================= */
-function renderClubStyle1(club) {
-  var bySec = peopleBySection(club);
-  var sections = '';
-  SECTION_ORDER.forEach(function(s) {
-    if (!bySec[s]) return;
-    var entries = bySec[s];
-    if (s === 'Directors') {
-      var chips = entries.map(function(e){
-        return '<span class="s1-dir-chip">' + esc(e.person.name) + '</span>';
-      }).join(' · ');
-      sections += '<div class="s1-section">' +
-        '<div class="s1-sec-label">Directors <span class="s1-sec-count">' + entries.length + '</span></div>' +
-        '<div class="s1-dir-list">' + chips + '</div>' +
-      '</div>';
-      return;
-    }
-    var items = entries.map(function(e) {
-      var p = e.person;
-      var roleLabel = joinRoles(e.roleTitles);
-      var note = p.note ? '<div class="s1-note">' + esc(p.note) + '</div>' : '';
-      var bits = contactBits(p);
-      var contact = bits.length ? '<div class="s1-contact">' + bits.join(' · ') + '</div>' : '';
-      return '<div class="s1-person">' +
-        '<div class="s1-name">' + esc(p.name) + '</div>' +
-        '<div class="s1-role">' + esc(roleLabel) + '</div>' +
-        note + contact +
-      '</div>';
-    }).join('');
-    sections += '<div class="s1-section">' +
-      '<div class="s1-sec-label">' + esc(s) + ' <span class="s1-sec-count">' + entries.length + '</span></div>' +
-      '<div class="s1-grid">' + items + '</div>' +
-    '</div>';
-  });
-  return '<div class="s1-club">' +
-    '<div class="s1-header">' +
-      '<img class="s1-crest" src="' + crestUrl(club.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
-      '<div>' +
-        '<h2>' + esc(club.name) + '</h2>' +
-        '<div class="s1-meta">' +
-          '<span class="s1-div s1-div--' + club.division.toLowerCase() + '">' + esc(club.division) + '</span>' +
-          '<span>' + esc(club.address_raw) + '</span>' +
-        '</div>' +
-        '<div class="s1-meta">' +
-          (club.phone ? '<span>☎ ' + esc(club.phone) + '</span>' : '') +
-          (club.email ? '<span>✉ <a href="mailto:' + esc(club.email) + '">' + esc(club.email) + '</a></span>' : '') +
-          (club.website ? '<span>🌐 <a href="https://' + esc(club.website) + '" target="_blank" rel="noopener">' + esc(club.website) + '</a></span>' : '') +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    sections +
-  '</div>';
-}
+/* ================= STYLE 2 — Dense table =================
+   Section headers: full-width navy bar with red section label + pluralised noun.
+   Directors and Co-Chairs render as a single joined-names row.
+   Other roles render one row per person. */
 
-/* ================= STYLE 2 — Dense table ================= */
+// Roles that are "names-joined" — one row per section, title pluralised, names comma-separated
+var NAMES_JOINED_ROLES = { 'Director': 'Directors', 'Co-Chair': 'Co-Chairs' };
+
 function renderClubStyle2(club) {
   var bySec = peopleBySection(club);
   var rows = '';
   SECTION_ORDER.forEach(function(s) {
     if (!bySec[s]) return;
     var entries = bySec[s];
-    rows += '<tr><td colspan="4" class="s2-sec-hd">' + esc(s) + '  ·  ' + entries.length + '</td></tr>';
-    if (s === 'Directors') {
-      var names = entries.map(function(e){ return esc(e.person.name); }).join(' · ');
-      rows += '<tr><td colspan="4" class="s2-dir-list">' + names + '</td></tr>';
-      return;
-    }
+
+    // Full-width section header row
+    rows += '<tr class="s2-sec-row"><td colspan="4" class="s2-sec-hd">' + esc(s) + '</td></tr>';
+
+    // Split entries into (a) names-joined and (b) regular
+    // For each names-joined role title, collapse matching entries into one row.
+    // Everyone else renders as a normal row.
+    var joinedByTitle = {};   // e.g. "Director" -> [person, person, ...]
+    var regularEntries = [];
+
     entries.forEach(function(e) {
+      // Find the first (and likely only) role in this entry's roleTitles that's a joined-role type
+      var joinedTitle = null;
+      for (var i = 0; i < e.roleTitles.length; i++) {
+        if (NAMES_JOINED_ROLES[e.roleTitles[i]]) {
+          joinedTitle = e.roleTitles[i];
+          break;
+        }
+      }
+      // If this entry's ONLY role in this section is a names-joined type, collapse it
+      if (joinedTitle && e.roleTitles.length === 1) {
+        if (!joinedByTitle[joinedTitle]) joinedByTitle[joinedTitle] = [];
+        joinedByTitle[joinedTitle].push(e.person);
+      } else {
+        regularEntries.push(e);
+      }
+    });
+
+    // Render joined rows first (Directors/Co-Chairs sit at the top of their section)
+    Object.keys(joinedByTitle).forEach(function(title) {
+      var people = joinedByTitle[title];
+      var names = people.map(function(p) { return esc(p.name); }).join(', ');
+      var pluralTitle = NAMES_JOINED_ROLES[title];
+      rows += '<tr class="s2-joined-row">' +
+        '<td class="s2-role">' + esc(pluralTitle) + '</td>' +
+        '<td class="s2-name" colspan="3">' + names + '</td>' +
+      '</tr>';
+    });
+
+    // Render individual rows
+    regularEntries.forEach(function(e) {
       var p = e.person;
       var roleLabel = joinRoles(e.roleTitles);
       var email = p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : '';
@@ -449,39 +443,62 @@ function renderClubStyle2(club) {
   '</div>';
 }
 
-/* ================= STYLE 4 — Role-first ================= */
+/* ================= STYLE 4 — Role-first =================
+   Same consistency rule: Directors / Co-Chairs collapse into one row each. */
 function renderClubStyle4(club) {
   var bySec = peopleBySection(club);
   var sections = '';
   SECTION_ORDER.forEach(function(s) {
     if (!bySec[s]) return;
     var entries = bySec[s];
-    if (s === 'Directors') {
-      var chips = entries.map(function(e){
-        return '<span class="s4-dir-chip">' + esc(e.person.name) + '</span>';
-      }).join('');
-      sections += '<div class="s4-section">' +
-        '<div class="s4-sec-bar">Directors · ' + entries.length + '</div>' +
-        '<div class="s4-chips">' + chips + '</div>' +
+
+    // Collect names-joined roles and regular entries separately
+    var joinedByTitle = {};
+    var regularEntries = [];
+    entries.forEach(function(e) {
+      var joinedTitle = null;
+      for (var i = 0; i < e.roleTitles.length; i++) {
+        if (NAMES_JOINED_ROLES[e.roleTitles[i]]) { joinedTitle = e.roleTitles[i]; break; }
+      }
+      if (joinedTitle && e.roleTitles.length === 1) {
+        if (!joinedByTitle[joinedTitle]) joinedByTitle[joinedTitle] = [];
+        joinedByTitle[joinedTitle].push(e.person);
+      } else {
+        regularEntries.push(e);
+      }
+    });
+
+    var items = '';
+
+    // Joined rows first
+    Object.keys(joinedByTitle).forEach(function(title) {
+      var people = joinedByTitle[title];
+      var pluralTitle = NAMES_JOINED_ROLES[title];
+      var names = people.map(function(p) { return esc(p.name); }).join(', ');
+      items += '<div class="s4-row s4-row--joined">' +
+        '<div class="s4-role-pill">' + esc(pluralTitle) + '</div>' +
+        '<div class="s4-joined-names">' + names + '</div>' +
       '</div>';
-      return;
-    }
-    var items = entries.map(function(e) {
+    });
+
+    // Regular rows
+    regularEntries.forEach(function(e) {
       var p = e.person;
       var roleLabel = joinRoles(e.roleTitles);
       var bits = [];
       if (p.phone) bits.push('<span>📞 ' + esc(p.phone) + '</span>');
       if (p.email) bits.push('<a href="mailto:' + esc(p.email) + '">✉ ' + esc(p.email) + '</a>');
-      return '<div class="s4-row">' +
+      items += '<div class="s4-row">' +
         '<div class="s4-role-pill">' + esc(roleLabel) + '</div>' +
         '<div>' +
           '<div class="s4-name">' + esc(p.name) + '</div>' +
           (bits.length ? '<div class="s4-contact">' + bits.join(' ') + '</div>' : '') +
         '</div>' +
       '</div>';
-    }).join('');
+    });
+
     sections += '<div class="s4-section">' +
-      '<div class="s4-sec-bar">' + esc(s) + ' · ' + entries.length + '</div>' +
+      '<div class="s4-sec-bar">' + esc(s) + '</div>' +
       items +
     '</div>';
   });
@@ -502,7 +519,7 @@ function renderClubStyle4(club) {
 }
 
 var CLUB_STYLE_RENDERERS = {
-  '1': renderClubStyle1, '2': renderClubStyle2, '4': renderClubStyle4
+  '2': renderClubStyle2, '4': renderClubStyle4
 };
 
 /* ================= LISTING ================= */
@@ -561,44 +578,8 @@ function renderListStyle1(clubs) {
   return html;
 }
 
-function renderListStyle2(clubs) {
-  var byDiv = { National:[], North:[], South:[] };
-  clubs.forEach(function(c){ byDiv[c.division].push(c); });
-  ['National','North','South'].forEach(function(d){ byDiv[d].sort(function(a,b){return a.name.localeCompare(b.name);}); });
-
-  var html = '';
-  ['National','North','South'].forEach(function(d) {
-    if (!byDiv[d].length) return;
-    var rows = byDiv[d].map(function(c) {
-      var sec = firstPersonWithMainRole(c, 'Club Secretary');
-      var secName = sec ? esc(sec.name) : '';
-      var secEmail = (sec && sec.email) ? '<a href="mailto:' + esc(sec.email) + '">' + esc(sec.email) + '</a>' : '';
-      return '<tr data-club="' + esc(c.name) + '">' +
-        '<td><div class="l2-name-cell">' +
-          '<img class="l2-crest" src="' + crestUrl(c.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
-          '<span class="l2-name">' + esc(c.name) + '</span>' +
-        '</div></td>' +
-        '<td class="l2-sec">' + secName + '</td>' +
-        '<td class="l2-email">' + secEmail + '</td>' +
-        '<td class="l2-ppl">' + c.people.length + '</td>' +
-        '<td class="l2-action"><a href="#">View →</a></td>' +
-      '</tr>';
-    }).join('');
-    html += '<div class="l2-division">' +
-      '<div class="l2-div-hd l2-div-hd--' + d.toLowerCase() + '">' + esc(d) + ' <span>' + byDiv[d].length + ' clubs</span></div>' +
-      '<table class="l2-table">' +
-        '<thead><tr><th>Club</th><th>Secretary</th><th>Email</th><th>#</th><th></th></tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
-      '</table>' +
-    '</div>';
-  });
-  return html;
-}
-
-var LIST_STYLE_RENDERERS = { '1': renderListStyle1, '2': renderListStyle2 };
-
 /* ================= STATE ================= */
-var state = { clubStyle: '1', listStyle: '1', searchQuery: '', viewing: null };
+var state = { clubStyle: '2', searchQuery: '', viewing: null };
 
 function filteredClubs() {
   var q = state.searchQuery.trim().toLowerCase();
@@ -620,7 +601,7 @@ function renderListing() {
     root.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">No clubs match "' + esc(state.searchQuery) + '"</div>';
     return;
   }
-  root.innerHTML = LIST_STYLE_RENDERERS[state.listStyle](clubs);
+  root.innerHTML = renderListStyle1(clubs);
   var cards = root.querySelectorAll('[data-club]');
   cards.forEach(function(el) {
     el.addEventListener('click', function(e) {
@@ -663,16 +644,6 @@ document.addEventListener('DOMContentLoaded', function() {
       x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
     });
     if (state.viewing) renderClub();
-  });
-  var listGroup = document.getElementById('listStyleGroup');
-  listGroup.addEventListener('click', function(e) {
-    var b = e.target.closest('[data-list-style]');
-    if (!b) return;
-    state.listStyle = b.getAttribute('data-list-style');
-    listGroup.querySelectorAll('[data-list-style]').forEach(function(x) {
-      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
-    });
-    if (!state.viewing) renderListing();
   });
   var search = document.getElementById('searchBox');
   var searchTimer;
