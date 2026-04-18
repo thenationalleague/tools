@@ -2,10 +2,36 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.7
-  Date: 17/04/2026
+  Version: 2.9
+  Date: 18/04/2026
 
   CHANGELOG
+  v2.9 (18/04/2026)
+    - Replaced the "C" text avatar with the custom Claudio SVG icon
+      (/assets/icons/claudio.svg). Applied in three places: welcome
+      screen (72px), chat message bubbles (36px), and typing indicator
+      (36px). Falls back to the "C" letter automatically if the image
+      fails to load. Navy circular background preserved as the frame,
+      so if the SVG has a transparent background it still looks right.
+
+  v2.8 (17/04/2026)
+    - Dynamic filter composition: prompt teaches Claudio to decompose
+      user phrasing into filter params. "home record" → venue:home.
+      "in the play-offs" → competition:playoff. "since 2015" →
+      seasonFrom:"2015-16". "in the 2000s" → seasonFrom:"2000-01" +
+      seasonTo:"2009-10". Filters combine across all four club-based
+      tools (getClubSummary, getHeadToHead, getClubStreak,
+      getClubRecords).
+    - Competition default changed: play-offs now INCLUDED by default
+      (competition:"all" = league + play-offs). Matches user
+      expectation. Limitations list updated — play-offs are no longer
+      listed as unavailable.
+    - NLS PURGE: scrubbed every user-facing reference to NLS or
+      nationalleagueservices.co.uk from the system prompt. Live data
+      feed is no longer named; redirect-to-other-site line deleted;
+      internal error strings cleaned. Users will never be pushed to a
+      different site even if our tools can't answer their question.
+
   v2.7 (17/04/2026)
     - H2H perspective modes: getHeadToHead renderer now supports `clubA`,
       `clubB`, and `neutral` framings. clubA/clubB show W/D/L pills from
@@ -405,6 +431,22 @@
     }
     .msg__avatar--user { background: var(--primary); }
     .msg__avatar--ai   { background: var(--navy); }
+
+    /* v2.9: Claudio avatar image. Replaces the "C" letter with the custom
+       SVG when available. Image fills the circle; overflow hidden so any
+       transparent SVG padding still crops to the round shape. */
+    .msg__avatar img,
+    .welcome__avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .msg__avatar,
+    .welcome__avatar {
+      overflow: hidden;
+    }
     .msg__body { flex: 1; min-width: 0; }
     .msg__name {
       font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
@@ -1434,7 +1476,7 @@ function wireTopbar(session) {
 
       var avatar = document.createElement('div');
       avatar.className = 'welcome__avatar';
-      avatar.textContent = 'C';
+      setClaudioAvatar(avatar);
       w.appendChild(avatar);
 
       var title = document.createElement('div');
@@ -2103,13 +2145,35 @@ function wireTopbar(session) {
       return days[dt.getUTCDay()] + ' ' + (+m[3]) + ' ' + months[+m[2] - 1] + ' ' + m[1];
     }
 
+    /* v2.9: Set an avatar element to show the Claudio SVG icon.
+       Falls back to the "C" text if the image fails to load (missing asset,
+       network error, etc). `alt` empty so screen readers don't double up
+       with the "Claudio" label next to it. */
+    function setClaudioAvatar(el) {
+      clearChildren(el);
+      var img = document.createElement('img');
+      img.src = 'https://thenationalleague.github.io/tools/assets/icons/claudio.svg';
+      img.alt = '';
+      img.onerror = function() {
+        this.onerror = null;
+        // Drop the image and fall back to the "C" letter
+        if (this.parentNode) this.parentNode.removeChild(this);
+        el.textContent = 'C';
+      };
+      el.appendChild(img);
+    }
+
     function buildMsgEl(m) {
       var wrap = document.createElement('div');
       wrap.className = 'msg ' + (m.role === 'user' ? 'msg--user' : 'msg--ai');
 
       var avatar = document.createElement('div');
       avatar.className = 'msg__avatar ' + (m.role === 'user' ? 'msg__avatar--user' : 'msg__avatar--ai');
-      avatar.textContent = m.role === 'user' ? (firstName(STATE.session.name).charAt(0).toUpperCase() || 'Y') : 'C';
+      if (m.role === 'user') {
+        avatar.textContent = firstName(STATE.session.name).charAt(0).toUpperCase() || 'Y';
+      } else {
+        setClaudioAvatar(avatar);
+      }
 
       var body = document.createElement('div');
       body.className = 'msg__body';
@@ -2179,7 +2243,7 @@ function wireTopbar(session) {
 
       var avatar = document.createElement('div');
       avatar.className = 'msg__avatar msg__avatar--ai';
-      avatar.textContent = 'C';
+      setClaudioAvatar(avatar);
 
       var dots = document.createElement('div');
       dots.className = 'typing__dots';
@@ -2634,7 +2698,7 @@ function wireTopbar(session) {
         '## Your tools',
         'You have 12 tools available. Use them when the user\'s question needs them. Scan this list before answering any question that might need data.',
         '',
-        '### Current 2025-26 season (live NLS feed)',
+        '### Current 2025-26 season (live data)',
         '- `getStandings({division})` — current league table',
         '- `getFixtures({division, days?})` — upcoming fixtures',
         '- `getRecentResults({division, days?})` — recent results',
@@ -2642,15 +2706,24 @@ function wireTopbar(session) {
         '- `getTeamForm({team, matches?})` — last N matches for a team',
         '',
         '### Historical data (1979-80 to most recent completed season)',
-        '- `getClubSummary({club, scope?, lineage?})` — a club\'s overall record: seasons, division breakdown, W/D/L/GF/GA/GD/win-rate. Use for "tell me about X", "how have they done overall".',
-        '- `getHeadToHead({clubA, clubB, scope?, lineageA?, lineageB?})` — two-club all-time record with last-5 meetings, biggest wins each way, venue breakdown, division breakdown. BOTH clubs can have lineage (e.g. modern Chester + Chester City; modern Hereford + Hereford United).',
-        '- `getLeagueTable({season, division, asOf?})` — historical league table for any season. Optional asOf date gives you the table as of that day ("Boxing Day 1999 table").',
-        '- `getClubStreak({club, type, scope?, mode?, lineage?})` — longest wins/unbeaten/losses/winless. Modes: "all" (any span), "single" (within one season), "start" (from season start).',
-        '- `getClubRecords({club, scope?, lineage?})` — best/worst/notable matches in structured sections.',
+        '- `getClubSummary({club, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 a club\'s historical record with dynamic filters (see below). Use for "tell me about X", "how have they done overall", "their home record", "their record in the 2000s".',
+        '- `getHeadToHead({clubA, clubB, scope?, lineageA?, lineageB?, perspective?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 two-club record with filters. BOTH clubs can have lineage. Default perspective is clubA; use "neutral" when the question doesn\'t frame one club as subject. Competition defaults to "all" (includes play-offs).',
+        '- `getLeagueTable({season, division, asOf?})` \u2014 historical league table for any season. Optional asOf date gives you the table as of that day ("Boxing Day 1999 table").',
+        '- `getClubStreak({club, type, scope?, mode?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 longest wins/unbeaten/losses/winless with filters. "longest home winning run" \u2192 venue:home. Modes: "all" (any span), "single" (within one season), "start" (from season start).',
+        '- `getClubRecords({club, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 best/worst/notable matches, with filters. "biggest home wins" \u2192 venue:home.',
+        '',
+        '### Dynamic filter composition',
+        'The four club-based tools (getClubSummary, getHeadToHead, getClubStreak, getClubRecords) share the same filter params. Compose them from the user\'s phrasing and combine freely:',
+        '- **venue**: "home record" \u2192 `venue: "home"`; "away form" \u2192 `venue: "away"`; "at neutral venues" \u2192 `venue: "neutral"`',
+        '- **competition**: "in the play-offs" or "play-off record" \u2192 `competition: "playoff"`; "league only" \u2192 `competition: "league"`. Default is "all" (league + play-offs combined).',
+        '- **single season**: "in 2005-06" or "their 2005/06 season" \u2192 `season: "2005-06"`',
+        '- **season range**: "since 2015" \u2192 `seasonFrom: "2015-16"`; "in the 2000s" \u2192 `seasonFrom: "2000-01", seasonTo: "2009-10"`; "between 1990 and 2000" \u2192 `seasonFrom: "1990-91", seasonTo: "2000-01"`',
+        '',
+        'Combine them naturally. "Altrincham\'s home record in the play-offs since 2015" \u2192 `{club:"Altrincham", venue:"home", competition:"playoff", seasonFrom:"2015-16"}`. Tool responses include a `filterDescription` field \u2014 use that phrasing when confirming back what you queried so the user sees you understood correctly.',
         '',
         '### Staff and website',
-        '- `getStaff({name?, role?})` — look up NL staff by name substring or role ("admin", "staff", "superadmin"). Use for "who is Phil?", "who\'s the CEO?", "who manages Tom?". This tool replaces the static staff list that used to live in this prompt.',
-        '- `fetchNLSite({path})` — fetch a page from thenationalleague.org.uk (news, editorial, club info). Locked to our domain.',
+        '- `getStaff({name?, role?})` \u2014 look up NL staff by name substring or role ("admin", "staff", "superadmin"). Use for "who is Phil?", "who\'s the CEO?", "who manages Tom?". This tool replaces the static staff list that used to live in this prompt.',
+        '- `fetchNLSite({path})` \u2014 fetch a page from thenationalleague.org.uk (news, editorial, club info). Locked to our domain.',
         '',
         '### Tool etiquette',
         '- Tool call limit: 3 per user message. Use them efficiently — if comparing two clubs, getHeadToHead often replaces calling getClubSummary twice.',
@@ -2701,7 +2774,7 @@ function wireTopbar(session) {
         'When you reference a page on thenationalleague.org.uk, write it as a full markdown link: `[League records](https://www.thenationalleague.org.uk/history/league-records)`. The UI renders these as proper clickable links in NL navy blue.',
         '',
         '## Top scorers — redirect, don\'t tool-call',
-        'There is NO top scorers tool. The NLS live data has known gaps in per-match goal event entry, so any live aggregation would be unreliable. Point users to [Top scorers](https://www.thenationalleague.org.uk/history/top-scorers) — hand-written, authoritative.',
+        'There is NO top scorers tool. Live data has known gaps in per-match goal event entry, so any live aggregation would be unreliable. Point users to [Top scorers](https://www.thenationalleague.org.uk/history/top-scorers) \u2014 hand-written, authoritative.',
         '',
         '## History pages on the site (use for things tools can\'t answer)',
         'Link these as markdown links when relevant:',
@@ -2714,11 +2787,11 @@ function wireTopbar(session) {
         '- [Top scorers](https://www.thenationalleague.org.uk/history/top-scorers) — historical top scorers',
         '',
         '## What you still don\'t have',
-        '- Live in-match minute-by-minute scoring (NLS feed refreshes every 5 mins — mid-match delay).',
-        '- Cup or play-off data via tools (current tools cover league matches only).',
-        '- The current 2025-26 season via historical tools — for now use getStandings and getFixtures for current season.',
-        '- Top scorer data (redirect — see above).',
-        'For live scores during matches or cup/play-off info: point to nationalleagueservices.co.uk.',
+        '- Live in-match minute-by-minute scoring (live data refreshes every 5 mins \u2014 mid-match delay).',
+        '- FA Cup / FA Trophy / other cup data via tools (current tools cover league + play-offs only).',
+        '- The current 2025-26 season via historical tools \u2014 for now use getStandings and getFixtures for current season.',
+        '- Top scorer data (redirect \u2014 see above).',
+        'If the user asks for something you can\'t deliver, just tell them plainly \u2014 don\'t send them to a different site.',
         '',
         '## How to behave',
         '- Use British English spelling throughout (colour, organise, realise, licence etc.).',
