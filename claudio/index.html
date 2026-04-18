@@ -2,10 +2,30 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 4.0-alpha-fix1
+  Version: 4.0-alpha-fix2
   Date: 18/04/2026
 
   CHANGELOG
+  v4.0-alpha-fix2 (18/04/2026) — Bugfixes from fix1 smoke test
+    - BUG (critical): fix1 had empty bubbles in multi-segment replies.
+      Root cause: buildMsgEl pre-wrapped words with wrapWordsInNode,
+      then _startTypewriter called scheduleTypewriterReveal which
+      called wrapWordsInNode AGAIN on an already-wrapped tree,
+      producing zero wordSpans, so no words ever got tw-visible class.
+      Bubble appeared visible but empty. Only after refresh
+      (loaded-from-RTDB path) did text render.
+    - FIX: don\'t pre-wrap in buildMsgEl. Only wrap inside
+      scheduleTypewriterReveal when it\'s actually about to reveal.
+      Added visibility:hidden on text during defer to prevent flash
+      of unstyled content when bubble un-hides.
+    - BUG (external): Anthropic 429 rate limit on second API call of
+      orchestrated turn. Now confirmed via surfaced error message from
+      fix1\'s diagnostic improvements.
+    - FIX: ClaudioChat.gs v2.0-alpha-fix2 adds 429 retry with
+      exponential backoff (3 attempts, 500ms/1500ms/3000ms), plus a
+      pre-emptive 300ms delay between Claudio and specialist calls to
+      reduce TPM pressure.
+
   v4.0-alpha-fix1 (18/04/2026) — UX + error surfacing fixes for v4.0
     - FIX UX: multi-segment replies now play SEQUENTIALLY. Each bubble is
       hidden (display:none) until its predecessor\'s typewriter completes,
@@ -504,9 +524,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="4.0-alpha-fix1">
-  <meta name="build-time" content="2026-04-18T19:15:00Z">
-  <title>Claudio v4.0-alpha-fix1 — NL Tools</title>
+  <meta name="app-version" content="4.0-alpha-fix2">
+  <meta name="build-time" content="2026-04-18T19:45:00Z">
+  <title>Claudio v4.0-alpha-fix2 — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1855,7 +1875,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-alpha-fix1</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-alpha-fix2</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -3497,13 +3517,20 @@ function wireTopbar(session) {
         // instead of reserving full height upfront.
         if (!m._loaded) {
           if (m._deferTypewriter) {
-            var pre = [];
-            wrapWordsInNode(text, null, pre);
-            // Hide the whole bubble until reveal is triggered
+            // Hide the whole bubble until reveal is triggered. Don't
+            // pre-wrap words here \u2014 scheduleTypewriterReveal does the
+            // wrapping itself. Pre-wrapping here caused a bug where
+            // scheduleTypewriterReveal found an already-wrapped tree and
+            // created zero new wordSpans, leaving the bubble visible but
+            // empty.
             wrap.style.display = 'none';
+            // Also hide the text content with visibility so when we un-hide
+            // the bubble, we don\'t get a one-frame flash of unstyled text
+            // before the typewriter takes over.
+            text.style.visibility = 'hidden';
             wrap._startTypewriter = function() {
-              // Show the bubble, then start the reveal
               wrap.style.display = '';
+              text.style.visibility = '';
               scrollToBottom();
               return scheduleTypewriterReveal(text);
             };
