@@ -6,37 +6,35 @@
 <title>Club Directory — NL Tools</title>
 <!--
   club-directory / index.html
-  v0.8 — Manage Contacts: admin + club editor UIs.
+  v0.9 — Manage Contacts editor rewritten: two-surface model.
 
   Changelog:
-  v0.8 — Permission-gated editing:
-         - Admin role: "Manage contacts" button → table of all 72 clubs → drill into
-           any club's editor. Can edit everything: club details + people + roles.
-         - Club editor role: "Manage my club" button on THEIR club page only.
-           Can edit people + roles + deptHead flags. Cannot edit club-level fields
-           (address, stadium, phone, email, website).
-         - Staff / viewers: no edit access.
+  v0.9 — Critical refactor of the Manage Contacts editor based on a structural flaw
+         in v0.8: editing a role row exposed a name/email/phone input that could
+         diverge from the same person's other role records, allowing trailing-space
+         ghosts and silent duplicates.
 
-         Directory people vs portal users are kept strictly separate — directory
-         entries describe contacts-of-record; they are NOT user accounts. A person
-         may appear in the directory without ever using the portal.
+         New model: two distinct editing surfaces on one page.
 
-         Editor interactions:
-         - Section-level edit mode: click "Edit" on a section, its contents become
-           editable (inputs, + Add, × remove), "Save" or "Cancel" commit/revert.
-         - Only one section editable at a time. Unsaved-changes warning on nav.
-         - Remove flows explain outcomes: single-role removal warns "this deletes
-           the person entirely"; multi-role removal shows remaining roles.
-         - "+ Add person" appears both at club level (for multi-role people) and
-           inside each section (quick add).
+         1. PEOPLE — alphabetical list of the club's humans. One row per person.
+            Each row shows name, email, phone, plus departments they appear in.
+            Edit → right-side panel slides out with name/email/phone only. Save
+            validates against case-insensitive trimmed name matches at this club
+            and prompts for merge-or-keep-separate on collision.
 
-         Dev persona switcher in top bar — flips between admin / club editor /
-         staff / viewer so you can test each perspective. In production this is
-         driven by the user's portal role, not a manual switcher.
+         2. DEPARTMENT ASSIGNMENTS — per section card. Each row is (person, role
+            title, dept head flag). To add someone, pick from a typeahead of the
+            club's people. Cannot create a person from here — keeps name entry
+            limited to the People surface only. Role title remains free text.
 
-         Data persistence: edits are in-memory only for this demo. Saves update
-         window.CLUBS; reloads reset to seed data. Real RTDB hookup comes later.
-  v0.7 — Dept heads + list builder rework (dept-based, not role-based).
+         Structural guarantee: a person's name, email and phone can only be
+         typed in ONE place (the people panel). Ghost-person bug via trailing
+         space or typo is now architecturally impossible.
+
+         Duplicate detection: case-insensitive, whitespace-normalised name match
+         at save time fires a merge/keep-separate confirm dialog.
+  v0.8 — Manage Contacts: admin + club editor UIs, first cut.
+  v0.7 — Dept heads + list builder rework.
   v0.6 — List builder first cut.
   v0.5 — Restraint pass on section headers.
   v0.4 — Directors/Co-Chairs joined-names rendering.
@@ -704,7 +702,7 @@
   .manage-club-btn.persona-gated.is-shown { display: inline-flex; }
 
   /* ================================================================
-     MANAGE CONTACTS (admin + club-editor shared editor)
+     MANAGE CONTACTS (v0.9 — two-surface model)
      ================================================================ */
 
   /* Club picker table (admin-only landing) */
@@ -791,14 +789,12 @@
     font-variation-settings: 'wght' 700;
   }
 
-  /* Editor view */
-  .mc-editor { }
+  /* Editor header */
   .mc-back-bar {
     display: flex; align-items: center; gap: 12px;
     margin-bottom: 16px;
   }
   .mc-back-bar .back-link { margin: 0; }
-  .mc-back-bar .mc-title { flex: 1; }
   .mc-title h2 {
     margin: 0; font-size: 20px;
     font-weight: 900; font-variation-settings: 'wght' 900;
@@ -820,26 +816,441 @@
   }
   .mc-demo-banner b { font-weight: 700; font-variation-settings: 'wght' 700; }
 
-  /* Club-details card */
-  .mc-details {
+  /* Two-surface tabbed layout */
+  .mc-surface-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .mc-surface-tab {
+    background: none;
+    border: none;
+    padding: 10px 18px;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    color: var(--text-muted);
+    cursor: pointer;
+    position: relative;
+    top: 1px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.12s;
+  }
+  .mc-surface-tab:hover { color: var(--text); }
+  .mc-surface-tab[aria-selected="true"] {
+    color: var(--navy);
+    border-bottom-color: var(--primary);
+  }
+  .mc-surface-tab .mc-tab-count {
+    display: inline-block;
+    font-size: 10px;
+    background: var(--off-white);
+    color: var(--text-muted);
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-left: 6px;
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+  }
+  .mc-surface-tab[aria-selected="true"] .mc-tab-count {
+    background: var(--navy);
+    color: var(--white);
+  }
+
+  /* Surface panels */
+  .mc-surface { display: none; }
+  .mc-surface.is-active { display: block; }
+
+  /* ========== SURFACE 1: People list ========== */
+  .mc-people-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .mc-people-search {
+    flex: 1; min-width: 220px;
+    font-family: var(--font); font-size: 13px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--white);
+  }
+  .mc-people-search:focus { outline: none; border-color: var(--navy); }
+
+  .mc-add-person-btn {
+    background: var(--navy);
+    color: var(--white);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-family: var(--font); font-size: 12px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .mc-add-person-btn:hover { background: var(--navy-mid); }
+
+  .mc-people-list {
     background: var(--white);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 20px 24px;
-    margin-bottom: 16px;
+    overflow: hidden;
   }
-  .mc-section-hd {
-    display: flex; align-items: center; justify-content: space-between;
-    padding-bottom: 10px; border-bottom: 2px solid var(--primary);
-    margin-bottom: 14px;
+  .mc-person-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #eef1f5;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.1s;
   }
-  .mc-section-hd h3 {
-    margin: 0; font-size: 11px;
+  .mc-person-card:last-child { border-bottom: none; }
+  .mc-person-card:hover { background: #fafbfc; }
+  .mc-person-card.is-selected {
+    background: #eef2f8;
+    border-left: 3px solid var(--navy);
+    padding-left: 13px;
+  }
+  .mc-person-card-main { min-width: 0; }
+  .mc-person-card-name {
     font-weight: 700; font-variation-settings: 'wght' 700;
-    letter-spacing: 0.22em; text-transform: uppercase;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .mc-person-card-contact {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .mc-person-card-contact a { color: var(--navy); }
+  .mc-person-card-depts {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .mc-person-card-depts b {
+    font-style: normal;
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+    color: var(--text);
+  }
+  .mc-person-card-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .mc-person-card-btn {
+    background: none;
+    border: 1px solid var(--border);
+    padding: 5px 11px;
+    font-family: var(--font); font-size: 11px;
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    color: var(--text);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .mc-person-card-btn:hover { border-color: var(--navy); color: var(--navy); }
+  .mc-person-card-btn--danger:hover { border-color: #c0392b; color: #c0392b; }
+
+  /* Right-side slide-out panel for editing a person */
+  .mc-person-panel-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 150;
+    animation: fadein 0.15s;
+  }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slidein { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  .mc-person-panel {
+    position: fixed;
+    top: 0; right: 0;
+    height: 100vh;
+    width: 420px;
+    max-width: 94vw;
+    background: var(--white);
+    box-shadow: -8px 0 40px rgba(0,0,0,0.15);
+    z-index: 160;
+    display: flex;
+    flex-direction: column;
+    animation: slidein 0.22s;
+  }
+  .mc-person-panel__hd {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .mc-person-panel__hd h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 900; font-variation-settings: 'wght' 900;
+  }
+  .mc-person-panel__hd-sub {
+    font-size: 11px; color: var(--text-muted);
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+  }
+  .mc-person-panel__close {
+    background: none; border: none;
+    font-size: 20px; line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 6px;
+  }
+  .mc-person-panel__close:hover { color: var(--text); }
+
+  .mc-person-panel__body {
+    flex: 1;
+    padding: 22px;
+    overflow-y: auto;
+  }
+  .mc-person-panel__field { margin-bottom: 14px; }
+  .mc-person-panel__field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+  }
+  .mc-person-panel__field input {
+    width: 100%;
+    font-family: var(--font); font-size: 14px;
+    padding: 8px 11px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .mc-person-panel__field input:focus { outline: none; border-color: var(--navy); }
+
+  .mc-person-panel__depts-section {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+  }
+  .mc-person-panel__depts-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--navy);
+    font-weight: 700; font-variation-settings: 'wght' 700;
+  }
+  .mc-person-panel__dept {
+    font-size: 13px;
+    color: var(--text);
+    padding: 7px 12px;
+    background: var(--off-white);
+    border-radius: 4px;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .mc-person-panel__dept b {
+    color: var(--navy);
+    font-weight: 700; font-variation-settings: 'wght' 700;
+  }
+  .mc-person-panel__dept-head-pill {
+    font-size: 9px;
+    background: var(--amber);
+    color: var(--white);
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .mc-person-panel__depts-empty {
+    font-size: 12px; color: var(--text-muted);
+    font-style: italic;
+    padding: 10px 0;
+  }
+  .mc-person-panel__help {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+
+  .mc-person-panel__ftr {
+    padding: 14px 22px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    background: var(--off-white);
+  }
+  .mc-person-panel__danger {
+    background: none; border: none;
+    color: #c0392b;
+    font-family: var(--font); font-size: 12px;
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    cursor: pointer;
+    padding: 6px 8px;
+    text-decoration: underline;
+  }
+  .mc-person-panel__danger:hover { color: #a23225; }
+
+  /* ========== SURFACE 2: Department assignments ========== */
+  .mc-dept-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 10px;
+  }
+  .mc-dept-card.is-editing {
+    border-color: var(--navy);
+    box-shadow: 0 0 0 3px rgba(34,59,124,0.08);
+  }
+  .mc-dept-card.mc-dept-card--missing {
+    border-left: 3px solid var(--amber);
+  }
+  .mc-dept-hd {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 12px;
+  }
+  .mc-dept-hd h3 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
     color: var(--navy);
   }
-  .mc-edit-btn {
+  .mc-dept-warning {
+    font-size: 11px;
+    color: #8a5a00;
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+    background: #fef6ec;
+    padding: 3px 9px;
+    border-radius: 3px;
+    margin-left: 10px;
+  }
+
+  .mc-assignment-row {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr auto auto;
+    gap: 12px;
+    padding: 9px 10px;
+    align-items: center;
+    border-radius: 5px;
+    margin-bottom: 4px;
+  }
+  .mc-assignment-row:hover { background: #fafbfc; }
+  .mc-assignment-row.is-head {
+    background: #fcf3e6;
+  }
+  .mc-assignment-name {
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    font-size: 14px;
+  }
+  .mc-assignment-role {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .mc-assignment-headpill {
+    font-size: 9px;
+    background: var(--amber);
+    color: var(--white);
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    justify-self: start;
+  }
+
+  /* edit mode: assignment becomes a row of inputs */
+  .mc-assignment-edit-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1.3fr auto auto;
+    gap: 8px;
+    padding: 10px;
+    background: var(--off-white);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    align-items: center;
+  }
+  .mc-assignment-edit-row select,
+  .mc-assignment-edit-row input[type="text"] {
+    font-family: var(--font); font-size: 13px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    width: 100%;
+    background: var(--white);
+  }
+  .mc-assignment-edit-row select:focus,
+  .mc-assignment-edit-row input[type="text"]:focus {
+    outline: none; border-color: var(--navy);
+  }
+  .mc-assignment-edit-headcheck {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .mc-assignment-edit-headcheck input { margin: 0; }
+
+  .mc-assignment-remove {
+    background: none;
+    border: 1px solid var(--border);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-muted);
+    padding: 0;
+    transition: all 0.12s;
+  }
+  .mc-assignment-remove:hover { border-color: #c0392b; color: #c0392b; }
+
+  .mc-dept-empty {
+    font-size: 13px; color: var(--text-muted);
+    font-style: italic;
+    padding: 8px 0;
+  }
+
+  .mc-dept-add-btn {
+    background: var(--white);
+    border: 1px dashed var(--border);
+    padding: 8px 14px;
+    font-family: var(--font); font-size: 12px;
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    color: var(--navy);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.12s;
+    margin-top: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .mc-dept-add-btn:hover { border-color: var(--navy); background: var(--off-white); }
+
+  .mc-dept-edit-btn {
     background: none; border: 1px solid var(--border);
     padding: 5px 12px;
     font-family: var(--font); font-size: 11px;
@@ -849,9 +1260,44 @@
     border-radius: 3px;
     transition: all 0.12s;
   }
-  .mc-edit-btn:hover { border-color: var(--navy); background: var(--off-white); }
-  .mc-edit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .mc-dept-edit-btn:hover { border-color: var(--navy); background: var(--off-white); }
 
+  .mc-dept-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .mc-dept-footer .mc-save-btn,
+  .mc-dept-footer .mc-cancel-btn,
+  .mc-person-panel__ftr .mc-save-btn,
+  .mc-person-panel__ftr .mc-cancel-btn {
+    font-family: var(--font); font-size: 12px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 7px 16px; border-radius: 4px;
+    cursor: pointer;
+  }
+  .mc-save-btn {
+    background: var(--navy); color: var(--white); border: none;
+  }
+  .mc-save-btn:hover { background: var(--navy-mid); }
+  .mc-cancel-btn {
+    background: none; color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .mc-cancel-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+  /* Club details card (admin only) */
+  .mc-details {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
   .mc-field-row {
     display: grid;
     grid-template-columns: 180px 1fr;
@@ -873,156 +1319,7 @@
   }
   .mc-field-input:focus { outline: none; border-color: var(--navy); }
 
-  /* Section cards — editable people lists */
-  .mc-section-card {
-    background: var(--white);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px 24px;
-    margin-bottom: 12px;
-  }
-  .mc-section-card.is-editing {
-    border-color: var(--navy);
-    box-shadow: 0 0 0 3px rgba(34,59,124,0.08);
-  }
-
-  .mc-ppl-list { display: grid; gap: 8px; }
-  .mc-person-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 10px;
-    padding: 10px 12px;
-    background: var(--off-white);
-    border-radius: 5px;
-    align-items: start;
-  }
-  .mc-person-row--head {
-    background: #fcf3e6;
-    border-left: 3px solid var(--amber);
-  }
-  .mc-person-main { min-width: 0; }
-  .mc-person-name {
-    font-weight: 700; font-variation-settings: 'wght' 700;
-    font-size: 14px;
-  }
-  .mc-person-role {
-    font-size: 13px; color: var(--text-muted); margin-top: 1px;
-  }
-  .mc-person-contact {
-    font-size: 12px; color: var(--text-muted); margin-top: 4px;
-    display: flex; gap: 12px; flex-wrap: wrap;
-  }
-  .mc-person-contact a { color: var(--navy); }
-  .mc-head-pill {
-    display: inline-block;
-    font-size: 9px; padding: 2px 7px; border-radius: 3px;
-    background: var(--amber); color: var(--white);
-    font-weight: 700; font-variation-settings: 'wght' 700;
-    letter-spacing: 0.1em; text-transform: uppercase;
-    vertical-align: 2px; margin-left: 6px;
-  }
-  .mc-person-side {
-    display: flex; gap: 6px; align-items: center;
-  }
-  .mc-remove-role-btn {
-    background: none; border: 1px solid var(--border);
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 13px;
-    line-height: 1;
-    color: var(--text-muted);
-    padding: 0;
-    transition: all 0.12s;
-  }
-  .mc-remove-role-btn:hover {
-    border-color: #c0392b; color: #c0392b;
-  }
-
-  /* Edit mode — inline inputs within a section */
-  .mc-edit-person-row {
-    display: grid;
-    gap: 8px;
-    padding: 12px;
-    background: var(--off-white);
-    border-radius: 5px;
-    border: 1px dashed var(--border);
-  }
-  .mc-edit-grid {
-    display: grid;
-    grid-template-columns: 1.5fr 1fr 1fr;
-    gap: 8px;
-  }
-  .mc-edit-grid--wide { grid-template-columns: 2fr 2fr 1.5fr 1fr; }
-  .mc-edit-input {
-    font-family: var(--font); font-size: 13px;
-    padding: 6px 9px;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    width: 100%;
-  }
-  .mc-edit-input:focus { outline: none; border-color: var(--navy); }
-  .mc-edit-head-check {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 12px; padding: 4px 0;
-    color: var(--text);
-    user-select: none;
-    cursor: pointer;
-  }
-  .mc-edit-head-check input { margin: 0; cursor: pointer; }
-  .mc-edit-row-toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-  }
-  .mc-edit-row-toolbar-left { font-size: 11px; color: var(--text-muted); }
-  .mc-edit-row-actions { display: flex; gap: 6px; }
-
-  /* Add person button */
-  .mc-add-btn {
-    background: var(--white); border: 1px dashed var(--border);
-    padding: 8px 14px;
-    font-family: var(--font); font-size: 12px;
-    font-weight: 600; font-variation-settings: 'wght' 600;
-    color: var(--navy);
-    border-radius: 4px; cursor: pointer;
-    transition: all 0.12s;
-    display: inline-flex; align-items: center; gap: 6px;
-    margin-top: 8px;
-  }
-  .mc-add-btn:hover { border-color: var(--navy); background: var(--off-white); }
-
-  /* Save/Cancel footer */
-  .mc-edit-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
-  }
-  .mc-edit-footer-left { font-size: 12px; color: var(--text-muted); }
-  .mc-save-btn, .mc-cancel-btn {
-    font-family: var(--font); font-size: 12px;
-    font-weight: 700; font-variation-settings: 'wght' 700;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    padding: 7px 16px; border-radius: 4px;
-    cursor: pointer;
-  }
-  .mc-save-btn {
-    background: var(--navy); color: var(--white); border: none;
-  }
-  .mc-save-btn:hover { background: var(--navy-mid); }
-  .mc-cancel-btn {
-    background: none; color: var(--text-muted);
-    border: 1px solid var(--border);
-  }
-  .mc-cancel-btn:hover { border-color: var(--text-muted); color: var(--text); }
-
-  /* Confirm dialog for deletion */
+  /* Confirm dialog (shared) */
   .mc-confirm-overlay {
     position: fixed;
     inset: 0;
@@ -1037,7 +1334,7 @@
     background: var(--white);
     border-radius: 8px;
     padding: 24px 28px;
-    max-width: 440px;
+    max-width: 460px;
     width: 100%;
     box-shadow: 0 12px 48px rgba(0,0,0,0.25);
   }
@@ -1062,21 +1359,26 @@
     gap: 8px;
     margin-top: 16px;
   }
-  .mc-confirm-box .mc-danger-btn {
-    background: #c0392b; color: var(--white); border: none;
+  .mc-confirm-box button {
     padding: 7px 16px; border-radius: 4px;
     font-family: var(--font); font-size: 12px;
     font-weight: 700; font-variation-settings: 'wght' 700;
     text-transform: uppercase; letter-spacing: 0.08em;
     cursor: pointer;
+    border: none;
+  }
+  .mc-confirm-box .mc-cancel-btn {
+    background: none; color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .mc-confirm-box .mc-danger-btn {
+    background: #c0392b; color: var(--white);
   }
   .mc-confirm-box .mc-danger-btn:hover { background: #a23225; }
-
-  /* Empty state within section (no people yet) */
-  .mc-empty-section {
-    font-size: 13px; color: var(--text-muted); font-style: italic;
-    padding: 10px 0;
+  .mc-confirm-box .mc-primary-btn {
+    background: var(--navy); color: var(--white);
   }
+  .mc-confirm-box .mc-primary-btn:hover { background: var(--navy-mid); }
 
   @media (max-width: 700px) {
     .page { padding: 16px 12px 60px; }
@@ -1501,17 +1803,24 @@ var state = {
   clubStyle: '2',
   searchQuery: '',
   viewing: null,
-  // Manage contacts state
+  // Manage contacts state (v0.9 — two-surface model)
   manage: {
-    editingClub: null,              // name of the club currently being edited
-    editingSection: null,           // section name currently open for edit, or 'details'
-    editingPeople: {},              // map: personId -> { name, email, phone, deptHead, roleTitle } (draft)
-    editingDetails: null,           // club details draft (admin only)
-    addingNew: false,               // true if a new person row should appear
-    newPerson: null,                // { name, email, phone, roleTitle, deptHead } for the new-person form
+    editingClub: null,              // club name being edited
+    surface: 'people',              // 'people' | 'departments' | 'details'
+    // People surface
+    peopleSearch: '',
+    editingPersonId: null,          // ID of person whose side-panel is open
+    personDraft: null,              // { name, email, phone } in the side panel
+    // Department surface
+    editingDeptSection: null,       // section name currently in edit mode
+    deptDrafts: null,               // map: assignmentKey -> { roleTitle, deptHead }
+    deptAddDraft: null,             // { personId, roleTitle, deptHead } when adding
+    // Club details surface
+    editingDetails: null,           // draft for club details (admin only)
+    // Shared
     pickerSearch: '',
-    pickerDivFilter: null,          // 'National' | 'North' | 'South' | null
-    confirmDialog: null,            // { title, message, onConfirm }
+    pickerDivFilter: null,
+    confirmDialog: null,            // { title, message, onConfirm, ... }
   },
   // list builder state
   lb: {
@@ -1915,11 +2224,10 @@ function copyToClipboard(text, btn) {
 }
 
 /* ================================================================
-   MANAGE CONTACTS
+   MANAGE CONTACTS (v0.9 — two-surface model)
    ================================================================ */
 
-/* Assign each person a stable ID (needed for referencing in edit state).
-   Persisted on the object so renders are consistent. */
+/* Stable IDs on people for referencing in edit state. */
 var _nextPersonId = 1;
 function ensurePersonIds() {
   window.CLUBS.forEach(function(c) {
@@ -1932,8 +2240,6 @@ function ensurePersonIds() {
 function renderManage() {
   ensurePersonIds();
   var root = document.getElementById('mc-root');
-  // Admin: club picker unless a club is selected
-  // Club-editor: straight to their club, no picker
   if (state.persona === 'club-editor') {
     state.manage.editingClub = DEMO_EDITOR_CLUB;
     renderEditor(root);
@@ -1947,6 +2253,7 @@ function renderManage() {
   }
 }
 
+/* ---------- Club picker (unchanged from v0.8) ---------- */
 function renderClubPicker(root) {
   var q = (state.manage.pickerSearch || '').toLowerCase();
   var divFilter = state.manage.pickerDivFilter;
@@ -1958,10 +2265,9 @@ function renderClubPicker(root) {
   }).sort(function(a,b) { return a.name.localeCompare(b.name); });
 
   var rows = clubs.map(function(c) {
-    var ppl = c.people.length;
     var missing = HEAD_SECTIONS.filter(function(s) {
       var clubHasSection = c.people.some(function(p){ return p.roles.some(function(r){ return r.section === s; }); });
-      if (!clubHasSection) return false; // can't miss a head in a section they don't have
+      if (!clubHasSection) return false;
       var hasHead = c.people.some(function(p){ return p.roles.some(function(r){ return r.section === s && r.deptHead; }); });
       return !hasHead;
     });
@@ -1974,19 +2280,19 @@ function renderClubPicker(root) {
         '<span>' + esc(c.name) + '</span>' +
       '</div></td>' +
       '<td><span class="mc-div-pill mc-div-pill--' + c.division.toLowerCase() + '">' + esc(c.division) + '</span></td>' +
-      '<td>' + ppl + ' people</td>' +
+      '<td>' + c.people.length + ' people</td>' +
       '<td>' + status + '</td>' +
       '<td class="mc-action-col"><a href="#">Edit →</a></td>' +
     '</tr>';
   }).join('');
 
-  root.innerHTML = '' +
+  root.innerHTML =
     '<div class="mc-picker-intro">' +
       '<h2>Manage contacts</h2>' +
       '<p>Pick a club to edit its directory entries.</p>' +
     '</div>' +
     '<div class="mc-demo-banner">' +
-      '<b>Demo mode:</b> changes are in-memory only and reset on page reload. In production these will save to the database.' +
+      '<b>Demo mode:</b> changes are in-memory only and reset on page reload.' +
     '</div>' +
     '<div class="mc-picker-filter">' +
       '<input type="search" placeholder="Search clubs..." id="mcPickerSearch" value="' + esc(state.manage.pickerSearch||'') + '">' +
@@ -2005,85 +2311,336 @@ function renderClubPicker(root) {
     '</div>';
 }
 
+/* ---------- Editor (two surfaces) ---------- */
 function renderEditor(root) {
   var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
   if (!club) { root.innerHTML = '<div>Club not found</div>'; return; }
 
-  var backBar = '';
-  if (state.persona === 'admin') {
-    backBar = '<div class="mc-back-bar">' +
-      '<a class="back-link" id="mcBackToPicker">← back to club list</a>' +
-    '</div>';
-  } else {
-    backBar = '<div class="mc-back-bar">' +
-      '<a class="back-link" id="mcBackToDirectory">← back to directory</a>' +
-    '</div>';
-  }
+  var backBar = state.persona === 'admin'
+    ? '<div class="mc-back-bar"><a class="back-link" id="mcBackToPicker">← back to club list</a></div>'
+    : '<div class="mc-back-bar"><a class="back-link" id="mcBackToDirectory">← back to directory</a></div>';
 
   var title = '<div class="mc-title">' +
     '<h2>' +
       '<img src="' + crestUrl(club.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
       esc(club.name) +
     '</h2>' +
-    '<div class="mc-title-sub">' + esc(club.division) + ' · managing ' + club.people.length + ' ' + (club.people.length===1?'person':'people') + '</div>' +
+    '<div class="mc-title-sub">' + esc(club.division) + ' · ' + club.people.length + ' ' + (club.people.length===1?'person':'people') + '</div>' +
   '</div>';
 
-  // Club-details card
-  var detailsHtml = renderClubDetails(club);
+  // Surface tabs — People / Departments / (Details only if admin)
+  var canEditDetails = personaCan('editClubDetails');
+  var tabs = '<div class="mc-surface-tabs">' +
+    '<button class="mc-surface-tab" data-surface="people" aria-selected="' + (state.manage.surface === 'people' ? 'true' : 'false') + '">' +
+      'People <span class="mc-tab-count">' + club.people.length + '</span>' +
+    '</button>' +
+    '<button class="mc-surface-tab" data-surface="departments" aria-selected="' + (state.manage.surface === 'departments' ? 'true' : 'false') + '">' +
+      'Department assignments' +
+    '</button>' +
+    (canEditDetails
+      ? '<button class="mc-surface-tab" data-surface="details" aria-selected="' + (state.manage.surface === 'details' ? 'true' : 'false') + '">Club details</button>'
+      : '') +
+  '</div>';
 
-  // Section cards — one per section that has people OR is a HEAD section
-  // Include every section that has data, PLUS any with no data so club can add new ones
-  var sectionsHtml = SECTION_ORDER.map(function(s) {
-    return renderSectionCard(club, s);
-  }).join('');
+  // Surface content
+  var peopleHtml = '<div class="mc-surface' + (state.manage.surface === 'people' ? ' is-active' : '') + '" id="mcSurfacePeople">' + renderPeopleSurface(club) + '</div>';
+  var deptsHtml = '<div class="mc-surface' + (state.manage.surface === 'departments' ? ' is-active' : '') + '" id="mcSurfaceDepts">' + renderDeptSurface(club) + '</div>';
+  var detailsHtml = canEditDetails
+    ? '<div class="mc-surface' + (state.manage.surface === 'details' ? ' is-active' : '') + '" id="mcSurfaceDetails">' + renderClubDetails(club) + '</div>'
+    : '';
 
-  // Confirm dialog if any
+  // Person side-panel if editing
+  var panelHtml = '';
+  if (state.manage.editingPersonId) {
+    panelHtml = renderPersonPanel(club);
+  }
+
+  // Confirm dialog
   var confirmHtml = '';
   if (state.manage.confirmDialog) {
-    var d = state.manage.confirmDialog;
-    confirmHtml =
-      '<div class="mc-confirm-overlay" id="mcConfirmOverlay">' +
-        '<div class="mc-confirm-box">' +
-          '<h4>' + esc(d.title) + '</h4>' +
-          '<p>' + d.message + '</p>' +
-          (d.sub ? '<p class="mc-confirm-sub">' + esc(d.sub) + '</p>' : '') +
-          '<div class="mc-confirm-box-actions">' +
-            '<button class="mc-cancel-btn" id="mcConfirmCancel">Cancel</button>' +
-            '<button class="mc-danger-btn" id="mcConfirmOk">' + esc(d.confirmText || 'Confirm') + '</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
+    confirmHtml = renderConfirmDialog(state.manage.confirmDialog);
   }
 
   root.innerHTML =
-    '<div class="mc-editor">' +
-      backBar + title +
-      '<div class="mc-demo-banner">' +
-        '<b>Demo mode:</b> changes are in-memory only and reset on page reload.' +
-      '</div>' +
-      detailsHtml +
-      sectionsHtml +
-    '</div>' + confirmHtml;
+    backBar + title +
+    '<div class="mc-demo-banner"><b>Demo mode:</b> changes reset on reload.</div>' +
+    tabs +
+    peopleHtml +
+    deptsHtml +
+    detailsHtml +
+    panelHtml +
+    confirmHtml;
 }
 
-function renderClubDetails(club) {
-  var canEdit = personaCan('editClubDetails');
-  var isEditing = state.manage.editingSection === 'details';
-  var d = state.manage.editingDetails;
+/* ---------- Surface 1: People ---------- */
+function renderPeopleSurface(club) {
+  var q = (state.manage.peopleSearch || '').toLowerCase().trim();
+  var people = club.people.slice().sort(function(a, b) {
+    return (a.name||'').localeCompare(b.name||'');
+  });
 
-  var editBtn = '';
-  if (canEdit && !isEditing) {
-    editBtn = '<button class="mc-edit-btn" data-edit-section="details">Edit</button>';
-  } else if (!canEdit) {
-    editBtn = '<span class="mc-field-value--muted" style="font-size:11px;">Read-only for club editors</span>';
+  // Build the HTML for each person row
+  var rowsHtml = people.map(function(p) {
+    var nameLower = (p.name||'').toLowerCase();
+    var emailLower = (p.email||'').toLowerCase();
+    if (q && nameLower.indexOf(q) === -1 && emailLower.indexOf(q) === -1) return '';
+
+    var contactParts = [];
+    if (p.email) contactParts.push('<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation();">' + esc(p.email) + '</a>');
+    if (p.phone) contactParts.push(esc(p.phone));
+
+    // Summarise departments
+    var deptMap = {};
+    p.roles.forEach(function(r) {
+      if (!deptMap[r.section]) deptMap[r.section] = [];
+      deptMap[r.section].push(r.title);
+    });
+    var deptParts = Object.keys(deptMap).map(function(section) {
+      var roles = deptMap[section].join(' / ');
+      return '<b>' + esc(section) + '</b>: ' + esc(roles);
+    });
+
+    var selectedClass = (state.manage.editingPersonId === p._id) ? ' is-selected' : '';
+
+    return '<div class="mc-person-card' + selectedClass + '" data-person-id="' + esc(p._id) + '">' +
+      '<div class="mc-person-card-main">' +
+        '<div class="mc-person-card-name">' + esc(p.name||'(unnamed)') + '</div>' +
+        (contactParts.length ? '<div class="mc-person-card-contact">' + contactParts.join(' · ') + '</div>' : '') +
+        (deptParts.length ? '<div class="mc-person-card-depts">' + deptParts.join(' · ') + '</div>' : '<div class="mc-person-card-depts"><i>No department assignments</i></div>') +
+      '</div>' +
+      '<div class="mc-person-card-actions">' +
+        '<button class="mc-person-card-btn" data-edit-person="' + esc(p._id) + '">Edit</button>' +
+      '</div>' +
+    '</div>';
+  }).filter(Boolean).join('');
+
+  if (!rowsHtml) {
+    rowsHtml = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">' +
+      (q ? 'No people match "' + esc(q) + '"' : 'No people yet. Click Add Person to add the first.') +
+    '</div>';
   }
+
+  return '<div class="mc-people-actions">' +
+    '<input type="search" class="mc-people-search" placeholder="Search people by name or email..." id="mcPeopleSearch" value="' + esc(state.manage.peopleSearch||'') + '">' +
+    '<button class="mc-add-person-btn" id="mcAddPersonBtn">+ Add person</button>' +
+  '</div>' +
+  '<div class="mc-people-list">' + rowsHtml + '</div>';
+}
+
+/* ---------- Person side-panel ---------- */
+function renderPersonPanel(club) {
+  var isNew = state.manage.editingPersonId === 'new';
+  var person = isNew ? null : club.people.filter(function(p){ return p._id === state.manage.editingPersonId; })[0];
+  if (!isNew && !person) return '';
+
+  var draft = state.manage.personDraft || (person ? {
+    name: person.name || '',
+    email: person.email || '',
+    phone: person.phone || '',
+  } : { name: '', email: '', phone: '' });
+
+  // List this person's existing department assignments (read-only in the panel;
+  // they're edited in the Departments surface).
+  var deptsHtml = '';
+  if (!isNew && person && person.roles.length) {
+    deptsHtml = person.roles.map(function(r) {
+      return '<div class="mc-person-panel__dept">' +
+        '<span><b>' + esc(r.section) + '</b> — ' + esc(r.title) + '</span>' +
+        (r.deptHead ? '<span class="mc-person-panel__dept-head-pill">Head</span>' : '') +
+      '</div>';
+    }).join('');
+  } else if (!isNew) {
+    deptsHtml = '<div class="mc-person-panel__depts-empty">No department assignments yet. Add them in the Department assignments tab.</div>';
+  }
+
+  return '<div class="mc-person-panel-overlay" id="mcPanelOverlay"></div>' +
+    '<div class="mc-person-panel" id="mcPersonPanel">' +
+      '<div class="mc-person-panel__hd">' +
+        '<div>' +
+          '<h3>' + (isNew ? 'Add new person' : 'Edit person') + '</h3>' +
+          '<div class="mc-person-panel__hd-sub">' + esc(club.name) + '</div>' +
+        '</div>' +
+        '<button class="mc-person-panel__close" id="mcPanelClose">×</button>' +
+      '</div>' +
+      '<div class="mc-person-panel__body">' +
+        '<div class="mc-person-panel__field">' +
+          '<label>Full name</label>' +
+          '<input type="text" id="mcPanelName" value="' + esc(draft.name) + '" placeholder="e.g. Jane Smith">' +
+        '</div>' +
+        '<div class="mc-person-panel__field">' +
+          '<label>Email</label>' +
+          '<input type="email" id="mcPanelEmail" value="' + esc(draft.email) + '" placeholder="jane@club.co.uk">' +
+        '</div>' +
+        '<div class="mc-person-panel__field">' +
+          '<label>Phone</label>' +
+          '<input type="tel" id="mcPanelPhone" value="' + esc(draft.phone) + '" placeholder="01234 567890">' +
+        '</div>' +
+        (!isNew ? '<div class="mc-person-panel__depts-section">' +
+          '<h4>Department assignments</h4>' +
+          deptsHtml +
+          '<div class="mc-person-panel__help">Name, email and phone edits apply wherever this person appears. To add or remove department roles, go to the <b>Department assignments</b> tab.</div>' +
+        '</div>' : '<div class="mc-person-panel__help">After saving, assign this person to a department in the <b>Department assignments</b> tab.</div>') +
+      '</div>' +
+      '<div class="mc-person-panel__ftr">' +
+        (isNew ? '<span></span>' : '<button class="mc-person-panel__danger" id="mcPanelDelete">Delete person entirely</button>') +
+        '<div style="display:flex;gap:8px;">' +
+          '<button class="mc-cancel-btn" id="mcPanelCancel">Cancel</button>' +
+          '<button class="mc-save-btn" id="mcPanelSave">Save</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+/* ---------- Surface 2: Department assignments ---------- */
+function renderDeptSurface(club) {
+  var html = '';
+  SECTION_ORDER.forEach(function(section) {
+    html += renderDeptCard(club, section);
+  });
+  return html;
+}
+
+function renderDeptCard(club, section) {
+  // Collect (person, role) entries for this section
+  var entries = [];
+  club.people.forEach(function(p) {
+    p.roles.forEach(function(r) {
+      if (r.section === section) entries.push({ person: p, role: r });
+    });
+  });
+
+  var isEditing = state.manage.editingDeptSection === section;
+  var hasData = entries.length > 0;
+  var isHeadSection = HEAD_SECTIONS.indexOf(section) !== -1;
+  var missingHead = isHeadSection && hasData && !entries.some(function(e){ return e.role.deptHead; });
+  var multipleHeads = entries.filter(function(e){ return e.role.deptHead; }).length > 1;
+
+  // Skip empty non-head-able sections (Directors if no directors, Liaison if none)
+  if (!hasData && !isHeadSection) return '';
+
+  var warning = '';
+  if (missingHead) warning = '<span class="mc-dept-warning">⚠ No dept head</span>';
+  else if (multipleHeads) warning = '<span class="mc-dept-warning">⚠ Multiple heads</span>';
+
+  var headerActions = '';
+  if (!isEditing) {
+    headerActions = '<button class="mc-dept-edit-btn" data-edit-dept-section="' + esc(section) + '">Edit</button>';
+  }
+
+  var body = isEditing
+    ? renderDeptEditBody(club, section, entries)
+    : renderDeptViewBody(section, entries);
+
+  return '<div class="mc-dept-card' + (isEditing ? ' is-editing' : '') + (missingHead ? ' mc-dept-card--missing' : '') + '" data-section="' + esc(section) + '">' +
+    '<div class="mc-dept-hd">' +
+      '<div><h3 style="display:inline-block;">' + esc(section) + '</h3>' + warning + '</div>' +
+      headerActions +
+    '</div>' +
+    body +
+  '</div>';
+}
+
+function renderDeptViewBody(section, entries) {
+  if (!entries.length) {
+    return '<div class="mc-dept-empty">No assignments yet.</div>';
+  }
+  var rows = entries.map(function(e) {
+    var p = e.person, r = e.role;
+    return '<div class="mc-assignment-row' + (r.deptHead ? ' is-head' : '') + '">' +
+      '<div class="mc-assignment-name">' + esc(p.name) + '</div>' +
+      '<div class="mc-assignment-role">' + esc(r.title) + '</div>' +
+      (r.deptHead ? '<div class="mc-assignment-headpill">Head</div>' : '<div></div>') +
+      '<div></div>' +
+    '</div>';
+  }).join('');
+  return rows;
+}
+
+function renderDeptEditBody(club, section, entries) {
+  var drafts = state.manage.deptDrafts || {};
+
+  var peopleOptions = club.people.slice()
+    .sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); })
+    .map(function(p) {
+      return '<option value="' + esc(p._id) + '">' + esc(p.name) + '</option>';
+    }).join('');
+
+  // Each existing assignment becomes an editable row
+  var rowsHtml = entries.map(function(e) {
+    var p = e.person, r = e.role;
+    var key = p._id + '|' + r.title;
+    if (!drafts[key]) {
+      drafts[key] = {
+        personId: p._id,
+        roleTitle: r.title,
+        deptHead: !!r.deptHead,
+        _originalTitle: r.title,
+      };
+    }
+    var d = drafts[key];
+    return '<div class="mc-assignment-edit-row" data-draft-key="' + esc(key) + '">' +
+      '<select data-draft-key="' + esc(key) + '" data-draft-field="personId">' +
+        club.people.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).map(function(x) {
+          return '<option value="' + esc(x._id) + '"' + (x._id === d.personId ? ' selected' : '') + '>' + esc(x.name) + '</option>';
+        }).join('') +
+      '</select>' +
+      '<input type="text" data-draft-key="' + esc(key) + '" data-draft-field="roleTitle" value="' + esc(d.roleTitle) + '" placeholder="Role title">' +
+      '<label class="mc-assignment-edit-headcheck">' +
+        '<input type="checkbox" data-draft-key="' + esc(key) + '" data-draft-field="deptHead"' + (d.deptHead ? ' checked' : '') + '>' +
+        'Head' +
+      '</label>' +
+      '<button class="mc-assignment-remove" data-remove-draft-key="' + esc(key) + '" title="Remove assignment">×</button>' +
+    '</div>';
+  }).join('');
+
+  state.manage.deptDrafts = drafts;
+
+  // Add-new row (if adding)
+  var addHtml = '';
+  if (state.manage.deptAddDraft && state.manage.deptAddDraft.section === section) {
+    var nd = state.manage.deptAddDraft;
+    addHtml = '<div class="mc-assignment-edit-row" style="border: 1px dashed var(--primary);">' +
+      '<select id="mcAddDraftPerson">' +
+        '<option value="">— Pick a person —</option>' +
+        club.people.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).map(function(x) {
+          return '<option value="' + esc(x._id) + '"' + (x._id === nd.personId ? ' selected' : '') + '>' + esc(x.name) + '</option>';
+        }).join('') +
+      '</select>' +
+      '<input type="text" id="mcAddDraftTitle" value="' + esc(nd.roleTitle||'') + '" placeholder="Role title (e.g. Press Officer)">' +
+      '<label class="mc-assignment-edit-headcheck">' +
+        '<input type="checkbox" id="mcAddDraftHead"' + (nd.deptHead ? ' checked' : '') + '>' +
+        'Head' +
+      '</label>' +
+      '<button class="mc-assignment-remove" id="mcAddDraftCancel">×</button>' +
+    '</div>';
+  }
+
+  var footer = '<div class="mc-dept-footer">' +
+    '<button class="mc-cancel-btn" data-cancel-dept="' + esc(section) + '">Cancel</button>' +
+    '<button class="mc-save-btn" data-save-dept="' + esc(section) + '">Save changes</button>' +
+  '</div>';
+
+  var addBtn = state.manage.deptAddDraft
+    ? ''
+    : '<button class="mc-dept-add-btn" data-add-to-dept="' + esc(section) + '">+ Assign a person to ' + esc(section) + '</button>';
+
+  return (entries.length ? rowsHtml : '<div class="mc-dept-empty">No assignments yet. Add one below.</div>') +
+    addHtml +
+    addBtn +
+    footer;
+}
+
+/* ---------- Club details (admin only, unchanged logic) ---------- */
+function renderClubDetails(club) {
+  var isEditing = !!state.manage.editingDetails;
+  var d = state.manage.editingDetails || {};
 
   function row(label, key) {
     var val = club[key];
-    if (isEditing && canEdit) {
+    if (isEditing) {
       return '<div class="mc-field-row">' +
         '<div class="mc-field-label">' + label + '</div>' +
-        '<div><input class="mc-field-input" data-details-field="' + key + '" value="' + esc(d && d[key] != null ? d[key] : (val || '')) + '"></div>' +
+        '<div><input class="mc-field-input" data-details-field="' + key + '" value="' + esc(d[key] != null ? d[key] : (val || '')) + '"></div>' +
       '</div>';
     }
     return '<div class="mc-field-row">' +
@@ -2092,325 +2649,345 @@ function renderClubDetails(club) {
     '</div>';
   }
 
-  var footer = '';
-  if (isEditing && canEdit) {
-    footer = '<div class="mc-edit-footer">' +
-      '<div class="mc-edit-footer-left">Editing club details</div>' +
-      '<div class="mc-edit-row-actions">' +
-        '<button class="mc-cancel-btn" data-cancel-section="details">Cancel</button>' +
-        '<button class="mc-save-btn" data-save-section="details">Save</button>' +
-      '</div>' +
-    '</div>';
-  }
+  var actions = isEditing
+    ? '<div class="mc-dept-footer" style="border-top:none;padding-top:0;margin-top:10px;">' +
+        '<button class="mc-cancel-btn" id="mcDetailsCancel">Cancel</button>' +
+        '<button class="mc-save-btn" id="mcDetailsSave">Save</button>' +
+      '</div>'
+    : '<div style="margin-top:14px;text-align:right;"><button class="mc-dept-edit-btn" id="mcDetailsEdit">Edit details</button></div>';
 
   return '<div class="mc-details">' +
-    '<div class="mc-section-hd">' +
-      '<h3>Club details</h3>' +
-      editBtn +
-    '</div>' +
     row('Address', 'address_raw') +
     row('Phone', 'phone') +
     row('Email', 'email') +
     row('Website', 'website') +
     row('FA membership', 'fa') +
-    footer +
+    actions +
   '</div>';
 }
 
-function renderSectionCard(club, section) {
-  // Build list of (person, roleEntry) pairs for this section
-  var entries = [];
-  club.people.forEach(function(p) {
-    p.roles.forEach(function(r) {
-      if (r.section === section) entries.push({ person: p, role: r });
-    });
-  });
-
-  var isEditing = state.manage.editingSection === section;
-  var sectionHasData = entries.length > 0;
-
-  // Skip entirely empty sections unless we're a lead-able section
-  // (so club can add their first person); directors/liaison show only if data
-  if (!sectionHasData && HEAD_SECTIONS.indexOf(section) === -1) return '';
-  // Even for HEAD sections, don't show if empty and not currently editing — too cluttered
-  // ...except we still want the club to be able to add. Compromise: show empty sections that
-  // are head-able, with a "add person" prompt. Hide empty Liaison/Directors to reduce noise.
-
-  var canEdit = true;  // Both admin and club-editor can edit people sections
-  var editBtn = '';
-  if (isEditing) {
-    // no edit button in edit mode — footer has save/cancel
-  } else {
-    editBtn = '<button class="mc-edit-btn" data-edit-section="' + esc(section) + '">Edit</button>';
-  }
-
-  // Body — either view mode or edit mode
-  var body;
-  if (isEditing) {
-    body = renderSectionEditBody(club, section, entries);
-  } else {
-    body = renderSectionViewBody(section, entries);
-  }
-
-  return '<div class="mc-section-card' + (isEditing ? ' is-editing' : '') + '" data-section="' + esc(section) + '">' +
-    '<div class="mc-section-hd">' +
-      '<h3>' + esc(section) + '</h3>' +
-      editBtn +
+/* ---------- Confirm dialog (shared helper) ---------- */
+function renderConfirmDialog(d) {
+  var btnClass = d.variant === 'danger' ? 'mc-danger-btn' : 'mc-primary-btn';
+  return '<div class="mc-confirm-overlay" id="mcConfirmOverlay">' +
+    '<div class="mc-confirm-box">' +
+      '<h4>' + esc(d.title) + '</h4>' +
+      '<p>' + d.message + '</p>' +
+      (d.sub ? '<p class="mc-confirm-sub">' + esc(d.sub) + '</p>' : '') +
+      '<div class="mc-confirm-box-actions">' +
+        '<button class="mc-cancel-btn" id="mcConfirmCancel">' + esc(d.cancelText || 'Cancel') + '</button>' +
+        '<button class="' + btnClass + '" id="mcConfirmOk">' + esc(d.confirmText || 'Confirm') + '</button>' +
+      '</div>' +
     '</div>' +
-    body +
   '</div>';
 }
 
-function renderSectionViewBody(section, entries) {
-  if (!entries.length) {
-    return '<div class="mc-empty-section">No contacts added yet.</div>';
-  }
-  var rows = entries.map(function(e) {
-    var p = e.person, r = e.role;
-    var headPill = r.deptHead ? '<span class="mc-head-pill">Dept head</span>' : '';
-    var contact = [];
-    if (p.phone) contact.push(esc(p.phone));
-    if (p.email) contact.push('<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>');
-    return '<div class="mc-person-row' + (r.deptHead ? ' mc-person-row--head' : '') + '">' +
-      '<div class="mc-person-main">' +
-        '<div class="mc-person-name">' + esc(p.name) + headPill + '</div>' +
-        '<div class="mc-person-role">' + esc(r.title) + '</div>' +
-        (contact.length ? '<div class="mc-person-contact">' + contact.join(' · ') + '</div>' : '') +
-      '</div>' +
-    '</div>';
-  }).join('');
-  return '<div class="mc-ppl-list">' + rows + '</div>';
-}
+/* ---------- Actions: People surface ---------- */
 
-function renderSectionEditBody(club, section, entries) {
-  var draftMap = state.manage.editingPeople;
-
-  var rows = entries.map(function(e) {
-    var p = e.person, r = e.role;
-    var draftKey = p._id + '|' + section + '|' + r.title;
-    // Initialise draft if not present
-    if (!draftMap[draftKey]) {
-      draftMap[draftKey] = {
-        name: p.name,
-        email: p.email || '',
-        phone: p.phone || '',
-        roleTitle: r.title,
-        deptHead: !!r.deptHead,
-        _personId: p._id,
-        _originalTitle: r.title,
-      };
-    }
-    var draft = draftMap[draftKey];
-
-    return '<div class="mc-edit-person-row">' +
-      '<div class="mc-edit-grid mc-edit-grid--wide">' +
-        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="name" value="' + esc(draft.name) + '" placeholder="Name">' +
-        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="roleTitle" value="' + esc(draft.roleTitle) + '" placeholder="Role title">' +
-        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="email" value="' + esc(draft.email) + '" placeholder="Email">' +
-        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="phone" value="' + esc(draft.phone) + '" placeholder="Phone">' +
-      '</div>' +
-      '<div class="mc-edit-row-toolbar">' +
-        '<label class="mc-edit-head-check">' +
-          '<input type="checkbox" data-edit-key="' + esc(draftKey) + '" data-edit-field="deptHead"' + (draft.deptHead ? ' checked' : '') + '>' +
-          'Dept head' +
-        '</label>' +
-        '<div class="mc-edit-row-actions">' +
-          '<button class="mc-remove-role-btn" data-remove-role="' + esc(draftKey) + '" title="Remove this role">×</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-
-  // + Add person to this section
-  var addFormHtml = '';
-  if (state.manage.addingNew && state.manage.addingNew.section === section) {
-    var np = state.manage.newPerson || {};
-    addFormHtml = '<div class="mc-edit-person-row" style="border-color: var(--primary);">' +
-      '<div class="mc-edit-grid mc-edit-grid--wide">' +
-        '<input class="mc-edit-input" data-new-field="name" value="' + esc(np.name||'') + '" placeholder="Name" autofocus>' +
-        '<input class="mc-edit-input" data-new-field="roleTitle" value="' + esc(np.roleTitle||'') + '" placeholder="Role title (e.g. Press Officer)">' +
-        '<input class="mc-edit-input" data-new-field="email" value="' + esc(np.email||'') + '" placeholder="Email (optional)">' +
-        '<input class="mc-edit-input" data-new-field="phone" value="' + esc(np.phone||'') + '" placeholder="Phone (optional)">' +
-      '</div>' +
-      '<div class="mc-edit-row-toolbar">' +
-        '<label class="mc-edit-head-check">' +
-          '<input type="checkbox" data-new-field="deptHead"' + (np.deptHead ? ' checked' : '') + '>' +
-          'Dept head' +
-        '</label>' +
-        '<div class="mc-edit-row-actions">' +
-          '<button class="mc-cancel-btn" data-cancel-new="1">Discard</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  }
-
-  var addBtn = '<button class="mc-add-btn" data-add-to-section="' + esc(section) + '">+ Add person to ' + esc(section) + '</button>';
-
-  var body = (entries.length ? '<div class="mc-ppl-list">' + rows + '</div>' : '<div class="mc-empty-section">No contacts yet. Add the first one below.</div>') +
-    addFormHtml +
-    addBtn +
-    '<div class="mc-edit-footer">' +
-      '<div class="mc-edit-footer-left">Editing ' + esc(section) + '</div>' +
-      '<div class="mc-edit-row-actions">' +
-        '<button class="mc-cancel-btn" data-cancel-section="' + esc(section) + '">Cancel</button>' +
-        '<button class="mc-save-btn" data-save-section="' + esc(section) + '">Save changes</button>' +
-      '</div>' +
-    '</div>';
-
-  return body;
-}
-
-/* ---- Save/cancel handlers ---- */
-
-function enterSectionEdit(section) {
-  // If another section is already editing, warn (for now just discard silently)
-  state.manage.editingSection = section;
-  state.manage.editingPeople = {};
-  state.manage.addingNew = false;
-  state.manage.newPerson = null;
-  if (section === 'details') {
+function openPersonPanel(personId) {
+  state.manage.editingPersonId = personId;
+  if (personId === 'new') {
+    state.manage.personDraft = { name: '', email: '', phone: '' };
+  } else {
     var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
-    state.manage.editingDetails = {
-      address_raw: club.address_raw,
-      phone: club.phone,
-      email: club.email,
-      website: club.website,
-      fa: club.fa,
-    };
+    var p = club ? club.people.filter(function(x){ return x._id === personId; })[0] : null;
+    state.manage.personDraft = p ? {
+      name: p.name || '',
+      email: p.email || '',
+      phone: p.phone || '',
+    } : { name: '', email: '', phone: '' };
   }
   renderEditor(document.getElementById('mc-root'));
 }
 
-function cancelSectionEdit() {
-  state.manage.editingSection = null;
-  state.manage.editingPeople = {};
-  state.manage.editingDetails = null;
-  state.manage.addingNew = false;
-  state.manage.newPerson = null;
+function closePersonPanel() {
+  state.manage.editingPersonId = null;
+  state.manage.personDraft = null;
   renderEditor(document.getElementById('mc-root'));
 }
 
-function saveSectionEdit(section) {
+function normaliseName(s) {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function savePersonPanel() {
   var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
   if (!club) return;
+  var draft = state.manage.personDraft || {};
+  var name = (draft.name || '').trim();
+  if (!name) {
+    alert('Please enter a name.');
+    return;
+  }
 
-  if (section === 'details') {
-    var d = state.manage.editingDetails;
-    if (d) {
-      club.address_raw = d.address_raw;
-      club.phone = d.phone;
-      club.email = d.email;
-      club.website = d.website;
-      club.fa = d.fa;
-    }
-    state.manage.editingSection = null;
-    state.manage.editingDetails = null;
+  var isNew = state.manage.editingPersonId === 'new';
+  var normNew = normaliseName(name);
+
+  // Look for collision (different person, same normalised name) at this club
+  var collision = club.people.filter(function(p) {
+    if (!isNew && p._id === state.manage.editingPersonId) return false;
+    return normaliseName(p.name) === normNew;
+  })[0];
+
+  if (collision) {
+    // Prompt for merge-or-keep-separate
+    state.manage.confirmDialog = {
+      title: 'Duplicate name detected',
+      message: 'A person named <b>' + esc(collision.name) + '</b> already exists at this club. Do you want to <b>merge</b> the two records, or keep them as separate people?',
+      sub: isNew
+        ? 'Merging will discard this new record and keep the existing one.'
+        : 'Merging will consolidate all department assignments onto one record and delete the other.',
+      confirmText: 'Keep separate',
+      cancelText: 'Merge with existing',
+      variant: 'primary',
+      onConfirm: function() {
+        // User chose keep separate — proceed with save as-is
+        state.manage.confirmDialog = null;
+        commitPersonPanelSave(club, isNew, draft);
+      },
+      onCancel: function() {
+        // User chose merge
+        state.manage.confirmDialog = null;
+        mergeIntoPerson(club, collision, isNew, draft);
+      }
+    };
     renderEditor(document.getElementById('mc-root'));
     return;
   }
 
-  // Save people changes for this section
-  var drafts = state.manage.editingPeople;
-  Object.keys(drafts).forEach(function(draftKey) {
-    var draft = drafts[draftKey];
-    var person = club.people.filter(function(p){ return p._id === draft._personId; })[0];
-    if (!person) return;
-    person.name = draft.name.trim();
-    person.email = draft.email.trim() || null;
-    person.phone = draft.phone.trim() || null;
-    // Find the role entry and update
-    var role = person.roles.filter(function(r){
-      return r.section === section && r.title === draft._originalTitle;
-    })[0];
-    if (role) {
-      role.title = draft.roleTitle.trim() || role.title;
-      role.deptHead = !!draft.deptHead;
-    }
-  });
+  commitPersonPanelSave(club, isNew, draft);
+}
 
-  // Add new person if one is being drafted for this section
-  if (state.manage.addingNew && state.manage.addingNew.section === section && state.manage.newPerson) {
-    var np = state.manage.newPerson;
-    if (np.name && np.name.trim() && np.roleTitle && np.roleTitle.trim()) {
-      var newPerson = {
-        _id: 'p' + (_nextPersonId++),
-        name: np.name.trim(),
-        email: (np.email || '').trim() || null,
-        phone: (np.phone || '').trim() || null,
-        note: null,
-        roles: [{
-          title: np.roleTitle.trim(),
-          section: section,
-          deptHead: !!np.deptHead,
-        }]
-      };
-      club.people.push(newPerson);
+function commitPersonPanelSave(club, isNew, draft) {
+  var name = (draft.name || '').trim();
+  var email = (draft.email || '').trim() || null;
+  var phone = (draft.phone || '').trim() || null;
+
+  if (isNew) {
+    var newPerson = {
+      _id: 'p' + (_nextPersonId++),
+      name: name,
+      email: email,
+      phone: phone,
+      note: null,
+      roles: [],
+    };
+    club.people.push(newPerson);
+  } else {
+    var person = club.people.filter(function(p){ return p._id === state.manage.editingPersonId; })[0];
+    if (person) {
+      person.name = name;
+      person.email = email;
+      person.phone = phone;
     }
   }
-
-  state.manage.editingSection = null;
-  state.manage.editingPeople = {};
-  state.manage.addingNew = false;
-  state.manage.newPerson = null;
+  state.manage.editingPersonId = null;
+  state.manage.personDraft = null;
   renderEditor(document.getElementById('mc-root'));
 }
 
-function removeRoleWithConfirm(draftKey) {
-  var draft = state.manage.editingPeople[draftKey];
-  if (!draft) return;
+function mergeIntoPerson(club, existingPerson, isNew, draft) {
+  // Merge: keep existingPerson. If not isNew, also consolidate the other person's
+  // roles onto existingPerson and delete the other.
+  if (isNew) {
+    // No new record was created; just apply draft email/phone to existing if not set
+    if (!existingPerson.email && (draft.email||'').trim()) existingPerson.email = draft.email.trim();
+    if (!existingPerson.phone && (draft.phone||'').trim()) existingPerson.phone = draft.phone.trim();
+  } else {
+    var duplicatePerson = club.people.filter(function(p){ return p._id === state.manage.editingPersonId; })[0];
+    if (duplicatePerson && duplicatePerson !== existingPerson) {
+      // Move roles across (skip any that would duplicate an existing role)
+      duplicatePerson.roles.forEach(function(r) {
+        var already = existingPerson.roles.some(function(er) {
+          return er.section === r.section && er.title === r.title;
+        });
+        if (!already) existingPerson.roles.push(r);
+      });
+      // Fill in missing contact fields from dup if existing is blank
+      if (!existingPerson.email && duplicatePerson.email) existingPerson.email = duplicatePerson.email;
+      if (!existingPerson.phone && duplicatePerson.phone) existingPerson.phone = duplicatePerson.phone;
+      // Remove duplicate
+      club.people = club.people.filter(function(p){ return p !== duplicatePerson; });
+    }
+  }
+  state.manage.editingPersonId = null;
+  state.manage.personDraft = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function deletePersonWithConfirm() {
   var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
-  var person = club.people.filter(function(p){ return p._id === draft._personId; })[0];
+  if (!club) return;
+  var person = club.people.filter(function(p){ return p._id === state.manage.editingPersonId; })[0];
   if (!person) return;
 
-  var roleIdx = person.roles.findIndex(function(r){
-    return r.section === state.manage.editingSection && r.title === draft._originalTitle;
-  });
-  if (roleIdx === -1) return;
+  var roleDesc = person.roles.length === 0
+    ? 'They have no department assignments.'
+    : 'This will also remove their ' + person.roles.length + ' department ' +
+      (person.roles.length === 1 ? 'assignment' : 'assignments') + ': ' +
+      person.roles.map(function(r){ return r.title + ' (' + r.section + ')'; }).join(', ') + '.';
 
-  var otherRoles = person.roles.filter(function(r, i){ return i !== roleIdx; });
+  state.manage.confirmDialog = {
+    title: 'Delete person?',
+    message: 'Delete <b>' + esc(person.name) + '</b> from the directory entirely.',
+    sub: roleDesc + ' This cannot be undone.',
+    confirmText: 'Delete person',
+    variant: 'danger',
+    onConfirm: function() {
+      club.people = club.people.filter(function(p){ return p._id !== person._id; });
+      state.manage.editingPersonId = null;
+      state.manage.personDraft = null;
+      state.manage.confirmDialog = null;
+      renderEditor(document.getElementById('mc-root'));
+    }
+  };
+  renderEditor(document.getElementById('mc-root'));
+}
+
+/* ---------- Actions: Department surface ---------- */
+
+function enterDeptEdit(section) {
+  state.manage.editingDeptSection = section;
+  state.manage.deptDrafts = {};
+  state.manage.deptAddDraft = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function cancelDeptEdit() {
+  state.manage.editingDeptSection = null;
+  state.manage.deptDrafts = null;
+  state.manage.deptAddDraft = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function saveDeptEdit(section) {
+  var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+  if (!club) return;
+  var drafts = state.manage.deptDrafts || {};
+
+  // Walk each draft; find the existing role entry and update it
+  // Keys were built as personId|originalTitle. If personId has changed, we're
+  // moving the role from one person to another — that's allowed via the select.
+  Object.keys(drafts).forEach(function(key) {
+    var d = drafts[key];
+    var originalPersonId = key.split('|')[0];
+    var originalTitle = d._originalTitle;
+
+    var originalPerson = club.people.filter(function(p){ return p._id === originalPersonId; })[0];
+    if (!originalPerson) return;
+
+    var roleIdx = originalPerson.roles.findIndex(function(r) {
+      return r.section === section && r.title === originalTitle;
+    });
+    if (roleIdx === -1) return;
+
+    // If person changed: move role to new person with updated title/head
+    if (d.personId !== originalPersonId) {
+      var newPerson = club.people.filter(function(p){ return p._id === d.personId; })[0];
+      if (newPerson) {
+        newPerson.roles.push({
+          title: d.roleTitle.trim() || originalTitle,
+          section: section,
+          deptHead: !!d.deptHead,
+        });
+      }
+      originalPerson.roles.splice(roleIdx, 1);
+    } else {
+      // Just update title / deptHead
+      originalPerson.roles[roleIdx].title = (d.roleTitle || '').trim() || originalTitle;
+      originalPerson.roles[roleIdx].deptHead = !!d.deptHead;
+    }
+  });
+
+  // Apply new-assignment draft if any
+  var add = state.manage.deptAddDraft;
+  if (add && add.section === section && add.personId) {
+    var addTarget = club.people.filter(function(p){ return p._id === add.personId; })[0];
+    if (addTarget) {
+      addTarget.roles.push({
+        title: (add.roleTitle || '').trim() || 'Unspecified',
+        section: section,
+        deptHead: !!add.deptHead,
+      });
+    }
+  }
+
+  state.manage.editingDeptSection = null;
+  state.manage.deptDrafts = null;
+  state.manage.deptAddDraft = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function removeDeptDraft(key) {
+  // Removing an assignment from the edit list.
+  // Check if this would leave the person with 0 roles → warn about implicit deletion.
+  var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+  if (!club) return;
+  var d = state.manage.deptDrafts[key];
+  if (!d) return;
+  var originalPersonId = key.split('|')[0];
+  var person = club.people.filter(function(p){ return p._id === originalPersonId; })[0];
+  if (!person) return;
+
+  // Count roles they still have in OTHER sections (not being removed here)
+  var otherRoles = person.roles.filter(function(r, i) {
+    return !(r.section === state.manage.editingDeptSection && r.title === d._originalTitle);
+  });
 
   if (otherRoles.length === 0) {
-    // Last role — confirms as person deletion
     state.manage.confirmDialog = {
-      title: 'Remove person entirely?',
-      message: '<b>' + esc(person.name) + '</b>\'s only role is <b>' + esc(draft._originalTitle) + '</b> in <b>' + esc(state.manage.editingSection) + '</b>. Removing it will delete them from the directory entirely.',
-      sub: 'This cannot be undone.',
-      confirmText: 'Delete person',
+      title: 'Last assignment?',
+      message: 'This is <b>' + esc(person.name) + '</b>\'s only department assignment. Removing it will leave them in the People list with no departments assigned. They will NOT be automatically deleted — you can remove them from the People tab if you want to.',
+      sub: 'If you just want to move them to a different role or department, that\'s fine — they\'ll stay in the People list.',
+      confirmText: 'Remove assignment',
+      variant: 'danger',
       onConfirm: function() {
-        // Remove person from the club
-        club.people = club.people.filter(function(p){ return p._id !== person._id; });
-        delete state.manage.editingPeople[draftKey];
+        // Actually remove the role from the person now, and drop draft
+        var roleIdx = person.roles.findIndex(function(r) {
+          return r.section === state.manage.editingDeptSection && r.title === d._originalTitle;
+        });
+        if (roleIdx !== -1) person.roles.splice(roleIdx, 1);
+        delete state.manage.deptDrafts[key];
         state.manage.confirmDialog = null;
         renderEditor(document.getElementById('mc-root'));
       }
     };
-  } else {
-    // Person stays with remaining roles
-    var remaining = otherRoles.map(function(r){ return r.title + ' (' + r.section + ')'; }).join(', ');
-    state.manage.confirmDialog = {
-      title: 'Remove this role?',
-      message: 'Remove <b>' + esc(person.name) + '</b>\'s <b>' + esc(draft._originalTitle) + '</b> role. They\'ll stay in the directory as: <b>' + esc(remaining) + '</b>.',
-      confirmText: 'Remove role',
-      onConfirm: function() {
-        person.roles.splice(roleIdx, 1);
-        delete state.manage.editingPeople[draftKey];
-        state.manage.confirmDialog = null;
-        renderEditor(document.getElementById('mc-root'));
-      }
-    };
+    renderEditor(document.getElementById('mc-root'));
+    return;
   }
+
+  // Straightforward removal — just drop the role and the draft
+  var remaining = otherRoles.map(function(r){ return r.title + ' (' + r.section + ')'; }).join(', ');
+  state.manage.confirmDialog = {
+    title: 'Remove assignment?',
+    message: 'Remove <b>' + esc(person.name) + '</b> from this department. They will remain in the directory with: <b>' + esc(remaining) + '</b>.',
+    confirmText: 'Remove',
+    variant: 'danger',
+    onConfirm: function() {
+      var roleIdx = person.roles.findIndex(function(r) {
+        return r.section === state.manage.editingDeptSection && r.title === d._originalTitle;
+      });
+      if (roleIdx !== -1) person.roles.splice(roleIdx, 1);
+      delete state.manage.deptDrafts[key];
+      state.manage.confirmDialog = null;
+      renderEditor(document.getElementById('mc-root'));
+    }
+  };
   renderEditor(document.getElementById('mc-root'));
 }
 
-function startAddPerson(section) {
-  state.manage.addingNew = { section: section };
-  state.manage.newPerson = { name: '', email: '', phone: '', roleTitle: '', deptHead: false };
+function startDeptAdd(section) {
+  state.manage.deptAddDraft = {
+    section: section,
+    personId: '',
+    roleTitle: '',
+    deptHead: false,
+  };
   renderEditor(document.getElementById('mc-root'));
 }
 
-function cancelAddPerson() {
-  state.manage.addingNew = false;
-  state.manage.newPerson = null;
+function cancelDeptAdd() {
+  state.manage.deptAddDraft = null;
   renderEditor(document.getElementById('mc-root'));
 }
 
@@ -2583,20 +3160,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // --- MANAGE CONTACTS interactions ---
+  // --- MANAGE CONTACTS interactions (v0.9) ---
   var manageScene = document.getElementById('scene-manage');
+
   manageScene.addEventListener('click', function(e) {
     var t = e.target;
 
-    // Club picker: click a club row
+    /* --- Club picker --- */
     var clubRow = t.closest('[data-club]');
     if (clubRow && clubRow.tagName === 'TR') {
       state.manage.editingClub = clubRow.getAttribute('data-club');
+      state.manage.surface = 'people';
       renderManage();
       return;
     }
-
-    // Picker: division filter pills
     var filterPill = t.closest('[data-div-filter]');
     if (filterPill) {
       var f = filterPill.getAttribute('data-div-filter');
@@ -2605,93 +3182,158 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    // Back to picker (admin)
+    /* --- Navigation --- */
     if (t.id === 'mcBackToPicker') {
       e.preventDefault();
       state.manage.editingClub = null;
-      state.manage.editingSection = null;
-      state.manage.editingPeople = {};
+      state.manage.surface = 'people';
+      state.manage.editingPersonId = null;
+      state.manage.personDraft = null;
+      state.manage.editingDeptSection = null;
+      state.manage.deptDrafts = null;
+      state.manage.deptAddDraft = null;
       state.manage.editingDetails = null;
-      state.manage.addingNew = false;
-      state.manage.newPerson = null;
       renderManage();
       return;
     }
-
-    // Back to directory (club editor)
     if (t.id === 'mcBackToDirectory') {
       e.preventDefault();
       state.viewMode = 'directory';
       state.viewing = DEMO_EDITOR_CLUB;
-      state.manage.editingSection = null;
-      state.manage.editingPeople = {};
-      state.manage.editingDetails = null;
       showScene();
       return;
     }
 
-    // Section Edit button
-    var editBtn = t.closest('[data-edit-section]');
-    if (editBtn) {
-      enterSectionEdit(editBtn.getAttribute('data-edit-section'));
-      return;
-    }
-
-    // Cancel section edit
-    var cancelBtn = t.closest('[data-cancel-section]');
-    if (cancelBtn) {
-      cancelSectionEdit();
-      return;
-    }
-
-    // Save section edit
-    var saveBtn = t.closest('[data-save-section]');
-    if (saveBtn) {
-      saveSectionEdit(saveBtn.getAttribute('data-save-section'));
-      return;
-    }
-
-    // + Add person button
-    var addBtn = t.closest('[data-add-to-section]');
-    if (addBtn) {
-      startAddPerson(addBtn.getAttribute('data-add-to-section'));
-      return;
-    }
-
-    // Cancel adding new person
-    if (t.closest('[data-cancel-new]')) {
-      cancelAddPerson();
-      return;
-    }
-
-    // Remove a role
-    var removeBtn = t.closest('[data-remove-role]');
-    if (removeBtn) {
-      removeRoleWithConfirm(removeBtn.getAttribute('data-remove-role'));
-      return;
-    }
-
-    // Confirm dialog cancel
-    if (t.id === 'mcConfirmCancel') {
-      state.manage.confirmDialog = null;
+    /* --- Surface tabs --- */
+    var surfaceTab = t.closest('[data-surface]');
+    if (surfaceTab) {
+      state.manage.surface = surfaceTab.getAttribute('data-surface');
+      // Leaving a surface with an open edit state is fine — drafts hold intact.
+      // But close the person panel if moving away.
+      if (state.manage.surface !== 'people') {
+        state.manage.editingPersonId = null;
+        state.manage.personDraft = null;
+      }
       renderEditor(document.getElementById('mc-root'));
       return;
     }
-    if (t.id === 'mcConfirmOk') {
-      if (state.manage.confirmDialog && state.manage.confirmDialog.onConfirm) {
-        state.manage.confirmDialog.onConfirm();
+
+    /* --- People surface --- */
+    // Row click or edit button opens panel
+    var editPersonBtn = t.closest('[data-edit-person]');
+    if (editPersonBtn) {
+      openPersonPanel(editPersonBtn.getAttribute('data-edit-person'));
+      return;
+    }
+    var personCard = t.closest('[data-person-id]');
+    if (personCard && !editPersonBtn) {
+      openPersonPanel(personCard.getAttribute('data-person-id'));
+      return;
+    }
+    if (t.id === 'mcAddPersonBtn') {
+      openPersonPanel('new');
+      return;
+    }
+
+    /* --- Person side-panel --- */
+    if (t.id === 'mcPanelClose' || t.id === 'mcPanelOverlay' || t.id === 'mcPanelCancel') {
+      closePersonPanel();
+      return;
+    }
+    if (t.id === 'mcPanelSave') {
+      savePersonPanel();
+      return;
+    }
+    if (t.id === 'mcPanelDelete') {
+      deletePersonWithConfirm();
+      return;
+    }
+
+    /* --- Departments surface --- */
+    var editDeptBtn = t.closest('[data-edit-dept-section]');
+    if (editDeptBtn) {
+      enterDeptEdit(editDeptBtn.getAttribute('data-edit-dept-section'));
+      return;
+    }
+    var cancelDeptBtn = t.closest('[data-cancel-dept]');
+    if (cancelDeptBtn) {
+      cancelDeptEdit();
+      return;
+    }
+    var saveDeptBtn = t.closest('[data-save-dept]');
+    if (saveDeptBtn) {
+      saveDeptEdit(saveDeptBtn.getAttribute('data-save-dept'));
+      return;
+    }
+    var addToDeptBtn = t.closest('[data-add-to-dept]');
+    if (addToDeptBtn) {
+      startDeptAdd(addToDeptBtn.getAttribute('data-add-to-dept'));
+      return;
+    }
+    if (t.id === 'mcAddDraftCancel') {
+      cancelDeptAdd();
+      return;
+    }
+    var removeDraftBtn = t.closest('[data-remove-draft-key]');
+    if (removeDraftBtn) {
+      removeDeptDraft(removeDraftBtn.getAttribute('data-remove-draft-key'));
+      return;
+    }
+
+    /* --- Club details (admin only) --- */
+    if (t.id === 'mcDetailsEdit') {
+      var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+      state.manage.editingDetails = {
+        address_raw: club.address_raw || '',
+        phone: club.phone || '',
+        email: club.email || '',
+        website: club.website || '',
+        fa: club.fa || '',
+      };
+      renderEditor(document.getElementById('mc-root'));
+      return;
+    }
+    if (t.id === 'mcDetailsCancel') {
+      state.manage.editingDetails = null;
+      renderEditor(document.getElementById('mc-root'));
+      return;
+    }
+    if (t.id === 'mcDetailsSave') {
+      var c = window.CLUBS.filter(function(x){ return x.name === state.manage.editingClub; })[0];
+      var d = state.manage.editingDetails;
+      if (c && d) {
+        c.address_raw = d.address_raw;
+        c.phone = d.phone;
+        c.email = d.email;
+        c.website = d.website;
+        c.fa = d.fa;
       }
+      state.manage.editingDetails = null;
+      renderEditor(document.getElementById('mc-root'));
+      return;
+    }
+
+    /* --- Confirm dialog --- */
+    if (t.id === 'mcConfirmCancel') {
+      var dlg = state.manage.confirmDialog;
+      if (dlg && dlg.onCancel) dlg.onCancel();
+      else { state.manage.confirmDialog = null; renderEditor(document.getElementById('mc-root')); }
+      return;
+    }
+    if (t.id === 'mcConfirmOk') {
+      var dlg2 = state.manage.confirmDialog;
+      if (dlg2 && dlg2.onConfirm) dlg2.onConfirm();
       return;
     }
   });
 
   manageScene.addEventListener('input', function(e) {
     var t = e.target;
-    // Picker search
+
+    // Club picker search
     if (t.id === 'mcPickerSearch') {
       state.manage.pickerSearch = t.value;
-      // only re-render the table; keep the search input focus
-      var q = (t.value || '').toLowerCase();
+      var q = t.value.toLowerCase();
       var divFilter = state.manage.pickerDivFilter;
       var rows = manageScene.querySelectorAll('.mc-clubs-table tbody tr');
       rows.forEach(function(tr) {
@@ -2704,26 +3346,49 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    // Editing an existing draft
-    if (t.hasAttribute('data-edit-key')) {
-      var key = t.getAttribute('data-edit-key');
-      var field = t.getAttribute('data-edit-field');
-      if (!state.manage.editingPeople[key]) return;
-      if (field === 'deptHead') state.manage.editingPeople[key][field] = t.checked;
-      else state.manage.editingPeople[key][field] = t.value;
+    // People surface search — filter rows in place to preserve input focus
+    if (t.id === 'mcPeopleSearch') {
+      state.manage.peopleSearch = t.value;
+      var q2 = t.value.toLowerCase().trim();
+      var cards = manageScene.querySelectorAll('.mc-person-card');
+      cards.forEach(function(card) {
+        var name = (card.querySelector('.mc-person-card-name')||{}).textContent || '';
+        var contactEl = card.querySelector('.mc-person-card-contact');
+        var contact = contactEl ? contactEl.textContent : '';
+        var match = !q2 || name.toLowerCase().indexOf(q2) !== -1 || contact.toLowerCase().indexOf(q2) !== -1;
+        card.style.display = match ? '' : 'none';
+      });
       return;
     }
 
-    // Editing the new-person form
-    if (t.hasAttribute('data-new-field')) {
-      var nf = t.getAttribute('data-new-field');
-      if (!state.manage.newPerson) state.manage.newPerson = {};
-      if (nf === 'deptHead') state.manage.newPerson[nf] = t.checked;
-      else state.manage.newPerson[nf] = t.value;
+    // Person side-panel fields
+    if (t.id === 'mcPanelName')  { if (!state.manage.personDraft) state.manage.personDraft = {}; state.manage.personDraft.name  = t.value; return; }
+    if (t.id === 'mcPanelEmail') { if (!state.manage.personDraft) state.manage.personDraft = {}; state.manage.personDraft.email = t.value; return; }
+    if (t.id === 'mcPanelPhone') { if (!state.manage.personDraft) state.manage.personDraft = {}; state.manage.personDraft.phone = t.value; return; }
+
+    // Dept edit drafts
+    if (t.hasAttribute('data-draft-key')) {
+      var key = t.getAttribute('data-draft-key');
+      var field = t.getAttribute('data-draft-field');
+      if (!state.manage.deptDrafts || !state.manage.deptDrafts[key]) return;
+      if (field === 'deptHead') state.manage.deptDrafts[key].deptHead = t.checked;
+      else state.manage.deptDrafts[key][field] = t.value;
       return;
     }
 
-    // Editing club details
+    // Dept add-new draft
+    if (t.id === 'mcAddDraftPerson') {
+      if (!state.manage.deptAddDraft) return;
+      state.manage.deptAddDraft.personId = t.value;
+      return;
+    }
+    if (t.id === 'mcAddDraftTitle') {
+      if (!state.manage.deptAddDraft) return;
+      state.manage.deptAddDraft.roleTitle = t.value;
+      return;
+    }
+
+    // Club details drafts
     if (t.hasAttribute('data-details-field')) {
       var df = t.getAttribute('data-details-field');
       if (!state.manage.editingDetails) state.manage.editingDetails = {};
@@ -2734,13 +3399,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
   manageScene.addEventListener('change', function(e) {
     var t = e.target;
-    if (t.hasAttribute('data-edit-key') && t.getAttribute('data-edit-field') === 'deptHead') {
-      var key = t.getAttribute('data-edit-key');
-      if (state.manage.editingPeople[key]) state.manage.editingPeople[key].deptHead = t.checked;
+    if (t.hasAttribute('data-draft-key') && t.getAttribute('data-draft-field') === 'deptHead') {
+      var key = t.getAttribute('data-draft-key');
+      if (state.manage.deptDrafts && state.manage.deptDrafts[key]) {
+        state.manage.deptDrafts[key].deptHead = t.checked;
+      }
     }
-    if (t.hasAttribute('data-new-field') && t.getAttribute('data-new-field') === 'deptHead') {
-      if (!state.manage.newPerson) state.manage.newPerson = {};
-      state.manage.newPerson.deptHead = t.checked;
+    if (t.id === 'mcAddDraftHead') {
+      if (state.manage.deptAddDraft) state.manage.deptAddDraft.deptHead = t.checked;
+    }
+    if (t.id === 'mcAddDraftPerson') {
+      if (state.manage.deptAddDraft) state.manage.deptAddDraft.personId = t.value;
     }
   });
 
