@@ -2,10 +2,25 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.6
+  Version: 2.7
   Date: 17/04/2026
 
   CHANGELOG
+  v2.7 (17/04/2026)
+    - H2H perspective modes: getHeadToHead renderer now supports `clubA`,
+      `clubB`, and `neutral` framings. clubA/clubB show W/D/L pills from
+      that side; neutral mode shows the winning team's short name in a
+      coloured cell (green for winner, amber "Draw"). Prompt guidance
+      tells Claudio to pick the right mode from user phrasing.
+    - H2H no longer limited to last 5 meetings. Returns up to 100 newest
+      meetings. For long rivalries (12+) the renderer wraps the table in
+      a 400px-max scrollable container with sticky header so the whole
+      match history is available without dominating the chat view.
+    - Subcaption under the red title bar shows the perspective mode
+      ("from Chester's perspective" / "neutral") so the user knows what
+      frame they're looking at.
+    - Truncation note below the table when we hit the 100-match cap.
+
   v2.6 (17/04/2026)
     - Flipped chat alignment: Claudio's messages now sit on the RIGHT
       (avatar right-side), user messages on the LEFT. Typing indicator
@@ -565,10 +580,31 @@
       font-size: 14px;
       letter-spacing: 0.02em;
     }
+    /* v2.7: subtitle under the red caption (perspective indicator) */
+    .nlt-subcaption {
+      text-align: center;
+      padding: 5px 12px 8px;
+      font-family: var(--font-claudio);
+      font-style: italic;
+      font-size: 12px;
+      color: var(--text-muted);
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+    }
     .nlt-scroll {
       max-width: 100%;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
+    }
+    /* v2.7: vertical scroll container for long H2H lists */
+    .nlt-scroll-v {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .nlt-scroll-v thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
     .nlt {
       width: 100%;
@@ -702,6 +738,25 @@
     .nlt-result-l { background: #c0392b; }
     .nlt-result--,
     .nlt-result-n { background: #555; }
+
+    /* v2.7: H2H neutral-perspective — winning team short name in coloured cell */
+    .nlt-winner-tag {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 800;
+      font-variation-settings: 'wght' 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      min-width: 50px;
+    }
+    .nlt-winner-a { background: #1e7e34; color: #fff; }
+    .nlt-winner-b { background: #c0392b; color: #fff; }
+    .nlt-winner-draw { background: #e67e22; color: #000; }
+    .nlt-winner-none { background: #eef1f4; color: #64748b; }
 
     .msg--user .msg__text {
       background: #eef3ff; border-color: #d1def5;
@@ -1797,7 +1852,8 @@ function wireTopbar(session) {
       catch (e) { return null; }
       if (!payload || typeof payload !== 'object') return null;
       if (payload.type === 'standings') return buildNLStandingsTable(payload);
-      if (payload.type === 'h2h-last5') return buildNLH2HTable(payload);
+      if (payload.type === 'h2h-meetings') return buildNLH2HMeetingsTable(payload);
+      if (payload.type === 'h2h-last5') return buildNLH2HMeetingsTable(payload); // legacy alias
       return null;
     }
 
@@ -1925,17 +1981,31 @@ function wireTopbar(session) {
       return wrap;
     }
 
-    function buildNLH2HTable(payload) {
+    /* v2.7: full H2H meetings renderer. Handles perspective modes (clubA /
+       clubB / neutral) and scrollable max-height container for 12+ meetings.
+       In neutral mode the Result column shows the winning team's short name
+       in a green cell (or "Draw" in amber) rather than a W/D/L pill. */
+    function buildNLH2HMeetingsTable(payload) {
       var wrap = document.createElement('div');
       wrap.className = 'nlt-wrap';
 
       var caption = document.createElement('div');
       caption.className = 'nlt-caption';
-      caption.textContent = payload.title || 'Recent meetings';
+      caption.textContent = payload.title || 'Meetings';
       wrap.appendChild(caption);
+
+      // Subtitle line ("from Chester's perspective" / "neutral")
+      if (payload.subtitle) {
+        var sub = document.createElement('div');
+        sub.className = 'nlt-subcaption';
+        sub.textContent = payload.subtitle;
+        wrap.appendChild(sub);
+      }
 
       var scroll = document.createElement('div');
       scroll.className = 'nlt-scroll';
+      // v2.7: vertical max-height scroll when many meetings
+      if (payload.scrollable) scroll.classList.add('nlt-scroll-v');
 
       var table = document.createElement('table');
       table.className = 'nlt nlt-h2h';
@@ -1949,6 +2019,10 @@ function wireTopbar(session) {
       });
       thead.appendChild(thr);
       table.appendChild(thead);
+
+      var perspective = String(payload.perspective || 'clubA').toLowerCase();
+      var shortA = payload.clubAShort || payload.clubALabel || 'A';
+      var shortB = payload.clubBShort || payload.clubBLabel || 'B';
 
       var tbody = document.createElement('tbody');
       (payload.meetings || []).forEach(function(m, idx) {
@@ -1971,11 +2045,33 @@ function wireTopbar(session) {
 
         var rCell = document.createElement('td');
         rCell.className = 'nlt-result-cell';
-        var pill = document.createElement('span');
-        var rCode = (m.result || '-').toUpperCase();
-        pill.className = 'nlt-result-pill nlt-result-' + rCode.toLowerCase();
-        pill.textContent = rCode === 'W' || rCode === 'D' || rCode === 'L' ? rCode : '-';
-        rCell.appendChild(pill);
+
+        if (perspective === 'neutral') {
+          // Winning team's short name in a coloured cell
+          var tag = document.createElement('span');
+          tag.className = 'nlt-winner-tag';
+          if (m.result === 'winA') {
+            tag.classList.add('nlt-winner-a');
+            tag.textContent = shortA;
+          } else if (m.result === 'winB') {
+            tag.classList.add('nlt-winner-b');
+            tag.textContent = shortB;
+          } else if (m.result === 'draw') {
+            tag.classList.add('nlt-winner-draw');
+            tag.textContent = 'Draw';
+          } else {
+            tag.classList.add('nlt-winner-none');
+            tag.textContent = '-';
+          }
+          rCell.appendChild(tag);
+        } else {
+          // clubA or clubB perspective — W/D/L pill
+          var pill = document.createElement('span');
+          var rCode = String(m.result || '-').toUpperCase();
+          pill.className = 'nlt-result-pill nlt-result-' + rCode.toLowerCase();
+          pill.textContent = (rCode === 'W' || rCode === 'D' || rCode === 'L') ? rCode : '-';
+          rCell.appendChild(pill);
+        }
         tr.appendChild(rCell);
 
         tbody.appendChild(tr);
@@ -1983,6 +2079,18 @@ function wireTopbar(session) {
       table.appendChild(tbody);
       scroll.appendChild(table);
       wrap.appendChild(scroll);
+
+      // Truncation note if we hit the 100-meeting cap
+      if (payload.truncated) {
+        var foot = document.createElement('div');
+        foot.className = 'nlt-footnotes';
+        var line = document.createElement('div');
+        line.className = 'nlt-footnote';
+        line.textContent = 'Showing 100 most recent of ' + payload.totalMeetings + ' total meetings. Older meetings available on the history page.';
+        foot.appendChild(line);
+        wrap.appendChild(foot);
+      }
+
       return wrap;
     }
 
@@ -2573,6 +2681,15 @@ function wireTopbar(session) {
         '| 12 Apr 2024 | Dorking | 2-1 | Woking | W |',
         '',
         'When a tool returns scalars (total counts, single records, summary numbers), prose is fine.',
+        '',
+        '### H2H perspective — pick the right framing',
+        'When calling `getHeadToHead`, choose the `perspective` parameter based on how the user phrased the question:',
+        '',
+        '- **"clubA"** (default): question frames one club as the subject — "how has Chester done against Hereford?", "Altrincham\'s record vs Wrexham". The named-first club is clubA. Pills show W/D/L from that side.',
+        '- **"clubB"**: question frames the second club as the subject — "how has Hereford fared with Chester?". Pills show W/D/L from clubB\'s side.',
+        '- **"neutral"**: question is about the pairing itself with no clear subject — "how have X and Y done against each other?", "what\'s their record?", "who\'s had the better of it?", "tell me about the X–Y rivalry". In this mode the result cell shows the winner\'s short name in a coloured cell (green for winner, amber "Draw"), with no W/D/L framing.',
+        '',
+        'Match the phrasing. Default to "clubA" only when one club is clearly the subject. If unsure, prefer "neutral" for even-handed questions.',
         '',
         '### Phrasing: clubs move between leagues',
         'Clubs move up and down the pyramid over decades. If `getHeadToHead` returns `total: 0` or a low number, do NOT say "they\'ve never met in football" — they may well have met in the EFL or FA Cup. Instead say something like: "They haven\'t met in our competitions" and use `clubAHistory` / `clubBHistory` from the response to add useful context — e.g. "Chesterfield last played in our leagues in 2005-06; Mansfield in 2012-13. They\'ve been in the EFL since." If a club has `seasonsInOurLeagues: 0`, phrase as "never played in our leagues" rather than "never existed" or "never met in football".',
