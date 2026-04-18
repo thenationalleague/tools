@@ -2,10 +2,28 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.10
+  Version: 2.11
   Date: 18/04/2026
 
   CHANGELOG
+  v2.11 (18/04/2026)
+    - Three new tools wired into the prompt and renderer:
+      getMostFrequentOpponents (ranked opponents list),
+      getClubMatches (flat match list with styled table),
+      getAllTimeChampions (cross-season tallies).
+    - New renderer: buildNLClubMatchesTable for the `club-matches`
+      payload type. Mirrors the H2H meetings table with W/D/L pills.
+    - Renderer resilience: when an nl-table fenced block contains
+      malformed JSON, the block is now SILENTLY dropped (Claudio's
+      prose carries the answer). Previously the raw JSON leaked into
+      the chat as a visible draft-style block. Also added a retry
+      with light cleanup (strips stray backticks, fixes trailing
+      double-brace errors) before giving up.
+    - Prompt reinforcement: VERBATIM copy rules for rendererPayload
+      are now explicit. Also a clear statement that historical data
+      covers 1979-80 to present \u2014 Claudio must not claim data isn\'t
+      available when it is.
+
   v2.10 (18/04/2026)
     - Avatar glow-up: Claudio's icon is now bigger and unframed (no navy
       circle, no crop). Welcome screen 72→120px. Chat bubbles 36→48px.
@@ -1640,13 +1658,26 @@ function wireTopbar(session) {
           if (code == null) continue;
           if (lang === 'nl-table') {
             var nlTable = buildNLTable(code.trim());
+            // v2.11: retry with light cleanup if the first parse failed.
+            // Common LLM failures: trailing "}}" instead of "}", stray
+            // markdown fences baked in, leading/trailing whitespace.
+            if (!nlTable) {
+              var cleaned = code.trim();
+              // Strip any stray backticks
+              cleaned = cleaned.replace(/^`+|`+$/g, '').trim();
+              // Fix common bracket overrun (trailing double close where one was expected)
+              if (/}}\s*$/.test(cleaned) && !/{{/.test(cleaned)) {
+                cleaned = cleaned.replace(/}\s*$/, '');
+              }
+              nlTable = buildNLTable(cleaned);
+            }
             if (nlTable) {
               container.appendChild(nlTable);
-            } else {
-              // Malformed — fall through to showing as a draft block so
-              // user sees something rather than a blank space
-              container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
             }
+            // v2.11: if still malformed, SILENTLY skip. Do not dump raw JSON
+            // into the chat. Claudio's prose that follows will carry the
+            // answer. The old behaviour rendered a visible draft block
+            // containing raw JSON which was awful.
           } else {
             container.appendChild(buildDraftBlock(code.replace(/\s+$/, '')));
           }
@@ -1913,6 +1944,7 @@ function wireTopbar(session) {
       if (payload.type === 'standings') return buildNLStandingsTable(payload);
       if (payload.type === 'h2h-meetings') return buildNLH2HMeetingsTable(payload);
       if (payload.type === 'h2h-last5') return buildNLH2HMeetingsTable(payload); // legacy alias
+      if (payload.type === 'club-matches') return buildNLClubMatchesTable(payload);
       return null;
     }
 
@@ -2160,6 +2192,90 @@ function wireTopbar(session) {
       var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       return days[dt.getUTCDay()] + ' ' + (+m[3]) + ' ' + months[+m[2] - 1] + ' ' + m[1];
+    }
+
+    /* v2.11: Renderer for getClubMatches — one club's match list with
+       W/D/L coloured cells. Pattern mirrors buildNLH2HMeetingsTable but
+       simpler: no perspective param, just per-match outcome from the
+       club's view. */
+    function buildNLClubMatchesTable(payload) {
+      var wrap = document.createElement('div');
+      wrap.className = 'nlt-wrap';
+
+      var caption = document.createElement('div');
+      caption.className = 'nlt-caption';
+      caption.textContent = payload.title || (payload.clubLabel || 'Matches');
+      wrap.appendChild(caption);
+
+      if (payload.subtitle && payload.subtitle !== 'all-time') {
+        var sub = document.createElement('div');
+        sub.className = 'nlt-subcaption';
+        sub.textContent = payload.subtitle;
+        wrap.appendChild(sub);
+      }
+
+      var scroll = document.createElement('div');
+      scroll.className = 'nlt-scroll';
+      if (payload.scrollable) scroll.classList.add('nlt-scroll-v');
+
+      var table = document.createElement('table');
+      table.className = 'nlt nlt-h2h';
+
+      var thead = document.createElement('thead');
+      var thr = document.createElement('tr');
+      ['Date', 'Season', 'Home', 'Score', 'Away', 'Comp.', 'Result'].forEach(function(h) {
+        var th = document.createElement('th');
+        th.textContent = h;
+        thr.appendChild(th);
+      });
+      thead.appendChild(thr);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      (payload.matches || []).forEach(function(m, idx) {
+        var tr = document.createElement('tr');
+        tr.classList.add((idx % 2 === 0) ? 'nlt-zebra-odd' : 'nlt-zebra-even');
+
+        function td(text, cls) {
+          var c = document.createElement('td');
+          c.textContent = String(text == null ? '' : text);
+          if (cls) c.className = cls;
+          return c;
+        }
+
+        tr.appendChild(td(formatNLTDate(m.date)));
+        tr.appendChild(td(m.season || ''));
+        tr.appendChild(td(m.home || ''));
+        tr.appendChild(td(m.score || '', 'nlt-strong'));
+        tr.appendChild(td(m.away || ''));
+        tr.appendChild(td(m.competition || ''));
+
+        var rCell = document.createElement('td');
+        rCell.className = 'nlt-result-cell';
+        var pill = document.createElement('span');
+        var rCode = String(m.outcome || '-').toUpperCase();
+        pill.className = 'nlt-result-pill nlt-result-' + rCode.toLowerCase();
+        pill.textContent = (rCode === 'W' || rCode === 'D' || rCode === 'L') ? rCode : '-';
+        rCell.appendChild(pill);
+        tr.appendChild(rCell);
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      wrap.appendChild(scroll);
+
+      if (payload.truncated) {
+        var foot = document.createElement('div');
+        foot.className = 'nlt-footnotes';
+        var line = document.createElement('div');
+        line.className = 'nlt-footnote';
+        line.textContent = 'Showing ' + (payload.matches || []).length + ' of ' + payload.totalMatches + ' matches. Refine with filters or season for more detail.';
+        foot.appendChild(line);
+        wrap.appendChild(foot);
+      }
+
+      return wrap;
     }
 
     /* v2.9: Set an avatar element to show the Claudio SVG icon.
@@ -2723,14 +2839,18 @@ function wireTopbar(session) {
         '- `getTeamForm({team, matches?})` — last N matches for a team',
         '',
         '### Historical data (1979-80 to most recent completed season)',
+        'IMPORTANT: The historical match data covers every match from 1979-80 (the first Alliance Premier League season) to the most recent completed season. That\'s over four decades of full match detail. If a user asks about a historical club, season, or match from that range, the data IS there \u2014 do not claim it isn\'t.',
         '- `getClubSummary({club, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 a club\'s historical record with dynamic filters (see below). Use for "tell me about X", "how have they done overall", "their home record", "their record in the 2000s".',
-        '- `getHeadToHead({clubA, clubB, scope?, lineageA?, lineageB?, perspective?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 two-club record with filters. BOTH clubs can have lineage. Default perspective is clubA; use "neutral" when the question doesn\'t frame one club as subject. Competition defaults to "all" (includes play-offs).',
+        '- `getClubMatches({club, limit?, order?, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 flat match list. Returns scores and outcomes for each match. Use for "show me their results", "their 2008-09 season results", "their last 20 matches", "every match Dorking played in the play-offs". Pairs with a styled nl-table renderer.',
+        '- `getHeadToHead({clubA, clubB, scope?, lineageA?, lineageB?, perspective?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 two-club record with filters. BOTH clubs can have lineage. Default perspective is clubA; use "neutral" when the question doesn\'t frame one club as subject.',
+        '- `getMostFrequentOpponents({club, limit?, lineage?, scope?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 ranked list of a club\'s most-played opponents. Use for "who have Altrincham played most?", "who\'s their biggest rival by meetings?", "most-played away opponent".',
         '- `getLeagueTable({season, division, asOf?})` \u2014 historical league table for any season. Optional asOf date gives you the table as of that day ("Boxing Day 1999 table").',
         '- `getClubStreak({club, type, scope?, mode?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 longest wins/unbeaten/losses/winless with filters. "longest home winning run" \u2192 venue:home. Modes: "all" (any span), "single" (within one season), "start" (from season start).',
         '- `getClubRecords({club, scope?, lineage?, venue?, competition?, season?, seasonFrom?, seasonTo?})` \u2014 best/worst/notable matches, with filters. "biggest home wins" \u2192 venue:home.',
+        '- `getAllTimeChampions({type?, scope?})` \u2014 cross-club, cross-season tallies. Answers "who\'s won the play-offs most times?", "most champions?", "most promoted?", "most relegated?". Walks every historical season on demand so it\'s slower (5-10s) \u2014 reserve it for questions that genuinely need cross-season aggregation.',
         '',
         '### Dynamic filter composition',
-        'The four club-based tools (getClubSummary, getHeadToHead, getClubStreak, getClubRecords) share the same filter params. Compose them from the user\'s phrasing and combine freely:',
+        'The club-based tools (getClubSummary, getClubMatches, getHeadToHead, getMostFrequentOpponents, getClubStreak, getClubRecords) share the same filter params. Compose them from the user\'s phrasing and combine freely:',
         '- **venue**: "home record" \u2192 `venue: "home"`; "away form" \u2192 `venue: "away"`; "at neutral venues" \u2192 `venue: "neutral"`',
         '- **competition**: "in the play-offs" or "play-off record" \u2192 `competition: "playoff"`; "league only" \u2192 `competition: "league"`. Default is "all" (league + play-offs combined).',
         '- **single season**: "in 2005-06" or "their 2005/06 season" \u2192 `season: "2005-06"`',
@@ -2748,17 +2868,27 @@ function wireTopbar(session) {
         '- Fuzzy match: pass club names as the user said them. "Dorking" resolves to "Dorking Wanderers". Ambiguous inputs return candidates — ask the user to pick.',
         '- If a tool returns `{error: "..."}`, apologise briefly and offer to try a different angle. Do not invent data.',
         '',
-        '### When tools return structured data — RENDER IT',
+        '### When tools return structured data \u2014 RENDER IT',
         '',
-        '**For league tables and H2H last-5 meetings: use the nl-table block.**',
+        '**For league tables and H2H meetings (and the new getClubMatches tool): use the nl-table block.**',
         '',
-        'The `getLeagueTable` and `getHeadToHead` tools return a `rendererPayload` object. When they do, you MUST emit it verbatim inside an `nl-table` fenced block like this:',
+        'The `getLeagueTable`, `getHeadToHead`, and `getClubMatches` tools return a `rendererPayload` object. When they do, you MUST emit it verbatim inside an `nl-table` fenced block like this:',
         '',
         '```nl-table',
-        '{JSON here — copy the rendererPayload object EXACTLY, do not modify}',
+        '{JSON here \u2014 copy the rendererPayload object EXACTLY, do not modify}',
         '```',
         '',
-        'The chat UI detects this and renders a full styled HTML table matching the /history/league-tables-by-season dashboard: gold champion, silver promoted, green play-off zones, pink relegation, dotted dividers between zones, asterisks on deducted points, footnote block below for deduction/expulsion notes, and for H2H the W/D/L colour-coded result pills.',
+        '**VERBATIM COPY RULES \u2014 read carefully, this has broken before:**',
+        '- Copy the rendererPayload object character-for-character. No reformatting. No pretty-printing.',
+        '- Match braces exactly. One opening `{` per matching closing `}`. Do NOT add a trailing `}`.',
+        '- No wrapping quotes, no escaping, no backslash treatment. Just paste the object as-is.',
+        '- The block MUST start with ```nl-table on its own line and MUST end with ``` on its own line.',
+        '- Nothing between the closing `}` and the closing ``` fence. No trailing comma. No extra whitespace lines.',
+        '- If the payload is long (many meetings), copy all of it. Do not truncate. The renderer handles long data with scrollable containers.',
+        '',
+        'If you get this wrong, the UI will silently drop the block and your prose will be the only answer the user sees \u2014 so there\'s no visible break, but they lose the styled table. Better to get it right.',
+        '',
+        'The chat UI detects this and renders a full styled HTML table matching the /history/league-tables-by-season dashboard: gold champion, silver promoted, green play-off zones, pink relegation, dotted dividers between zones, asterisks on deducted points, footnote block below for deduction/expulsion notes, and for H2H/matches the coloured result cells.',
         '',
         'Place the nl-table block AFTER your prose intro but BEFORE any follow-up offer. Do not quote or escape the JSON — it must be a clean fenced block. If the rendererPayload field is missing, fall back to a markdown table.',
         '',
