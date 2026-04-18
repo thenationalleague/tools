@@ -1,11 +1,20 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.62 (17/04/2026)
+  Version: v5.63 (17/04/2026)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.63 (17/04/2026) — URGENT: Fixed infinite redirect loop:
+           * Removed 'var NL_TOOL_KEY = portal;' from head script.
+             Auth-guard uses NL_TOOL_KEY presence as signal to run access
+             checks. With it set, auth-guard looked up tool 'portal' in
+             /tools/ catalogue (doesn't exist) and redirected back to portal,
+             causing flash-reload loop on incognito/fresh sessions.
+           * Portal's onAuthStateChanged handles auth directly. window.NL_TOOL
+             object still set (for nl-topbar) but no NL_TOOL_KEY variable.
+
   v5.62 (17/04/2026) — Tool tile scaling:
            * .tool-grid minmax 180px → fluid 200-280px (tiles larger on wide screens)
            * .tool-tile padding + internal text sizes now fluid
@@ -154,9 +163,14 @@
 <!-- System files: shared helpers + auth guard -->
 <script>
   /* PORTAL_VERSION is set later in body script; use placeholder kicker here.
-     Topbar is rendered before body script runs, so version shown via deferred update. */
-  window.NL_TOOL = { title: 'NL Tools', toolKey: 'portal', isPortal: true, kicker: 'Portal' };
-  var NL_TOOL_KEY = 'portal';
+     Topbar is rendered before body script runs, so version shown via deferred update.
+     
+     IMPORTANT: Do NOT set var NL_TOOL_KEY here. Auth-guard uses its presence/absence
+     as the signal for whether to run access checks. Portal handles its own auth via
+     onAuthStateChanged below, so auth-guard must short-circuit (line 116). Setting
+     NL_TOOL_KEY='portal' creates an infinite redirect loop because there's no tool
+     called 'portal' in the /tools/ catalogue. */
+  window.NL_TOOL = { title: 'NL Tools', isPortal: true, kicker: 'Portal' };
 </script>
 <script src="/tools/system/nl-utils.js?v=5"></script>
 <script src="/tools/system/nl-topbar.js?v=5"></script>
