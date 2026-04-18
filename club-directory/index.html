@@ -6,17 +6,19 @@
 <title>Club Directory — NL Tools</title>
 <!--
   club-directory / index.html
-  v0.5 — Restraint pass: subtle section headers, neutral joined-row styling,
-         Role-first consistency fix.
+  v0.6 — List Builder view added (staff-only in production).
 
   Changelog:
-  v0.5 — - Dense-table section headers: navy uppercase text + short red underline.
-           No background fill, no column-spanning bar. Whitespace above each
-           section does the separation work. Reads as typography, not UI chrome.
-         - Joined rows (Directors / Co-Chairs) no longer tinted or red — same
-           visual weight as every other row.
-         - Role-first: joined-row names now bold (font-weight: 700) to match
-           every other name.
+  v0.6 — - New "List Builder" view for staff: pick roles (with section-level
+           select-all), pick divisions + specific clubs, get filtered list of
+           matching people with copy-to-clipboard for named emails, plain
+           emails, and CSV formats.
+         - Live results — filters update matches in real-time.
+         - In this demo, List Builder is always visible; in production it's
+           gated so only staff (role: 'staff' or higher) can see it.
+         - Reuses the roles[] data model — no schema changes.
+  v0.5 — Restraint pass: subtle section headers, neutral joined-row styling,
+         Role-first consistency fix.
   v0.4 — Removed Clean Cards (club page) and Table (listing).
          Directors/Co-Chairs render as one joined-names entry per section.
          Data model stays identical for every role type.
@@ -241,6 +243,251 @@
   .l1-key-name { font-size: 13px; font-weight: 600; font-variation-settings: 'wght' 600; margin-top: 1px; }
   .l1-stats { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
 
+  /* ================================================================
+     LIST BUILDER (staff view)
+     ================================================================ */
+  .demo-bar__btn--staff {
+    background: var(--off-white);
+    color: var(--primary) !important;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+  }
+  .demo-bar__btn--staff[aria-pressed="true"] {
+    background: var(--primary) !important;
+    color: var(--white) !important;
+  }
+
+  .lb-intro { margin-bottom: 20px; }
+  .lb-intro h2 { margin: 0; font-size: 22px; font-weight: 900; font-variation-settings: 'wght' 900; letter-spacing: -0.01em; }
+  .lb-intro p { margin: 4px 0 0 0; font-size: 14px; color: var(--text-muted); }
+
+  .lb-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .lb-panel {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    max-height: 480px;
+    display: flex;
+    flex-direction: column;
+  }
+  .lb-panel-hd {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 12px;
+  }
+  .lb-panel-hd h3 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+  .lb-panel-actions { display: flex; gap: 4px; }
+  .lb-linkbtn {
+    background: none; border: none; padding: 2px 6px;
+    font-family: var(--font); font-size: 11px;
+    color: var(--navy); cursor: pointer;
+    text-decoration: underline;
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+  }
+  .lb-linkbtn:hover { color: var(--primary); }
+
+  .lb-panel > div:last-child { flex: 1; overflow-y: auto; padding-right: 4px; }
+
+  /* Roles */
+  .lb-section-group { margin-bottom: 10px; }
+  .lb-section-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .lb-section-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .lb-section-row label {
+    font-size: 12px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
+    cursor: pointer;
+    flex: 1;
+  }
+  .lb-section-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+  }
+  .lb-section-toggle {
+    background: none; border: none; padding: 0;
+    color: var(--text-muted); cursor: pointer;
+    font-family: var(--font); font-size: 12px;
+    width: 18px; text-align: center;
+  }
+  .lb-roles-in-section {
+    margin-left: 22px;
+    padding: 4px 0 2px;
+    display: grid;
+    gap: 2px;
+  }
+  .lb-role-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px;
+    padding: 1px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .lb-role-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .lb-role-row label { cursor: pointer; color: var(--text); flex: 1; }
+  .lb-collapsed .lb-roles-in-section { display: none; }
+
+  /* Divisions */
+  .lb-division-group { margin-bottom: 14px; }
+  .lb-division-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0;
+    user-select: none;
+  }
+  .lb-division-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .lb-division-row label {
+    font-size: 12px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    flex: 1;
+  }
+  .lb-div-badge {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .lb-div-badge--national { background: var(--navy); }
+  .lb-div-badge--north { background: var(--amber); }
+  .lb-div-badge--south { background: var(--green); }
+  .lb-division-stats {
+    font-size: 10px; color: var(--text-muted);
+    font-weight: 600; font-variation-settings: 'wght' 600;
+  }
+  .lb-clubs-in-div {
+    margin-left: 22px;
+    display: grid; gap: 2px;
+  }
+  .lb-club-search {
+    margin: 4px 0 6px 22px;
+    width: calc(100% - 22px);
+    font-family: var(--font); font-size: 12px;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--white);
+  }
+  .lb-club-search:focus { outline: none; border-color: var(--navy); }
+  .lb-club-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px;
+    padding: 1px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .lb-club-row.is-hidden { display: none; }
+  .lb-club-row label { cursor: pointer; flex: 1; }
+  .lb-club-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .lb-division-div-collapsed .lb-clubs-in-div,
+  .lb-division-div-collapsed .lb-club-search { display: none; }
+
+  /* Results */
+  .lb-results {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .lb-results-hd {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    background: var(--off-white);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .lb-results-stats { display: flex; align-items: baseline; gap: 8px; }
+  .lb-count {
+    font-size: 26px;
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    color: var(--navy);
+    line-height: 1;
+  }
+  .lb-count-sub { font-size: 12px; color: var(--text-muted); }
+
+  .lb-results-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .lb-copybtn {
+    background: var(--navy);
+    color: var(--white);
+    border: none;
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .lb-copybtn:hover { background: var(--navy-mid); }
+  .lb-copybtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .lb-copybtn.is-copied { background: var(--green); }
+
+  .lb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .lb-table th {
+    text-align: left; padding: 10px 18px; background: transparent;
+    font-size: 9px; font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: #8592a6;
+    border-bottom: 1px solid var(--border);
+  }
+  .lb-table td { padding: 9px 18px; border-bottom: 1px solid #eef1f5; vertical-align: top; }
+  .lb-table td a { color: var(--navy); }
+  .lb-col-role { width: 22%; font-weight: 600; font-variation-settings: 'wght' 600; color: var(--text-muted); font-size: 12px; }
+  .lb-col-name { width: 22%; font-weight: 700; font-variation-settings: 'wght' 700; }
+  .lb-col-club { width: 20%; font-weight: 500; font-variation-settings: 'wght' 500; }
+  .lb-col-email { width: 22%; font-size: 12px; }
+  .lb-col-phone { width: 14%; font-size: 12px; color: var(--text-muted); }
+  .lb-no-email { color: #c0392b; font-style: italic; font-size: 11px; }
+
+  .lb-empty {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  @media (max-width: 800px) {
+    .lb-grid { grid-template-columns: 1fr; }
+    .lb-panel { max-height: 380px; }
+    .lb-results-hd { flex-direction: column; align-items: stretch; }
+    .lb-col-phone { display: none; }
+  }
+
   @media (max-width: 700px) {
     .page { padding: 16px 12px 60px; }
     .s2-club, .s4-club { padding: 20px 18px; }
@@ -276,8 +523,9 @@
 <div class="demo-bar">
   <div class="demo-bar__group" id="clubStyleGroup">
     <span class="demo-bar__label">View</span>
-    <button class="demo-bar__btn" data-club-style="2" aria-pressed="true">Dense table</button>
-    <button class="demo-bar__btn" data-club-style="4">Role-first</button>
+    <button class="demo-bar__btn" data-view-mode="directory" data-club-style="2" aria-pressed="true">Dense table</button>
+    <button class="demo-bar__btn" data-view-mode="directory" data-club-style="4">Role-first</button>
+    <button class="demo-bar__btn demo-bar__btn--staff" data-view-mode="builder">⚡ List builder</button>
   </div>
   <input type="search" class="demo-bar__search" id="searchBox" placeholder="Search clubs, people, roles…">
 </div>
@@ -289,6 +537,50 @@
   <div class="scene" id="scene-club">
     <a class="back-link" id="backLink">← back to directory</a>
     <div id="club-root"></div>
+  </div>
+  <div class="scene" id="scene-builder">
+    <div class="lb-intro">
+      <h2>List builder</h2>
+      <p>Pick roles and clubs. Copy the resulting contact list.</p>
+    </div>
+    <div class="lb-grid">
+      <section class="lb-panel">
+        <div class="lb-panel-hd">
+          <h3>Roles</h3>
+          <div class="lb-panel-actions">
+            <button class="lb-linkbtn" id="lbRolesAll">all</button>
+            <button class="lb-linkbtn" id="lbRolesNone">none</button>
+          </div>
+        </div>
+        <div id="lbRoles"></div>
+      </section>
+
+      <section class="lb-panel">
+        <div class="lb-panel-hd">
+          <h3>Divisions &amp; clubs</h3>
+          <div class="lb-panel-actions">
+            <button class="lb-linkbtn" id="lbClubsAll">all</button>
+            <button class="lb-linkbtn" id="lbClubsNone">none</button>
+          </div>
+        </div>
+        <div id="lbDivisions"></div>
+      </section>
+    </div>
+
+    <section class="lb-results">
+      <div class="lb-results-hd">
+        <div class="lb-results-stats">
+          <span class="lb-count" id="lbCount">0</span>
+          <span class="lb-count-sub" id="lbCountSub">people match</span>
+        </div>
+        <div class="lb-results-actions">
+          <button class="lb-copybtn" data-copy-fmt="named">Copy named emails</button>
+          <button class="lb-copybtn" data-copy-fmt="plain">Copy plain emails</button>
+          <button class="lb-copybtn" data-copy-fmt="csv">Copy as CSV</button>
+        </div>
+      </div>
+      <div id="lbResults"></div>
+    </section>
   </div>
 </div>
 
@@ -580,7 +872,20 @@ function renderListStyle1(clubs) {
 }
 
 /* ================= STATE ================= */
-var state = { clubStyle: '2', searchQuery: '', viewing: null };
+var state = {
+  viewMode: 'directory',      // 'directory' | 'builder'
+  clubStyle: '2',             // only relevant when viewing a single club
+  searchQuery: '',
+  viewing: null,              // club name when drilled into a specific club
+  // list builder state
+  lb: {
+    selectedRoles: {},          // map: roleTitle -> true
+    selectedClubs: {},          // map: clubName -> true
+    collapsedSections: {},      // map: sectionName -> true (collapsed)
+    collapsedDivisions: {},     // map: divisionName -> true (collapsed)
+    clubSearch: {},             // map: divisionName -> search string
+  }
+};
 
 function filteredClubs() {
   var q = state.searchQuery.trim().toLowerCase();
@@ -623,43 +928,445 @@ function renderClub() {
 function showScene() {
   var listing = document.getElementById('scene-listing');
   var club = document.getElementById('scene-club');
-  if (state.viewing) {
-    listing.classList.remove('scene--active');
+  var builder = document.getElementById('scene-builder');
+  [listing, club, builder].forEach(function(s){ s.classList.remove('scene--active'); });
+
+  if (state.viewMode === 'builder') {
+    builder.classList.add('scene--active');
+    renderBuilder();
+  } else if (state.viewing) {
     club.classList.add('scene--active');
     renderClub();
-    window.scrollTo(0, 0);
   } else {
-    club.classList.remove('scene--active');
     listing.classList.add('scene--active');
     renderListing();
+  }
+  window.scrollTo(0, 0);
+}
+
+/* ================================================================
+   LIST BUILDER
+   ================================================================ */
+
+/* Pre-compute role catalogue from data (section -> [unique role titles]) */
+function buildRoleCatalogue() {
+  var cat = {}; // section -> Set(roleTitle)
+  window.CLUBS.forEach(function(c) {
+    c.people.forEach(function(p) {
+      p.roles.forEach(function(r) {
+        if (!cat[r.section]) cat[r.section] = {};
+        cat[r.section][r.title] = true;
+      });
+    });
+  });
+  // freeze into ordered arrays following SECTION_ORDER
+  var out = [];
+  SECTION_ORDER.forEach(function(s) {
+    if (!cat[s]) return;
+    out.push({ section: s, roles: Object.keys(cat[s]).sort() });
+  });
+  return out;
+}
+
+var ROLE_CATALOGUE = null; // populated on first builder render
+
+function lbInitialState() {
+  // Default: nothing selected. User ticks what they want.
+  state.lb.selectedRoles = {};
+  state.lb.selectedClubs = {};
+}
+
+/* Build an index of (club -> sorted people) for fast results rendering */
+function lbResults() {
+  var rolesSel = state.lb.selectedRoles;
+  var clubsSel = state.lb.selectedClubs;
+  var anyRole = Object.keys(rolesSel).length > 0;
+  var anyClub = Object.keys(clubsSel).length > 0;
+  if (!anyRole || !anyClub) return [];
+
+  var out = [];
+  window.CLUBS.forEach(function(c) {
+    if (!clubsSel[c.name]) return;
+    c.people.forEach(function(p) {
+      // collect matching roles on this person
+      var matches = p.roles.filter(function(r) { return rolesSel[r.title]; });
+      if (!matches.length) return;
+      // de-dupe roles by title (shouldn't happen, but safe)
+      var rtitles = {};
+      matches.forEach(function(m){ rtitles[m.title] = true; });
+      out.push({
+        club: c.name,
+        division: c.division,
+        person: p,
+        roleTitles: Object.keys(rtitles)
+      });
+    });
+  });
+
+  // sort: section order -> role alpha -> club alpha -> name alpha
+  out.sort(function(a, b) {
+    var sa = SECTION_ORDER.indexOf(ROLE_SECTION_LOOKUP[a.roleTitles[0]] || 'Other');
+    var sb = SECTION_ORDER.indexOf(ROLE_SECTION_LOOKUP[b.roleTitles[0]] || 'Other');
+    if (sa !== sb) return sa - sb;
+    if (a.roleTitles[0] !== b.roleTitles[0]) return a.roleTitles[0].localeCompare(b.roleTitles[0]);
+    if (a.club !== b.club) return a.club.localeCompare(b.club);
+    return (a.person.name||'').localeCompare(b.person.name||'');
+  });
+  return out;
+}
+
+// Lookup from role title -> section (for sorting results).
+// Built once from the catalogue when the builder is first rendered.
+var ROLE_SECTION_LOOKUP = {};
+
+function renderBuilder() {
+  if (!ROLE_CATALOGUE) {
+    ROLE_CATALOGUE = buildRoleCatalogue();
+    ROLE_CATALOGUE.forEach(function(g){
+      g.roles.forEach(function(r){ ROLE_SECTION_LOOKUP[r] = g.section; });
+    });
+  }
+  renderBuilderRoles();
+  renderBuilderDivisions();
+  renderBuilderResults();
+}
+
+function renderBuilderRoles() {
+  var root = document.getElementById('lbRoles');
+  var html = ROLE_CATALOGUE.map(function(g) {
+    var section = g.section;
+    var collapsed = state.lb.collapsedSections[section];
+    var allSelected = g.roles.every(function(r){ return state.lb.selectedRoles[r]; });
+    var anySelected = g.roles.some(function(r){ return state.lb.selectedRoles[r]; });
+    var indet = anySelected && !allSelected;
+
+    var roleRows = g.roles.map(function(role) {
+      var id = 'lb-role-' + role.replace(/[^a-z0-9]+/gi,'-');
+      var checked = state.lb.selectedRoles[role] ? 'checked' : '';
+      return '<div class="lb-role-row">' +
+        '<input type="checkbox" id="' + id + '" data-role="' + esc(role) + '" ' + checked + '>' +
+        '<label for="' + id + '">' + esc(role) + '</label>' +
+      '</div>';
+    }).join('');
+
+    var sectionId = 'lb-sec-' + section.replace(/[^a-z0-9]+/gi,'-');
+    return '<div class="lb-section-group' + (collapsed ? ' lb-collapsed' : '') + '" data-section="' + esc(section) + '">' +
+      '<div class="lb-section-row">' +
+        '<input type="checkbox" id="' + sectionId + '" class="lb-section-check" data-section="' + esc(section) + '"' +
+          (allSelected ? ' checked' : '') + '>' +
+        '<label for="' + sectionId + '">' + esc(section) + '</label>' +
+        '<span class="lb-section-count">' + g.roles.length + ' roles</span>' +
+        '<button class="lb-section-toggle" data-section-toggle="' + esc(section) + '">' + (collapsed ? '▸' : '▾') + '</button>' +
+      '</div>' +
+      '<div class="lb-roles-in-section">' + roleRows + '</div>' +
+    '</div>';
+  }).join('');
+  root.innerHTML = html;
+
+  // Set indeterminate states on section checkboxes
+  ROLE_CATALOGUE.forEach(function(g){
+    var allSelected = g.roles.every(function(r){ return state.lb.selectedRoles[r]; });
+    var anySelected = g.roles.some(function(r){ return state.lb.selectedRoles[r]; });
+    var cb = root.querySelector('.lb-section-check[data-section="' + g.section + '"]');
+    if (cb) cb.indeterminate = anySelected && !allSelected;
+  });
+}
+
+function renderBuilderDivisions() {
+  var root = document.getElementById('lbDivisions');
+  var divs = ['National','North','South'];
+
+  var html = divs.map(function(d) {
+    var divClubs = window.CLUBS.filter(function(c){ return c.division === d; })
+                               .sort(function(a,b){ return a.name.localeCompare(b.name); });
+    var selCount = divClubs.filter(function(c){ return state.lb.selectedClubs[c.name]; }).length;
+    var totCount = divClubs.length;
+    var collapsed = state.lb.collapsedDivisions[d];
+    var searchQ = (state.lb.clubSearch[d] || '').toLowerCase();
+
+    var clubRows = divClubs.map(function(c) {
+      var id = 'lb-club-' + c.name.replace(/[^a-z0-9]+/gi,'-');
+      var checked = state.lb.selectedClubs[c.name] ? 'checked' : '';
+      var hidden = searchQ && c.name.toLowerCase().indexOf(searchQ) === -1 ? ' is-hidden' : '';
+      return '<div class="lb-club-row' + hidden + '">' +
+        '<input type="checkbox" id="' + id + '" data-club="' + esc(c.name) + '" ' + checked + '>' +
+        '<label for="' + id + '">' + esc(c.name) + '</label>' +
+      '</div>';
+    }).join('');
+
+    var divId = 'lb-div-' + d;
+    var allSelected = selCount === totCount && totCount > 0;
+    var indetDesired = selCount > 0 && !allSelected;
+
+    return '<div class="lb-division-group' + (collapsed ? ' lb-division-div-collapsed' : '') + '" data-division="' + d + '">' +
+      '<div class="lb-division-row">' +
+        '<input type="checkbox" id="' + divId + '" class="lb-division-check" data-division="' + d + '"' +
+          (allSelected ? ' checked' : '') + '>' +
+        '<label for="' + divId + '">' +
+          '<span class="lb-div-badge lb-div-badge--' + d.toLowerCase() + '"></span>' +
+          d +
+        '</label>' +
+        '<span class="lb-division-stats">' + selCount + ' / ' + totCount + '</span>' +
+        '<button class="lb-section-toggle" data-division-toggle="' + d + '">' + (collapsed ? '▸' : '▾') + '</button>' +
+      '</div>' +
+      '<input type="search" class="lb-club-search" placeholder="filter ' + d + ' clubs..." data-division-search="' + d + '" value="' + esc(state.lb.clubSearch[d] || '') + '">' +
+      '<div class="lb-clubs-in-div">' + clubRows + '</div>' +
+    '</div>';
+  }).join('');
+  root.innerHTML = html;
+
+  // Indeterminate states on division checkboxes
+  divs.forEach(function(d) {
+    var divClubs = window.CLUBS.filter(function(c){ return c.division === d; });
+    var selCount = divClubs.filter(function(c){ return state.lb.selectedClubs[c.name]; }).length;
+    var totCount = divClubs.length;
+    var cb = root.querySelector('.lb-division-check[data-division="' + d + '"]');
+    if (cb) cb.indeterminate = selCount > 0 && selCount < totCount;
+  });
+}
+
+function renderBuilderResults() {
+  var results = lbResults();
+  var countEl = document.getElementById('lbCount');
+  var subEl = document.getElementById('lbCountSub');
+  var resultsRoot = document.getElementById('lbResults');
+
+  countEl.textContent = results.length;
+  var withEmail = results.filter(function(r){ return r.person.email; }).length;
+  subEl.textContent = results.length === 0
+    ? 'pick roles and clubs above'
+    : (results.length === 1 ? 'person' : 'people') + ' · ' + withEmail + ' with email';
+
+  // enable/disable copy buttons
+  document.querySelectorAll('.lb-copybtn').forEach(function(b){
+    b.disabled = results.length === 0;
+  });
+
+  if (results.length === 0) {
+    resultsRoot.innerHTML = '<div class="lb-empty">Select at least one role and one club to see matches.</div>';
+    return;
+  }
+
+  var rows = results.map(function(r) {
+    var p = r.person;
+    var roleLabel = r.roleTitles.join(' / ');
+    var email = p.email
+      ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>'
+      : '<span class="lb-no-email">no email</span>';
+    return '<tr>' +
+      '<td class="lb-col-role">' + esc(roleLabel) + '</td>' +
+      '<td class="lb-col-name">' + esc(p.name) + '</td>' +
+      '<td class="lb-col-club">' + esc(r.club) + '</td>' +
+      '<td class="lb-col-email">' + email + '</td>' +
+      '<td class="lb-col-phone">' + esc(p.phone || '') + '</td>' +
+    '</tr>';
+  }).join('');
+
+  resultsRoot.innerHTML = '<table class="lb-table">' +
+    '<thead><tr><th>Role</th><th>Name</th><th>Club</th><th>Email</th><th>Phone</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
+}
+
+function formatForCopy(format) {
+  var results = lbResults();
+  var withEmail = results.filter(function(r){ return r.person.email; });
+
+  if (format === 'named') {
+    // "Alice Smith" <alice@example.com>; "Bob Jones" <bob@example.com>
+    return withEmail.map(function(r) {
+      return '"' + (r.person.name||'').replace(/"/g,'') + '" <' + r.person.email + '>';
+    }).join('; ');
+  }
+  if (format === 'plain') {
+    return withEmail.map(function(r) { return r.person.email; }).join('; ');
+  }
+  if (format === 'csv') {
+    var header = 'Role,Name,Club,Division,Email,Phone';
+    var lines = results.map(function(r) {
+      function q(s){ s = s == null ? '' : String(s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; }
+      return [q(r.roleTitles.join(' / ')), q(r.person.name),
+              q(r.club), q(r.division),
+              q(r.person.email || ''), q(r.person.phone || '')].join(',');
+    });
+    return [header].concat(lines).join('\n');
+  }
+  return '';
+}
+
+function copyToClipboard(text, btn) {
+  // Try modern API first, fall back to execCommand for older browsers
+  function flashCopied() {
+    var original = btn.textContent;
+    btn.classList.add('is-copied');
+    btn.textContent = '✓ Copied';
+    setTimeout(function() {
+      btn.classList.remove('is-copied');
+      btn.textContent = original;
+    }, 1600);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(flashCopied, function(err) {
+      console.warn('clipboard write failed:', err);
+      alert('Copy failed. Please copy manually from the list below.');
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); flashCopied(); }
+    catch(err) { alert('Copy not supported in this browser.'); }
+    document.body.removeChild(ta);
   }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // --- View toggle (Dense / Role-first / List builder) ---
   var clubGroup = document.getElementById('clubStyleGroup');
   clubGroup.addEventListener('click', function(e) {
-    var b = e.target.closest('[data-club-style]');
+    var b = e.target.closest('[data-view-mode], [data-club-style]');
     if (!b) return;
-    state.clubStyle = b.getAttribute('data-club-style');
-    clubGroup.querySelectorAll('[data-club-style]').forEach(function(x) {
+    var viewMode = b.getAttribute('data-view-mode') || 'directory';
+    state.viewMode = viewMode;
+    if (b.hasAttribute('data-club-style')) {
+      state.clubStyle = b.getAttribute('data-club-style');
+    }
+    clubGroup.querySelectorAll('button').forEach(function(x) {
       x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
     });
-    if (state.viewing) renderClub();
+    showScene();
   });
+
+  // --- Search box (only affects directory listing) ---
   var search = document.getElementById('searchBox');
   var searchTimer;
   search.addEventListener('input', function() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function() {
       state.searchQuery = search.value;
-      if (!state.viewing) renderListing();
+      if (state.viewMode === 'directory' && !state.viewing) renderListing();
     }, 150);
   });
+
+  // --- Back link ---
   document.getElementById('backLink').addEventListener('click', function(e) {
     e.preventDefault();
     state.viewing = null;
     showScene();
   });
+
+  // --- List Builder interactions ---
+  var builderScene = document.getElementById('scene-builder');
+  builderScene.addEventListener('click', function(e) {
+    var t = e.target;
+
+    // Section toggle (expand/collapse roles)
+    if (t.closest('[data-section-toggle]')) {
+      var section = t.closest('[data-section-toggle]').getAttribute('data-section-toggle');
+      state.lb.collapsedSections[section] = !state.lb.collapsedSections[section];
+      renderBuilderRoles();
+      return;
+    }
+    // Division toggle
+    if (t.closest('[data-division-toggle]')) {
+      var div = t.closest('[data-division-toggle]').getAttribute('data-division-toggle');
+      state.lb.collapsedDivisions[div] = !state.lb.collapsedDivisions[div];
+      renderBuilderDivisions();
+      return;
+    }
+
+    // Copy buttons
+    var copyBtn = t.closest('.lb-copybtn');
+    if (copyBtn) {
+      var fmt = copyBtn.getAttribute('data-copy-fmt');
+      var text = formatForCopy(fmt);
+      if (text) copyToClipboard(text, copyBtn);
+      return;
+    }
+
+    // "all" / "none" link buttons
+    if (t.id === 'lbRolesAll') {
+      ROLE_CATALOGUE.forEach(function(g){
+        g.roles.forEach(function(r){ state.lb.selectedRoles[r] = true; });
+      });
+      renderBuilderRoles(); renderBuilderResults(); return;
+    }
+    if (t.id === 'lbRolesNone') {
+      state.lb.selectedRoles = {};
+      renderBuilderRoles(); renderBuilderResults(); return;
+    }
+    if (t.id === 'lbClubsAll') {
+      window.CLUBS.forEach(function(c){ state.lb.selectedClubs[c.name] = true; });
+      renderBuilderDivisions(); renderBuilderResults(); return;
+    }
+    if (t.id === 'lbClubsNone') {
+      state.lb.selectedClubs = {};
+      renderBuilderDivisions(); renderBuilderResults(); return;
+    }
+  });
+
+  // Change handler for all checkboxes in the builder
+  builderScene.addEventListener('change', function(e) {
+    var t = e.target;
+
+    // Section checkbox: toggle every role in that section
+    if (t.classList.contains('lb-section-check')) {
+      var section = t.getAttribute('data-section');
+      var group = ROLE_CATALOGUE.filter(function(g){ return g.section === section; })[0];
+      if (!group) return;
+      if (t.checked) group.roles.forEach(function(r){ state.lb.selectedRoles[r] = true; });
+      else           group.roles.forEach(function(r){ delete state.lb.selectedRoles[r]; });
+      renderBuilderRoles(); renderBuilderResults();
+      return;
+    }
+
+    // Individual role checkbox
+    if (t.hasAttribute('data-role')) {
+      var role = t.getAttribute('data-role');
+      if (t.checked) state.lb.selectedRoles[role] = true;
+      else           delete state.lb.selectedRoles[role];
+      renderBuilderRoles(); renderBuilderResults();
+      return;
+    }
+
+    // Division checkbox: toggle every club in that division
+    if (t.classList.contains('lb-division-check')) {
+      var divName = t.getAttribute('data-division');
+      var divClubs = window.CLUBS.filter(function(c){ return c.division === divName; });
+      if (t.checked) divClubs.forEach(function(c){ state.lb.selectedClubs[c.name] = true; });
+      else           divClubs.forEach(function(c){ delete state.lb.selectedClubs[c.name]; });
+      renderBuilderDivisions(); renderBuilderResults();
+      return;
+    }
+
+    // Individual club checkbox
+    if (t.hasAttribute('data-club')) {
+      var clubName = t.getAttribute('data-club');
+      if (t.checked) state.lb.selectedClubs[clubName] = true;
+      else           delete state.lb.selectedClubs[clubName];
+      renderBuilderDivisions(); renderBuilderResults();
+      return;
+    }
+  });
+
+  // Per-division club search — live filter without full re-render
+  builderScene.addEventListener('input', function(e) {
+    var t = e.target;
+    if (t.hasAttribute('data-division-search')) {
+      var div = t.getAttribute('data-division-search');
+      state.lb.clubSearch[div] = t.value;
+      // Only hide/show club rows, don't re-render everything (preserves focus)
+      var q = t.value.toLowerCase();
+      var group = builderScene.querySelector('.lb-division-group[data-division="' + div + '"]');
+      if (!group) return;
+      group.querySelectorAll('.lb-club-row').forEach(function(row) {
+        var label = row.querySelector('label');
+        var name = label ? label.textContent.toLowerCase() : '';
+        if (!q || name.indexOf(q) !== -1) row.classList.remove('is-hidden');
+        else row.classList.add('is-hidden');
+      });
+    }
+  });
+
   showScene();
 });
 </script>
