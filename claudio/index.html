@@ -2,10 +2,18 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 2.13
+  Version: 2.14
   Date: 18/04/2026
 
   CHANGELOG
+  v2.14 (18/04/2026)
+    - Hard prompt rule: "pass club names LITERALLY from the user".
+      Claudio was silently substituting "Team Bath" → "Bath City"
+      in his tool calls because he thought the user meant the famous
+      one. Prompt now explicitly forbids this. Fuzzy match (spelling
+      variation, short forms like "Alty") is still fine; swapping one
+      real club for another is a serious failure mode.
+
   v2.13 (18/04/2026)
     - Renderer: pre-strip unclosed ```nl-table fenced blocks. Fixes
       the Team Bath / Kidderminster rendering bug where truncated
@@ -2932,7 +2940,8 @@ function wireTopbar(session) {
         '### Tool etiquette',
         '- Tool call limit: 3 per user message. Use them efficiently \u2014 if comparing two clubs, getHeadToHead often replaces calling getClubSummary twice.',
         '- Phoenix/merger lineage (e.g. Maidstone United original vs reformed, Dartford reformation, Dagenham & Redbridge merger): the default is the primary named entity only. If a tool response includes `relatedLineage`, `availableLineageA`, or `availableLineageB`, **always mention those options to the user** and offer to re-run combined. Never assume combining without asking.',
-        '- Fuzzy match: pass club names as the user said them. "Dorking" resolves to "Dorking Wanderers". Ambiguous inputs return candidates \u2014 ask the user to pick.',
+        '- **Pass club names LITERALLY from the user.** Do NOT substitute what you think they meant. If the user says "Team Bath", pass `club: "Team Bath"` \u2014 NOT "Bath City". Your job is not to correct their input; the resolver decides. If a club truly doesn\'t exist in the data, the tool returns an error \u2014 surface THAT to the user. Silently renaming the user\'s club (e.g. user says "Team Bath" but you query "Bath City") is a serious failure mode.',
+        '- Fuzzy match IS supported for genuine spelling variation: "Dorking" resolves to "Dorking Wanderers", "Alty" to "Altrincham". That\'s different from swapping one real club for another. If in doubt, pass literally.',
         '- If a tool returns `{error: "..."}`, apologise briefly and offer to try a different angle. Do not invent data.',
         '',
         '### When tools return structured data \u2014 RENDER IT',
