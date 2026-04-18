@@ -6,33 +6,42 @@
 <title>Club Directory — NL Tools</title>
 <!--
   club-directory / index.html
-  v0.7 — Department leads, list builder rework.
+  v0.8 — Manage Contacts: admin + club editor UIs.
 
   Changelog:
-  v0.7 — Role catalogue not enforced; departments (sections) are the fixed taxonomy.
-         Each role entry now carries deptHead flag. Rule: one or more people per
-         (club, section) can be flagged as dept head. All sections except
-         Directors and Liaison officers require at least one head (warning if 0).
+  v0.8 — Permission-gated editing:
+         - Admin role: "Manage contacts" button → table of all 72 clubs → drill into
+           any club's editor. Can edit everything: club details + people + roles.
+         - Club editor role: "Manage my club" button on THEIR club page only.
+           Can edit people + roles + deptHead flags. Cannot edit club-level fields
+           (address, stadium, phone, email, website).
+         - Staff / viewers: no edit access.
 
-         List builder rewritten:
-         - Role picker REPLACED by department picker (section-level only).
-         - Mode toggle: "Dept heads only" (default) vs "Whole department".
-         - Club crests shown in results rows.
-         - Warning panel above results lists clubs missing a dept head in any
-           selected department (with their crests for quick recognition).
-         - Per-row omit button — struck-through rows removed from count + copy.
+         Directory people vs portal users are kept strictly separate — directory
+         entries describe contacts-of-record; they are NOT user accounts. A person
+         may appear in the directory without ever using the portal.
 
-         Dept head seeding for demo:
-         - Single-person sections: auto-flagged
-         - Sections with a clear priority role (Chair, Club Secretary, Safety Officer, etc): auto-flagged
-         - Ambiguous sections (esp. Media & marketing — 46% of clubs): left unflagged,
-           warning fires. This is deliberate so you can see the warning UI working.
-  v0.6 — List Builder first cut (role-based filtering).
-  v0.5 — Restraint pass: subtle section headers, neutral joined-row styling.
-  v0.4 — Removed Clean Cards (club page) and Table (listing).
-         Directors/Co-Chairs render as one joined-names entry per section.
-  v0.3 — Same-section multi-role collapse, Editorial style removed.
-  v0.2 — Roles model rewrite: person.roles[].
+         Editor interactions:
+         - Section-level edit mode: click "Edit" on a section, its contents become
+           editable (inputs, + Add, × remove), "Save" or "Cancel" commit/revert.
+         - Only one section editable at a time. Unsaved-changes warning on nav.
+         - Remove flows explain outcomes: single-role removal warns "this deletes
+           the person entirely"; multi-role removal shows remaining roles.
+         - "+ Add person" appears both at club level (for multi-role people) and
+           inside each section (quick add).
+
+         Dev persona switcher in top bar — flips between admin / club editor /
+         staff / viewer so you can test each perspective. In production this is
+         driven by the user's portal role, not a manual switcher.
+
+         Data persistence: edits are in-memory only for this demo. Saves update
+         window.CLUBS; reloads reset to seed data. Real RTDB hookup comes later.
+  v0.7 — Dept heads + list builder rework (dept-based, not role-based).
+  v0.6 — List builder first cut.
+  v0.5 — Restraint pass on section headers.
+  v0.4 — Directors/Co-Chairs joined-names rendering.
+  v0.3 — Same-section multi-role collapse.
+  v0.2 — Roles model rewrite.
   v0.1 — Initial static demo.
 
   Notes for future work:
@@ -614,6 +623,461 @@
     .lb-col-phone { display: none; }
   }
 
+  /* ================================================================
+     DEMO PERSONA BAR (top strip — removed in production)
+     ================================================================ */
+  .persona-bar {
+    background: #2c2c2a;
+    color: #fff;
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .persona-bar__label {
+    color: rgba(255,255,255,0.55);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    font-size: 9px;
+  }
+  .persona-btn {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.75);
+    padding: 3px 10px;
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .persona-btn:hover { border-color: rgba(255,255,255,0.4); color: #fff; }
+  .persona-btn[aria-pressed="true"] {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+  .persona-btn span {
+    color: rgba(255,255,255,0.5);
+    font-size: 10px;
+    font-weight: 400;
+    font-variation-settings: 'wght' 400;
+    margin-left: 3px;
+  }
+  .persona-btn[aria-pressed="true"] span { color: rgba(255,255,255,0.8); }
+
+  /* Elements gated by persona — hidden by default, shown when enabled */
+  .persona-gated { display: none; }
+  .persona-gated.is-shown { display: inline-flex; }
+
+  /* Club page topbar with back link + manage button */
+  .club-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .manage-club-btn {
+    background: var(--primary);
+    color: var(--white);
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.12s;
+    align-items: center;
+    gap: 6px;
+  }
+  .manage-club-btn:hover { background: var(--primary-dim); }
+  .manage-club-btn.persona-gated.is-shown { display: inline-flex; }
+
+  /* ================================================================
+     MANAGE CONTACTS (admin + club-editor shared editor)
+     ================================================================ */
+
+  /* Club picker table (admin-only landing) */
+  .mc-picker-intro { margin-bottom: 20px; }
+  .mc-picker-intro h2 { margin: 0; font-size: 22px; font-weight: 900; font-variation-settings: 'wght' 900; letter-spacing: -0.01em; }
+  .mc-picker-intro p { margin: 4px 0 0 0; font-size: 14px; color: var(--text-muted); }
+
+  .mc-picker-filter {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .mc-picker-filter input {
+    flex: 1; min-width: 180px;
+    font-family: var(--font); font-size: 13px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .mc-picker-filter input:focus { outline: none; border-color: var(--navy); }
+  .mc-picker-pill {
+    font-size: 11px;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    background: var(--white);
+    color: var(--text);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .mc-picker-pill[aria-pressed="true"] {
+    background: var(--navy);
+    color: var(--white);
+    border-color: var(--navy);
+  }
+
+  .mc-clubs-table {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .mc-clubs-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mc-clubs-table th {
+    text-align: left; padding: 10px 14px; background: var(--off-white);
+    font-size: 9px; font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: #8592a6;
+    border-bottom: 1px solid var(--border);
+  }
+  .mc-clubs-table td { padding: 10px 14px; border-bottom: 1px solid #eef1f5; vertical-align: middle; }
+  .mc-clubs-table tbody tr { cursor: pointer; transition: background 0.1s; }
+  .mc-clubs-table tbody tr:hover { background: var(--off-white); }
+  .mc-club-cell { display: flex; align-items: center; gap: 10px; }
+  .mc-club-cell img { width: 22px; height: 22px; flex-shrink: 0; }
+  .mc-club-cell span { font-weight: 700; font-variation-settings: 'wght' 700; }
+  .mc-div-pill {
+    font-size: 10px; padding: 2px 7px; border-radius: 2px; color: var(--white);
+    font-weight: 700; font-variation-settings: 'wght' 700; letter-spacing: 0.1em;
+  }
+  .mc-div-pill--national { background: var(--navy); }
+  .mc-div-pill--north { background: var(--amber); }
+  .mc-div-pill--south { background: var(--green); }
+  .mc-status-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; padding: 3px 8px; border-radius: 3px;
+    background: var(--off-white); color: var(--text-muted);
+  }
+  .mc-status-pill--warn { background: #fef6ec; color: #8a5a00; }
+  .mc-status-pill--good { background: #edf7ee; color: var(--green); }
+  .mc-action-col { text-align: right; }
+  .mc-action-col a {
+    font-size: 12px; color: var(--primary); font-weight: 700;
+    font-variation-settings: 'wght' 700;
+  }
+
+  /* Editor view */
+  .mc-editor { }
+  .mc-back-bar {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px;
+  }
+  .mc-back-bar .back-link { margin: 0; }
+  .mc-back-bar .mc-title { flex: 1; }
+  .mc-title h2 {
+    margin: 0; font-size: 20px;
+    font-weight: 900; font-variation-settings: 'wght' 900;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .mc-title h2 img { width: 28px; height: 28px; }
+  .mc-title .mc-title-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Demo banner */
+  .mc-demo-banner {
+    background: #fef6ec;
+    border: 1px solid #f4d9a8;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #8a5a00;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .mc-demo-banner b { font-weight: 700; font-variation-settings: 'wght' 700; }
+
+  /* Club-details card */
+  .mc-details {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .mc-section-hd {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 10px; border-bottom: 2px solid var(--primary);
+    margin-bottom: 14px;
+  }
+  .mc-section-hd h3 {
+    margin: 0; font-size: 11px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--navy);
+  }
+  .mc-edit-btn {
+    background: none; border: 1px solid var(--border);
+    padding: 5px 12px;
+    font-family: var(--font); font-size: 11px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--navy); cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.12s;
+  }
+  .mc-edit-btn:hover { border-color: var(--navy); background: var(--off-white); }
+  .mc-edit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .mc-field-row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 16px;
+    padding: 6px 0;
+    align-items: baseline;
+  }
+  .mc-field-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-muted); font-weight: 700; font-variation-settings: 'wght' 700;
+  }
+  .mc-field-value { font-size: 14px; }
+  .mc-field-value--muted { color: var(--text-muted); font-style: italic; }
+  .mc-field-input {
+    width: 100%; font-family: var(--font); font-size: 14px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .mc-field-input:focus { outline: none; border-color: var(--navy); }
+
+  /* Section cards — editable people lists */
+  .mc-section-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 12px;
+  }
+  .mc-section-card.is-editing {
+    border-color: var(--navy);
+    box-shadow: 0 0 0 3px rgba(34,59,124,0.08);
+  }
+
+  .mc-ppl-list { display: grid; gap: 8px; }
+  .mc-person-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--off-white);
+    border-radius: 5px;
+    align-items: start;
+  }
+  .mc-person-row--head {
+    background: #fcf3e6;
+    border-left: 3px solid var(--amber);
+  }
+  .mc-person-main { min-width: 0; }
+  .mc-person-name {
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    font-size: 14px;
+  }
+  .mc-person-role {
+    font-size: 13px; color: var(--text-muted); margin-top: 1px;
+  }
+  .mc-person-contact {
+    font-size: 12px; color: var(--text-muted); margin-top: 4px;
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .mc-person-contact a { color: var(--navy); }
+  .mc-head-pill {
+    display: inline-block;
+    font-size: 9px; padding: 2px 7px; border-radius: 3px;
+    background: var(--amber); color: var(--white);
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    vertical-align: 2px; margin-left: 6px;
+  }
+  .mc-person-side {
+    display: flex; gap: 6px; align-items: center;
+  }
+  .mc-remove-role-btn {
+    background: none; border: 1px solid var(--border);
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-muted);
+    padding: 0;
+    transition: all 0.12s;
+  }
+  .mc-remove-role-btn:hover {
+    border-color: #c0392b; color: #c0392b;
+  }
+
+  /* Edit mode — inline inputs within a section */
+  .mc-edit-person-row {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    background: var(--off-white);
+    border-radius: 5px;
+    border: 1px dashed var(--border);
+  }
+  .mc-edit-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr;
+    gap: 8px;
+  }
+  .mc-edit-grid--wide { grid-template-columns: 2fr 2fr 1.5fr 1fr; }
+  .mc-edit-input {
+    font-family: var(--font); font-size: 13px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    width: 100%;
+  }
+  .mc-edit-input:focus { outline: none; border-color: var(--navy); }
+  .mc-edit-head-check {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; padding: 4px 0;
+    color: var(--text);
+    user-select: none;
+    cursor: pointer;
+  }
+  .mc-edit-head-check input { margin: 0; cursor: pointer; }
+  .mc-edit-row-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .mc-edit-row-toolbar-left { font-size: 11px; color: var(--text-muted); }
+  .mc-edit-row-actions { display: flex; gap: 6px; }
+
+  /* Add person button */
+  .mc-add-btn {
+    background: var(--white); border: 1px dashed var(--border);
+    padding: 8px 14px;
+    font-family: var(--font); font-size: 12px;
+    font-weight: 600; font-variation-settings: 'wght' 600;
+    color: var(--navy);
+    border-radius: 4px; cursor: pointer;
+    transition: all 0.12s;
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 8px;
+  }
+  .mc-add-btn:hover { border-color: var(--navy); background: var(--off-white); }
+
+  /* Save/Cancel footer */
+  .mc-edit-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .mc-edit-footer-left { font-size: 12px; color: var(--text-muted); }
+  .mc-save-btn, .mc-cancel-btn {
+    font-family: var(--font); font-size: 12px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 7px 16px; border-radius: 4px;
+    cursor: pointer;
+  }
+  .mc-save-btn {
+    background: var(--navy); color: var(--white); border: none;
+  }
+  .mc-save-btn:hover { background: var(--navy-mid); }
+  .mc-cancel-btn {
+    background: none; color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .mc-cancel-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+  /* Confirm dialog for deletion */
+  .mc-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+  }
+  .mc-confirm-box {
+    background: var(--white);
+    border-radius: 8px;
+    padding: 24px 28px;
+    max-width: 440px;
+    width: 100%;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.25);
+  }
+  .mc-confirm-box h4 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    font-weight: 900; font-variation-settings: 'wght' 900;
+  }
+  .mc-confirm-box p {
+    margin: 0 0 14px 0;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .mc-confirm-box p.mc-confirm-sub {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .mc-confirm-box-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .mc-confirm-box .mc-danger-btn {
+    background: #c0392b; color: var(--white); border: none;
+    padding: 7px 16px; border-radius: 4px;
+    font-family: var(--font); font-size: 12px;
+    font-weight: 700; font-variation-settings: 'wght' 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    cursor: pointer;
+  }
+  .mc-confirm-box .mc-danger-btn:hover { background: #a23225; }
+
+  /* Empty state within section (no people yet) */
+  .mc-empty-section {
+    font-size: 13px; color: var(--text-muted); font-style: italic;
+    padding: 10px 0;
+  }
+
   @media (max-width: 700px) {
     .page { padding: 16px 12px 60px; }
     .s2-club, .s4-club { padding: 20px 18px; }
@@ -646,12 +1110,22 @@
   </a>
 </header>
 
+<!-- Demo persona bar — in production this is determined by the logged-in user -->
+<div class="persona-bar" id="personaBar">
+  <span class="persona-bar__label">Demo persona:</span>
+  <button class="persona-btn" data-persona="viewer" aria-pressed="false">Viewer</button>
+  <button class="persona-btn" data-persona="staff" aria-pressed="false">NL staff</button>
+  <button class="persona-btn" data-persona="admin" aria-pressed="true">NL admin</button>
+  <button class="persona-btn" data-persona="club-editor" aria-pressed="false">Club editor <span id="personaClubName">(Tonbridge Angels)</span></button>
+</div>
+
 <div class="demo-bar">
   <div class="demo-bar__group" id="clubStyleGroup">
     <span class="demo-bar__label">View</span>
     <button class="demo-bar__btn" data-view-mode="directory" data-club-style="2" aria-pressed="true">Dense table</button>
     <button class="demo-bar__btn" data-view-mode="directory" data-club-style="4">Role-first</button>
-    <button class="demo-bar__btn demo-bar__btn--staff" data-view-mode="builder">⚡ List builder</button>
+    <button class="demo-bar__btn demo-bar__btn--staff persona-gated" data-view-mode="builder" data-requires="listBuilder">⚡ List builder</button>
+    <button class="demo-bar__btn demo-bar__btn--staff persona-gated" data-view-mode="manage" data-requires="manageContacts">✏ Manage contacts</button>
   </div>
   <input type="search" class="demo-bar__search" id="searchBox" placeholder="Search clubs, people, roles…">
 </div>
@@ -661,7 +1135,10 @@
     <div id="listing-root"></div>
   </div>
   <div class="scene" id="scene-club">
-    <a class="back-link" id="backLink">← back to directory</a>
+    <div class="club-topbar">
+      <a class="back-link" id="backLink">← back to directory</a>
+      <button class="manage-club-btn persona-gated" id="manageMyClubBtn" data-requires="manageOwnClub" style="display:none;">✏ Manage my club</button>
+    </div>
     <div id="club-root"></div>
   </div>
   <div class="scene" id="scene-builder">
@@ -717,6 +1194,11 @@
       </div>
       <div id="lbResults"></div>
     </section>
+  </div>
+
+  <!-- MANAGE CONTACTS SCENE (admin + club-editor) -->
+  <div class="scene" id="scene-manage">
+    <div class="mc-root" id="mc-root"></div>
   </div>
 </div>
 
@@ -1008,21 +1490,51 @@ function renderListStyle1(clubs) {
 }
 
 /* ================= STATE ================= */
+// Demo-only club assigned to the "club editor" persona. In production this is
+// derived from users/{uid}/club. Tonbridge chosen as it has variety.
+var DEMO_EDITOR_CLUB = 'Tonbridge Angels';
+
 var state = {
-  viewMode: 'directory',      // 'directory' | 'builder'
+  // Persona in the demo. Production: derived from auth-guard session.
+  persona: 'admin',               // 'viewer' | 'staff' | 'admin' | 'club-editor'
+  viewMode: 'directory',          // 'directory' | 'builder' | 'manage'
   clubStyle: '2',
   searchQuery: '',
   viewing: null,
+  // Manage contacts state
+  manage: {
+    editingClub: null,              // name of the club currently being edited
+    editingSection: null,           // section name currently open for edit, or 'details'
+    editingPeople: {},              // map: personId -> { name, email, phone, deptHead, roleTitle } (draft)
+    editingDetails: null,           // club details draft (admin only)
+    addingNew: false,               // true if a new person row should appear
+    newPerson: null,                // { name, email, phone, roleTitle, deptHead } for the new-person form
+    pickerSearch: '',
+    pickerDivFilter: null,          // 'National' | 'North' | 'South' | null
+    confirmDialog: null,            // { title, message, onConfirm }
+  },
   // list builder state
   lb: {
-    mode: 'heads',              // 'heads' | 'whole'
-    selectedDepts: {},          // map: sectionName -> true
-    selectedClubs: {},          // map: clubName -> true
-    collapsedDivisions: {},     // map: divisionName -> true
-    clubSearch: {},             // map: divisionName -> search string
-    omittedKeys: {},            // map: resultKey -> true
+    mode: 'heads',
+    selectedDepts: {},
+    selectedClubs: {},
+    collapsedDivisions: {},
+    clubSearch: {},
+    omittedKeys: {},
   }
 };
+
+// In production these come from the user's role.
+function personaCan(capability) {
+  var p = state.persona;
+  switch (capability) {
+    case 'listBuilder':    return p === 'staff' || p === 'admin';
+    case 'manageContacts': return p === 'admin';
+    case 'manageOwnClub':  return p === 'club-editor' || p === 'admin';
+    case 'editClubDetails': return p === 'admin';
+    default: return false;
+  }
+}
 
 // Sections that have the concept of a dept head (warning if empty)
 var HEAD_SECTIONS = SECTION_ORDER.filter(function(s) {
@@ -1071,19 +1583,45 @@ function showScene() {
   var listing = document.getElementById('scene-listing');
   var club = document.getElementById('scene-club');
   var builder = document.getElementById('scene-builder');
-  [listing, club, builder].forEach(function(s){ s.classList.remove('scene--active'); });
+  var manage = document.getElementById('scene-manage');
+  [listing, club, builder, manage].forEach(function(s){ s.classList.remove('scene--active'); });
 
-  if (state.viewMode === 'builder') {
+  if (state.viewMode === 'manage') {
+    manage.classList.add('scene--active');
+    renderManage();
+  } else if (state.viewMode === 'builder') {
     builder.classList.add('scene--active');
     renderBuilder();
   } else if (state.viewing) {
     club.classList.add('scene--active');
     renderClub();
+    updateManageMyClubButton();
   } else {
     listing.classList.add('scene--active');
     renderListing();
   }
+  updatePersonaGatedElements();
   window.scrollTo(0, 0);
+}
+
+function updatePersonaGatedElements() {
+  document.querySelectorAll('.persona-gated').forEach(function(el) {
+    var cap = el.getAttribute('data-requires');
+    if (!cap) return;
+    if (personaCan(cap)) el.classList.add('is-shown');
+    else el.classList.remove('is-shown');
+  });
+}
+
+function updateManageMyClubButton() {
+  var btn = document.getElementById('manageMyClubBtn');
+  if (!btn) return;
+  // Only show if (a) persona can manage own club AND (b) currently viewing their club
+  // For admin, show on any club page. For club-editor, only on their assigned club.
+  var canShow = false;
+  if (state.persona === 'admin' && state.viewing) canShow = true;
+  if (state.persona === 'club-editor' && state.viewing === DEMO_EDITOR_CLUB) canShow = true;
+  btn.style.display = canShow ? 'inline-flex' : 'none';
 }
 
 /* ================================================================
@@ -1376,14 +1914,542 @@ function copyToClipboard(text, btn) {
   }
 }
 
+/* ================================================================
+   MANAGE CONTACTS
+   ================================================================ */
+
+/* Assign each person a stable ID (needed for referencing in edit state).
+   Persisted on the object so renders are consistent. */
+var _nextPersonId = 1;
+function ensurePersonIds() {
+  window.CLUBS.forEach(function(c) {
+    c.people.forEach(function(p) {
+      if (!p._id) p._id = 'p' + (_nextPersonId++);
+    });
+  });
+}
+
+function renderManage() {
+  ensurePersonIds();
+  var root = document.getElementById('mc-root');
+  // Admin: club picker unless a club is selected
+  // Club-editor: straight to their club, no picker
+  if (state.persona === 'club-editor') {
+    state.manage.editingClub = DEMO_EDITOR_CLUB;
+    renderEditor(root);
+    return;
+  }
+  // Admin path
+  if (!state.manage.editingClub) {
+    renderClubPicker(root);
+  } else {
+    renderEditor(root);
+  }
+}
+
+function renderClubPicker(root) {
+  var q = (state.manage.pickerSearch || '').toLowerCase();
+  var divFilter = state.manage.pickerDivFilter;
+
+  var clubs = window.CLUBS.filter(function(c) {
+    if (divFilter && c.division !== divFilter) return false;
+    if (q && c.name.toLowerCase().indexOf(q) === -1) return false;
+    return true;
+  }).sort(function(a,b) { return a.name.localeCompare(b.name); });
+
+  var rows = clubs.map(function(c) {
+    var ppl = c.people.length;
+    var missing = HEAD_SECTIONS.filter(function(s) {
+      var clubHasSection = c.people.some(function(p){ return p.roles.some(function(r){ return r.section === s; }); });
+      if (!clubHasSection) return false; // can't miss a head in a section they don't have
+      var hasHead = c.people.some(function(p){ return p.roles.some(function(r){ return r.section === s && r.deptHead; }); });
+      return !hasHead;
+    });
+    var status = missing.length === 0
+      ? '<span class="mc-status-pill mc-status-pill--good">✓ all heads set</span>'
+      : '<span class="mc-status-pill mc-status-pill--warn">⚠ ' + missing.length + ' missing head' + (missing.length===1?'':'s') + '</span>';
+    return '<tr data-club="' + esc(c.name) + '">' +
+      '<td><div class="mc-club-cell">' +
+        '<img src="' + crestUrl(c.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
+        '<span>' + esc(c.name) + '</span>' +
+      '</div></td>' +
+      '<td><span class="mc-div-pill mc-div-pill--' + c.division.toLowerCase() + '">' + esc(c.division) + '</span></td>' +
+      '<td>' + ppl + ' people</td>' +
+      '<td>' + status + '</td>' +
+      '<td class="mc-action-col"><a href="#">Edit →</a></td>' +
+    '</tr>';
+  }).join('');
+
+  root.innerHTML = '' +
+    '<div class="mc-picker-intro">' +
+      '<h2>Manage contacts</h2>' +
+      '<p>Pick a club to edit its directory entries.</p>' +
+    '</div>' +
+    '<div class="mc-demo-banner">' +
+      '<b>Demo mode:</b> changes are in-memory only and reset on page reload. In production these will save to the database.' +
+    '</div>' +
+    '<div class="mc-picker-filter">' +
+      '<input type="search" placeholder="Search clubs..." id="mcPickerSearch" value="' + esc(state.manage.pickerSearch||'') + '">' +
+      '<button class="mc-picker-pill" data-div-filter=""' + (!divFilter ? ' aria-pressed="true"' : '') + '>All</button>' +
+      '<button class="mc-picker-pill" data-div-filter="National"' + (divFilter==='National' ? ' aria-pressed="true"' : '') + '>National</button>' +
+      '<button class="mc-picker-pill" data-div-filter="North"' + (divFilter==='North' ? ' aria-pressed="true"' : '') + '>North</button>' +
+      '<button class="mc-picker-pill" data-div-filter="South"' + (divFilter==='South' ? ' aria-pressed="true"' : '') + '>South</button>' +
+    '</div>' +
+    '<div class="mc-clubs-table">' +
+      '<table>' +
+        '<thead><tr>' +
+          '<th>Club</th><th>Division</th><th>People</th><th>Status</th><th></th>' +
+        '</tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text-muted);">No clubs match</td></tr>') + '</tbody>' +
+      '</table>' +
+    '</div>';
+}
+
+function renderEditor(root) {
+  var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+  if (!club) { root.innerHTML = '<div>Club not found</div>'; return; }
+
+  var backBar = '';
+  if (state.persona === 'admin') {
+    backBar = '<div class="mc-back-bar">' +
+      '<a class="back-link" id="mcBackToPicker">← back to club list</a>' +
+    '</div>';
+  } else {
+    backBar = '<div class="mc-back-bar">' +
+      '<a class="back-link" id="mcBackToDirectory">← back to directory</a>' +
+    '</div>';
+  }
+
+  var title = '<div class="mc-title">' +
+    '<h2>' +
+      '<img src="' + crestUrl(club.name) + '" alt="" onerror="this.onerror=null;this.src=\'' + fallbackCrest() + '\'">' +
+      esc(club.name) +
+    '</h2>' +
+    '<div class="mc-title-sub">' + esc(club.division) + ' · managing ' + club.people.length + ' ' + (club.people.length===1?'person':'people') + '</div>' +
+  '</div>';
+
+  // Club-details card
+  var detailsHtml = renderClubDetails(club);
+
+  // Section cards — one per section that has people OR is a HEAD section
+  // Include every section that has data, PLUS any with no data so club can add new ones
+  var sectionsHtml = SECTION_ORDER.map(function(s) {
+    return renderSectionCard(club, s);
+  }).join('');
+
+  // Confirm dialog if any
+  var confirmHtml = '';
+  if (state.manage.confirmDialog) {
+    var d = state.manage.confirmDialog;
+    confirmHtml =
+      '<div class="mc-confirm-overlay" id="mcConfirmOverlay">' +
+        '<div class="mc-confirm-box">' +
+          '<h4>' + esc(d.title) + '</h4>' +
+          '<p>' + d.message + '</p>' +
+          (d.sub ? '<p class="mc-confirm-sub">' + esc(d.sub) + '</p>' : '') +
+          '<div class="mc-confirm-box-actions">' +
+            '<button class="mc-cancel-btn" id="mcConfirmCancel">Cancel</button>' +
+            '<button class="mc-danger-btn" id="mcConfirmOk">' + esc(d.confirmText || 'Confirm') + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  root.innerHTML =
+    '<div class="mc-editor">' +
+      backBar + title +
+      '<div class="mc-demo-banner">' +
+        '<b>Demo mode:</b> changes are in-memory only and reset on page reload.' +
+      '</div>' +
+      detailsHtml +
+      sectionsHtml +
+    '</div>' + confirmHtml;
+}
+
+function renderClubDetails(club) {
+  var canEdit = personaCan('editClubDetails');
+  var isEditing = state.manage.editingSection === 'details';
+  var d = state.manage.editingDetails;
+
+  var editBtn = '';
+  if (canEdit && !isEditing) {
+    editBtn = '<button class="mc-edit-btn" data-edit-section="details">Edit</button>';
+  } else if (!canEdit) {
+    editBtn = '<span class="mc-field-value--muted" style="font-size:11px;">Read-only for club editors</span>';
+  }
+
+  function row(label, key) {
+    var val = club[key];
+    if (isEditing && canEdit) {
+      return '<div class="mc-field-row">' +
+        '<div class="mc-field-label">' + label + '</div>' +
+        '<div><input class="mc-field-input" data-details-field="' + key + '" value="' + esc(d && d[key] != null ? d[key] : (val || '')) + '"></div>' +
+      '</div>';
+    }
+    return '<div class="mc-field-row">' +
+      '<div class="mc-field-label">' + label + '</div>' +
+      '<div class="mc-field-value' + (val ? '' : ' mc-field-value--muted') + '">' + (val ? esc(val) : 'not set') + '</div>' +
+    '</div>';
+  }
+
+  var footer = '';
+  if (isEditing && canEdit) {
+    footer = '<div class="mc-edit-footer">' +
+      '<div class="mc-edit-footer-left">Editing club details</div>' +
+      '<div class="mc-edit-row-actions">' +
+        '<button class="mc-cancel-btn" data-cancel-section="details">Cancel</button>' +
+        '<button class="mc-save-btn" data-save-section="details">Save</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  return '<div class="mc-details">' +
+    '<div class="mc-section-hd">' +
+      '<h3>Club details</h3>' +
+      editBtn +
+    '</div>' +
+    row('Address', 'address_raw') +
+    row('Phone', 'phone') +
+    row('Email', 'email') +
+    row('Website', 'website') +
+    row('FA membership', 'fa') +
+    footer +
+  '</div>';
+}
+
+function renderSectionCard(club, section) {
+  // Build list of (person, roleEntry) pairs for this section
+  var entries = [];
+  club.people.forEach(function(p) {
+    p.roles.forEach(function(r) {
+      if (r.section === section) entries.push({ person: p, role: r });
+    });
+  });
+
+  var isEditing = state.manage.editingSection === section;
+  var sectionHasData = entries.length > 0;
+
+  // Skip entirely empty sections unless we're a lead-able section
+  // (so club can add their first person); directors/liaison show only if data
+  if (!sectionHasData && HEAD_SECTIONS.indexOf(section) === -1) return '';
+  // Even for HEAD sections, don't show if empty and not currently editing — too cluttered
+  // ...except we still want the club to be able to add. Compromise: show empty sections that
+  // are head-able, with a "add person" prompt. Hide empty Liaison/Directors to reduce noise.
+
+  var canEdit = true;  // Both admin and club-editor can edit people sections
+  var editBtn = '';
+  if (isEditing) {
+    // no edit button in edit mode — footer has save/cancel
+  } else {
+    editBtn = '<button class="mc-edit-btn" data-edit-section="' + esc(section) + '">Edit</button>';
+  }
+
+  // Body — either view mode or edit mode
+  var body;
+  if (isEditing) {
+    body = renderSectionEditBody(club, section, entries);
+  } else {
+    body = renderSectionViewBody(section, entries);
+  }
+
+  return '<div class="mc-section-card' + (isEditing ? ' is-editing' : '') + '" data-section="' + esc(section) + '">' +
+    '<div class="mc-section-hd">' +
+      '<h3>' + esc(section) + '</h3>' +
+      editBtn +
+    '</div>' +
+    body +
+  '</div>';
+}
+
+function renderSectionViewBody(section, entries) {
+  if (!entries.length) {
+    return '<div class="mc-empty-section">No contacts added yet.</div>';
+  }
+  var rows = entries.map(function(e) {
+    var p = e.person, r = e.role;
+    var headPill = r.deptHead ? '<span class="mc-head-pill">Dept head</span>' : '';
+    var contact = [];
+    if (p.phone) contact.push(esc(p.phone));
+    if (p.email) contact.push('<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>');
+    return '<div class="mc-person-row' + (r.deptHead ? ' mc-person-row--head' : '') + '">' +
+      '<div class="mc-person-main">' +
+        '<div class="mc-person-name">' + esc(p.name) + headPill + '</div>' +
+        '<div class="mc-person-role">' + esc(r.title) + '</div>' +
+        (contact.length ? '<div class="mc-person-contact">' + contact.join(' · ') + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  return '<div class="mc-ppl-list">' + rows + '</div>';
+}
+
+function renderSectionEditBody(club, section, entries) {
+  var draftMap = state.manage.editingPeople;
+
+  var rows = entries.map(function(e) {
+    var p = e.person, r = e.role;
+    var draftKey = p._id + '|' + section + '|' + r.title;
+    // Initialise draft if not present
+    if (!draftMap[draftKey]) {
+      draftMap[draftKey] = {
+        name: p.name,
+        email: p.email || '',
+        phone: p.phone || '',
+        roleTitle: r.title,
+        deptHead: !!r.deptHead,
+        _personId: p._id,
+        _originalTitle: r.title,
+      };
+    }
+    var draft = draftMap[draftKey];
+
+    return '<div class="mc-edit-person-row">' +
+      '<div class="mc-edit-grid mc-edit-grid--wide">' +
+        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="name" value="' + esc(draft.name) + '" placeholder="Name">' +
+        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="roleTitle" value="' + esc(draft.roleTitle) + '" placeholder="Role title">' +
+        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="email" value="' + esc(draft.email) + '" placeholder="Email">' +
+        '<input class="mc-edit-input" data-edit-key="' + esc(draftKey) + '" data-edit-field="phone" value="' + esc(draft.phone) + '" placeholder="Phone">' +
+      '</div>' +
+      '<div class="mc-edit-row-toolbar">' +
+        '<label class="mc-edit-head-check">' +
+          '<input type="checkbox" data-edit-key="' + esc(draftKey) + '" data-edit-field="deptHead"' + (draft.deptHead ? ' checked' : '') + '>' +
+          'Dept head' +
+        '</label>' +
+        '<div class="mc-edit-row-actions">' +
+          '<button class="mc-remove-role-btn" data-remove-role="' + esc(draftKey) + '" title="Remove this role">×</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  // + Add person to this section
+  var addFormHtml = '';
+  if (state.manage.addingNew && state.manage.addingNew.section === section) {
+    var np = state.manage.newPerson || {};
+    addFormHtml = '<div class="mc-edit-person-row" style="border-color: var(--primary);">' +
+      '<div class="mc-edit-grid mc-edit-grid--wide">' +
+        '<input class="mc-edit-input" data-new-field="name" value="' + esc(np.name||'') + '" placeholder="Name" autofocus>' +
+        '<input class="mc-edit-input" data-new-field="roleTitle" value="' + esc(np.roleTitle||'') + '" placeholder="Role title (e.g. Press Officer)">' +
+        '<input class="mc-edit-input" data-new-field="email" value="' + esc(np.email||'') + '" placeholder="Email (optional)">' +
+        '<input class="mc-edit-input" data-new-field="phone" value="' + esc(np.phone||'') + '" placeholder="Phone (optional)">' +
+      '</div>' +
+      '<div class="mc-edit-row-toolbar">' +
+        '<label class="mc-edit-head-check">' +
+          '<input type="checkbox" data-new-field="deptHead"' + (np.deptHead ? ' checked' : '') + '>' +
+          'Dept head' +
+        '</label>' +
+        '<div class="mc-edit-row-actions">' +
+          '<button class="mc-cancel-btn" data-cancel-new="1">Discard</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  var addBtn = '<button class="mc-add-btn" data-add-to-section="' + esc(section) + '">+ Add person to ' + esc(section) + '</button>';
+
+  var body = (entries.length ? '<div class="mc-ppl-list">' + rows + '</div>' : '<div class="mc-empty-section">No contacts yet. Add the first one below.</div>') +
+    addFormHtml +
+    addBtn +
+    '<div class="mc-edit-footer">' +
+      '<div class="mc-edit-footer-left">Editing ' + esc(section) + '</div>' +
+      '<div class="mc-edit-row-actions">' +
+        '<button class="mc-cancel-btn" data-cancel-section="' + esc(section) + '">Cancel</button>' +
+        '<button class="mc-save-btn" data-save-section="' + esc(section) + '">Save changes</button>' +
+      '</div>' +
+    '</div>';
+
+  return body;
+}
+
+/* ---- Save/cancel handlers ---- */
+
+function enterSectionEdit(section) {
+  // If another section is already editing, warn (for now just discard silently)
+  state.manage.editingSection = section;
+  state.manage.editingPeople = {};
+  state.manage.addingNew = false;
+  state.manage.newPerson = null;
+  if (section === 'details') {
+    var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+    state.manage.editingDetails = {
+      address_raw: club.address_raw,
+      phone: club.phone,
+      email: club.email,
+      website: club.website,
+      fa: club.fa,
+    };
+  }
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function cancelSectionEdit() {
+  state.manage.editingSection = null;
+  state.manage.editingPeople = {};
+  state.manage.editingDetails = null;
+  state.manage.addingNew = false;
+  state.manage.newPerson = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function saveSectionEdit(section) {
+  var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+  if (!club) return;
+
+  if (section === 'details') {
+    var d = state.manage.editingDetails;
+    if (d) {
+      club.address_raw = d.address_raw;
+      club.phone = d.phone;
+      club.email = d.email;
+      club.website = d.website;
+      club.fa = d.fa;
+    }
+    state.manage.editingSection = null;
+    state.manage.editingDetails = null;
+    renderEditor(document.getElementById('mc-root'));
+    return;
+  }
+
+  // Save people changes for this section
+  var drafts = state.manage.editingPeople;
+  Object.keys(drafts).forEach(function(draftKey) {
+    var draft = drafts[draftKey];
+    var person = club.people.filter(function(p){ return p._id === draft._personId; })[0];
+    if (!person) return;
+    person.name = draft.name.trim();
+    person.email = draft.email.trim() || null;
+    person.phone = draft.phone.trim() || null;
+    // Find the role entry and update
+    var role = person.roles.filter(function(r){
+      return r.section === section && r.title === draft._originalTitle;
+    })[0];
+    if (role) {
+      role.title = draft.roleTitle.trim() || role.title;
+      role.deptHead = !!draft.deptHead;
+    }
+  });
+
+  // Add new person if one is being drafted for this section
+  if (state.manage.addingNew && state.manage.addingNew.section === section && state.manage.newPerson) {
+    var np = state.manage.newPerson;
+    if (np.name && np.name.trim() && np.roleTitle && np.roleTitle.trim()) {
+      var newPerson = {
+        _id: 'p' + (_nextPersonId++),
+        name: np.name.trim(),
+        email: (np.email || '').trim() || null,
+        phone: (np.phone || '').trim() || null,
+        note: null,
+        roles: [{
+          title: np.roleTitle.trim(),
+          section: section,
+          deptHead: !!np.deptHead,
+        }]
+      };
+      club.people.push(newPerson);
+    }
+  }
+
+  state.manage.editingSection = null;
+  state.manage.editingPeople = {};
+  state.manage.addingNew = false;
+  state.manage.newPerson = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function removeRoleWithConfirm(draftKey) {
+  var draft = state.manage.editingPeople[draftKey];
+  if (!draft) return;
+  var club = window.CLUBS.filter(function(c){ return c.name === state.manage.editingClub; })[0];
+  var person = club.people.filter(function(p){ return p._id === draft._personId; })[0];
+  if (!person) return;
+
+  var roleIdx = person.roles.findIndex(function(r){
+    return r.section === state.manage.editingSection && r.title === draft._originalTitle;
+  });
+  if (roleIdx === -1) return;
+
+  var otherRoles = person.roles.filter(function(r, i){ return i !== roleIdx; });
+
+  if (otherRoles.length === 0) {
+    // Last role — confirms as person deletion
+    state.manage.confirmDialog = {
+      title: 'Remove person entirely?',
+      message: '<b>' + esc(person.name) + '</b>\'s only role is <b>' + esc(draft._originalTitle) + '</b> in <b>' + esc(state.manage.editingSection) + '</b>. Removing it will delete them from the directory entirely.',
+      sub: 'This cannot be undone.',
+      confirmText: 'Delete person',
+      onConfirm: function() {
+        // Remove person from the club
+        club.people = club.people.filter(function(p){ return p._id !== person._id; });
+        delete state.manage.editingPeople[draftKey];
+        state.manage.confirmDialog = null;
+        renderEditor(document.getElementById('mc-root'));
+      }
+    };
+  } else {
+    // Person stays with remaining roles
+    var remaining = otherRoles.map(function(r){ return r.title + ' (' + r.section + ')'; }).join(', ');
+    state.manage.confirmDialog = {
+      title: 'Remove this role?',
+      message: 'Remove <b>' + esc(person.name) + '</b>\'s <b>' + esc(draft._originalTitle) + '</b> role. They\'ll stay in the directory as: <b>' + esc(remaining) + '</b>.',
+      confirmText: 'Remove role',
+      onConfirm: function() {
+        person.roles.splice(roleIdx, 1);
+        delete state.manage.editingPeople[draftKey];
+        state.manage.confirmDialog = null;
+        renderEditor(document.getElementById('mc-root'));
+      }
+    };
+  }
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function startAddPerson(section) {
+  state.manage.addingNew = { section: section };
+  state.manage.newPerson = { name: '', email: '', phone: '', roleTitle: '', deptHead: false };
+  renderEditor(document.getElementById('mc-root'));
+}
+
+function cancelAddPerson() {
+  state.manage.addingNew = false;
+  state.manage.newPerson = null;
+  renderEditor(document.getElementById('mc-root'));
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-  // --- View toggle (Dense / Role-first / List builder) ---
+  // --- Persona switcher (demo only) ---
+  var personaBar = document.getElementById('personaBar');
+  personaBar.addEventListener('click', function(e) {
+    var b = e.target.closest('[data-persona]');
+    if (!b) return;
+    state.persona = b.getAttribute('data-persona');
+    personaBar.querySelectorAll('[data-persona]').forEach(function(x) {
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    });
+    // If user switches away from a view they can no longer access, bounce them
+    if (state.viewMode === 'builder' && !personaCan('listBuilder')) {
+      state.viewMode = 'directory';
+    }
+    if (state.viewMode === 'manage' && !personaCan('manageContacts') && !personaCan('manageOwnClub')) {
+      state.viewMode = 'directory';
+    }
+    showScene();
+  });
+
+  // --- View toggle (Dense / Role-first / List builder / Manage) ---
   var clubGroup = document.getElementById('clubStyleGroup');
   clubGroup.addEventListener('click', function(e) {
     var b = e.target.closest('[data-view-mode], [data-club-style]');
     if (!b) return;
     var viewMode = b.getAttribute('data-view-mode') || 'directory';
+    var cap = b.getAttribute('data-requires');
+    if (cap && !personaCan(cap)) return; // safety net — shouldn't be clickable anyway
     state.viewMode = viewMode;
+    state.viewing = null;
+    // Reset manage sub-state when entering
+    if (viewMode === 'manage') {
+      state.manage.editingClub = null;
+      state.manage.editingSection = null;
+      state.manage.editingPeople = {};
+    }
     if (b.hasAttribute('data-club-style')) {
       state.clubStyle = b.getAttribute('data-club-style');
     }
@@ -1411,34 +2477,38 @@ document.addEventListener('DOMContentLoaded', function() {
     showScene();
   });
 
+  // --- "Manage my club" button on club page ---
+  document.getElementById('manageMyClubBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    state.manage.editingClub = state.viewing;
+    state.viewMode = 'manage';
+    state.viewing = null;
+    // deselect the dense/role-first buttons so no view toggle shows pressed
+    clubGroup.querySelectorAll('button').forEach(function(x) { x.setAttribute('aria-pressed', 'false'); });
+    showScene();
+  });
+
   // --- List Builder interactions ---
   var builderScene = document.getElementById('scene-builder');
   builderScene.addEventListener('click', function(e) {
     var t = e.target;
-
-    // Mode toggle (heads / whole)
     var modeBtn = t.closest('.lb-mode-btn');
     if (modeBtn) {
       state.lb.mode = modeBtn.getAttribute('data-lb-mode');
       document.querySelectorAll('.lb-mode-btn').forEach(function(b){
         b.setAttribute('aria-pressed', b === modeBtn ? 'true' : 'false');
       });
-      // clear per-row omits when switching mode (the rows change)
       state.lb.omittedKeys = {};
       renderBuilderWarnings();
       renderBuilderResults();
       return;
     }
-
-    // Division collapse toggle
     if (t.closest('[data-division-toggle]')) {
       var div = t.closest('[data-division-toggle]').getAttribute('data-division-toggle');
       state.lb.collapsedDivisions[div] = !state.lb.collapsedDivisions[div];
       renderBuilderDivisions();
       return;
     }
-
-    // Omit button
     var omitBtn = t.closest('[data-omit-key]');
     if (omitBtn) {
       var key = omitBtn.getAttribute('data-omit-key');
@@ -1447,8 +2517,6 @@ document.addEventListener('DOMContentLoaded', function() {
       renderBuilderResults();
       return;
     }
-
-    // Copy buttons
     var copyBtn = t.closest('.lb-copybtn');
     if (copyBtn) {
       var fmt = copyBtn.getAttribute('data-copy-fmt');
@@ -1456,8 +2524,6 @@ document.addEventListener('DOMContentLoaded', function() {
       if (text) copyToClipboard(text, copyBtn);
       return;
     }
-
-    // "all" / "none" link buttons
     if (t.id === 'lbDeptsAll') {
       SECTION_ORDER.forEach(function(s){ state.lb.selectedDepts[s] = true; });
       renderBuilderDepts(); renderBuilderWarnings(); renderBuilderResults(); return;
@@ -1475,12 +2541,8 @@ document.addEventListener('DOMContentLoaded', function() {
       renderBuilderDivisions(); renderBuilderWarnings(); renderBuilderResults(); return;
     }
   });
-
-  // Change handler for all checkboxes in the builder
   builderScene.addEventListener('change', function(e) {
     var t = e.target;
-
-    // Department checkbox
     if (t.hasAttribute('data-dept')) {
       var dept = t.getAttribute('data-dept');
       if (t.checked) state.lb.selectedDepts[dept] = true;
@@ -1488,8 +2550,6 @@ document.addEventListener('DOMContentLoaded', function() {
       renderBuilderWarnings(); renderBuilderResults();
       return;
     }
-
-    // Division checkbox: toggle every club in that division
     if (t.classList.contains('lb-division-check')) {
       var divName = t.getAttribute('data-division');
       var divClubs = window.CLUBS.filter(function(c){ return c.division === divName; });
@@ -1498,8 +2558,6 @@ document.addEventListener('DOMContentLoaded', function() {
       renderBuilderDivisions(); renderBuilderWarnings(); renderBuilderResults();
       return;
     }
-
-    // Individual club checkbox
     if (t.hasAttribute('data-club')) {
       var clubName = t.getAttribute('data-club');
       if (t.checked) state.lb.selectedClubs[clubName] = true;
@@ -1508,8 +2566,6 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
   });
-
-  // Per-division club search — live filter without full re-render
   builderScene.addEventListener('input', function(e) {
     var t = e.target;
     if (t.hasAttribute('data-division-search')) {
@@ -1524,6 +2580,167 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!q || name.indexOf(q) !== -1) row.classList.remove('is-hidden');
         else row.classList.add('is-hidden');
       });
+    }
+  });
+
+  // --- MANAGE CONTACTS interactions ---
+  var manageScene = document.getElementById('scene-manage');
+  manageScene.addEventListener('click', function(e) {
+    var t = e.target;
+
+    // Club picker: click a club row
+    var clubRow = t.closest('[data-club]');
+    if (clubRow && clubRow.tagName === 'TR') {
+      state.manage.editingClub = clubRow.getAttribute('data-club');
+      renderManage();
+      return;
+    }
+
+    // Picker: division filter pills
+    var filterPill = t.closest('[data-div-filter]');
+    if (filterPill) {
+      var f = filterPill.getAttribute('data-div-filter');
+      state.manage.pickerDivFilter = f || null;
+      renderManage();
+      return;
+    }
+
+    // Back to picker (admin)
+    if (t.id === 'mcBackToPicker') {
+      e.preventDefault();
+      state.manage.editingClub = null;
+      state.manage.editingSection = null;
+      state.manage.editingPeople = {};
+      state.manage.editingDetails = null;
+      state.manage.addingNew = false;
+      state.manage.newPerson = null;
+      renderManage();
+      return;
+    }
+
+    // Back to directory (club editor)
+    if (t.id === 'mcBackToDirectory') {
+      e.preventDefault();
+      state.viewMode = 'directory';
+      state.viewing = DEMO_EDITOR_CLUB;
+      state.manage.editingSection = null;
+      state.manage.editingPeople = {};
+      state.manage.editingDetails = null;
+      showScene();
+      return;
+    }
+
+    // Section Edit button
+    var editBtn = t.closest('[data-edit-section]');
+    if (editBtn) {
+      enterSectionEdit(editBtn.getAttribute('data-edit-section'));
+      return;
+    }
+
+    // Cancel section edit
+    var cancelBtn = t.closest('[data-cancel-section]');
+    if (cancelBtn) {
+      cancelSectionEdit();
+      return;
+    }
+
+    // Save section edit
+    var saveBtn = t.closest('[data-save-section]');
+    if (saveBtn) {
+      saveSectionEdit(saveBtn.getAttribute('data-save-section'));
+      return;
+    }
+
+    // + Add person button
+    var addBtn = t.closest('[data-add-to-section]');
+    if (addBtn) {
+      startAddPerson(addBtn.getAttribute('data-add-to-section'));
+      return;
+    }
+
+    // Cancel adding new person
+    if (t.closest('[data-cancel-new]')) {
+      cancelAddPerson();
+      return;
+    }
+
+    // Remove a role
+    var removeBtn = t.closest('[data-remove-role]');
+    if (removeBtn) {
+      removeRoleWithConfirm(removeBtn.getAttribute('data-remove-role'));
+      return;
+    }
+
+    // Confirm dialog cancel
+    if (t.id === 'mcConfirmCancel') {
+      state.manage.confirmDialog = null;
+      renderEditor(document.getElementById('mc-root'));
+      return;
+    }
+    if (t.id === 'mcConfirmOk') {
+      if (state.manage.confirmDialog && state.manage.confirmDialog.onConfirm) {
+        state.manage.confirmDialog.onConfirm();
+      }
+      return;
+    }
+  });
+
+  manageScene.addEventListener('input', function(e) {
+    var t = e.target;
+    // Picker search
+    if (t.id === 'mcPickerSearch') {
+      state.manage.pickerSearch = t.value;
+      // only re-render the table; keep the search input focus
+      var q = (t.value || '').toLowerCase();
+      var divFilter = state.manage.pickerDivFilter;
+      var rows = manageScene.querySelectorAll('.mc-clubs-table tbody tr');
+      rows.forEach(function(tr) {
+        var name = (tr.getAttribute('data-club') || '').toLowerCase();
+        var club = window.CLUBS.filter(function(c){ return c.name === tr.getAttribute('data-club'); })[0];
+        var matches = (!q || name.indexOf(q) !== -1) &&
+                      (!divFilter || (club && club.division === divFilter));
+        tr.style.display = matches ? '' : 'none';
+      });
+      return;
+    }
+
+    // Editing an existing draft
+    if (t.hasAttribute('data-edit-key')) {
+      var key = t.getAttribute('data-edit-key');
+      var field = t.getAttribute('data-edit-field');
+      if (!state.manage.editingPeople[key]) return;
+      if (field === 'deptHead') state.manage.editingPeople[key][field] = t.checked;
+      else state.manage.editingPeople[key][field] = t.value;
+      return;
+    }
+
+    // Editing the new-person form
+    if (t.hasAttribute('data-new-field')) {
+      var nf = t.getAttribute('data-new-field');
+      if (!state.manage.newPerson) state.manage.newPerson = {};
+      if (nf === 'deptHead') state.manage.newPerson[nf] = t.checked;
+      else state.manage.newPerson[nf] = t.value;
+      return;
+    }
+
+    // Editing club details
+    if (t.hasAttribute('data-details-field')) {
+      var df = t.getAttribute('data-details-field');
+      if (!state.manage.editingDetails) state.manage.editingDetails = {};
+      state.manage.editingDetails[df] = t.value;
+      return;
+    }
+  });
+
+  manageScene.addEventListener('change', function(e) {
+    var t = e.target;
+    if (t.hasAttribute('data-edit-key') && t.getAttribute('data-edit-field') === 'deptHead') {
+      var key = t.getAttribute('data-edit-key');
+      if (state.manage.editingPeople[key]) state.manage.editingPeople[key].deptHead = t.checked;
+    }
+    if (t.hasAttribute('data-new-field') && t.getAttribute('data-new-field') === 'deptHead') {
+      if (!state.manage.newPerson) state.manage.newPerson = {};
+      state.manage.newPerson.deptHead = t.checked;
     }
   });
 
