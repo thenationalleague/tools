@@ -1,0 +1,63 @@
+# =======================================================================
+# NL Archive Index — Scheduled Rebuild
+# Runs every 6 hours to pull new articles and any edits from the NL CMS.
+# Commits changes to articles-index.json if the master has been modified.
+#
+# Manual trigger: Actions tab → "Rebuild article index" → Run workflow.
+# To force a full rebuild, tick the checkbox when triggering manually.
+# =======================================================================
+
+name: Rebuild article index
+
+on:
+  schedule:
+    # Every 6 hours, on the hour (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_full_rebuild:
+        description: 'Force full rebuild (ignore existing index)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Run rebuild script
+        env:
+          FORCE_FULL_REBUILD: ${{ github.event.inputs.force_full_rebuild || 'false' }}
+        run: node scripts/rebuild-index.js
+      
+      - name: Commit changes (if any)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          if git diff --quiet assets/data/articles-index.json; then
+            echo "No changes to articles-index.json — skipping commit"
+            exit 0
+          fi
+          
+          git add assets/data/articles-index.json
+          
+          # Pull some detail from the script's output (via git diff) for the commit message
+          ADDED=$(git diff --cached --stat assets/data/articles-index.json | tail -1 || echo "updated")
+          
+          git commit -m "chore: update article index
+
+          Automated rebuild at $(date -u +'%Y-%m-%d %H:%M UTC')"
+          
+          git push
