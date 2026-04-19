@@ -3,10 +3,26 @@
 <head>
 <!--
   NL Tools — Website Archive
-  Version: 1.3
+  Version: 1.4
   Date: 19/04/2026
 
   CHANGELOG
+  v1.4 (19/04/2026)
+    - Added GA metrics display: views, users, engagement time, engagement rate
+    - Card badge shows view count (top-right of hero image)
+    - Traffic light dot on each card colours by views (data-driven thresholds:
+      green >1000, amber 300-1000, red <300). Toggle between colouring by
+      Views / Engagement time / Both via new dropdown next to view toggle.
+    - Modal now shows 5-stat panel at top: Views, Users, Time, Engaged, Length
+      (Length = word count + reading time combined)
+    - List view adds three metric columns: Views, Time, Engaged
+    - New sort options: Most viewed, Longest engagement, Longest read
+    - Word count computed client-side from bodyText (client-side derived until
+      rebuild-index.js v2.3 bakes wordCount into the JSON)
+    - CSV export now includes all metrics fields regardless of format choice
+    - Graceful degradation: articles with null/missing metrics show em-dashes
+      everywhere, no crashes, no misleading zeros
+
   v1.3 (19/04/2026)
     - Body text search enabled — requires articles-index.json v2+
       (with bodyText field populated by rebuild-index.js v2.0)
@@ -62,6 +78,17 @@
   var NL_TOOL_KEY = 'staff-website-archive';
 
   window.NL_CHANGELOG = [
+    {
+      date: '19 April 2026',
+      version: 'v1.4',
+      items: [
+        'Google Analytics metrics now visible: views, engagement time, engagement rate.',
+        'Each card shows view count and a traffic-light dot for at-a-glance performance.',
+        'Article modal shows a 5-stat panel with views, users, time, engagement and length.',
+        'New sort options: Most viewed, Longest engagement, Longest read.',
+        'Metrics also included in CSV exports for content audits.'
+      ]
+    },
     {
       date: '19 April 2026',
       version: 'v1.3',
@@ -272,6 +299,162 @@
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 600; font-variation-settings: 'wght' 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+/* ============ METRICS — SHARED ============ */
+/* Traffic light dot. Colours applied via modifier classes. */
+.tl-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.tl-dot--green  { background: #2ea544; }
+.tl-dot--amber  { background: #d89420; }
+.tl-dot--red    { background: #c73030; }
+.tl-dot--null   { background: transparent; border: 1px dashed var(--text-muted); }
+
+/* Card view count badge (floats over hero) */
+.card__views-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(26, 42, 68, 0.90);
+  color: var(--white);
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+}
+.card__views-badge--null {
+  background: rgba(100, 100, 100, 0.75);
+  font-style: italic;
+  font-weight: 500; font-variation-settings: 'wght' 500;
+}
+
+/* Card engagement time text in footer */
+.card__dwell {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.card__dwell--null { opacity: 0.5; }
+
+/* ============ MODAL METRICS PANEL ============ */
+.modal-metrics {
+  background: var(--off-white);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.modal-metrics__cell { min-width: 0; }
+.modal-metrics__label {
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+.modal-metrics__value {
+  font-size: 17px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.modal-metrics__value--null {
+  color: var(--text-muted);
+  font-weight: 500; font-variation-settings: 'wght' 500;
+  font-style: italic;
+}
+.modal-metrics__value--green { color: #1c7a2e; }
+.modal-metrics__value--amber { color: #b67a12; }
+.modal-metrics__value--red   { color: #a82525; }
+.modal-metrics__sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  margin-top: 1px;
+}
+
+@media (max-width: 620px) {
+  .modal-metrics { grid-template-columns: repeat(3, 1fr); row-gap: 10px; }
+  .modal-metrics__cell:nth-child(n+4) { grid-row: 2; }
+}
+
+/* ============ LIST VIEW METRIC COLUMNS ============ */
+/* List row now: 70px img | 90px date | 1fr title | 130px author | 55px views | 55px time | 55px eng */
+
+.row__metric {
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+}
+.row__metric--green { color: #1c7a2e; }
+.row__metric--amber { color: #b67a12; }
+.row__metric--red   { color: #a82525; }
+.row__metric--null  { color: var(--text-muted); font-weight: 500; font-variation-settings: 'wght' 500; }
+
+.row__header {
+  display: grid;
+  grid-template-columns: 70px 90px 1fr 130px 55px 55px 55px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--off-white);
+  border-bottom: 1px solid var(--border);
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  cursor: default;
+}
+.row__header > span { min-width: 0; }
+.row__header-metric { text-align: right; }
+.row__header-sortable { cursor: pointer; user-select: none; }
+.row__header-sortable:hover { color: var(--text); }
+.row__header-sortable.active { color: var(--primary); }
+
+/* ============ COLOUR-BY DROPDOWN ============ */
+.colour-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.colour-by select {
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--white);
+  color: var(--text);
+  font-weight: 700; font-variation-settings: 'wght' 700;
 }
 
 /* ============ RESULTS — LIST MODE ============ */
@@ -284,16 +467,17 @@
 }
 .row {
   display: grid;
-  grid-template-columns: 70px 110px 1fr 160px 130px;
-  gap: 14px;
+  grid-template-columns: 70px 90px 1fr 130px 55px 55px 55px;
+  gap: 10px;
   align-items: center;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.12s;
 }
 .row:last-child { border-bottom: none; }
 .row:hover { background: var(--off-white); }
+.row > div, .row > span { min-width: 0; }
 .row__img {
   width: 70px; height: 40px;
   background: var(--off-white);
@@ -307,7 +491,7 @@
   font-weight: 600; font-variation-settings: 'wght' 600;
 }
 .row__title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700; font-variation-settings: 'wght' 700;
   color: var(--text);
   line-height: 1.3;
@@ -323,11 +507,13 @@
   font-weight: 600; font-variation-settings: 'wght' 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.row__cat { display: flex; justify-content: flex-end; }
 
-@media (max-width: 760px) {
-  .row { grid-template-columns: 60px 1fr; gap: 10px; }
-  .row__date, .row__author, .row__cat { display: none; }
+@media (max-width: 860px) {
+  .row { grid-template-columns: 60px 1fr 55px; gap: 10px; }
+  .row__header { grid-template-columns: 60px 1fr 55px; }
+  .row__date, .row__author,
+  .row__metric--time, .row__metric--eng,
+  .row__header-metric-time, .row__header-metric-eng { display: none; }
   .row__img { width: 60px; height: 36px; }
 }
 
@@ -732,7 +918,18 @@
     <select class="sort-select" id="sortSelect">
       <option value="newest">Newest first</option>
       <option value="oldest">Oldest first</option>
+      <option value="views">Most viewed</option>
+      <option value="engagement">Longest engagement</option>
+      <option value="length">Longest read</option>
     </select>
+    <div class="colour-by" title="Colour the card traffic-light dot by this metric">
+      <label for="colourBy">Colour by</label>
+      <select id="colourBy">
+        <option value="views">Views</option>
+        <option value="engagement">Engagement</option>
+        <option value="both">Both (worst of)</option>
+      </select>
+    </div>
     <div class="view-toggle">
       <button id="viewGrid" class="active" data-view="grid">Grid</button>
       <button id="viewList" data-view="list">List</button>
@@ -819,8 +1016,11 @@ var STATE = {
   searchTimer: null,
   isAdmin: false,
   exportRunning: false,
-  exportCancelled: false
+  exportCancelled: false,
+  colourBy: 'views'  // views | engagement | both
 };
+
+var LS_KEY_COLOUR_BY = 'nl-archive-colour-by';
 
 function $(id) { return document.getElementById(id); }
 
@@ -856,6 +1056,95 @@ function debounce(fn, ms) {
   };
 }
 
+/* ============ METRIC HELPERS ============ */
+// Data-driven thresholds based on 2026 article distribution (~10k articles, p90 ~1000 views)
+var VIEWS_GREEN  = 1000;
+var VIEWS_AMBER  = 300;
+var DWELL_GREEN  = 30;  // seconds. Most high-traffic NL articles dwell <60s, so 30s is a meaningful bar
+var DWELL_AMBER  = 15;
+
+/* Format a number as "12.4k" / "1.2M" / "847" */
+function formatCount(n) {
+  if (n == null) return '—';
+  n = Number(n);
+  if (!isFinite(n)) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 10000)   return Math.round(n / 1000) + 'k';
+  if (n >= 1000)    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(Math.round(n));
+}
+
+/* Format seconds as "3m 42s" / "42s" */
+function formatDuration(secs) {
+  if (secs == null) return '—';
+  secs = Math.round(Number(secs));
+  if (!isFinite(secs) || secs < 0) return '—';
+  if (secs < 60) return secs + 's';
+  var m = Math.floor(secs / 60);
+  var s = secs % 60;
+  return m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+}
+
+function formatPct(rate) {
+  if (rate == null) return '—';
+  var n = Number(rate);
+  if (!isFinite(n)) return '—';
+  return Math.round(n * 100) + '%';
+}
+
+/* Traffic-light tier for a views count: 'green' | 'amber' | 'red' | 'null' */
+function viewsTier(v) {
+  if (v == null) return 'null';
+  if (v >= VIEWS_GREEN) return 'green';
+  if (v >= VIEWS_AMBER) return 'amber';
+  return 'red';
+}
+
+function dwellTier(d) {
+  if (d == null) return 'null';
+  if (d >= DWELL_GREEN) return 'green';
+  if (d >= DWELL_AMBER) return 'amber';
+  return 'red';
+}
+
+/* "Both" = worst of views and dwell. Null if either is null. */
+function bothTier(views, dwell) {
+  if (views == null || dwell == null) return 'null';
+  var vt = viewsTier(views);
+  var dt = dwellTier(dwell);
+  // red wins, then amber, else green
+  if (vt === 'red' || dt === 'red') return 'red';
+  if (vt === 'amber' || dt === 'amber') return 'amber';
+  return 'green';
+}
+
+/* Resolve which tier to use based on colour-by setting */
+function cardTier(article) {
+  var m = article.metrics;
+  if (!m) return 'null';
+  var mode = STATE.colourBy || 'views';
+  if (mode === 'engagement') return dwellTier(m.avgEngagementTimeSecs);
+  if (mode === 'both')       return bothTier(m.pageViews, m.avgEngagementTimeSecs);
+  return viewsTier(m.pageViews);
+}
+
+/* Compute word count from bodyText. Cached on the article object after first use. */
+function wordCount(article) {
+  if (article._wc != null) return article._wc;
+  if (article.wordCount != null) { article._wc = article.wordCount; return article._wc; }
+  if (!article.bodyText) { article._wc = 0; return 0; }
+  // Simple whitespace split. Good enough for all practical purposes.
+  var wc = article.bodyText.trim().split(/\s+/).filter(Boolean).length;
+  article._wc = wc;
+  return wc;
+}
+
+function readingTimeMins(article) {
+  var wc = wordCount(article);
+  if (!wc) return 0;
+  return Math.max(1, Math.ceil(wc / 225));
+}
+
 /* ============ AUTH-GUARD ENTRY POINT ============ */
 window.nlAuthReady = function(session) {
   // Topbar rendered automatically by nl-topbar.js from window.NL_TOOL
@@ -872,6 +1161,13 @@ function init() {
     STATE.view = savedView;
   }
   applyViewToggleUI();
+
+  var savedColour = localStorage.getItem(LS_KEY_COLOUR_BY);
+  if (savedColour === 'views' || savedColour === 'engagement' || savedColour === 'both') {
+    STATE.colourBy = savedColour;
+  }
+  var colourEl = $('colourBy');
+  if (colourEl) colourEl.value = STATE.colourBy;
 
   try {
     var raw = localStorage.getItem(LS_KEY_BODY_CACHE);
@@ -892,6 +1188,15 @@ function wireControls() {
   $('catInput').addEventListener('change', applyFilters);
   $('scopeBody').addEventListener('change', applyFilters);
   $('sortSelect').addEventListener('change', applyFilters);
+
+  var colourEl2 = $('colourBy');
+  if (colourEl2) {
+    colourEl2.addEventListener('change', function() {
+      STATE.colourBy = colourEl2.value;
+      localStorage.setItem(LS_KEY_COLOUR_BY, STATE.colourBy);
+      renderResults();  // re-render with new tier colouring
+    });
+  }
 
   $('resetBtn').addEventListener('click', function() {
     $('qInput').value = '';
@@ -1025,9 +1330,25 @@ function applyFilters() {
     return true;
   });
 
+  // Sort: null metrics always fall to the end on metric-based sorts
   if (sort === 'oldest') {
     out.sort(function(a, b) { return (a.publishedDateTime || '').localeCompare(b.publishedDateTime || ''); });
+  } else if (sort === 'views') {
+    out.sort(function(a, b) {
+      var av = (a.metrics && a.metrics.pageViews != null) ? a.metrics.pageViews : -1;
+      var bv = (b.metrics && b.metrics.pageViews != null) ? b.metrics.pageViews : -1;
+      return bv - av;
+    });
+  } else if (sort === 'engagement') {
+    out.sort(function(a, b) {
+      var av = (a.metrics && a.metrics.avgEngagementTimeSecs != null) ? a.metrics.avgEngagementTimeSecs : -1;
+      var bv = (b.metrics && b.metrics.avgEngagementTimeSecs != null) ? b.metrics.avgEngagementTimeSecs : -1;
+      return bv - av;
+    });
+  } else if (sort === 'length') {
+    out.sort(function(a, b) { return wordCount(b) - wordCount(a); });
   } else {
+    // newest first (default)
     out.sort(function(a, b) { return (b.publishedDateTime || '').localeCompare(a.publishedDateTime || ''); });
   }
 
@@ -1055,7 +1376,7 @@ function renderResults() {
   if (STATE.view === 'grid') {
     root.innerHTML = '<div class="results-grid">' + toRender.map(cardHTML).join('') + '</div>';
   } else {
-    root.innerHTML = '<div class="results-list">' + toRender.map(rowHTML).join('') + '</div>';
+    root.innerHTML = '<div class="results-list">' + listHeaderHTML() + toRender.map(rowHTML).join('') + '</div>';
   }
 
   if (n > cap) {
@@ -1068,6 +1389,17 @@ function renderResults() {
       openModal(parseInt(el.getAttribute('data-idx'), 10));
     });
   });
+
+  // List view header click-to-sort
+  var sortableHeaders = root.querySelectorAll('.row__header-sortable');
+  sortableHeaders.forEach(function(el) {
+    el.addEventListener('click', function() {
+      var sortKey = el.getAttribute('data-sort');
+      if (!sortKey) return;
+      $('sortSelect').value = sortKey;
+      applyFilters();
+    });
+  });
 }
 
 function cardHTML(a, i) {
@@ -1077,10 +1409,29 @@ function cardHTML(a, i) {
     : '';
   var placeholderStyle = img ? 'display:none;' : '';
 
+  var m = a.metrics;
+  var tier = cardTier(a);
+  var viewsBadge;
+  if (m && m.pageViews != null) {
+    viewsBadge = '<div class="card__views-badge" title="Page views since Oct 2025">' + esc(formatCount(m.pageViews)) + ' views</div>';
+  } else {
+    viewsBadge = '<div class="card__views-badge card__views-badge--null" title="No analytics data (pre-Oct 2025)">no data</div>';
+  }
+
+  var dwellMarkup;
+  if (m && m.avgEngagementTimeSecs != null) {
+    dwellMarkup = '<span class="card__dwell" title="Average engagement time">' + esc(formatDuration(m.avgEngagementTimeSecs)) + '</span>';
+  } else {
+    dwellMarkup = '<span class="card__dwell card__dwell--null">—</span>';
+  }
+
+  var dotMarkup = '<span class="tl-dot tl-dot--' + tier + '" title="' + (tier === 'null' ? 'No metrics' : 'Performance: ' + tier) + '"></span>';
+
   return '<div class="card" data-idx="' + i + '">' +
     '<div class="card__img-wrap">' +
       imgMarkup +
       '<div class="card__img-placeholder" style="' + placeholderStyle + '">National League</div>' +
+      viewsBadge +
     '</div>' +
     '<div class="card__body">' +
       '<div class="card__meta">' +
@@ -1089,7 +1440,10 @@ function cardHTML(a, i) {
       '</div>' +
       '<div class="card__title">' + esc(a.postTitle || '(untitled)') + '</div>' +
       (a.description ? '<div class="card__sub">' + esc(a.description) + '</div>' : '') +
-      '<div class="card__footer">' + esc((a.postAuthor || '').trim() || '—') + '</div>' +
+      '<div class="card__footer">' +
+        '<span>' + esc((a.postAuthor || '').trim() || '—') + '</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:6px;">' + dwellMarkup + dotMarkup + '</span>' +
+      '</div>' +
     '</div>' +
   '</div>';
 }
@@ -1100,6 +1454,35 @@ function rowHTML(a, i) {
     ? '<img src="' + esc(img) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
     : '';
 
+  var m = a.metrics;
+  var viewsVal, viewsTierClass, timeVal, timeTierClass, engVal, engTierClass;
+
+  if (m && m.pageViews != null) {
+    viewsVal = formatCount(m.pageViews);
+    viewsTierClass = 'row__metric--' + viewsTier(m.pageViews);
+  } else {
+    viewsVal = '—';
+    viewsTierClass = 'row__metric--null';
+  }
+
+  if (m && m.avgEngagementTimeSecs != null) {
+    timeVal = formatDuration(m.avgEngagementTimeSecs);
+    timeTierClass = 'row__metric--' + dwellTier(m.avgEngagementTimeSecs);
+  } else {
+    timeVal = '—';
+    timeTierClass = 'row__metric--null';
+  }
+
+  if (m && m.engagementRate != null) {
+    engVal = formatPct(m.engagementRate);
+    // Use a simpler rate-based tier: >50% green, 30-50% amber, <30% red
+    var er = m.engagementRate;
+    engTierClass = er >= 0.5 ? 'row__metric--green' : (er >= 0.3 ? 'row__metric--amber' : 'row__metric--red');
+  } else {
+    engVal = '—';
+    engTierClass = 'row__metric--null';
+  }
+
   return '<div class="row" data-idx="' + i + '">' +
     '<div class="row__img">' + imgMarkup + '</div>' +
     '<div class="row__date">' + esc(formatDate(a.publishedDateTime)) + '</div>' +
@@ -1108,7 +1491,28 @@ function rowHTML(a, i) {
       (a.description ? '<div class="row__sub">' + esc(a.description) + '</div>' : '') +
     '</div>' +
     '<div class="row__author">' + esc((a.postAuthor || '').trim() || '—') + '</div>' +
-    '<div class="row__cat"><span class="card__pill">' + esc(a.newsCategory || '—') + '</span></div>' +
+    '<span class="row__metric ' + viewsTierClass + '">' + esc(viewsVal) + '</span>' +
+    '<span class="row__metric row__metric--time ' + timeTierClass + '">' + esc(timeVal) + '</span>' +
+    '<span class="row__metric row__metric--eng ' + engTierClass + '">' + esc(engVal) + '</span>' +
+  '</div>';
+}
+
+/* Header row for list view */
+function listHeaderHTML() {
+  var sortMap = {
+    newest: '', oldest: '',
+    views: 'views', engagement: 'engagement', length: 'length'
+  };
+  var currentSort = $('sortSelect').value;
+  var active = sortMap[currentSort] || '';
+  return '<div class="row__header">' +
+    '<span></span>' +
+    '<span>Date</span>' +
+    '<span>Title</span>' +
+    '<span>Author</span>' +
+    '<span class="row__header-metric row__header-sortable' + (active === 'views' ? ' active' : '') + '" data-sort="views">Views</span>' +
+    '<span class="row__header-metric row__header-sortable row__header-metric-time' + (active === 'engagement' ? ' active' : '') + '" data-sort="engagement">Time</span>' +
+    '<span class="row__header-metric row__header-metric-eng">Eng.</span>' +
   '</div>';
 }
 
@@ -1199,6 +1603,9 @@ function renderModal() {
 function renderModalBody(a, content) {
   var html = '';
 
+  // Metrics panel — 5 cells
+  html += buildModalMetricsPanel(a);
+
   if (a.imageUrl) {
     html += '<div class="article-modal__hero"><img src="' + esc(a.imageUrl) + '" alt="" onerror="this.parentNode.style.display=\'none\'"></div>';
   }
@@ -1241,6 +1648,69 @@ function renderModalBody(a, content) {
       try { window.twttr.widgets.load($('modalArticleContent')); } catch(e) {}
     }
   }, 100);
+}
+
+/* Build the 5-cell metrics panel shown at the top of the modal */
+function buildModalMetricsPanel(a) {
+  var m = a.metrics;
+  var wc = wordCount(a);
+  var rt = readingTimeMins(a);
+  var lengthStr = wc ? (wc.toLocaleString() + 'w · ' + rt + ' min') : '—';
+
+  function cell(label, value, tierClass, sub) {
+    var valClass = 'modal-metrics__value' + (tierClass ? ' ' + tierClass : '');
+    var subMarkup = sub ? '<div class="modal-metrics__sub">' + esc(sub) + '</div>' : '';
+    return '<div class="modal-metrics__cell">' +
+      '<div class="modal-metrics__label">' + esc(label) + '</div>' +
+      '<div class="' + valClass + '">' + esc(value) + '</div>' +
+      subMarkup +
+      '</div>';
+  }
+
+  var viewsVal, viewsCls, usersVal, usersCls, timeVal, timeCls, engVal, engCls;
+
+  if (m && m.pageViews != null) {
+    viewsVal = m.pageViews.toLocaleString();
+    viewsCls = 'modal-metrics__value--' + viewsTier(m.pageViews);
+  } else {
+    viewsVal = '—';
+    viewsCls = 'modal-metrics__value--null';
+  }
+
+  if (m && m.users != null) {
+    usersVal = m.users.toLocaleString();
+    usersCls = '';  // users not colour-coded (derived metric, no independent threshold)
+  } else {
+    usersVal = '—';
+    usersCls = 'modal-metrics__value--null';
+  }
+
+  if (m && m.avgEngagementTimeSecs != null) {
+    timeVal = formatDuration(m.avgEngagementTimeSecs);
+    timeCls = 'modal-metrics__value--' + dwellTier(m.avgEngagementTimeSecs);
+  } else {
+    timeVal = '—';
+    timeCls = 'modal-metrics__value--null';
+  }
+
+  if (m && m.engagementRate != null) {
+    engVal = formatPct(m.engagementRate);
+    var er = m.engagementRate;
+    engCls = 'modal-metrics__value--' + (er >= 0.5 ? 'green' : (er >= 0.3 ? 'amber' : 'red'));
+  } else {
+    engVal = '—';
+    engCls = 'modal-metrics__value--null';
+  }
+
+  var lengthCls = wc ? '' : 'modal-metrics__value--null';
+
+  return '<div class="modal-metrics">' +
+    cell('Views',   viewsVal, viewsCls, m ? 'Since Oct 2025' : null) +
+    cell('Users',   usersVal, usersCls, null) +
+    cell('Avg time', timeVal,  timeCls,  null) +
+    cell('Engaged', engVal,   engCls,   null) +
+    cell('Length',  lengthStr, lengthCls, null) +
+    '</div>';
 }
 
 function executeInlineScripts(container) {
@@ -1346,6 +1816,7 @@ async function startExport(format) {
     if (STATE.exportCancelled) break;
     
     var a = articles[i];
+    var m = a.metrics;
     var row = {
       headline:      a.postTitle || '',
       subheader:     a.description || '',
@@ -1355,7 +1826,13 @@ async function startExport(format) {
       url:           SITE_BASE + (a.postSlug || ''),
       image_url:     a.imageUrl || '',
       body_text:     '',
-      body_html:     ''
+      body_html:     '',
+      word_count:    wordCount(a) || '',
+      reading_time_mins: readingTimeMins(a) || '',
+      page_views:    (m && m.pageViews != null) ? m.pageViews : '',
+      users:         (m && m.users != null) ? m.users : '',
+      avg_engagement_time_secs: (m && m.avgEngagementTimeSecs != null) ? m.avgEngagementTimeSecs : '',
+      engagement_rate: (m && m.engagementRate != null) ? m.engagementRate : ''
     };
     
     if (format === 'plaintext') {
@@ -1440,13 +1917,21 @@ function csvEscape(s) {
 }
 
 function buildCSV(rows, format) {
+  // Metrics columns appear in all formats — they're small numbers, always useful
+  var metricCols = ['word_count', 'reading_time_mins', 'page_views', 'users', 'avg_engagement_time_secs', 'engagement_rate'];
   var headers;
   if (format === 'meta') {
-    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category', 'image_url', 'url'];
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category']
+      .concat(metricCols)
+      .concat(['image_url', 'url']);
   } else if (format === 'plaintext') {
-    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category', 'body_text', 'image_url', 'url'];
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category']
+      .concat(metricCols)
+      .concat(['body_text', 'image_url', 'url']);
   } else {
-    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category', 'body_text', 'body_html', 'image_url', 'url'];
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category']
+      .concat(metricCols)
+      .concat(['body_text', 'body_html', 'image_url', 'url']);
   }
   
   var lines = [headers.join(',')];
