@@ -5,6 +5,13 @@
 #
 # Manual trigger: Actions tab → "Rebuild article index" → Run workflow.
 # To force a full rebuild, tick the checkbox when triggering manually.
+#
+# CHANGELOG
+# v1.1 (19/04/2026)
+#   - Commit detection now uses `git status --porcelain` instead of
+#     `git diff --quiet`, so new untracked files (e.g. on first run)
+#     are correctly picked up and committed.
+# v1.0 (19/04/2026) — Initial
 # =======================================================================
 
 name: Rebuild article index
@@ -30,34 +37,31 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      
+
       - name: Run rebuild script
         env:
           FORCE_FULL_REBUILD: ${{ github.event.inputs.force_full_rebuild || 'false' }}
         run: node scripts/rebuild-index.js
-      
+
       - name: Commit changes (if any)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          if git diff --quiet assets/data/articles-index.json; then
+
+          # --porcelain catches both modifications AND new untracked files
+          # (git diff --quiet misses new files, which caused first-run failures)
+          if [ -z "$(git status --porcelain assets/data/articles-index.json)" ]; then
             echo "No changes to articles-index.json — skipping commit"
             exit 0
           fi
-          
+
           git add assets/data/articles-index.json
-          
-          # Pull some detail from the script's output (via git diff) for the commit message
-          ADDED=$(git diff --cached --stat assets/data/articles-index.json | tail -1 || echo "updated")
-          
           git commit -m "chore: update article index
 
           Automated rebuild at $(date -u +'%Y-%m-%d %H:%M UTC')"
-          
           git push
