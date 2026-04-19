@@ -1,118 +1,77 @@
-<!doctype html>
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
 <!--
-  Website Archive — NL Tools
-  Version: 1.0
+  NL Tools — Website Archive
+  Version: 1.2
   Date: 19/04/2026
 
   CHANGELOG
+  v1.2 (19/04/2026)
+    - Full rewrite following modern system-file pattern (matches
+      Vacancies v3.10 architecture)
+    - Loads Firebase SDK (compat 10.12.0) BEFORE auth-guard
+    - firebase.initializeApp() with nl-tools config
+    - window.NL_TOOL object for topbar/changelog integration
+    - Topbar reduced to <div id="nlTopbar"></div> auto-rendered by nl-topbar.js
+    - Loads /tools/system/ shared files (nl-brand.css, nl-utils.js,
+      nl-topbar.js, auth-guard.js)
+    - Removed duplicated CSS for topbar, buttons, base reset
+    - Fixes blocking auth-guard error "firebase is not defined"
+
+  v1.1 (19/04/2026)
+    - NL_TOOL_KEY updated to 'staff-website-archive'
+
   v1.0 (19/04/2026)
     - Initial build
-    - Loads articles-index.json from thenationalleague/tools repo
-    - Free-text search across title + sub-header (optional body toggle)
-    - Date range, author, category filters (all optional)
-    - Grid/list view toggle, remembered in localStorage
-    - Modal article view with keyboard shortcuts (← → prev/next, Esc close)
-    - Renders TextBlockWidget prose + ThirdPartyV2Widget content including tweets
-    - Body cache in localStorage for instant reopen
-    - Read-on-site deep link
 -->
-<html lang="en-GB">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Website Archive · NL Tools</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Website Archive — NL Tools</title>
 
-<script>var NL_TOOL_KEY = 'staff-website-archive';</script>
-<script src="/tools/auth-guard.js"></script>
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=9">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+    authDomain:        "nl-tools.firebaseapp.com",
+    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:         "nl-tools",
+    storageBucket:     "nl-tools.firebasestorage.app",
+    messagingSenderId: "801354670005",
+    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+  });
+</script>
+<script>
+  window.NL_TOOL = {
+    title: 'Website Archive',
+    toolKey: 'staff-website-archive'
+  };
+  var NL_TOOL_KEY = 'staff-website-archive';
+
+  window.NL_CHANGELOG = [
+    {
+      date: '19 April 2026',
+      version: 'v1.2',
+      items: [
+        'Initial release — search and read the NL website article archive.',
+        'Filter by date range, author, category, or free-text search.',
+        'Click any article to read in-tool with tweets and embedded widgets.',
+        'Use ← → keys to navigate between articles in a result set.'
+      ]
+    }
+  ];
+</script>
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=6"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <style>
-@font-face {
-  font-family: "carbona-variable";
-  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display: swap; font-style: normal; font-weight: 200 900;
-}
+/* Tool-specific styles only — base reset, fonts, tokens, topbar, buttons
+   and pills all come from nl-brand.css */
 
-:root {
-  --primary: #9e0000;
-  --primary-dim: #7a0000;
-  --navy: #223b7c;
-  --navy-mid: #1a2f63;
-  --red: #c0392b;
-  --red-light: #fdf0ef;
-  --green: #1e7e34;
-  --green-light: #edf7ee;
-  --amber: #e67e22;
-  --amber-light: #fef6ec;
-  --white: #ffffff;
-  --off-white: #f4f6f9;
-  --text: #1a2a44;
-  --text-muted: #5a6a82;
-  --border: #dde3ed;
-  --radius: 6px;
-  --shadow: 0 2px 12px rgba(10,22,40,0.10);
-  --font: 'carbona-variable','carbona',sans-serif;
-}
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body { height: 100%; }
-
-body {
-  font-family: var(--font);
-  font-size: 15px; line-height: 1.5;
-  font-variation-settings: 'wght' 400;
-  color: var(--text);
-  background: var(--off-white);
-}
-
-/* ============ TOPBAR ============ */
-.topbar {
-  background: var(--primary);
-  color: var(--white);
-  padding: 0 20px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-}
-.topbar__logo { height: 42px; flex-shrink: 0; }
-.topbar__title-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1; gap: 3px; }
-.topbar__title {
-  font-weight: 900; font-variation-settings: 'wght' 900;
-  font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.topbar__kicker {
-  font-size: 9px; font-weight: 700; font-variation-settings: 'wght' 700;
-  text-transform: uppercase; letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.6); white-space: nowrap;
-}
-.topbar__user { font-size: 13px; color: rgba(255,255,255,0.8); font-weight: 600; font-variation-settings: 'wght' 600; white-space: nowrap; flex-shrink: 0; }
-.topbar__btn {
-  background: none; border: 1px solid rgba(255,255,255,0.3);
-  color: var(--white); padding: 7px 14px; border-radius: var(--radius);
-  font-size: 11px; font-weight: 700; font-variation-settings: 'wght' 700;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  cursor: pointer; transition: all 0.15s; font-family: var(--font);
-  text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
-  white-space: nowrap; flex-shrink: 0;
-}
-.topbar__btn:hover { background: rgba(255,255,255,0.12); }
-@media (max-width: 700px) {
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar__user { display: none; }
-  .topbar__btn-text-portal { display: none; }
-  .topbar__btn--portal { padding: 7px 10px; }
-  .topbar__title { font-size: 17px; }
-}
-
-/* ============ LAYOUT ============ */
 .main {
   max-width: 1300px;
   margin: 0 auto;
@@ -135,12 +94,8 @@ body {
   align-items: end;
 }
 .filters__row + .filters__row { margin-top: 12px; }
-@media (max-width: 980px) {
-  .filters__row { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 560px) {
-  .filters__row { grid-template-columns: 1fr; }
-}
+@media (max-width: 980px) { .filters__row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .filters__row { grid-template-columns: 1fr; } }
 
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field__label {
@@ -189,8 +144,10 @@ body {
   color: var(--text-muted);
   font-weight: 600; font-variation-settings: 'wght' 600;
 }
-.controls__count strong { color: var(--text); font-weight: 900; font-variation-settings: 'wght' 900; }
-
+.controls__count strong {
+  color: var(--text);
+  font-weight: 900; font-variation-settings: 'wght' 900;
+}
 .controls__spacer { flex: 1; }
 
 .sort-select {
@@ -225,21 +182,6 @@ body {
   background: var(--navy);
   color: var(--white);
 }
-
-.btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 8px 14px; border-radius: var(--radius);
-  font-size: 10px; font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  cursor: pointer; border: none; font-family: var(--font);
-  transition: background 0.15s; white-space: nowrap;
-}
-.btn--primary { background: var(--primary); color: var(--white); }
-.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
-.btn--navy { background: var(--navy); color: var(--white); }
-.btn--navy:hover:not(:disabled) { background: var(--navy-mid); }
-.btn--ghost { background: none; border: 1px solid var(--border); color: var(--text-muted); }
-.btn--ghost:hover:not(:disabled) { background: var(--off-white); }
 
 /* ============ RESULTS — GRID MODE ============ */
 .results-grid {
@@ -282,7 +224,10 @@ body {
   text-transform: uppercase; letter-spacing: 0.06em;
   white-space: nowrap;
 }
-.card__date { color: var(--text-muted); font-weight: 600; font-variation-settings: 'wght' 600; }
+.card__date {
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
 .card__title {
   font-size: 15px;
   font-weight: 700; font-variation-settings: 'wght' 700;
@@ -354,7 +299,11 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   margin-top: 2px;
 }
-.row__author { font-size: 12px; color: var(--text-muted); font-weight: 600; font-variation-settings: 'wght' 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row__author {
+  font-size: 12px; color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .row__cat { display: flex; justify-content: flex-end; }
 
 @media (max-width: 760px) {
@@ -388,7 +337,7 @@ body {
   font-size: 13px;
   font-weight: 600; font-variation-settings: 'wght' 600;
 }
-.spinner {
+.spinner-inline {
   width: 20px; height: 20px;
   border: 2px solid var(--border);
   border-top-color: var(--primary);
@@ -410,7 +359,7 @@ body {
   overscroll-behavior: contain;
 }
 .modal-backdrop.open { display: flex; }
-.modal {
+.article-modal {
   background: var(--white);
   border-radius: 10px;
   max-width: 920px;
@@ -427,7 +376,7 @@ body {
   to   { transform: scale(1); opacity: 1; }
 }
 
-.modal__head {
+.article-modal__head {
   background: var(--primary);
   color: var(--white);
   padding: 12px 20px;
@@ -436,7 +385,7 @@ body {
   gap: 12px;
   flex-shrink: 0;
 }
-.modal__head-meta {
+.article-modal__meta {
   flex: 1;
   font-size: 11px;
   font-weight: 700; font-variation-settings: 'wght' 700;
@@ -447,7 +396,8 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.modal__nav-btn {
+.article-modal__nav-btn,
+.article-modal__close {
   background: rgba(255,255,255,0.14);
   border: none;
   color: var(--white);
@@ -455,33 +405,24 @@ body {
   height: 30px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: background 0.15s;
+  font-family: var(--font);
 }
-.modal__nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.24); }
-.modal__nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.modal__close {
-  background: rgba(255,255,255,0.14);
-  border: none;
-  color: var(--white);
-  width: 30px;
-  height: 30px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 16px;
-  margin-left: 6px;
-}
-.modal__close:hover { background: rgba(255,255,255,0.24); }
+.article-modal__nav-btn { font-size: 14px; }
+.article-modal__close   { font-size: 16px; margin-left: 6px; }
+.article-modal__nav-btn:hover:not(:disabled),
+.article-modal__close:hover { background: rgba(255,255,255,0.24); }
+.article-modal__nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.modal__body {
+.article-modal__body {
   flex: 1;
   overflow-y: auto;
   padding: 30px 40px 40px;
 }
-.modal__hero {
+.article-modal__hero {
   width: 100%;
   aspect-ratio: 16 / 9;
   background: var(--off-white);
@@ -489,9 +430,9 @@ body {
   overflow: hidden;
   margin-bottom: 22px;
 }
-.modal__hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.article-modal__hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-.modal__category {
+.article-modal__category {
   display: inline-block;
   background: var(--navy);
   color: var(--white);
@@ -503,21 +444,21 @@ body {
   letter-spacing: 0.08em;
   margin-bottom: 14px;
 }
-.modal__title {
+.article-modal__title {
   font-size: 28px;
   font-weight: 900; font-variation-settings: 'wght' 900;
   line-height: 1.15;
   color: var(--text);
   margin-bottom: 12px;
 }
-.modal__sub {
+.article-modal__sub {
   font-size: 17px;
   color: var(--text-muted);
   line-height: 1.45;
   margin-bottom: 18px;
   font-weight: 500; font-variation-settings: 'wght' 500;
 }
-.modal__byline {
+.article-modal__byline {
   font-size: 13px;
   color: var(--text-muted);
   font-weight: 700; font-variation-settings: 'wght' 700;
@@ -525,44 +466,44 @@ body {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
 }
-.modal__byline strong { color: var(--text); }
+.article-modal__byline strong { color: var(--text); }
 
-.modal__content {
+.article-modal__content {
   font-size: 16px; line-height: 1.7;
   color: var(--text);
 }
-.modal__content h3 {
+.article-modal__content h3 {
   font-size: 20px;
   font-weight: 900; font-variation-settings: 'wght' 900;
   margin: 26px 0 14px;
   color: var(--text);
   line-height: 1.3;
 }
-.modal__content h3:first-child { margin-top: 0; }
-.modal__content h4 {
+.article-modal__content h3:first-child { margin-top: 0; }
+.article-modal__content h4 {
   font-size: 18px;
   font-weight: 800; font-variation-settings: 'wght' 800;
   margin: 24px 0 10px;
   color: var(--primary);
 }
-.modal__content p { margin-bottom: 14px; }
-.modal__content a { color: var(--navy); text-decoration: underline; }
-.modal__content strong { font-weight: 800; font-variation-settings: 'wght' 800; }
-.modal__content ul, .modal__content ol { padding-left: 22px; margin-bottom: 14px; }
-.modal__content li { margin-bottom: 6px; }
-.modal__content blockquote {
+.article-modal__content p { margin-bottom: 14px; }
+.article-modal__content a { color: var(--navy); text-decoration: underline; }
+.article-modal__content strong { font-weight: 800; font-variation-settings: 'wght' 800; }
+.article-modal__content ul, .article-modal__content ol { padding-left: 22px; margin-bottom: 14px; }
+.article-modal__content li { margin-bottom: 6px; }
+.article-modal__content blockquote {
   border-left: 3px solid var(--primary);
   padding: 4px 0 4px 16px;
   margin: 14px 0;
   color: var(--text-muted);
   font-style: italic;
 }
-.modal__content img { max-width: 100%; height: auto; border-radius: 4px; margin: 10px 0; }
-.modal__content .twitter-tweet { margin: 16px auto !important; }
-.modal__content iframe { max-width: 100%; border-radius: 4px; }
-.modal__content table { max-width: 100%; margin: 16px 0; }
+.article-modal__content img { max-width: 100%; height: auto; border-radius: 4px; margin: 10px 0; }
+.article-modal__content .twitter-tweet { margin: 16px auto !important; }
+.article-modal__content iframe { max-width: 100%; border-radius: 4px; }
+.article-modal__content table { max-width: 100%; margin: 16px 0; }
 
-.modal__foot {
+.article-modal__foot {
   padding: 14px 20px;
   background: var(--off-white);
   border-top: 1px solid var(--border);
@@ -571,7 +512,7 @@ body {
   gap: 10px;
   flex-shrink: 0;
 }
-.modal__foot-hint {
+.article-modal__foot-hint {
   font-size: 10px;
   color: var(--text-muted);
   font-weight: 600; font-variation-settings: 'wght' 600;
@@ -582,58 +523,25 @@ body {
 
 @media (max-width: 700px) {
   .modal-backdrop { padding: 12px; }
-  .modal__body { padding: 20px; }
-  .modal__title { font-size: 22px; }
-  .modal__content { font-size: 15px; }
-  .modal__foot-hint { display: none; }
+  .article-modal__body { padding: 20px; }
+  .article-modal__title { font-size: 22px; }
+  .article-modal__content { font-size: 15px; }
+  .article-modal__foot-hint { display: none; }
 }
-
-/* ============ TOAST ============ */
-.toast {
-  position: fixed; bottom: 24px; right: 24px;
-  background: var(--navy); color: var(--white);
-  padding: 12px 18px; border-radius: var(--radius);
-  font-size: 11px; font-weight: 800; font-variation-settings: 'wght' 800;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-  z-index: 999; transform: translateY(80px); opacity: 0;
-  transition: all 0.25s ease; max-width: 300px; pointer-events: none;
-}
-.toast.show { transform: translateY(0); opacity: 1; }
-.toast.success { border-left: 4px solid var(--green); }
-.toast.error   { border-left: 4px solid var(--red); }
 
 </style>
 </head>
-
 <body>
 
-<div id="pageWrap" style="display:none;">
-
-<header class="topbar">
-  <img class="topbar__logo"
-    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title-wrap">
-    <span class="topbar__title">Website Archive</span>
-    <span class="topbar__kicker">NL Tools</span>
-  </div>
-  <span class="topbar__user" id="topbarUser"></span>
-  <a href="/tools/portal/" class="topbar__btn topbar__btn--portal" aria-label="Back to portal">
-    <span>←</span><span class="topbar__btn-text-portal">Portal</span>
-  </a>
-  <button class="topbar__btn" id="signOutBtn">Sign out</button>
-</header>
-
-<main class="main">
+<div id="nlTopbar"></div>
+<div class="main" id="mainContent">
 
   <!-- FILTERS -->
   <div class="filters">
     <div class="filters__row">
       <div class="field">
         <label class="field__label" for="qInput">Search</label>
-        <input type="search" id="qInput" placeholder="Type to search titles, sub-headers (and optionally body)…" autocomplete="off">
+        <input type="search" id="qInput" placeholder="Type to search titles and sub-headers…" autocomplete="off">
       </div>
       <div class="field">
         <label class="field__label" for="fromInput">From</label>
@@ -659,8 +567,8 @@ body {
     <div class="filters__row" style="grid-template-columns: 1fr auto; align-items: center;">
       <div class="scope">
         <label>
-          <input type="checkbox" id="scopeBody">
-          Include article body in search (slower)
+          <input type="checkbox" id="scopeBody" disabled>
+          Include article body in search (coming soon)
         </label>
       </div>
       <button class="btn btn--ghost" id="resetBtn">Reset filters</button>
@@ -684,39 +592,36 @@ body {
   <!-- RESULTS -->
   <div id="resultsRoot">
     <div class="loading">
-      <div class="spinner"></div>
+      <div class="spinner-inline"></div>
       <div>Loading archive index…</div>
     </div>
   </div>
 
-</main>
-
 </div>
 
 <!-- MODAL -->
-<div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-  <div class="modal" id="modal">
-    <div class="modal__head">
-      <button class="modal__nav-btn" id="prevBtn" title="Previous (←)" aria-label="Previous article">&larr;</button>
-      <button class="modal__nav-btn" id="nextBtn" title="Next (→)" aria-label="Next article">&rarr;</button>
-      <div class="modal__head-meta" id="modalMeta"></div>
-      <button class="modal__close" id="closeBtn" title="Close (Esc)" aria-label="Close">&times;</button>
+<div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="articleModalTitle">
+  <div class="article-modal" id="articleModal">
+    <div class="article-modal__head">
+      <button class="article-modal__nav-btn" id="prevBtn" title="Previous (←)" aria-label="Previous article">&larr;</button>
+      <button class="article-modal__nav-btn" id="nextBtn" title="Next (→)" aria-label="Next article">&rarr;</button>
+      <div class="article-modal__meta" id="modalMeta"></div>
+      <button class="article-modal__close" id="closeBtn" title="Close (Esc)" aria-label="Close">&times;</button>
     </div>
-    <div class="modal__body" id="modalBody">
-      <div class="loading"><div class="spinner"></div><div>Loading article…</div></div>
+    <div class="article-modal__body" id="modalBody">
+      <div class="loading"><div class="spinner-inline"></div><div>Loading article…</div></div>
     </div>
-    <div class="modal__foot">
+    <div class="article-modal__foot">
       <a class="btn btn--navy" id="readOnSite" href="#" target="_blank" rel="noopener">Read on site ↗</a>
-      <span class="modal__foot-hint">← → navigate · Esc to close</span>
+      <span class="article-modal__foot-hint">← → navigate · Esc to close</span>
     </div>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
-
 <script>
 /* ================================================================
    NL Website Archive — main script
+   Entry point is window.nlAuthReady, called by auth-guard.js
    ================================================================ */
 
 var INDEX_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/articles-index.json';
@@ -725,31 +630,23 @@ var SITE_BASE = 'https://www.thenationalleague.org.uk';
 
 var LS_KEY_VIEW = 'nl-archive-view';
 var LS_KEY_BODY_CACHE = 'nl-archive-bodies';
-var BODY_CACHE_CAP_BYTES = 4 * 1024 * 1024; // ~4MB, stay under browser limits
+var BODY_CACHE_CAP_BYTES = 4 * 1024 * 1024;
 
 var STATE = {
-  articles: [],          // full master list
-  filtered: [],          // after current filters
-  view: 'grid',          // 'grid' | 'list'
-  modalIndex: -1,        // which filtered article is open
-  bodyCache: {},         // { slug: { content: [...], ts: <ms> } }
+  articles: [],
+  filtered: [],
+  view: 'grid',
+  modalIndex: -1,
+  bodyCache: {},
   searchTimer: null
 };
 
-/* ============ UTILITIES ============ */
+function $(id) { return document.getElementById(id); }
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;');
-}
-
-function $(id) { return document.getElementById(id); }
-
-function showToast(msg, type) {
-  var t = $('toast');
-  t.textContent = msg;
-  t.className = 'toast ' + (type || 'success') + ' show';
-  setTimeout(function() { t.classList.remove('show'); }, 3000);
 }
 
 function formatDate(iso) {
@@ -778,91 +675,59 @@ function debounce(fn, ms) {
   };
 }
 
-/* ============ AUTH WIRING ============ */
+/* ============ AUTH-GUARD ENTRY POINT ============ */
 window.nlAuthReady = function(session) {
-  var userEl = $('topbarUser');
-  if (userEl) userEl.textContent = (session && (session.name || session.email)) || '';
-  
-  var btn = $('signOutBtn');
-  if (btn && !btn._wired) {
-    btn._wired = true;
-    btn.addEventListener('click', function() {
-      if (window.firebase && firebase.auth) {
-        firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
-      } else {
-        window.location.replace('/tools/');
-      }
-    });
-  }
-  
+  // Topbar rendered automatically by nl-topbar.js from window.NL_TOOL
   init();
 };
 
 /* ============ INIT ============ */
 function init() {
-  // Restore view mode
   var savedView = localStorage.getItem(LS_KEY_VIEW);
   if (savedView === 'list' || savedView === 'grid') {
     STATE.view = savedView;
   }
   applyViewToggleUI();
-  
-  // Load cached bodies
+
   try {
     var raw = localStorage.getItem(LS_KEY_BODY_CACHE);
     if (raw) STATE.bodyCache = JSON.parse(raw);
   } catch (e) { STATE.bodyCache = {}; }
-  
-  // Wire controls
+
   wireControls();
-  
-  // Load the archive index
   loadIndex();
 }
 
 function wireControls() {
-  var q = $('qInput');
-  var dFrom = $('fromInput');
-  var dTo = $('toInput');
-  var auth = $('authorInput');
-  var cat = $('catInput');
-  var scope = $('scopeBody');
-  var sort = $('sortSelect');
-  var reset = $('resetBtn');
-  
   var doFilter = debounce(applyFilters, 150);
-  
-  q.addEventListener('input', doFilter);
-  dFrom.addEventListener('change', applyFilters);
-  dTo.addEventListener('change', applyFilters);
-  auth.addEventListener('change', applyFilters);
-  cat.addEventListener('change', applyFilters);
-  scope.addEventListener('change', applyFilters);
-  sort.addEventListener('change', applyFilters);
-  
-  reset.addEventListener('click', function() {
-    q.value = '';
-    dFrom.value = '';
-    dTo.value = '';
-    auth.value = '';
-    cat.value = '';
-    scope.checked = false;
-    sort.value = 'newest';
+
+  $('qInput').addEventListener('input', doFilter);
+  $('fromInput').addEventListener('change', applyFilters);
+  $('toInput').addEventListener('change', applyFilters);
+  $('authorInput').addEventListener('change', applyFilters);
+  $('catInput').addEventListener('change', applyFilters);
+  $('sortSelect').addEventListener('change', applyFilters);
+
+  $('resetBtn').addEventListener('click', function() {
+    $('qInput').value = '';
+    $('fromInput').value = '';
+    $('toInput').value = '';
+    $('authorInput').value = '';
+    $('catInput').value = '';
+    $('sortSelect').value = 'newest';
     applyFilters();
   });
-  
-  // View toggle
+
   $('viewGrid').addEventListener('click', function() { setView('grid'); });
   $('viewList').addEventListener('click', function() { setView('list'); });
-  
-  // Modal
+
   $('closeBtn').addEventListener('click', closeModal);
   $('prevBtn').addEventListener('click', function() { navModal(-1); });
   $('nextBtn').addEventListener('click', function() { navModal(1); });
   $('modalBackdrop').addEventListener('click', function(e) {
     if (e.target === $('modalBackdrop')) closeModal();
   });
-  
+
   document.addEventListener('keydown', onKeyDown);
 }
 
@@ -879,7 +744,6 @@ function loadIndex() {
         showEmpty('No articles in index', 'The archive index file exists but contains no articles. Trigger a rebuild to populate it.');
         return;
       }
-      // Ensure chronological sort by publishedDateTime desc
       STATE.articles.sort(function(a, b) {
         return (b.publishedDateTime || '').localeCompare(a.publishedDateTime || '');
       });
@@ -887,40 +751,35 @@ function loadIndex() {
       applyFilters();
     })
     .catch(function(err) {
-      showEmpty('Couldn\'t load archive', 'The archive index could not be fetched. ' + (err && err.message ? err.message : '') + '. Check that articles-index.json exists in the tools repo.');
+      showEmpty("Couldn't load archive",
+        'The archive index could not be fetched. ' + (err && err.message ? err.message : '') +
+        '. Check that articles-index.json exists in the tools repo.');
     });
 }
 
 function populateFilterDropdowns() {
   var authors = {};
   var cats = {};
-  
   STATE.articles.forEach(function(a) {
     var au = (a.postAuthor || '').trim();
     var c = a.newsCategory || '';
     if (au) authors[au] = (authors[au] || 0) + 1;
     if (c) cats[c] = (cats[c] || 0) + 1;
   });
-  
+
   var authorSel = $('authorInput');
   authorSel.innerHTML = '<option value="">Any author</option>';
-  Object.keys(authors).sort(function(a, b) {
-    return authors[b] - authors[a];
-  }).forEach(function(au) {
+  Object.keys(authors).sort(function(a, b) { return authors[b] - authors[a]; }).forEach(function(au) {
     var opt = document.createElement('option');
-    opt.value = au;
-    opt.textContent = au + ' (' + authors[au] + ')';
+    opt.value = au; opt.textContent = au + ' (' + authors[au] + ')';
     authorSel.appendChild(opt);
   });
-  
+
   var catSel = $('catInput');
   catSel.innerHTML = '<option value="">Any category</option>';
-  Object.keys(cats).sort(function(a, b) {
-    return cats[b] - cats[a];
-  }).forEach(function(c) {
+  Object.keys(cats).sort(function(a, b) { return cats[b] - cats[a]; }).forEach(function(c) {
     var opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c + ' (' + cats[c] + ')';
+    opt.value = c; opt.textContent = c + ' (' + cats[c] + ')';
     catSel.appendChild(opt);
   });
 }
@@ -932,31 +791,29 @@ function applyFilters() {
   var to = $('toInput').value || '';
   var author = $('authorInput').value || '';
   var cat = $('catInput').value || '';
-  var scopeBody = $('scopeBody').checked;
   var sort = $('sortSelect').value;
-  
+
   var out = STATE.articles.filter(function(a) {
     var date = (a.publishedDateTime || '').slice(0, 10);
     if (from && date < from) return false;
     if (to && date > to) return false;
     if (author && (a.postAuthor || '').trim() !== author) return false;
     if (cat && a.newsCategory !== cat) return false;
-    
+
     if (q) {
       var hay = ((a.postTitle || '') + ' ' + (a.description || '')).toLowerCase();
-      if (scopeBody && a.bodyText) hay += ' ' + a.bodyText.toLowerCase();
       if (hay.indexOf(q) === -1) return false;
     }
-    
+
     return true;
   });
-  
+
   if (sort === 'oldest') {
     out.sort(function(a, b) { return (a.publishedDateTime || '').localeCompare(b.publishedDateTime || ''); });
   } else {
     out.sort(function(a, b) { return (b.publishedDateTime || '').localeCompare(a.publishedDateTime || ''); });
   }
-  
+
   STATE.filtered = out;
   renderResults();
 }
@@ -966,29 +823,27 @@ function renderResults() {
   var root = $('resultsRoot');
   var n = STATE.filtered.length;
   var total = STATE.articles.length;
-  
+
   $('countDisplay').innerHTML = '<strong>' + n.toLocaleString() + '</strong> of ' + total.toLocaleString() + ' articles';
-  
+
   if (!n) {
     root.innerHTML = '<div class="empty"><div class="empty__title">No matches</div><div class="empty__msg">No articles match these filters. Try broadening the date range, clearing search terms, or picking "Any author/category".</div></div>';
     return;
   }
-  
-  // Cap visible to 300 for performance; users can narrow further via filters
+
   var cap = 300;
   var toRender = STATE.filtered.slice(0, cap);
-  
+
   if (STATE.view === 'grid') {
     root.innerHTML = '<div class="results-grid">' + toRender.map(cardHTML).join('') + '</div>';
   } else {
     root.innerHTML = '<div class="results-list">' + toRender.map(rowHTML).join('') + '</div>';
   }
-  
+
   if (n > cap) {
     root.innerHTML += '<div class="empty" style="margin-top: 14px; padding: 20px;"><div class="empty__msg">Showing first ' + cap.toLocaleString() + ' of ' + n.toLocaleString() + ' matches. Narrow filters to see the rest.</div></div>';
   }
-  
-  // Wire card clicks
+
   var cards = root.querySelectorAll('[data-idx]');
   cards.forEach(function(el) {
     el.addEventListener('click', function() {
@@ -1003,7 +858,7 @@ function cardHTML(a, i) {
     ? '<img class="card__img" src="' + esc(img) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling&&(this.nextElementSibling.style.display=\'flex\')">'
     : '';
   var placeholderStyle = img ? 'display:none;' : '';
-  
+
   return '<div class="card" data-idx="' + i + '">' +
     '<div class="card__img-wrap">' +
       imgMarkup +
@@ -1026,7 +881,7 @@ function rowHTML(a, i) {
   var imgMarkup = img
     ? '<img src="' + esc(img) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
     : '';
-  
+
   return '<div class="row" data-idx="' + i + '">' +
     '<div class="row__img">' + imgMarkup + '</div>' +
     '<div class="row__date">' + esc(formatDate(a.publishedDateTime)) + '</div>' +
@@ -1087,37 +942,29 @@ function navModal(delta) {
 function renderModal() {
   var a = STATE.filtered[STATE.modalIndex];
   if (!a) return;
-  
-  // Header meta + counter
+
   var metaText = (a.newsCategory || '—') + ' · ' + formatDateLong(a.publishedDateTime) + ' · ' + ((a.postAuthor || '').trim() || '—') + '   ·   ' + (STATE.modalIndex + 1) + ' of ' + STATE.filtered.length;
   $('modalMeta').textContent = metaText;
-  
-  // Prev/next button state
+
   $('prevBtn').disabled = STATE.modalIndex <= 0;
   $('nextBtn').disabled = STATE.modalIndex >= STATE.filtered.length - 1;
-  
-  // Read on site link
+
   var onSite = a.postSlug ? (SITE_BASE + a.postSlug) : '#';
   $('readOnSite').href = onSite;
-  
-  // Body — show loading until fetched
+
   var body = $('modalBody');
-  
-  // Check cache first
+
   var cached = STATE.bodyCache[a.postSlug];
   if (cached && cached.content) {
     renderModalBody(a, cached.content);
     return;
   }
-  
-  body.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading article…</div></div>';
-  
+
+  body.innerHTML = '<div class="loading"><div class="spinner-inline"></div><div>Loading article…</div></div>';
+
   fetchArticleBody(a.postSlug).then(function(content) {
-    // Stash in memory cache and persist
     STATE.bodyCache[a.postSlug] = { content: content, ts: Date.now() };
     persistBodyCache();
-    
-    // Guard: user may have navigated away while fetching
     var current = STATE.filtered[STATE.modalIndex];
     if (current && current.postSlug === a.postSlug) {
       renderModalBody(a, content);
@@ -1133,58 +980,44 @@ function renderModal() {
 
 function renderModalBody(a, content) {
   var html = '';
-  
-  // Hero image
+
   if (a.imageUrl) {
-    html += '<div class="modal__hero"><img src="' + esc(a.imageUrl) + '" alt="" onerror="this.parentNode.style.display=\'none\'"></div>';
+    html += '<div class="article-modal__hero"><img src="' + esc(a.imageUrl) + '" alt="" onerror="this.parentNode.style.display=\'none\'"></div>';
   }
-  
-  // Category pill
   if (a.newsCategory) {
-    html += '<div class="modal__category">' + esc(a.newsCategory) + '</div>';
+    html += '<div class="article-modal__category">' + esc(a.newsCategory) + '</div>';
   }
-  
-  // Title
-  html += '<h1 class="modal__title" id="modalTitle">' + esc(a.postTitle || '') + '</h1>';
-  
-  // Sub-header
+  html += '<h1 class="article-modal__title" id="articleModalTitle">' + esc(a.postTitle || '') + '</h1>';
   if (a.description) {
-    html += '<div class="modal__sub">' + esc(a.description) + '</div>';
+    html += '<div class="article-modal__sub">' + esc(a.description) + '</div>';
   }
-  
-  // Byline
+
   var byline = '';
   if (a.postAuthor) byline += 'By <strong>' + esc(a.postAuthor) + '</strong>';
   if (a.publishedDateTime) byline += (byline ? ' · ' : '') + formatDateLong(a.publishedDateTime);
-  if (byline) html += '<div class="modal__byline">' + byline + '</div>';
-  
-  // Content — combine all widget rows in order
-  html += '<div class="modal__content" id="modalArticleContent">';
+  if (byline) html += '<div class="article-modal__byline">' + byline + '</div>';
+
+  html += '<div class="article-modal__content" id="modalArticleContent">';
   content.forEach(function(row) {
     if (!row || !row.rowData) return;
     var widget = row.rowData;
     var type = widget.widgetType;
     var data = widget.widgetData;
     if (!data) return;
-    
+
     if (type === 'TextBlockWidget') {
       if (data.content) html += data.content;
     } else if (type === 'ThirdPartyV2Widget') {
-      // Tweets, custom HTML, embedded widgets — include as-is
       if (data.content) html += '<div class="embed-widget">' + data.content + '</div>';
     }
-    // Other widget types silently skipped; extend later if needed
   });
   html += '</div>';
-  
+
   $('modalBody').innerHTML = html;
   $('modalBody').scrollTop = 0;
-  
-  // Run any inline <script> tags present in embedded widgets
-  // (byslug response often includes the Twitter widgets.js script tag inside the content)
+
   executeInlineScripts($('modalArticleContent'));
-  
-  // Nudge Twitter to rescan — their widgets.js watches for new tweets
+
   setTimeout(function() {
     if (window.twttr && window.twttr.widgets && window.twttr.widgets.load) {
       try { window.twttr.widgets.load($('modalArticleContent')); } catch(e) {}
@@ -1209,7 +1042,7 @@ function executeInlineScripts(container) {
 function fetchArticleBody(slug) {
   if (!slug) return Promise.reject(new Error('No slug provided'));
   var url = BYSLUG_URL + '?postSlug=' + encodeURI(slug);
-  
+
   return fetch(url, { method: 'GET', headers: { 'Accept': '*/*' } })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1227,14 +1060,12 @@ function fetchArticleBody(slug) {
 function persistBodyCache() {
   try {
     var raw = JSON.stringify(STATE.bodyCache);
-    // Evict oldest entries if we're over the cap
     if (raw.length > BODY_CACHE_CAP_BYTES) {
       evictOldestCacheEntries();
       raw = JSON.stringify(STATE.bodyCache);
     }
     localStorage.setItem(LS_KEY_BODY_CACHE, raw);
   } catch (e) {
-    // Quota exceeded — nuke and try again
     STATE.bodyCache = {};
     try { localStorage.removeItem(LS_KEY_BODY_CACHE); } catch (_) {}
   }
@@ -1245,7 +1076,6 @@ function evictOldestCacheEntries() {
     return { key: k, ts: STATE.bodyCache[k].ts || 0 };
   });
   entries.sort(function(a, b) { return a.ts - b.ts; });
-  // Drop oldest 25%
   var dropCount = Math.ceil(entries.length * 0.25);
   for (var i = 0; i < dropCount; i++) {
     delete STATE.bodyCache[entries[i].key];
@@ -1255,14 +1085,12 @@ function evictOldestCacheEntries() {
 /* ============ KEYBOARD ============ */
 function onKeyDown(e) {
   var modalOpen = $('modalBackdrop').classList.contains('open');
-  
+
   if (modalOpen) {
     if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); navModal(-1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); navModal(1); }
-    // Up/Down scroll is native for modal body; nothing to intercept
   } else {
-    // "/" focuses search (not inside inputs already)
     if (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT' && document.activeElement.tagName !== 'TEXTAREA') {
       e.preventDefault();
       $('qInput').focus();
