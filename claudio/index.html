@@ -2,10 +2,37 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 4.0-rc4
+  Version: 4.1-alpha
   Date: 19/04/2026
 
   CHANGELOG
+  v4.1-alpha (19/04/2026) — Switchboard refactor
+    - Claudio is now a pure switchboard. A new tiny triage call
+      (runTriageCall_) classifies every incoming message into:
+        ROUTE:roger | ROUTE:seth | ROUTE:mark
+        SELF:greet  | SELF:staff | SELF:procedural | SELF:chat | SELF:unknown
+      Triage prompt is ~400 tokens, no tools, output capped at 20 tokens.
+      Cost per triage call: ~500 tokens.
+    - Dispatcher: runSwitchboardTurn_ (replaces runOrchestratedTurn_)
+        ROUTE:X → calls specialist directly, ONE specialist call,
+                  no Claudio wrapper. Saves ~3,000 tokens per turn.
+        SELF:greet → returns specialReply="hardcoded_greeting", NO
+                  second API call. Client picks from local pool of
+                  6 warm Italian openers. Cost: just the triage call.
+        SELF:*   → calls Claudio with his full prompt + 2 tools.
+    - Retired: <handoff> marker parsing, parsePassBack_ invocation.
+      Routing is now explicit at dispatcher level. Claudio\'s prompt
+      dropped the handoff rules and examples (saves ~500 tokens on
+      his "real" prompt).
+    - Kept from prior versions:
+        rc3: repeat-tool guard in runToolLoop_
+        rc4: per-persona 429 nudges + cooldown chips
+    - Expected cost profile:
+        "hello"            : ~500 tokens  (was ~3,500)
+        "who is Phil"      : ~4,000 tokens (was ~3,500)
+        "biggest wins 2002": ~7,500 tokens (was ~10,500)
+        "draft email"      : ~7,500 tokens (was ~10,500)
+
   v4.0-rc4 (19/04/2026) — Per-persona 429 nudges + chip cooldown
     - Rate-limit recovery bubbles now come from CLAUDIO (not the
       specialist), in his Italian voice, with per-persona "meet me in X"
@@ -622,9 +649,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="4.0-rc4">
-  <meta name="build-time" content="2026-04-19T10:00:00Z">
-  <title>Claudio v4.0-rc4 — NL Tools</title>
+  <meta name="app-version" content="4.1-alpha">
+  <meta name="build-time" content="2026-04-19T11:00:00Z">
+  <title>Claudio v4.1-alpha — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -2001,7 +2028,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-rc4</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v4.1-alpha</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -4367,6 +4394,64 @@ function wireTopbar(session) {
             return;
           }
 
+          // v4.1-alpha: hardcoded greeting path. Backend triage said SELF:greet,
+          // no second API call was made. We pick a randomised warm Italian
+          // opener from a local pool \u2014 zero-cost to the conversation.
+          if (result.specialReply === 'hardcoded_greeting') {
+            var greetingPool = [
+              'Buongiorno, amico! What can I help you with today?',
+              'Ciao! Piacere. What\'s on your mind?',
+              'Allora, good morning! How can I help?',
+              'Ecco qui! Welcome back. What do you need?',
+              'Ma certo, hello to you! What brings you in?',
+              'Benvenuto! How can I help today?'
+            ];
+            var pickedGreeting = greetingPool[Math.floor(Math.random() * greetingPool.length)];
+
+            var greetMsg = {
+              role:       'assistant',
+              persona:    'claudio',
+              content:    pickedGreeting,
+              kind:       'answer',
+              ts:         Date.now(),
+              cost_pence: result.cost_pence || 0,
+              tokens:     result.tokens
+                ? ((result.tokens.input || 0) + (result.tokens.output || 0) + (result.tokens.cache_read || 0) + (result.tokens.cache_write || 0))
+                : 0,
+              tool_calls:  [],
+              suggestions: []
+            };
+
+            STATE.messages.push(greetMsg);
+            saveMessageToRTDB(convId, greetMsg);
+
+            var chatInner2 = document.getElementById('chatInner');
+            var bubble = buildMsgEl(greetMsg);
+            chatInner2.appendChild(bubble);
+
+            STATE.dailyCount = result.count || STATE.dailyCount;
+            STATE.dailyCost = result.cost_today || STATE.dailyCost;
+            updateCostBadge();
+
+            // Finalise conversation metadata
+            var convIndex = -1;
+            for (var i = 0; i < STATE.convs.length; i++) {
+              if (STATE.convs[i].id === convId) { convIndex = i; break; }
+            }
+            if (convIndex >= 0) {
+              STATE.convs[convIndex].updated = Date.now();
+              STATE.convs[convIndex].lastMsg = pickedGreeting.substring(0, 80);
+              STATE.convs[convIndex].persona = activePersona;
+              STATE.db.ref('app-data/staff-claudio/conversations/' + STATE.session.uid + '/' + convId + '/meta')
+                .update({ updated: STATE.convs[convIndex].updated, lastMsg: STATE.convs[convIndex].lastMsg });
+              renderConvList();
+            }
+
+            STATE.sending = false;
+            setSendingUI(false);
+            return;
+          }
+
           // v4.0-alpha: if the backend returned a segments array, render each
           // as its own bubble IN SEQUENCE \u2014 one segment's typewriter must
           // finish before the next begins. Each bubble starts hidden and
@@ -5019,56 +5104,25 @@ function wireTopbar(session) {
         '- **Mark** \u2014 the comms officer. Handles drafts and editing: emails, letters, press notes, statements, LinkedIn posts, internal comms. Any request to "draft", "write", "put together a note", "edit this" \u2014 **that is MARK\'S patch.**',
         '- **Jacqueline** \u2014 HR (not built yet, but she\'s coming). Will handle holiday, lieu, handbook, leave.',
         '',
-        '## Your handoff rule (THE most important instruction)',
-        'When a user\'s question belongs to Roger, Seth, or Mark: DO NOT try to answer yourself. Emit a handoff marker and stop. The backend will fetch the real specialist with their full knowledge and tools.',
+        '## How routing works',
+        'A triage layer decides which persona answers each user message. When YOU are called, the user has been routed to YOU \u2014 answer directly. Don\'t hand off. Don\'t suggest other people. If the routing was wrong and you genuinely can\'t help, say so plainly in one line and the user can ask differently.',
         '',
-        '### Syntax',
-        '',
-        '**Theatrical** \u2014 clear specialist question, you announce warmly:',
-        '    <handoff persona="roger" theatrical="yes">Allora, this is Roger\'s patch \u2014 Roger?</handoff>',
-        '',
-        '**Silent** \u2014 routine, no preamble:',
-        '    <handoff persona="seth" theatrical="no" />',
-        '',
-        'Persona values: `roger` | `seth` | `mark`. Aim for roughly 50/50 theatrical to silent.',
-        '',
-        '### When to hand off',
-        '- **Roger**: anything about past seasons, historical records, all-time stats (1979 to 2024-25)',
-        '- **Seth**: anything about this season (' + currentSeasonStr + '): standings, fixtures, recent results, form',
-        '- **Mark**: anything asking you to draft, write, edit text for onward use',
-        '',
-        '### What NOT to do',
-        '- Don\'t put handoff markers in the MIDDLE of a long reply. Either the whole reply is handoff, or no handoff at all.',
-        '- Don\'t emit a handoff AND also answer the question.',
-        '- Don\'t attempt historical stats, current-season stats, or drafts from memory. Always hand off.',
-        '',
-        '### Examples',
-        '',
-        'User: "What were the biggest wins in 2002-03?"',
-        'Your reply: `<handoff persona="roger" theatrical="yes">Ah, this is Roger\'s patch! Roger, amico?</handoff>`',
-        '',
-        'User: "Who\'s Phil Smith?"',
-        'Your reply (you have getStaff, answer yourself): "Certo! Let me check..." [calls getStaff]',
-        '',
-        'User: "Draft me a short note to Phil."',
-        'Your reply: `<handoff persona="mark" theatrical="yes">Ma certo, Mark is your man for drafts!</handoff>`',
+        '## What you handle (when routed to you)',
+        '- Staff lookups via getStaff ("who is Phil?", "who\'s the CEO?", "who handles comms?")',
+        '- Website content via fetchNLSite (news, editorial, published club info)',
+        '- General chat: greetings (though those are usually hardcoded), thanks, summarising pasted text, brainstorming',
+        '- NL procedural questions you genuinely know: how promotion works, when the season starts, division structure',
+        '- Line manager / approver questions \u2014 you have the user\'s line manager in context',
         '',
         '## What you DO handle yourself',
-        '- Staff lookups (getStaff), NL website content (fetchNLSite)',
-        '- General chat, greetings, summarising pasted text, brainstorming',
-        '- "Who\'s my line manager?" questions \u2014 you have that in context',
-        '- Procedural NL questions you clearly know (how promotion works, when season starts)',
-        '',
-        '## Greetings \u2014 KEEP THEM SHORT',
-        'When the user says "hello", "hi", "morning" etc, reply with ONE warm Italian line. Do NOT list the whole team. Do NOT explain your role at length. Do NOT produce a feature tour. Just greet them and ask what they need. Examples:',
-        '- "Buongiorno, amico! What can I help you with today?"',
-        '- "Ciao! Piacere. What\'s on your mind?"',
-        '- "Allora, good morning! How can I help?"',
-        '',
-        'The team introduction is ONLY for when users explicitly ask "what can you do" or "who else is there?". Don\'t front-load it into greetings.',
+        '- Staff lookups via getStaff ("who is Phil?", "who\'s the CEO?", "who handles comms?")',
+        '- Website content via fetchNLSite (news, editorial, published club info)',
+        '- General chat: greetings (though those are usually hardcoded), thanks, summarising pasted text, brainstorming',
+        '- NL procedural questions you genuinely know: how promotion works, when the season starts, division structure',
+        '- Line manager / approver questions \u2014 you have the user\'s line manager in context',
         '',
         '## About The National League',
-        'The National League is English football\'s fifth tier. Three divisions: National League (tier 5), NL North (tier 6), NL South (tier 6). 72 clubs across all three. Also runs NL Trust (charity) and U19 Alliance (youth). You don\'t need the full clubs list \u2014 Roger/Seth have that.',
+        'The National League is English football\'s fifth tier. Three divisions: National League (tier 5), NL North (tier 6), NL South (tier 6). 72 clubs across all three. Also runs NL Trust (charity) and U19 Alliance (youth).',
         '',
         '## Your tools (2)',
         '',
@@ -5076,7 +5130,7 @@ function wireTopbar(session) {
         '',
         '**fetchNLSite({path})** \u2014 fetch a page from thenationalleague.org.uk.',
         '',
-        'You have NO OTHER tools. If the question needs stats, drafts, or current-season data \u2014 hand off.',
+        'You have NO OTHER tools. If the question was routed to you but is genuinely a specialist question (stats, drafts, live data), say plainly you can\'t help and the user can ask again.',
         '',
         '## Handling "what can you do?" / "who else is there?"',
         'ONLY when explicitly asked, give a brief rundown: Roger (archive), Seth (current season), Mark (drafts), Jacqueline (HR, coming). Keep to ~50 words total. Don\'t recite this unprompted.',
