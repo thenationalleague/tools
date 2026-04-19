@@ -1,16 +1,24 @@
-name: Fetch GA metrics
+name: Rebuild article index
 
 on:
+  schedule:
+    - cron: '0 3 * * *'
   workflow_dispatch:
+    inputs:
+      force_full_rebuild:
+        description: 'Force full rebuild (ignore existing index)'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  fetch:
+  rebuild:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 180
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -21,7 +29,7 @@ jobs:
           node-version: '20'
 
       - name: Install npm dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -30,26 +38,43 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Run GA metrics fetch
+      - name: Fetch GA metrics
         env:
           GA_PROPERTY_ID: ${{ secrets.GA_PROPERTY_ID }}
         run: node scripts/fetch-ga-metrics.js
+        continue-on-error: true
 
-      - name: Upload ga-metrics.json as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ga-metrics
-          path: assets/data/ga-metrics.json
-          retention-days: 7
+      - name: Rebuild article index
+        env:
+          FORCE_FULL_REBUILD: ${{ github.event.inputs.force_full_rebuild || 'false' }}
+        run: node scripts/rebuild-index.js
 
       - name: Commit changes if any
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -z "$(git status --porcelain assets/data/ga-metrics.json)" ]; then
-            echo "No changes to ga-metrics.json, skipping commit"
+          git add assets/data/articles-index.json assets/data/ga-metrics.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
             exit 0
           fi
-          git add assets/data/ga-metrics.json
-          git commit -m "chore: update GA metrics"
-          git push
+          git commit -m "chore: update article index and GA metrics"
+
+          # Push with up to 3 retries. If remote moved while we were working,
+          # rebase our single commit on top of the new remote HEAD and try again.
+          # Our commit only touches assets/data/*.json so rebase conflicts are
+          # essentially impossible against typical tool/code changes.
+          for i in 1 2 3; do
+            if git push; then
+              echo "Push succeeded on attempt $i"
+              exit 0
+            fi
+            echo "Push attempt $i failed - fetching and rebasing"
+            git fetch origin main
+            git rebase origin/main || {
+              echo "Rebase failed - bailing"
+              exit 1
+            }
+          done
+          echo "All 3 push attempts failed"
+          exit 1
