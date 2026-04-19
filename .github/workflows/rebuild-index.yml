@@ -4,13 +4,15 @@
 # Commits changes to articles-index.json if the master has been modified.
 #
 # Manual trigger: Actions tab → "Rebuild article index" → Run workflow.
-# To force a full rebuild, tick the checkbox when triggering manually.
+# Tick "force full rebuild" when triggering manually to rebuild from scratch.
 #
 # CHANGELOG
+# v1.2 (19/04/2026)
+#   - Bumped job timeout to 3 hours to safely accommodate full rebuild
+#     with body fetching (rebuild-index.js v2.0 fetches ~10,735 bodies
+#     at 500ms each = ~90 mins worst case).
 # v1.1 (19/04/2026)
-#   - Commit detection now uses `git status --porcelain` instead of
-#     `git diff --quiet`, so new untracked files (e.g. on first run)
-#     are correctly picked up and committed.
+#   - git status --porcelain for new-file commit detection
 # v1.0 (19/04/2026) — Initial
 # =======================================================================
 
@@ -34,6 +36,7 @@ permissions:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -53,8 +56,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # --porcelain catches both modifications AND new untracked files
-          # (git diff --quiet misses new files, which caused first-run failures)
           if [ -z "$(git status --porcelain assets/data/articles-index.json)" ]; then
             echo "No changes to articles-index.json — skipping commit"
             exit 0
