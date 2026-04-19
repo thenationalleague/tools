@@ -1,24 +1,16 @@
-name: Rebuild article index
+name: Fetch GA metrics
 
 on:
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
-    inputs:
-      force_full_rebuild:
-        description: 'Force full rebuild (ignore existing index)'
-        required: false
-        default: 'false'
-        type: boolean
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  rebuild:
+  fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 15
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -29,7 +21,7 @@ jobs:
           node-version: '20'
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm ci || npm install
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -38,25 +30,26 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Fetch GA metrics
+      - name: Run GA metrics fetch
         env:
           GA_PROPERTY_ID: ${{ secrets.GA_PROPERTY_ID }}
         run: node scripts/fetch-ga-metrics.js
-        continue-on-error: true
 
-      - name: Rebuild article index
-        env:
-          FORCE_FULL_REBUILD: ${{ github.event.inputs.force_full_rebuild || 'false' }}
-        run: node scripts/rebuild-index.js
+      - name: Upload ga-metrics.json as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-metrics
+          path: assets/data/ga-metrics.json
+          retention-days: 7
 
       - name: Commit changes if any
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/data/articles-index.json assets/data/ga-metrics.json 2>/dev/null || true
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
+          if [ -z "$(git status --porcelain assets/data/ga-metrics.json)" ]; then
+            echo "No changes to ga-metrics.json, skipping commit"
             exit 0
           fi
-          git commit -m "chore: update article index and GA metrics"
+          git add assets/data/ga-metrics.json
+          git commit -m "chore: update GA metrics"
           git push
