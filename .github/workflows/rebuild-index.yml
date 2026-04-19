@@ -1,31 +1,7 @@
-# =======================================================================
-# NL Archive Index — Scheduled Rebuild
-# Runs once daily to pull new articles and any edits from the NL CMS.
-# Commits changes to articles-index.json if the master has been modified.
-#
-# Manual trigger: Actions tab → "Rebuild article index" → Run workflow.
-# Tick "force full rebuild" when triggering manually to rebuild from scratch.
-#
-# CHANGELOG
-# v1.3 (19/04/2026)
-#   - Schedule changed from every-6-hours to once-daily at 03:00 UTC.
-#     Eliminates collision risk when full rebuilds are triggered manually
-#     (which can take ~90 mins). Archive sees 5-10 new articles per day so
-#     once-daily is plenty.
-# v1.2 (19/04/2026)
-#   - Bumped job timeout to 3 hours to safely accommodate full rebuild
-#     with body fetching (rebuild-index.js v2.0 fetches ~10,735 bodies
-#     at 500ms each = ~90 mins worst case).
-# v1.1 (19/04/2026)
-#   - git status --porcelain for new-file commit detection
-# v1.0 (19/04/2026) — Initial
-# =======================================================================
-
 name: Rebuild article index
 
 on:
   schedule:
-    # Once daily at 03:00 UTC (04:00 BST / 05:00 CEST — a quiet hour).
     - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
@@ -37,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   rebuild:
@@ -51,23 +28,35 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run rebuild script
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Fetch GA metrics
+        env:
+          GA_PROPERTY_ID: ${{ secrets.GA_PROPERTY_ID }}
+        run: node scripts/fetch-ga-metrics.js
+        continue-on-error: true
+
+      - name: Rebuild article index
         env:
           FORCE_FULL_REBUILD: ${{ github.event.inputs.force_full_rebuild || 'false' }}
         run: node scripts/rebuild-index.js
 
-      - name: Commit changes (if any)
+      - name: Commit changes if any
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          if [ -z "$(git status --porcelain assets/data/articles-index.json)" ]; then
-            echo "No changes to articles-index.json — skipping commit"
+          git add assets/data/articles-index.json assets/data/ga-metrics.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
             exit 0
           fi
-
-          git add assets/data/articles-index.json
-          git commit -m "chore: update article index
-
-          Automated rebuild at $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git commit -m "chore: update article index and GA metrics"
           git push
