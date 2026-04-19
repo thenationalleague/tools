@@ -1,6 +1,6 @@
 /* =======================================================================
    NL Archive Index Rebuild
-   Version: 2.0
+   Version: 2.1
    Date: 19/04/2026
 
    Builds or updates assets/data/articles-index.json from the NL CMS.
@@ -15,11 +15,18 @@
      INCREMENTAL UPDATE — articles-index.json exists with bodyText.
                           Fetches page 1 of search, merges new postIDs +
                           edits, fetches bodies only for those.
-                          Runs every 6 hours, ~5-10 seconds.
+                          Runs once daily, ~5-10 seconds.
 
    MANUAL FULL REBUILD — set FORCE_FULL_REBUILD=true to rebuild from scratch.
 
    CHANGELOG
+   v2.1 (19/04/2026)
+     - Fix hero images for imported/legacy articles. Native articles have
+       imageData.location (absolute S3 URL); imported articles only have
+       imageData.key (filename). resolveImageUrl() now constructs the full
+       URL from the S3 bucket when only a key is present.
+     - Affects ~7,000 pre-Oct-2025 articles. Requires full rebuild to apply
+       retroactively — incremental runs only fix articles as they're touched.
    v2.0 (19/04/2026)
      - Adds bodyText field to each article record (plaintext, whitespace-collapsed)
      - First-time build fetches bodies for every article (rate-limited)
@@ -100,6 +107,20 @@ function extractBodyText(byslugBody) {
 
 /* ============ ARTICLE STRIPPING ============ */
 
+// CMS images are served from this S3 bucket. Native articles include a
+// pre-built `location` URL in imageData; imported/legacy articles only include
+// a `key` filename and the front end constructs the URL from that.
+const S3_IMAGE_BASE = 'https://s3.eu-west-1.amazonaws.com/gc-media-assets-v2.gc.nationalleagueservices.co.uk/';
+
+function resolveImageUrl(imageData) {
+  if (!imageData) return '';
+  // Native articles: pre-built absolute URL
+  if (imageData.location) return imageData.location;
+  // Imported/legacy articles: construct from S3 bucket + key
+  if (imageData.key) return S3_IMAGE_BASE + imageData.key;
+  return '';
+}
+
 function stripArticleMeta(a) {
   const attr = a.attributes || a;
   return {
@@ -111,7 +132,7 @@ function stripArticleMeta(a) {
     savedTimestamp:    attr.savedTimestamp || '',
     newsCategory:      attr.newsCategory || attr.postCategoryName || '',
     postSlug:          attr.postSlug || '',
-    imageUrl:          (attr.imageData && attr.imageData.location) || '',
+    imageUrl:          resolveImageUrl(attr.imageData),
     bodyText:          ''  // populated after byslug fetch
   };
 }
