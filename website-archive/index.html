@@ -3,10 +3,20 @@
 <head>
 <!--
   NL Tools — Website Archive
-  Version: 1.2
+  Version: 1.3
   Date: 19/04/2026
 
   CHANGELOG
+  v1.3 (19/04/2026)
+    - Body text search enabled — requires articles-index.json v2+
+      (with bodyText field populated by rebuild-index.js v2.0)
+    - CSV export dropdown for admins — three formats:
+        * Metadata only (instant)
+        * With plaintext body (instant, uses bodyText from index)
+        * With full HTML body (rate-limited byslug fetch per article)
+    - Export button only visible to admins (session.tools.{key}.admin)
+    - Confirmation dialogue for full-HTML exports over 50 articles
+
   v1.2 (19/04/2026)
     - Full rewrite following modern system-file pattern (matches
       Vacancies v3.10 architecture)
@@ -54,7 +64,16 @@
   window.NL_CHANGELOG = [
     {
       date: '19 April 2026',
-      version: 'v1.2',
+      version: 'v1.3',
+      items: [
+        'Search now covers full article body text, not just titles and sub-headers.',
+        'Admin-only CSV export for bulk downloads of filtered results.',
+        'Reading experience unchanged — articles still render in full with images, tweets and embedded widgets.'
+      ]
+    },
+    {
+      date: '19 April 2026',
+      version: 'v1.0',
       items: [
         'Initial release — search and read the NL website article archive.',
         'Filter by date range, author, category, or free-text search.',
@@ -521,12 +540,124 @@
   margin-left: auto;
 }
 
-@media (max-width: 700px) {
-  .modal-backdrop { padding: 12px; }
-  .article-modal__body { padding: 20px; }
-  .article-modal__title { font-size: 22px; }
-  .article-modal__content { font-size: 15px; }
-  .article-modal__foot-hint { display: none; }
+/* ============ EXPORT DROPDOWN ============ */
+.export-wrap {
+  position: relative;
+}
+.export-btn {
+  font-size: 10px;
+}
+.export-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 280px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  z-index: 50;
+  overflow: hidden;
+}
+.export-menu.open { display: block; }
+.export-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.export-menu__item:last-child { border-bottom: none; }
+.export-menu__item:hover { background: var(--off-white); }
+.export-menu__item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.export-menu__item span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ============ EXPORT PROGRESS MODAL ============ */
+.export-modal {
+  background: var(--white);
+  border-radius: 10px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+  animation: modalIn 0.18s ease-out;
+}
+.export-modal__head {
+  background: var(--navy);
+  color: var(--white);
+  padding: 14px 20px;
+  font-size: 13px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.export-modal__body {
+  padding: 20px;
+}
+.export-progress {
+  width: 100%;
+  height: 8px;
+  background: var(--off-white);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 14px 0;
+}
+.export-progress__fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s;
+}
+.export-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.export-stats__item {
+  text-align: center;
+  padding: 10px;
+  background: var(--off-white);
+  border-radius: var(--radius);
+}
+.export-stats__num {
+  display: block;
+  font-size: 20px;
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  color: var(--navy);
+}
+.export-stats__label {
+  display: block;
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.export-modal__foot {
+  padding: 14px 20px;
+  background: var(--off-white);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 </style>
@@ -567,8 +698,8 @@
     <div class="filters__row" style="grid-template-columns: 1fr auto; align-items: center;">
       <div class="scope">
         <label>
-          <input type="checkbox" id="scopeBody" disabled>
-          Include article body in search (coming soon)
+          <input type="checkbox" id="scopeBody">
+          Include article body in search
         </label>
       </div>
       <button class="btn btn--ghost" id="resetBtn">Reset filters</button>
@@ -579,6 +710,25 @@
   <div class="controls">
     <div class="controls__count" id="countDisplay">Loading archive…</div>
     <div class="controls__spacer"></div>
+    <div class="export-wrap" id="exportWrap" style="display:none;">
+      <button class="btn btn--navy export-btn" id="exportBtn" type="button">
+        Export <span id="exportCount">0</span> ▾
+      </button>
+      <div class="export-menu" id="exportMenu">
+        <button class="export-menu__item" data-format="meta">
+          <strong>Metadata only</strong>
+          <span>Title, date, author, category, URL — instant</span>
+        </button>
+        <button class="export-menu__item" data-format="plaintext">
+          <strong>With plaintext body</strong>
+          <span>Full text, stripped of HTML — instant</span>
+        </button>
+        <button class="export-menu__item" data-format="html">
+          <strong>With full HTML body</strong>
+          <span>Full fidelity — fetches each article, rate-limited</span>
+        </button>
+      </div>
+    </div>
     <select class="sort-select" id="sortSelect">
       <option value="newest">Newest first</option>
       <option value="oldest">Oldest first</option>
@@ -618,6 +768,34 @@
   </div>
 </div>
 
+<!-- EXPORT PROGRESS MODAL -->
+<div class="modal-backdrop" id="exportModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" style="display:none;">
+  <div class="export-modal">
+    <div class="export-modal__head" id="exportModalTitle">Exporting articles</div>
+    <div class="export-modal__body">
+      <div id="exportStatus" style="font-size: 13px; color: var(--text-muted);">Preparing…</div>
+      <div class="export-progress"><div class="export-progress__fill" id="exportProgressFill" style="width:0%"></div></div>
+      <div class="export-stats">
+        <div class="export-stats__item">
+          <span class="export-stats__num" id="exportDone">0</span>
+          <span class="export-stats__label">Done</span>
+        </div>
+        <div class="export-stats__item">
+          <span class="export-stats__num" id="exportTotal">0</span>
+          <span class="export-stats__label">Total</span>
+        </div>
+        <div class="export-stats__item">
+          <span class="export-stats__num" id="exportFailed">0</span>
+          <span class="export-stats__label">Failed</span>
+        </div>
+      </div>
+    </div>
+    <div class="export-modal__foot">
+      <button class="btn btn--ghost" id="exportCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ================================================================
    NL Website Archive — main script
@@ -638,7 +816,10 @@ var STATE = {
   view: 'grid',
   modalIndex: -1,
   bodyCache: {},
-  searchTimer: null
+  searchTimer: null,
+  isAdmin: false,
+  exportRunning: false,
+  exportCancelled: false
 };
 
 function $(id) { return document.getElementById(id); }
@@ -678,6 +859,9 @@ function debounce(fn, ms) {
 /* ============ AUTH-GUARD ENTRY POINT ============ */
 window.nlAuthReady = function(session) {
   // Topbar rendered automatically by nl-topbar.js from window.NL_TOOL
+  // Determine admin status for export button visibility
+  var toolPerms = (session && session.tools && session.tools[NL_TOOL_KEY]) || {};
+  STATE.isAdmin = !!(toolPerms.admin || (session && session.role === 'nl-admin'));
   init();
 };
 
@@ -706,6 +890,7 @@ function wireControls() {
   $('toInput').addEventListener('change', applyFilters);
   $('authorInput').addEventListener('change', applyFilters);
   $('catInput').addEventListener('change', applyFilters);
+  $('scopeBody').addEventListener('change', applyFilters);
   $('sortSelect').addEventListener('change', applyFilters);
 
   $('resetBtn').addEventListener('click', function() {
@@ -714,6 +899,7 @@ function wireControls() {
     $('toInput').value = '';
     $('authorInput').value = '';
     $('catInput').value = '';
+    $('scopeBody').checked = false;
     $('sortSelect').value = 'newest';
     applyFilters();
   });
@@ -727,6 +913,35 @@ function wireControls() {
   $('modalBackdrop').addEventListener('click', function(e) {
     if (e.target === $('modalBackdrop')) closeModal();
   });
+
+  // Export dropdown
+  if (STATE.isAdmin) {
+    $('exportWrap').style.display = 'inline-block';
+    $('exportBtn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      $('exportMenu').classList.toggle('open');
+    });
+    document.addEventListener('click', function(e) {
+      if (!$('exportWrap').contains(e.target)) {
+        $('exportMenu').classList.remove('open');
+      }
+    });
+    var menuItems = document.querySelectorAll('.export-menu__item');
+    menuItems.forEach(function(item) {
+      item.addEventListener('click', function() {
+        $('exportMenu').classList.remove('open');
+        var format = item.getAttribute('data-format');
+        startExport(format);
+      });
+    });
+    $('exportCancelBtn').addEventListener('click', function() {
+      if (STATE.exportRunning) {
+        STATE.exportCancelled = true;
+      } else {
+        closeExportModal();
+      }
+    });
+  }
 
   document.addEventListener('keydown', onKeyDown);
 }
@@ -791,6 +1006,7 @@ function applyFilters() {
   var to = $('toInput').value || '';
   var author = $('authorInput').value || '';
   var cat = $('catInput').value || '';
+  var scopeBody = $('scopeBody').checked;
   var sort = $('sortSelect').value;
 
   var out = STATE.articles.filter(function(a) {
@@ -802,6 +1018,7 @@ function applyFilters() {
 
     if (q) {
       var hay = ((a.postTitle || '') + ' ' + (a.description || '')).toLowerCase();
+      if (scopeBody && a.bodyText) hay += ' ' + a.bodyText.toLowerCase();
       if (hay.indexOf(q) === -1) return false;
     }
 
@@ -816,6 +1033,7 @@ function applyFilters() {
 
   STATE.filtered = out;
   renderResults();
+  updateExportCount();
 }
 
 /* ============ RENDER RESULTS ============ */
@@ -1082,7 +1300,189 @@ function evictOldestCacheEntries() {
   }
 }
 
-/* ============ KEYBOARD ============ */
+/* ============ EXPORT ============ */
+function updateExportCount() {
+  var el = $('exportCount');
+  if (el) el.textContent = STATE.filtered.length.toLocaleString();
+}
+
+async function startExport(format) {
+  if (!STATE.filtered.length) {
+    alert('No articles to export. Adjust your filters first.');
+    return;
+  }
+  
+  var articles = STATE.filtered.slice(); // snapshot — don't let filter changes during export affect it
+  var needsFetch = format === 'html';
+  
+  // Confirmation for slow exports over 50 articles
+  if (needsFetch && articles.length > 50) {
+    var mins = Math.ceil((articles.length * 500) / 60000);
+    var go = confirm('Export ' + articles.length + ' articles with full HTML bodies?\n\n' +
+                     'This will fetch each article individually (~' + mins + ' minutes).\n\n' +
+                     'You can cancel mid-export to keep what\'s been fetched so far.');
+    if (!go) return;
+  }
+  
+  STATE.exportRunning = true;
+  STATE.exportCancelled = false;
+  openExportModal();
+  
+  $('exportTotal').textContent = articles.length;
+  $('exportDone').textContent = '0';
+  $('exportFailed').textContent = '0';
+  $('exportProgressFill').style.width = '0%';
+  
+  if (needsFetch) {
+    $('exportStatus').textContent = 'Fetching bodies…';
+  } else {
+    $('exportStatus').textContent = 'Building export…';
+  }
+  
+  var rows = [];
+  var failed = 0;
+  
+  for (var i = 0; i < articles.length; i++) {
+    if (STATE.exportCancelled) break;
+    
+    var a = articles[i];
+    var row = {
+      headline:      a.postTitle || '',
+      subheader:     a.description || '',
+      timestamp:     a.publishedDateTime || '',
+      author:        a.postAuthor || '',
+      news_category: a.newsCategory || '',
+      url:           SITE_BASE + (a.postSlug || ''),
+      image_url:     a.imageUrl || '',
+      body_text:     '',
+      body_html:     ''
+    };
+    
+    if (format === 'plaintext') {
+      row.body_text = a.bodyText || '';
+    } else if (format === 'html') {
+      // Fetch body via byslug
+      try {
+        var content = await fetchArticleBody(a.postSlug);
+        var html = '';
+        var plain = a.bodyText || '';
+        content.forEach(function(widgetRow) {
+          if (!widgetRow || !widgetRow.rowData) return;
+          var w = widgetRow.rowData;
+          if (!w.widgetData) return;
+          if (w.widgetType === 'TextBlockWidget' && w.widgetData.content) {
+            html += w.widgetData.content;
+          } else if (w.widgetType === 'ThirdPartyV2Widget' && w.widgetData.content) {
+            html += '<div class="embed">' + w.widgetData.content + '</div>';
+          }
+        });
+        row.body_html = html;
+        row.body_text = plain;
+      } catch (err) {
+        failed++;
+        row.body_html = '[FETCH FAILED: ' + (err && err.message || 'unknown') + ']';
+      }
+    }
+    
+    rows.push(row);
+    
+    // Update progress
+    var done = i + 1;
+    $('exportDone').textContent = done;
+    $('exportFailed').textContent = failed;
+    $('exportProgressFill').style.width = (done / articles.length * 100) + '%';
+    
+    // Rate limit only on html format (which actually fetches)
+    if (needsFetch && i < articles.length - 1 && !STATE.exportCancelled) {
+      await sleep(500);
+    }
+  }
+  
+  // Build CSV
+  $('exportStatus').textContent = 'Building CSV…';
+  var csv = buildCSV(rows, format);
+  
+  // Download
+  downloadCSV(csv, format);
+  
+  // Done
+  var cancelled = STATE.exportCancelled;
+  STATE.exportRunning = false;
+  STATE.exportCancelled = false;
+  $('exportStatus').textContent = cancelled
+    ? 'Cancelled — downloaded ' + rows.length + ' of ' + articles.length + ' articles'
+    : 'Complete — downloaded ' + rows.length + ' article' + (rows.length === 1 ? '' : 's');
+  $('exportCancelBtn').textContent = 'Close';
+}
+
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+function openExportModal() {
+  $('exportModalBackdrop').classList.add('open');
+  $('exportModalBackdrop').style.display = 'flex';
+  $('exportCancelBtn').textContent = 'Cancel';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeExportModal() {
+  $('exportModalBackdrop').classList.remove('open');
+  $('exportModalBackdrop').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function csvEscape(s) {
+  if (s == null) return '';
+  var str = String(s);
+  if (/[",\r\n]/.test(str)) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+function buildCSV(rows, format) {
+  var headers;
+  if (format === 'meta') {
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category', 'image_url', 'url'];
+  } else if (format === 'plaintext') {
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category', 'body_text', 'image_url', 'url'];
+  } else {
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category', 'body_text', 'body_html', 'image_url', 'url'];
+  }
+  
+  var lines = [headers.join(',')];
+  rows.forEach(function(r) {
+    var vals = headers.map(function(h) {
+      var key = h === 'sub-header' ? 'subheader' : h;
+      return csvEscape(r[key]);
+    });
+    lines.push(vals.join(','));
+  });
+  
+  // BOM for Excel UTF-8 recognition
+  return '\ufeff' + lines.join('\r\n');
+}
+
+function downloadCSV(csv, format) {
+  var now = new Date();
+  var stamp = now.getFullYear() + '-' +
+              String(now.getMonth() + 1).padStart(2, '0') + '-' +
+              String(now.getDate()).padStart(2, '0') + '_' +
+              String(now.getHours()).padStart(2, '0') +
+              String(now.getMinutes()).padStart(2, '0');
+  var filename = 'nl-archive_' + format + '_' + stamp + '.csv';
+  
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+
+
 function onKeyDown(e) {
   var modalOpen = $('modalBackdrop').classList.contains('open');
 
