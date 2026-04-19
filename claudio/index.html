@@ -2,10 +2,29 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 4.0-rc3
+  Version: 4.0-rc4
   Date: 19/04/2026
 
   CHANGELOG
+  v4.0-rc4 (19/04/2026) — Per-persona 429 nudges + chip cooldown
+    - Rate-limit recovery bubbles now come from CLAUDIO (not the
+      specialist), in his Italian voice, with per-persona "meet me in X"
+      framing:
+        Roger  → "pop through to Roger in the archives — he'll have
+                  the ledger ready"
+        Seth   → "head over to the press box — Seth will have the feed up"
+        Mark   → "come through to Mark's office — he'll get the draft started"
+    - Per-persona chip labels:
+        Roger  → "To the archives →"
+        Seth   → "To the press box →"
+        Mark   → "To Mark's office →"
+    - Suggestions now carry a cooldownUntil timestamp. Chips in cooldown
+      render disabled with a live countdown ("Ready in 45s…"), dashed
+      border, faded. When cooldown expires, chip becomes active with the
+      destination label. Clicking during cooldown shakes rather than
+      firing a guaranteed 429.
+    - No architectural change. Purely UX polish on the 429 flow.
+
   v4.0-rc3 (19/04/2026) — Repeat-tool guard
     - BUG: observed a 25,110-token orchestrated turn where Roger called
       getAllTimeMatchRecords, it errored, he retried the same call, it
@@ -603,9 +622,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="4.0-rc3">
-  <meta name="build-time" content="2026-04-19T09:15:00Z">
-  <title>Claudio v4.0-rc3 — NL Tools</title>
+  <meta name="app-version" content="4.0-rc4">
+  <meta name="build-time" content="2026-04-19T10:00:00Z">
+  <title>Claudio v4.0-rc4 — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -968,6 +987,34 @@
       border-color: var(--navy);
       box-shadow: 0 2px 8px rgba(10,22,40,0.08);
       transform: translateY(-1px);
+    }
+    /* v4.0-rc4: cooldown + shake states for rate-limited chips */
+    .msg__chip--cooldown {
+      opacity: 0.55;
+      cursor: wait;
+      border-style: dashed;
+      background: repeating-linear-gradient(
+        135deg,
+        var(--white) 0,
+        var(--white) 8px,
+        rgba(0,0,0,0.02) 8px,
+        rgba(0,0,0,0.02) 16px
+      );
+    }
+    .msg__chip--cooldown:hover {
+      transform: none;
+      box-shadow: 0 1px 2px rgba(10,22,40,0.04);
+      border-color: var(--border);
+    }
+    .msg__chip--shake {
+      animation: chip-shake 0.4s ease;
+    }
+    @keyframes chip-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-3px); }
+      40% { transform: translateX(3px); }
+      60% { transform: translateX(-2px); }
+      80% { transform: translateX(2px); }
     }
     .msg__chip__av {
       width: 20px; height: 20px; border-radius: 50%;
@@ -1954,7 +2001,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-rc3</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v4.0-rc4</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -3683,7 +3730,42 @@ function wireTopbar(session) {
             chipEl.appendChild(arrow);
             chipEl.appendChild(dismiss);
 
+            // v4.0-rc4: cooldown handling. If sug.cooldownUntil is in the
+            // future, the chip is disabled with a live countdown; when the
+            // time passes, chip becomes active. This prevents "click,
+            // immediately 429 again" loops on rate-limited nudges.
+            var cooldownUntil = Number(sug.cooldownUntil) || 0;
+            var now = Date.now();
+            if (cooldownUntil > now) {
+              chipEl.classList.add('msg__chip--cooldown');
+              var originalLabelText = label.textContent;
+              var tickHandle = null;
+              var tick = function() {
+                var msLeft = cooldownUntil - Date.now();
+                if (msLeft <= 0) {
+                  // Cooldown over \u2014 chip becomes clickable
+                  if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
+                  chipEl.classList.remove('msg__chip--cooldown');
+                  label.textContent = originalLabelText;
+                  return;
+                }
+                var secs = Math.ceil(msLeft / 1000);
+                label.textContent = 'Ready in ' + secs + 's\u2026';
+              };
+              tick();
+              tickHandle = setInterval(tick, 1000);
+            }
+
             chipEl.addEventListener('click', function() {
+              // If still in cooldown, shake the chip and bail rather than
+              // firing a call that will also 429.
+              if (chipEl.classList.contains('msg__chip--cooldown')) {
+                chipEl.classList.add('msg__chip--shake');
+                setTimeout(function() {
+                  chipEl.classList.remove('msg__chip--shake');
+                }, 400);
+                return;
+              }
               onChipClick(sug);
             });
 
