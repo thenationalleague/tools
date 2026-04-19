@@ -1,45 +1,57 @@
 /* =======================================================================
    NL Archive Index Rebuild
-   Version: 2.1
+   Version: 2.2
    Date: 19/04/2026
 
    Builds or updates assets/data/articles-index.json from the NL CMS.
-   Each article record now includes plaintext body text for full-text search
-   and clean CSV exports.
+   Each article record includes plaintext body text (for full-text search
+   and clean CSV exports) and optional Google Analytics metrics.
 
    MODES (auto-detected):
-     FIRST-TIME BUILD   — articles-index.json does not exist OR does not yet
+     FIRST-TIME BUILD   - articles-index.json does not exist OR does not yet
                           include bodyText. Iterates every article, fetching
                           body via /v1/byslug and extracting plaintext.
-                          Slow (~90 mins for 10,735 articles at 500ms rate).
-     INCREMENTAL UPDATE — articles-index.json exists with bodyText.
+                          Slow (~90 mins for 11,267 articles at 500ms rate).
+     INCREMENTAL UPDATE - articles-index.json exists with bodyText.
                           Fetches page 1 of search, merges new postIDs +
                           edits, fetches bodies only for those.
                           Runs once daily, ~5-10 seconds.
 
-   MANUAL FULL REBUILD — set FORCE_FULL_REBUILD=true to rebuild from scratch.
+   MANUAL FULL REBUILD - set FORCE_FULL_REBUILD=true to rebuild from scratch.
+
+   GA METRICS
+     If assets/data/ga-metrics.json exists (produced by fetch-ga-metrics.js),
+     this script reads it and merges per-article metrics into each record.
+     Missing GA data is non-fatal: articles simply get metrics:null.
+     Metrics included: pageViews, users, avgEngagementTimeSecs, engagementRate.
 
    CHANGELOG
+   v2.2 (19/04/2026)
+     - Merge GA metrics from assets/data/ga-metrics.json when present.
+       Each article record gains a `metrics` object joined by postSlug.
+       If ga-metrics.json is absent or a slug is missing from it, the
+       article gets metrics:null rather than failing the rebuild.
    v2.1 (19/04/2026)
      - Fix hero images for imported/legacy articles. Native articles have
        imageData.location (absolute S3 URL); imported articles only have
        imageData.key (filename). resolveImageUrl() now constructs the full
        URL from the S3 bucket when only a key is present.
      - Affects ~7,000 pre-Oct-2025 articles. Requires full rebuild to apply
-       retroactively — incremental runs only fix articles as they're touched.
+       retroactively - incremental runs only fix articles as they're touched.
    v2.0 (19/04/2026)
      - Adds bodyText field to each article record (plaintext, whitespace-collapsed)
      - First-time build fetches bodies for every article (rate-limited)
      - Incremental updates fetch bodies only for new/edited articles
      - Master JSON grows from ~3MB to ~25MB (still fine, gzipped ~8MB)
      - Auto-detects pre-v2.0 index and upgrades it to include bodyText
-   v1.0 (19/04/2026) — Initial build, metadata only
+   v1.0 (19/04/2026) - Initial build, metadata only
 ======================================================================= */
 
 const fs = require('fs');
 const path = require('path');
 
 const INDEX_PATH = path.join(__dirname, '..', 'assets', 'data', 'articles-index.json');
+const GA_METRICS_PATH = path.join(__dirname, '..', 'assets', 'data', 'ga-metrics.json');
 const SEARCH_BASE = 'https://news.cms.web.gc.nationalleagueservices.co.uk/v2/search';
 const BYSLUG_BASE = 'https://news.cms.web.gc.nationalleagueservices.co.uk/v1/byslug';
 const PAGE_SIZE = 500;
@@ -396,16 +408,96 @@ async function incrementalUpdate(existing) {
   return { articles: result, changed: added > 0 || edited > 0, added, edited };
 }
 
+/* ============ GA METRICS MERGE ============ */
+
+/**
+ * Read ga-metrics.json (if present) and merge per-article metrics into
+ * each record by postSlug. Non-fatal if the file is missing or malformed
+ * - the article index stands on its own without GA data.
+ *
+ * Each article either gets a `metrics` object with pageViews/users/etc.,
+ * or `metrics: null` if GA has no data for that article (e.g. imported
+ * articles from before the new site launch).
+ */
+function mergeGaMetrics(articles) {
+  if (!fs.existsSync(GA_METRICS_PATH)) {
+    log('GA MERGE: ga-metrics.json not found - articles will have metrics:null');
+    articles.forEach(a => { a.metrics = null; });
+    return { matched: 0, unmatched: articles.length };
+  }
+  
+  let gaData;
+  try {
+    const raw = fs.readFileSync(GA_METRICS_PATH, 'utf8');
+    gaData = JSON.parse(raw);
+  } catch (e) {
+    log('GA MERGE: could not parse ga-metrics.json (' + e.message + ') - articles will have metrics:null');
+    articles.forEach(a => { a.metrics = null; });
+    return { matched: 0, unmatched: articles.length };
+  }
+  
+  const metricsByPath = gaData.metrics || {};
+  const pathCount = Object.keys(metricsByPath).length;
+  log('GA MERGE: loaded ' + pathCount + ' paths from ga-metrics.json');
+  log('  generated: ' + (gaData.generatedAt || 'unknown'));
+  log('  date range: ' + (gaData.startDate || '?') + ' to ' + (gaData.endDate || '?'));
+  
+  let matched = 0;
+  let unmatched = 0;
+  
+  articles.forEach(a => {
+    const slug = a.postSlug;
+    if (!slug) {
+      a.metrics = null;
+      unmatched++;
+      return;
+    }
+    
+    const m = metricsByPath[slug];
+    if (m) {
+      a.metrics = {
+        pageViews:             m.pageViews || 0,
+        users:                 m.users || 0,
+        avgEngagementTimeSecs: m.avgEngagementTimeSecs || 0,
+        engagementRate:        m.engagementRate || 0
+      };
+      matched++;
+    } else {
+      a.metrics = null;
+      unmatched++;
+    }
+  });
+  
+  log('GA MERGE: ' + matched + ' articles matched, ' + unmatched + ' unmatched');
+  
+  // Leaderboard for sanity check
+  const top = articles
+    .filter(a => a.metrics && a.metrics.pageViews > 0)
+    .sort((a, b) => b.metrics.pageViews - a.metrics.pageViews)
+    .slice(0, 5);
+  if (top.length) {
+    log('Top 5 by GA page views (post-merge):');
+    top.forEach(a => {
+      log('  ' + a.metrics.pageViews.toString().padStart(6) + '  ' + (a.postTitle || '').slice(0, 70));
+    });
+  }
+  
+  return { matched, unmatched };
+}
+
 /* ============ PERSIST ============ */
 
 function writeIndex(articles) {
   const dir = path.dirname(INDEX_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   
+  // Merge GA metrics before writing (non-fatal if missing)
+  mergeGaMetrics(articles);
+  
   const payload = {
     generatedAt: new Date().toISOString(),
     count: articles.length,
-    schemaVersion: 2,  // v2 = has bodyText
+    schemaVersion: 3,  // v3 = has bodyText AND metrics
     articles: articles
   };
   
@@ -474,7 +566,22 @@ async function main() {
       writeIndex(finalArticles);
       log('RESULT: ' + summary);
     } else {
-      log('RESULT: no changes \u2014 leaving existing file untouched');
+      // Even if no CMS changes, check if GA metrics file is newer than
+      // the index - if so, rewrite to refresh the merged metrics.
+      let gaIsFresher = false;
+      if (fs.existsSync(GA_METRICS_PATH) && fs.existsSync(INDEX_PATH)) {
+        const gaMtime = fs.statSync(GA_METRICS_PATH).mtimeMs;
+        const idxMtime = fs.statSync(INDEX_PATH).mtimeMs;
+        gaIsFresher = gaMtime > idxMtime;
+      }
+      
+      if (gaIsFresher) {
+        log('GA metrics file is newer than index - rewriting to refresh metrics');
+        writeIndex(finalArticles);
+        log('RESULT: ' + summary + ' (GA metrics refreshed)');
+      } else {
+        log('RESULT: no changes - leaving existing file untouched');
+      }
     }
     
     process.exit(0);
