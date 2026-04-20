@@ -1,6 +1,6 @@
 /* =======================================================================
    NL Archive - GA Metrics Fetcher
-   Version: 2.0
+   Version: 2.1
    Date: 20/04/2026
 
    Queries the GA4 Data API for page-level engagement metrics, scroll
@@ -35,14 +35,21 @@
        Output:     per-path map of channel -> views
                      { "Organic Search": 1200, "Direct": 450, ... }
 
-     Date range: 2025-10-01 -> today (lifetime since new site launch)
-     Filter:     NO path filter. We pull everything. The old filter
-                 (/news/ prefix) missed legacy pre-migration URLs like
-                 /national-league-statement-morecambe-fc-83850 which still
-                 get significant traffic. The rebuild script's merge logic
-                 now handles matching by article ID suffix.
+     Date range: 2024-11-08 -> today. This is the earliest date the GA4
+                 property has data. Covers both the legacy site (Nov 2024
+                 to Sept 2025) and the new site (Oct 2025 onwards).
+     Filter:     NO path filter. We pull everything. Legacy pre-migration
+                 URLs like /national-league-statement-morecambe-fc-83850
+                 still appear and need to be captured so the rebuild's
+                 ID-suffix merge can join them to modern article records.
 
    CHANGELOG
+   v2.1 (20/04/2026)
+     - Extended START_DATE from 2025-10-01 to 2024-11-08, the earliest
+       date the GA4 property has data. Unlocks ~11 months of pre-migration
+       traffic that was previously ignored. Legacy URLs get their real
+       numbers - e.g. Morecambe statement jumps from 34 views to ~65k.
+     - File size roughly triples but still well under 10MB.
    v2.0 (20/04/2026)
      - Added scroll depth query (event count per path)
      - Added traffic source query (channel group breakdown per path)
@@ -59,7 +66,7 @@ const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 
 const OUTPUT_PATH = path.join(__dirname, '..', 'assets', 'data', 'ga-metrics.json');
 const GA_PROPERTY_ID = process.env.GA_PROPERTY_ID;
-const START_DATE = '2025-10-01';
+const START_DATE = '2024-11-08';  // earliest date GA4 property has data
 const PAGE_SIZE = 100000;
 
 function log(msg) {
