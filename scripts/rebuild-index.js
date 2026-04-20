@@ -1,6 +1,6 @@
 /* =======================================================================
    NL Archive Index Rebuild
-   Version: 2.4
+   Version: 2.5
    Date: 20/04/2026
 
    Builds or updates assets/data/articles-index.json from the NL CMS.
@@ -27,6 +27,16 @@
      scrollRate (% of users who scrolled past 90%), sources (channel breakdown).
 
    CHANGELOG
+   v2.5 (20/04/2026)
+     - BUG FIX: mergeGaMetrics no longer short-circuits on finding the article's
+       own postSlug in GA. v2.4 joined by exact slug first, and only fell back
+       to ID-suffix aggregation if that failed. But for articles with URLs in
+       GA for BOTH a legacy path (/slug-ID) AND a modern path
+       (/news/YYYY/MONTH/DD/slug-ID), the exact-match would succeed on whichever
+       path happened to match the postSlug, ignoring the other entirely. Result:
+       Morecambe statement showed 3 views (modern URL only) instead of 64,812
+       (aggregated). v2.5 inverts the logic: ID-suffix aggregation is the PRIMARY
+       strategy; path match is only a fallback for articles with no numeric ID.
    v2.4 (20/04/2026)
      - Added -XXXXX article ID suffix fallback to mergeGaMetrics(). Every
        article has a trailing numeric ID (e.g. ...-83850) which is stable
@@ -500,11 +510,12 @@ function mergeGaMetrics(articles) {
   log('  date range: ' + (gaData.startDate || '?') + ' to ' + (gaData.endDate || '?'));
   log('  schema: v' + (gaData.schemaVersion || 1));
   
-  // Build a secondary lookup by trailing numeric article ID.
-  // Every NL article URL ends in '-XXXXX' where XXXXX is a stable numeric
-  // ID. Pre-migration legacy URLs like /national-league-statement-morecambe-fc-83850
-  // share the same ID as post-migration URLs like /news/2025/august/17/.../-83850.
-  // This lookup lets us join by ID when direct path match fails.
+  // Build a lookup by trailing numeric article ID. Every NL article URL ends
+  // in '-XXXXX' where XXXXX is a stable numeric ID that survives the Oct 2025
+  // site migration. Pre-migration legacy URLs like /national-league-statement-
+  // morecambe-fc-83850 share the same ID as modern URLs like /news/2025/july/
+  // 25/.../-83850. GA holds data against both, and a single article needs the
+  // aggregate of all paths sharing its ID.
   const metricsByArticleId = {};
   const ID_RX = /-(\d+)$/;
   let legacyPathCount = 0;
@@ -512,9 +523,6 @@ function mergeGaMetrics(articles) {
     const match = path.match(ID_RX);
     if (match) {
       const id = match[1];
-      // If multiple paths share an ID (legacy + new), aggregate them.
-      // The new URL is typically the /news/YYYY/MONTH/DD/... canonical one;
-      // the legacy URL is the bare /slug-ID one. Both count toward the same article.
       if (!metricsByArticleId[id]) {
         metricsByArticleId[id] = [];
       }
@@ -524,9 +532,12 @@ function mergeGaMetrics(articles) {
   });
   log('  built ID index: ' + Object.keys(metricsByArticleId).length + ' unique IDs');
   log('  legacy (non-/news/) paths with IDs: ' + legacyPathCount);
+  const idsWithMultiplePaths = Object.values(metricsByArticleId).filter(arr => arr.length > 1).length;
+  log('  IDs with >1 GA path (legacy+new pairs): ' + idsWithMultiplePaths);
   
   let matched = 0;
-  let matchedById = 0;
+  let matchedAggregated = 0;
+  let fallbackPathOnly = 0;
   let unmatched = 0;
   
   articles.forEach(a => {
@@ -537,26 +548,30 @@ function mergeGaMetrics(articles) {
       return;
     }
     
-    // Pass 1: try exact match on full slug (with/without trailing slash).
-    let m = metricsByPath[slug];
-    if (!m && slug.length > 1 && slug.endsWith('/')) {
-      m = metricsByPath[slug.slice(0, -1)];
+    let m = null;
+    
+    // Primary strategy: aggregate every GA path that shares this article's
+    // numeric ID. This catches legacy + new URLs in a single step. Critical:
+    // we don't short-circuit on finding the slug itself in metricsByPath,
+    // because that would miss the legacy URL's views. The ID index IS the
+    // join key.
+    const idMatch = slug.match(ID_RX);
+    if (idMatch) {
+      const matchesForId = metricsByArticleId[idMatch[1]];
+      if (matchesForId && matchesForId.length) {
+        m = aggregateMetrics(matchesForId);
+        if (matchesForId.length > 1) matchedAggregated++;
+      }
     }
     
-    // Pass 2: if no direct match, try joining by article ID suffix.
-    // This catches legacy URLs where the same article has a pre-migration
-    // path with different structure but identical ID suffix.
-    let gatheredFromId = false;
+    // Fallback: slug has no numeric ID suffix (uncommon but possible for
+    // some very old content). Try direct path match with/without trailing slash.
     if (!m) {
-      const idMatch = slug.match(ID_RX);
-      if (idMatch) {
-        const matchesForId = metricsByArticleId[idMatch[1]];
-        if (matchesForId && matchesForId.length) {
-          // Aggregate metrics across all paths sharing this ID
-          m = aggregateMetrics(matchesForId);
-          gatheredFromId = true;
-        }
+      m = metricsByPath[slug];
+      if (!m && slug.length > 1 && slug.endsWith('/')) {
+        m = metricsByPath[slug.slice(0, -1)];
       }
+      if (m) fallbackPathOnly++;
     }
     
     if (m) {
@@ -569,7 +584,6 @@ function mergeGaMetrics(articles) {
         sources:               m.sources || null
       };
       matched++;
-      if (gatheredFromId) matchedById++;
     } else {
       a.metrics = null;
       unmatched++;
@@ -577,7 +591,8 @@ function mergeGaMetrics(articles) {
   });
   
   log('GA MERGE: ' + matched + ' articles matched, ' + unmatched + ' unmatched');
-  log('  of which ' + matchedById + ' matched only via article ID suffix (legacy URLs)');
+  log('  of which ' + matchedAggregated + ' aggregated across legacy+new URL pairs');
+  log('  of which ' + fallbackPathOnly + ' matched via path fallback (no numeric ID)');
   
   // Leaderboard for sanity check
   const top = articles
