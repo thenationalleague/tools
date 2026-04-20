@@ -3,10 +3,24 @@
 <head>
 <!--
   NL Tools — Shared Files
-  Version: v1.3 (conversation turn 9)
-  Date: 17/04/2026
+  Version: v2.0 (20/04/2026)
+  Date: 20/04/2026
 
   CHANGELOG
+  v2.0 (20/04/2026) — System file migration:
+    * Firebase SDK 10.7.1 → 10.12.0
+    * Migrated to /tools/system/ shared files:
+      - nl-brand.css (fluid typography, design tokens, shared widgets)
+      - nl-utils.js (NL.escHtml, NL.toast, NL.ensureAuth etc.)
+      - nl-topbar.js (shared topbar with profile dropdown)
+      - auth-guard.js (v4 — updated RTDB paths)
+    * Replaced custom topbar markup with <div id="nlTopbar"></div>
+    * Removed local wireTopbar function (handled by nl-topbar.js)
+    * Removed local esc() — now NL.escHtml
+    * Added window.NL_TOOL config + window.NL_CHANGELOG public release notes
+    * Stripped duplicated CSS: @font-face, :root tokens, reset, body, topbar,
+      buttons. Saved ~17% of inline CSS.
+
   v1.3 (17/04/2026)
     - Topbar standardised to brand skill pattern (rose white logo, tool name +
       NL Tools kicker, Portal button, Sign out button)
@@ -43,11 +57,12 @@
 
 <link rel="preconnect" href="https://use.typekit.net" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/gff4ipy.css">
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=9">
 
 <!-- Firebase compat SDKs -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 
 <script>
 firebase.initializeApp({
@@ -58,40 +73,32 @@ firebase.initializeApp({
   appId:       '1:801354670005:web:05d8ebad3e7e63610d03fc'
 });
 </script>
-<script>var NL_TOOL_KEY = 'ops-shared-files';</script>
-<script src="/tools/auth-guard.js"></script>
+<!-- System files: tool config + shared helpers + topbar + auth guard -->
+<script>
+  window.NL_TOOL = {
+    title: 'Shared Files',
+    toolKey: 'ops-shared-files'
+  };
+  var NL_TOOL_KEY = 'ops-shared-files';
+
+  /* Public-facing "What's new" — shown when users click the version badge. */
+  window.NL_CHANGELOG = [
+    {
+      date: '20 April 2026',
+      version: 'v2.0',
+      items: [
+        'Refreshed design — cleaner layout consistent with other NL Tools.',
+        'Standardised profile menu matching other tools.',
+        'Faster page load and improved styling on wider screens.'
+      ]
+    }
+  ];
+</script>
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=6"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <style>
-@font-face {
-  font-family: "carbona-variable";
-  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display: swap; font-style: normal; font-weight: 200 900;
-}
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --primary:    #9e0000;
-  --navy:       #223b7c;
-  --white:      #ffffff;
-  --off-white:  #f4f6f9;
-  --text:       #1a2a44;
-  --text-muted: #5a6a82;
-  --border:     #dde3ed;
-  --radius:     8px;
-  --shadow:     0 2px 16px rgba(10,22,40,0.10);
-  --font:       'carbona-variable', 'carbona', sans-serif;
-}
-
-body {
-  font-family: var(--font);
-  font-variation-settings: 'wght' 400;
-  background: var(--off-white);
-  color: var(--text);
-  min-height: 100vh;
-}
-
 /* ── Header ── */
 
 
@@ -138,25 +145,6 @@ body {
   width: 240px;
 }
 .toolbar__search:focus { border-color: var(--navy); }
-.btn {
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-family: var(--font);
-  font-size: 11px;
-  font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  cursor: pointer;
-  border: none;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.btn--ghost {
-  background: var(--white);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-}
 .btn--ghost:hover { border-color: var(--navy); color: var(--navy); }
 
 /* ── Layout ── */
@@ -677,110 +665,13 @@ body {
 
 
 /* ── Standard NL Tools Topbar (see nl-brand skill) ─────────────────────── */
-.topbar {
-  background: var(--primary);
-  color: var(--white);
-  padding: 0 20px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-  width: 100%;
-  box-sizing: border-box;
-}
-.topbar__logo { height: 42px; flex-shrink: 0; }
-.topbar__title-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-  gap: 3px;
-}
-.topbar__title {
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  font-size: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--white);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.topbar__kicker {
-  font-size: 9px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.6);
-  white-space: nowrap;
-}
-.topbar__user {
-  font-size: 13px;
-  color: rgba(255,255,255,0.8);
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,0.3);
-  color: var(--white);
-  padding: 7px 14px;
-  border-radius: var(--radius);
-  font-size: 11px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn:hover { background: rgba(255,255,255,0.12); }
-.topbar__btn--icon { padding: 7px 10px; font-size: 14px; }
-@media (max-width: 700px) {
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar__user { display: none; }
-  .topbar__btn-text-portal { display: none; }
-  .topbar__btn--portal { padding: 7px 10px; }
-  .topbar__title { font-size: 17px; }
-}
-
 </style>
 </head>
 <body>
 
 
-<header class="topbar">
-  <img class="topbar__logo"
-    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title-wrap">
-    <span class="topbar__title">Shared Files</span>
-    <span class="topbar__kicker">NL Tools</span>
-  </div>
-  <span class="topbar__user" id="topbarUser"></span>
-  <a href="/tools/portal/" class="topbar__btn topbar__btn--portal" aria-label="Back to portal">
-    <span>←</span><span class="topbar__btn-text-portal">Portal</span>
-  </a>
-  <button class="topbar__btn" id="signOutBtn">Sign out</button>
-</header>
+<!-- Topbar — auto-rendered by /tools/system/nl-topbar.js from window.NL_TOOL -->
+<div id="nlTopbar"></div>
 
 <div id="pageWrap">
   <div class="page">
@@ -842,19 +733,7 @@ body {
 <script>
 /* ---- Auth callback ------------------------------------------------------ */
 
-/* Standard topbar wiring — set user name and bind sign out */
-function wireTopbar(session) {
-  var userEl = document.getElementById('topbarUser');
-  if (userEl) userEl.textContent = session && (session.name || session.email) || '';
-  var btn = document.getElementById('signOutBtn');
-  if (btn && !btn._wired) {
-    btn._wired = true;
-    btn.addEventListener('click', function() {
-      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
-    });
-  }
-}
-
+/* Topbar wiring handled by nl-topbar.js — user name + sign out in profile dropdown */
 window.nlAuthReady = function(userData) {
   window._nlUserData = userData;
   initBrowser();
@@ -1002,7 +881,7 @@ function buildTreeNode(node, ancestorPath) {
   label.className = 'tree-folder__label';
   label.innerHTML =
     '<span class="tree-folder__icon">📁</span>' +
-    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(node.name) + '</span>' +
+    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + NL.escHtml(node.name) + '</span>' +
     (hasSubfolders ? '<span class="tree-folder__chevron">▶</span>' : '');
 
   label.addEventListener('click', function(e) {
@@ -1119,7 +998,7 @@ function renderFiles(nodes) {
     card.className = 'file-card--folder';
     card.innerHTML =
       '<div class="file-card--folder__icon">📁</div>' +
-      '<div class="file-card--folder__name">' + esc(folder.name) + '</div>';
+      '<div class="file-card--folder__name">' + NL.escHtml(folder.name) + '</div>';
     card.addEventListener('click', function() {
       var path = _breadcrumb.concat([{ name: folder.name, node: folder }]);
       navigateTo(folder, folder.name, path);
@@ -1380,7 +1259,7 @@ function onSearch(q) {
   _searchMode = true;
   var results = searchTree(_tree, q);
   document.getElementById('breadcrumb').innerHTML =
-    '<span class="breadcrumb__current">Search results for "' + esc(q) + '"</span>';
+    '<span class="breadcrumb__current">Search results for "' + NL.escHtml(q) + '"</span>';
   renderFiles(results);
 }
 
@@ -1427,13 +1306,7 @@ function formatSize(bytes) {
   return (bytes / (1024*1024*1024)).toFixed(1) + ' GB';
 }
 
-function esc(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+/* esc helper provided by NL.escHtml in nl-utils.js */
 
 /* ---- Keyboard ----------------------------------------------------------- */
 document.addEventListener('keydown', function(e) {
