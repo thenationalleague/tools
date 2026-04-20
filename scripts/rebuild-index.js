@@ -1,6 +1,6 @@
 /* =======================================================================
    NL Archive Index Rebuild
-   Version: 2.3
+   Version: 2.4
    Date: 20/04/2026
 
    Builds or updates assets/data/articles-index.json from the NL CMS.
@@ -23,9 +23,19 @@
      If assets/data/ga-metrics.json exists (produced by fetch-ga-metrics.js),
      this script reads it and merges per-article metrics into each record.
      Missing GA data is non-fatal: articles simply get metrics:null.
-     Metrics included: pageViews, users, avgEngagementTimeSecs, engagementRate.
+     Metrics included: pageViews, users, avgEngagementTimeSecs, engagementRate,
+     scrollRate (% of users who scrolled past 90%), sources (channel breakdown).
 
    CHANGELOG
+   v2.4 (20/04/2026)
+     - Added -XXXXX article ID suffix fallback to mergeGaMetrics(). Every
+       article has a trailing numeric ID (e.g. ...-83850) which is stable
+       across the Oct 2025 migration. Pre-migration legacy GA URLs like
+       /national-league-statement-morecambe-fc-83850 now match post-migration
+       CMS slugs like /news/2025/august/17/...-83850. Unlocks 60k+ views
+       per article that were previously orphaned.
+     - Merge now carries through new scrollRate and sources fields from
+       ga-metrics.json v2+ schema.
    v2.3 (20/04/2026)
      - Fix GA join failure for articles with trailing-slash postSlugs.
        CMS stores some slugs with a trailing '/', GA paths always have it
@@ -425,6 +435,47 @@ async function incrementalUpdate(existing) {
  * or `metrics: null` if GA has no data for that article (e.g. imported
  * articles from before the new site launch).
  */
+/**
+ * Combine multiple GA metric records for the same article (e.g. legacy URL +
+ * new URL both pointing to the same piece of content). Sums counts; averages
+ * rates weighted by users.
+ */
+function aggregateMetrics(list) {
+  if (!list || !list.length) return null;
+  if (list.length === 1) return list[0];
+  
+  let pageViews = 0;
+  let users = 0;
+  let engagementDurationSecs = 0;
+  let scrollCount = 0;
+  let weightedEngRate = 0;  // weighted by users
+  const sources = {};
+  
+  list.forEach(m => {
+    pageViews += (m.pageViews || 0);
+    users += (m.users || 0);
+    engagementDurationSecs += (m.engagementDurationSecs || 0);
+    scrollCount += (m.scrollCount || 0);
+    weightedEngRate += (m.engagementRate || 0) * (m.users || 0);
+    if (m.sources) {
+      Object.keys(m.sources).forEach(k => {
+        sources[k] = (sources[k] || 0) + m.sources[k];
+      });
+    }
+  });
+  
+  return {
+    pageViews: pageViews,
+    users: users,
+    engagementDurationSecs: engagementDurationSecs,
+    scrollCount: scrollCount,
+    engagementRate: users > 0 ? Math.round((weightedEngRate / users) * 1000) / 1000 : 0,
+    avgEngagementTimeSecs: users > 0 ? Math.round(engagementDurationSecs / users) : 0,
+    scrollRate: users > 0 ? Math.round((scrollCount / users) * 1000) / 1000 : 0,
+    sources: Object.keys(sources).length ? sources : null
+  };
+}
+
 function mergeGaMetrics(articles) {
   if (!fs.existsSync(GA_METRICS_PATH)) {
     log('GA MERGE: ga-metrics.json not found - articles will have metrics:null');
@@ -447,8 +498,35 @@ function mergeGaMetrics(articles) {
   log('GA MERGE: loaded ' + pathCount + ' paths from ga-metrics.json');
   log('  generated: ' + (gaData.generatedAt || 'unknown'));
   log('  date range: ' + (gaData.startDate || '?') + ' to ' + (gaData.endDate || '?'));
+  log('  schema: v' + (gaData.schemaVersion || 1));
+  
+  // Build a secondary lookup by trailing numeric article ID.
+  // Every NL article URL ends in '-XXXXX' where XXXXX is a stable numeric
+  // ID. Pre-migration legacy URLs like /national-league-statement-morecambe-fc-83850
+  // share the same ID as post-migration URLs like /news/2025/august/17/.../-83850.
+  // This lookup lets us join by ID when direct path match fails.
+  const metricsByArticleId = {};
+  const ID_RX = /-(\d+)$/;
+  let legacyPathCount = 0;
+  Object.keys(metricsByPath).forEach(path => {
+    const match = path.match(ID_RX);
+    if (match) {
+      const id = match[1];
+      // If multiple paths share an ID (legacy + new), aggregate them.
+      // The new URL is typically the /news/YYYY/MONTH/DD/... canonical one;
+      // the legacy URL is the bare /slug-ID one. Both count toward the same article.
+      if (!metricsByArticleId[id]) {
+        metricsByArticleId[id] = [];
+      }
+      metricsByArticleId[id].push(metricsByPath[path]);
+      if (!path.startsWith('/news/')) legacyPathCount++;
+    }
+  });
+  log('  built ID index: ' + Object.keys(metricsByArticleId).length + ' unique IDs');
+  log('  legacy (non-/news/) paths with IDs: ' + legacyPathCount);
   
   let matched = 0;
+  let matchedById = 0;
   let unmatched = 0;
   
   articles.forEach(a => {
@@ -459,13 +537,26 @@ function mergeGaMetrics(articles) {
       return;
     }
     
-    // Try exact match first, then retry with trailing slash stripped.
-    // CMS sometimes stores postSlug with trailing slash; GA normalises paths
-    // without one. Without this fallback, recent articles (which have the
-    // trailing slash in their postSlug) fail to join.
+    // Pass 1: try exact match on full slug (with/without trailing slash).
     let m = metricsByPath[slug];
     if (!m && slug.length > 1 && slug.endsWith('/')) {
       m = metricsByPath[slug.slice(0, -1)];
+    }
+    
+    // Pass 2: if no direct match, try joining by article ID suffix.
+    // This catches legacy URLs where the same article has a pre-migration
+    // path with different structure but identical ID suffix.
+    let gatheredFromId = false;
+    if (!m) {
+      const idMatch = slug.match(ID_RX);
+      if (idMatch) {
+        const matchesForId = metricsByArticleId[idMatch[1]];
+        if (matchesForId && matchesForId.length) {
+          // Aggregate metrics across all paths sharing this ID
+          m = aggregateMetrics(matchesForId);
+          gatheredFromId = true;
+        }
+      }
     }
     
     if (m) {
@@ -473,9 +564,12 @@ function mergeGaMetrics(articles) {
         pageViews:             m.pageViews || 0,
         users:                 m.users || 0,
         avgEngagementTimeSecs: m.avgEngagementTimeSecs || 0,
-        engagementRate:        m.engagementRate || 0
+        engagementRate:        m.engagementRate || 0,
+        scrollRate:            m.scrollRate != null ? m.scrollRate : null,
+        sources:               m.sources || null
       };
       matched++;
+      if (gatheredFromId) matchedById++;
     } else {
       a.metrics = null;
       unmatched++;
@@ -483,6 +577,7 @@ function mergeGaMetrics(articles) {
   });
   
   log('GA MERGE: ' + matched + ' articles matched, ' + unmatched + ' unmatched');
+  log('  of which ' + matchedById + ' matched only via article ID suffix (legacy URLs)');
   
   // Leaderboard for sanity check
   const top = articles
