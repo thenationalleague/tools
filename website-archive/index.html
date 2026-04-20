@@ -3,10 +3,35 @@
 <head>
 <!--
   NL Tools — Website Archive
-  Version: 1.4
-  Date: 19/04/2026
+  Version: 1.5
+  Date: 20/04/2026
 
   CHANGELOG
+  v1.5 (20/04/2026)
+    - Card redesign ("Option D"):
+        * Views badge becomes two-line: view count on top, dwell time
+          underneath (disambiguates vs adjacent word count which could
+          read as "reading time").
+        * Traffic-light dot removed from cards (redundant with the view
+          count badge, which already signals performance at a glance).
+        * Word count shown in footer, labelled "NNN words" so it's clear
+          it's an article attribute, not a GA metric.
+        * "Colour by" dropdown removed (no longer needed without the dot).
+    - Modal metrics panel expands from 5 to 7 cells, adding:
+        * Scroll — % of users who scrolled to 90% depth (GA4 built-in
+          scroll event count / users). Green >50%, amber 25-50%, red <25%.
+        * Read-through % — average engagement time as a fraction of
+          expected reading time (based on wordCount at 225 wpm). Tells you
+          whether people actually read the thing rather than bouncing.
+          Green 60-150%, amber 30-60% or >150%, red <30%.
+    - Modal now also shows a traffic source breakdown bar under the stats
+      panel (Direct / Organic Search / Social / Referral etc.) with
+      coloured segments sized by percentage of views. Only appears when
+      source data is available.
+    - Requires articles-index.json with schemaVersion 3 and metrics objects
+      containing scrollRate + sources (built by rebuild-index.js v2.4 +
+      fetch-ga-metrics.js v2.0).
+
   v1.4 (19/04/2026)
     - Added GA metrics display: views, users, engagement time, engagement rate
     - Card badge shows view count (top-right of hero image)
@@ -78,6 +103,16 @@
   var NL_TOOL_KEY = 'staff-website-archive';
 
   window.NL_CHANGELOG = [
+    {
+      date: '20 April 2026',
+      version: 'v1.5',
+      items: [
+        'Cards redesigned — view count and average engagement time now stack on a single badge, clearer word count label in the footer.',
+        'Article modal shows two new metrics: scroll depth (% of users who reached 90% of the page) and read-through % (how much of the expected reading time they actually spent).',
+        'Modal now also shows a traffic source breakdown bar — where readers came from (search, social, direct etc.).',
+        'Pre-migration legacy URLs now correctly join to their modern article records, so older pieces show their full view history.'
+      ]
+    },
     {
       date: '19 April 2026',
       version: 'v1.4',
@@ -306,7 +341,7 @@
 }
 
 /* ============ METRICS — SHARED ============ */
-/* Traffic light dot. Colours applied via modifier classes. */
+/* Traffic light dot. Still used in list view and modal. */
 .tl-dot {
   display: inline-block;
   width: 8px;
@@ -321,46 +356,55 @@
 .tl-dot--red    { background: #c73030; }
 .tl-dot--null   { background: transparent; border: 1px dashed var(--text-muted); }
 
-/* Card view count badge (floats over hero) */
+/* Card views badge — two-line stack (views on top, dwell underneath) */
 .card__views-badge {
   position: absolute;
   top: 8px;
   right: 8px;
   background: rgba(26, 42, 68, 0.90);
   color: var(--white);
-  padding: 3px 8px;
-  border-radius: 10px;
-  font-size: 10px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  line-height: 1.25;
+  text-align: right;
+  backdrop-filter: blur(4px);
+}
+.card__views-badge-line1 {
+  font-size: 11px;
   font-weight: 800; font-variation-settings: 'wght' 800;
   letter-spacing: 0.02em;
-  backdrop-filter: blur(4px);
+}
+.card__views-badge-line2 {
+  font-size: 9px;
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  opacity: 0.80;
+  margin-top: 1px;
 }
 .card__views-badge--null {
   background: rgba(100, 100, 100, 0.75);
   font-style: italic;
+}
+.card__views-badge--null .card__views-badge-line1 {
   font-weight: 500; font-variation-settings: 'wght' 500;
 }
 
-/* Card engagement time text in footer */
-.card__dwell {
+/* Card footer — word count replaces dwell+dot */
+.card__wordcount {
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 600; font-variation-settings: 'wght' 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
-.card__dwell--null { opacity: 0.5; }
+.card__wordcount--null { opacity: 0.5; }
 
 /* ============ MODAL METRICS PANEL ============ */
 .modal-metrics {
   background: var(--off-white);
   border-radius: var(--radius);
   padding: 12px 14px;
-  margin-bottom: 18px;
+  margin-bottom: 10px;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
 }
 .modal-metrics__cell { min-width: 0; }
 .modal-metrics__label {
@@ -373,7 +417,7 @@
   white-space: nowrap;
 }
 .modal-metrics__value {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800; font-variation-settings: 'wght' 800;
   color: var(--text);
   line-height: 1.1;
@@ -396,9 +440,66 @@
   margin-top: 1px;
 }
 
+@media (max-width: 860px) {
+  .modal-metrics { grid-template-columns: repeat(4, 1fr); row-gap: 10px; }
+}
 @media (max-width: 620px) {
   .modal-metrics { grid-template-columns: repeat(3, 1fr); row-gap: 10px; }
-  .modal-metrics__cell:nth-child(n+4) { grid-row: 2; }
+}
+
+/* ============ MODAL TRAFFIC SOURCES ============ */
+.modal-sources {
+  background: var(--off-white);
+  border-radius: var(--radius);
+  padding: 10px 14px 12px;
+  margin-bottom: 18px;
+}
+.modal-sources__label {
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.modal-sources__bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border);
+  margin-bottom: 8px;
+}
+.modal-sources__seg {
+  height: 100%;
+  min-width: 2px;
+}
+.modal-sources__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+}
+.modal-sources__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.modal-sources__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.modal-sources__legend-label {
+  color: var(--text-muted);
+}
+.modal-sources__legend-val {
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text);
+  margin-left: 1px;
 }
 
 /* ============ LIST VIEW METRIC COLUMNS ============ */
@@ -434,28 +535,6 @@
 .row__header-sortable { cursor: pointer; user-select: none; }
 .row__header-sortable:hover { color: var(--text); }
 .row__header-sortable.active { color: var(--primary); }
-
-/* ============ COLOUR-BY DROPDOWN ============ */
-.colour-by {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 700; font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.colour-by select {
-  font-family: var(--font);
-  font-size: 11px;
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--white);
-  color: var(--text);
-  font-weight: 700; font-variation-settings: 'wght' 700;
-}
 
 /* ============ RESULTS — LIST MODE ============ */
 .results-list {
@@ -922,14 +1001,6 @@
       <option value="engagement">Longest engagement</option>
       <option value="length">Longest read</option>
     </select>
-    <div class="colour-by" title="Colour the card traffic-light dot by this metric">
-      <label for="colourBy">Colour by</label>
-      <select id="colourBy">
-        <option value="views">Views</option>
-        <option value="engagement">Engagement</option>
-        <option value="both">Both (worst of)</option>
-      </select>
-    </div>
     <div class="view-toggle">
       <button id="viewGrid" class="active" data-view="grid">Grid</button>
       <button id="viewList" data-view="list">List</button>
@@ -1162,13 +1233,6 @@ function init() {
   }
   applyViewToggleUI();
 
-  var savedColour = localStorage.getItem(LS_KEY_COLOUR_BY);
-  if (savedColour === 'views' || savedColour === 'engagement' || savedColour === 'both') {
-    STATE.colourBy = savedColour;
-  }
-  var colourEl = $('colourBy');
-  if (colourEl) colourEl.value = STATE.colourBy;
-
   try {
     var raw = localStorage.getItem(LS_KEY_BODY_CACHE);
     if (raw) STATE.bodyCache = JSON.parse(raw);
@@ -1188,15 +1252,6 @@ function wireControls() {
   $('catInput').addEventListener('change', applyFilters);
   $('scopeBody').addEventListener('change', applyFilters);
   $('sortSelect').addEventListener('change', applyFilters);
-
-  var colourEl2 = $('colourBy');
-  if (colourEl2) {
-    colourEl2.addEventListener('change', function() {
-      STATE.colourBy = colourEl2.value;
-      localStorage.setItem(LS_KEY_COLOUR_BY, STATE.colourBy);
-      renderResults();  // re-render with new tier colouring
-    });
-  }
 
   $('resetBtn').addEventListener('click', function() {
     $('qInput').value = '';
@@ -1410,22 +1465,35 @@ function cardHTML(a, i) {
   var placeholderStyle = img ? 'display:none;' : '';
 
   var m = a.metrics;
-  var tier = cardTier(a);
   var viewsBadge;
   if (m && m.pageViews != null) {
-    viewsBadge = '<div class="card__views-badge" title="Page views since Oct 2025">' + esc(formatCount(m.pageViews)) + ' views</div>';
+    var line1 = formatCount(m.pageViews) + ' views';
+    var line2Text;
+    if (m.avgEngagementTimeSecs != null) {
+      line2Text = formatDuration(m.avgEngagementTimeSecs) + ' avg';
+    } else {
+      line2Text = '';
+    }
+    viewsBadge =
+      '<div class="card__views-badge" title="Page views and average engagement time since Oct 2025">' +
+        '<div class="card__views-badge-line1">' + esc(line1) + '</div>' +
+        (line2Text ? '<div class="card__views-badge-line2">' + esc(line2Text) + '</div>' : '') +
+      '</div>';
   } else {
-    viewsBadge = '<div class="card__views-badge card__views-badge--null" title="No analytics data (pre-Oct 2025)">no data</div>';
+    viewsBadge =
+      '<div class="card__views-badge card__views-badge--null" title="No analytics data (pre-Oct 2025)">' +
+        '<div class="card__views-badge-line1">no data</div>' +
+      '</div>';
   }
 
-  var dwellMarkup;
-  if (m && m.avgEngagementTimeSecs != null) {
-    dwellMarkup = '<span class="card__dwell" title="Average engagement time">' + esc(formatDuration(m.avgEngagementTimeSecs)) + '</span>';
+  // Word count in footer — computed client-side from bodyText
+  var wc = wordCount(a);
+  var wcMarkup;
+  if (wc > 0) {
+    wcMarkup = '<span class="card__wordcount">' + esc(wc.toLocaleString() + ' words') + '</span>';
   } else {
-    dwellMarkup = '<span class="card__dwell card__dwell--null">—</span>';
+    wcMarkup = '<span class="card__wordcount card__wordcount--null">&mdash;</span>';
   }
-
-  var dotMarkup = '<span class="tl-dot tl-dot--' + tier + '" title="' + (tier === 'null' ? 'No metrics' : 'Performance: ' + tier) + '"></span>';
 
   return '<div class="card" data-idx="' + i + '">' +
     '<div class="card__img-wrap">' +
@@ -1442,7 +1510,7 @@ function cardHTML(a, i) {
       (a.description ? '<div class="card__sub">' + esc(a.description) + '</div>' : '') +
       '<div class="card__footer">' +
         '<span>' + esc((a.postAuthor || '').trim() || '—') + '</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:6px;">' + dwellMarkup + dotMarkup + '</span>' +
+        wcMarkup +
       '</div>' +
     '</div>' +
   '</div>';
@@ -1650,7 +1718,10 @@ function renderModalBody(a, content) {
   }, 100);
 }
 
-/* Build the 5-cell metrics panel shown at the top of the modal */
+/* Build the metrics section shown at the top of the modal.
+   Composed of:
+     - Top strip: 7 metric cells (Views, Users, Avg time, Engaged, Scroll, Read, Length)
+     - Bottom: traffic source breakdown bar (only shown when data exists) */
 function buildModalMetricsPanel(a) {
   var m = a.metrics;
   var wc = wordCount(a);
@@ -1679,7 +1750,7 @@ function buildModalMetricsPanel(a) {
 
   if (m && m.users != null) {
     usersVal = m.users.toLocaleString();
-    usersCls = '';  // users not colour-coded (derived metric, no independent threshold)
+    usersCls = '';
   } else {
     usersVal = '—';
     usersCls = 'modal-metrics__value--null';
@@ -1702,14 +1773,115 @@ function buildModalMetricsPanel(a) {
     engCls = 'modal-metrics__value--null';
   }
 
+  // Scroll rate: GA4 fires the built-in 'scroll' event once per session
+  // when user reaches 90% depth. scrollRate = scrollCount / users.
+  var scrollVal, scrollCls;
+  if (m && m.scrollRate != null) {
+    scrollVal = Math.round(m.scrollRate * 100) + '%';
+    var sr = m.scrollRate;
+    scrollCls = 'modal-metrics__value--' + (sr >= 0.5 ? 'green' : (sr >= 0.25 ? 'amber' : 'red'));
+  } else {
+    scrollVal = '—';
+    scrollCls = 'modal-metrics__value--null';
+  }
+
+  // Read-through: how much of the expected reading time did the average
+  // user actually spend? avgEngagementTimeSecs / (wordCount × seconds-per-word).
+  // 225 wpm = ~0.267 sec/word. Values >1 mean people stay longer than text requires.
+  // For service content with tiny word counts this can be huge; cap display at 999%.
+  var readVal, readCls, readSub = null;
+  if (m && m.avgEngagementTimeSecs != null && wc > 0) {
+    var expectedSecs = wc * (60 / 225);
+    var rate = m.avgEngagementTimeSecs / expectedSecs;
+    var pct = Math.round(rate * 100);
+    readVal = Math.min(pct, 999) + '%';
+    // >100% = people spent MORE than expected reading time (re-reading, pausing, etc.)
+    // Green band is 60-150% - solid engagement without being suspicious
+    if (pct >= 60 && pct <= 150) readCls = 'modal-metrics__value--green';
+    else if (pct >= 30 || pct > 150) readCls = 'modal-metrics__value--amber';
+    else readCls = 'modal-metrics__value--red';
+    readSub = 'of ' + (rt >= 1 ? rt + ' min read' : '<1 min');
+  } else {
+    readVal = '—';
+    readCls = 'modal-metrics__value--null';
+  }
+
   var lengthCls = wc ? '' : 'modal-metrics__value--null';
 
-  return '<div class="modal-metrics">' +
-    cell('Views',   viewsVal, viewsCls, m ? 'Since Oct 2025' : null) +
-    cell('Users',   usersVal, usersCls, null) +
-    cell('Avg time', timeVal,  timeCls,  null) +
-    cell('Engaged', engVal,   engCls,   null) +
-    cell('Length',  lengthStr, lengthCls, null) +
+  var strip = '<div class="modal-metrics">' +
+    cell('Views',     viewsVal, viewsCls, m ? 'Since Oct 2025' : null) +
+    cell('Users',     usersVal, usersCls, null) +
+    cell('Avg time',  timeVal,  timeCls,  null) +
+    cell('Engaged',   engVal,   engCls,   null) +
+    cell('Scroll',    scrollVal, scrollCls, 'To 90% depth') +
+    cell('Read-thru', readVal,  readCls,  readSub) +
+    cell('Length',    lengthStr, lengthCls, null) +
+    '</div>';
+
+  // Traffic source breakdown — only render when we have source data
+  var sourceBar = '';
+  if (m && m.sources && Object.keys(m.sources).length > 0) {
+    sourceBar = buildTrafficSourceBar(m.sources, m.pageViews || 0);
+  }
+
+  return strip + sourceBar;
+}
+
+/* Horizontal bar showing traffic source mix.
+   Groups channels by colour family so the bar reads at a glance. */
+function buildTrafficSourceBar(sources, totalViews) {
+  if (!sources || !totalViews) return '';
+  var entries = Object.entries(sources)
+    .filter(function(e) { return e[1] > 0; })
+    .sort(function(a, b) { return b[1] - a[1]; });
+  if (!entries.length) return '';
+
+  // Channel colour mapping. GA4 default channel groups:
+  var channelColours = {
+    'Direct':               '#555',
+    'Organic Search':       '#2e7d32',
+    'Paid Search':          '#558b2f',
+    'Organic Social':       '#1976d2',
+    'Paid Social':          '#0d47a1',
+    'Referral':             '#7b1fa2',
+    'Email':                '#f57c00',
+    'Display':              '#c2185b',
+    'Organic Video':        '#d81b60',
+    'Paid Video':           '#880e4f',
+    'Cross-network':        '#6a1b9a',
+    'Affiliates':           '#ad1457',
+    'Audio':                '#00838f',
+    'SMS':                  '#00695c',
+    'Mobile Push':          '#4527a0',
+    'Unassigned':           '#888',
+    'Unknown':              '#aaa'
+  };
+
+  var segmentsHtml = '';
+  var legendHtml = '';
+  entries.forEach(function(e) {
+    var channel = e[0];
+    var views = e[1];
+    var pct = (views / totalViews) * 100;
+    if (pct < 0.5) return;  // skip slivers <0.5%
+    var colour = channelColours[channel] || '#999';
+    segmentsHtml +=
+      '<div class="modal-sources__seg" style="width:' + pct.toFixed(2) + '%;background:' + colour + ';" ' +
+      'title="' + esc(channel) + ' — ' + views.toLocaleString() + ' views (' + pct.toFixed(1) + '%)"></div>';
+    legendHtml +=
+      '<div class="modal-sources__legend-item">' +
+        '<span class="modal-sources__legend-dot" style="background:' + colour + ';"></span>' +
+        '<span class="modal-sources__legend-label">' + esc(channel) + '</span>' +
+        '<span class="modal-sources__legend-val">' + pct.toFixed(0) + '%</span>' +
+      '</div>';
+  });
+
+  if (!segmentsHtml) return '';
+
+  return '<div class="modal-sources">' +
+    '<div class="modal-sources__label">Traffic sources</div>' +
+    '<div class="modal-sources__bar">' + segmentsHtml + '</div>' +
+    '<div class="modal-sources__legend">' + legendHtml + '</div>' +
     '</div>';
 }
 
