@@ -1,7 +1,7 @@
 /* =======================================================================
    NL Archive Index Rebuild
-   Version: 2.2
-   Date: 19/04/2026
+   Version: 2.3
+   Date: 20/04/2026
 
    Builds or updates assets/data/articles-index.json from the NL CMS.
    Each article record includes plaintext body text (for full-text search
@@ -26,6 +26,12 @@
      Metrics included: pageViews, users, avgEngagementTimeSecs, engagementRate.
 
    CHANGELOG
+   v2.3 (20/04/2026)
+     - Fix GA join failure for articles with trailing-slash postSlugs.
+       CMS stores some slugs with a trailing '/', GA paths always have it
+       stripped. v2.2 join failed for all 334 2026 articles (plus ~360
+       others). v2.3 tries exact match first, then retries with trailing
+       slash removed. No re-fetch required - only affects merge step.
    v2.2 (19/04/2026)
      - Merge GA metrics from assets/data/ga-metrics.json when present.
        Each article record gains a `metrics` object joined by postSlug.
@@ -453,7 +459,15 @@ function mergeGaMetrics(articles) {
       return;
     }
     
-    const m = metricsByPath[slug];
+    // Try exact match first, then retry with trailing slash stripped.
+    // CMS sometimes stores postSlug with trailing slash; GA normalises paths
+    // without one. Without this fallback, recent articles (which have the
+    // trailing slash in their postSlug) fail to join.
+    let m = metricsByPath[slug];
+    if (!m && slug.length > 1 && slug.endsWith('/')) {
+      m = metricsByPath[slug.slice(0, -1)];
+    }
+    
     if (m) {
       a.metrics = {
         pageViews:             m.pageViews || 0,
