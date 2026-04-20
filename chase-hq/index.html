@@ -1,9 +1,25 @@
 <!--
   Chase HQ — NL Tools
-  Version: v3.1
-  Date: 17/04/2026
+  Version: v3.2
+  Date: 20/04/2026
 
   CHANGELOG
+  v3.2 (20/04/2026) — System file migration:
+    * Firebase SDK 10.7.1 → 10.12.0
+    * Migrated to /tools/system/ shared files:
+      - nl-brand.css, nl-utils.js, nl-topbar.js (v=6 with "What's new"),
+        auth-guard.js
+    * Replaced custom topbar markup with <div id="nlTopbar"></div>
+    * Settings gear ⚙ moved into NL_TOOL.extras.right (still top-right)
+    * Removed local wireTopbar function
+    * showToast() now delegates to NL.toast
+    * Local esc() / escJ() removed — now NL.escHtml / NL.escJ
+    * Removed local .container max-width 1000px — now inherits universal
+      container rule from nl-brand.css v2.2 (1700px fluid on wide screens)
+    * Stripped duplicated CSS: @font-face, :root tokens, reset, body, topbar,
+      btn base+variants, stat/stats rules
+    * Added NL_CHANGELOG public release notes (clickable version badge)
+
   v2.3 (17/04/2026)
   - GAS proxy as default AI email source — NL shared Anthropic key
     stored in GAS Script Properties, never exposed client-side
@@ -41,9 +57,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chase HQ — NL Tools</title>
 
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script>
 firebase.initializeApp({
   apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
@@ -55,77 +71,47 @@ firebase.initializeApp({
   appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
 });
 </script>
-<script>var NL_TOOL_KEY = 'staff-chase-hq';</script>
-<script src="/tools/auth-guard.js"></script>
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=10">
+
+<script>
+  window.NL_TOOL = {
+    title: 'Chase HQ',
+    toolKey: 'staff-chase-hq',
+    extras: {
+      right: '<button class="topbar__btn topbar__btn--icon" onclick="openSettings()" title="Settings" aria-label="Settings">\u2699</button>'
+    }
+  };
+  var NL_TOOL_KEY = 'staff-chase-hq';
+
+  /* Public-facing "What's new" — shown when users click the version badge. */
+  window.NL_CHANGELOG = [
+    {
+      date: '20 April 2026',
+      version: 'v3.2',
+      items: [
+        'Refreshed design — cleaner layout consistent with other NL Tools.',
+        'Standardised profile menu matching other tools.',
+        'Settings gear stays accessible from the top bar.'
+      ]
+    },
+    {
+      date: '17 April 2026',
+      version: 'v2.3',
+      items: [
+        'AI email generation now uses shared NL key by default — no setup needed.',
+        'Personal API key still supported if you prefer.',
+        'Settings panel with walkthrough for getting your own key.'
+      ]
+    }
+  ];
+</script>
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=6"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <style>
-@font-face {
-  font-family: "carbona-variable";
-  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
-}
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --primary:     #9e0000;
-  --primary-dim: #7a0000;
-  --navy:        #223b7c;
-  --navy-mid:    #1a2f63;
-  --navy-light:  #2a4a8c;
-  --red:         #c0392b;
-  --red-light:   #fdf0ef;
-  --green:       #1e7e34;
-  --green-light: #edf7ee;
-  --amber:       #e67e22;
-  --amber-light: #fef6ec;
-  --white:       #ffffff;
-  --off-white:   #f4f6f9;
-  --text:        #1a2a44;
-  --text-muted:  #5a6a82;
-  --border:      #dde3ed;
-  --radius:      6px;
-  --shadow:      0 2px 12px rgba(10,22,40,0.10);
-  --font:        'carbona-variable','carbona',sans-serif;
-}
-body {
-  font-family: var(--font);
-  font-size: 15px;
-  line-height: 1.5;
-  font-variation-settings: 'wght' 400;
-  color: var(--text);
-  background: var(--off-white);
-  min-height: 100vh;
-}
-
-
-
-
-
-
-
-.topbar__icon-btn {
-  background: none; border: none; color: rgba(255,255,255,0.8);
-  font-size: 18px; cursor: pointer; padding: 4px 6px;
-  border-radius: 4px; transition: all 0.15s; position: relative;
-}
-.topbar__icon-btn:hover { background: rgba(255,255,255,0.12); color: var(--white); }
-.container { max-width: 1000px; margin: 0 auto; padding: 28px 20px 70px; }
-.stats {
-  display: grid; grid-template-columns: repeat(4,1fr);
-  gap: 12px; margin-bottom: 24px;
-}
-.stat {
-  background: var(--white); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 16px;
-  text-align: center; box-shadow: var(--shadow);
-}
-.stat__num { font-size: 40px; font-weight: 900; font-variation-settings: 'wght' 900; line-height: 1; margin-bottom: 6px; }
-.stat__label { font-size: 10px; color: var(--text-muted); font-weight: 800; font-variation-settings: 'wght' 800; text-transform: uppercase; letter-spacing: 0.1em; }
-.stat--overdue .stat__num  { color: var(--red); }
-.stat--due     .stat__num  { color: var(--amber); }
-.stat--open    .stat__num  { color: var(--navy); }
-.stat--resolved .stat__num { color: var(--green); }
-.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+/* .container sizing inherited from nl-brand.css universal container rule */
+.stat--overdue .stat--due     .stat--open    .stat--resolved .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
 .filter-tabs {
   display: flex; gap: 4px;
   background: var(--white); border: 1px solid var(--border);
@@ -138,26 +124,8 @@ body {
   transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.06em;
 }
 .filter-tab.active { background: var(--primary); color: var(--white); }
-.btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 8px 16px; border-radius: var(--radius);
-  font-size: 11px; font-weight: 900; font-variation-settings: 'wght' 900;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  cursor: pointer; border: none; font-family: var(--font);
-  transition: background 0.15s; white-space: nowrap;
-}
-.btn--primary { background: var(--primary); color: var(--white); }
-.btn--navy    { background: var(--navy);    color: var(--white); }
 .btn--green   { background: var(--green-light); color: var(--green); border: 1px solid #b8dfc0; }
-.btn--danger  { background: var(--red-light);   color: var(--red);   border: 1px solid #f5c6c2; }
-.btn--ghost   { background: none; border: 1px solid var(--border); color: var(--text-muted); }
-.btn--primary:hover:not(:disabled) { background: var(--primary-dim); }
-.btn--navy:hover:not(:disabled)    { background: var(--navy-mid); }
 .btn--green:hover:not(:disabled)   { background: #d4edda; }
-.btn--danger:hover:not(:disabled)  { background: #fae0de; }
-.btn--ghost:hover:not(:disabled)   { background: var(--off-white); color: var(--text); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn--sm { padding: 5px 12px; font-size: 10px; }
 .pill {
   display: inline-block; padding: 3px 8px; border-radius: 12px;
   font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
@@ -406,7 +374,6 @@ body {
   
   
   .container { padding: 16px 12px 60px; }
-  .stats { grid-template-columns: repeat(2,1fr); }
   .filter-tabs { margin-left: 0; width: 100%; }
   .filter-tab { flex: 1; text-align: center; }
   .toolbar { gap: 8px; }
@@ -417,118 +384,18 @@ body {
 }
 
 /* ── Standard NL Tools Topbar (see nl-brand skill) ─────────────────────── */
-.topbar {
-  background: var(--primary);
-  color: var(--white);
-  padding: 0 20px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-  width: 100%;
-  box-sizing: border-box;
-}
-.topbar__logo {
-  height: 42px;
-  flex-shrink: 0;
-}
-.topbar__title-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-  gap: 3px;
-}
-.topbar__title {
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  font-size: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--white);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.topbar__kicker {
-  font-size: 9px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.6);
-  white-space: nowrap;
-}
-.topbar__user {
-  font-size: 13px;
-  color: rgba(255,255,255,0.8);
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,0.3);
-  color: var(--white);
-  padding: 7px 14px;
-  border-radius: var(--radius);
-  font-size: 11px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn:hover { background: rgba(255,255,255,0.12); }
-.topbar__btn--icon {
-  padding: 7px 10px;
-  font-size: 14px;
-}
 /* Mobile: hide user name, icon-only Portal. Kicker stays visible. */
 @media (max-width: 700px) {
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar__user { display: none; }
-  .topbar__btn-text-portal { display: none; }
-  .topbar__btn--portal { padding: 7px 10px; }
-  .topbar__title { font-size: 17px; }
-}
+  }
 
 </style>
 </head>
 <body>
 <div id="pageWrap" style="display:none">
 
-<header class="topbar">
-  <img class="topbar__logo"
-    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title-wrap">
-    <span class="topbar__title">Chase HQ</span>
-    <span class="topbar__kicker">NL Tools</span>
-  </div>
-  <span class="topbar__user" id="topbarUser"></span>
-  <button class="topbar__btn topbar__btn--icon" onclick="openSettings()" title="Settings" aria-label="Settings">⚙</button>
-  <a href="/tools/portal/" class="topbar__btn topbar__btn--portal" aria-label="Back to portal">
-    <span>←</span><span class="topbar__btn-text-portal">Portal</span>
-  </a>
-  <button class="topbar__btn" id="signOutBtn">Sign out</button>
-</header>
+<!-- Topbar — auto-rendered by /tools/system/nl-topbar.js from window.NL_TOOL.
+     Settings gear ⚙ is injected via NL_TOOL.extras.right -->
+<div id="nlTopbar"></div>
 
 <div class="container">
   <div class="stats">
@@ -699,13 +566,17 @@ body {
 var db = firebase.database();
 var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+/* NL.escHtml() provided by NL.escHtml in nl-utils.js */
+/* NL.escJ() provided by NL.escJ in nl-utils.js */
 
 function showToast(msg, type) {
+  /* Delegates to NL.toast (shared widget) */
+  if (window.NL && window.NL.toast) { NL.toast(msg, type); return; }
+  /* Fallback */
   var t = document.getElementById('toast');
+  if (!t) return;
   t.textContent = msg;
-  t.className = 'toast ' + (type||'success') + ' show';
+  t.className = 'toast ' + (type || 'success') + ' show';
   setTimeout(function() { t.classList.remove('show'); }, 3500);
 }
 
@@ -957,9 +828,9 @@ function onContactInput(val) {
   }).slice(0,8);
   if (!matches.length) { dd.classList.remove('open'); return; }
   dd.innerHTML = matches.map(function(u) {
-    return '<div class="contact-option" onmousedown="selectContact(\'' + escJ(u.uid) + '\',\'' + escJ(u.name) + '\',\'' + escJ(u.email||'') + '\')">'
-      + '<div><div class="contact-option-name">' + esc(u.name) + '</div>'
-      + '<div class="contact-option-meta">' + esc(u.jobTitle || u.org || '') + '</div></div></div>';
+    return '<div class="contact-option" onmousedown="selectContact(\'' + NL.escJ(u.uid) + '\',\'' + NL.escJ(u.name) + '\',\'' + NL.escJ(u.email||'') + '\')">'
+      + '<div><div class="contact-option-name">' + NL.escHtml(u.name) + '</div>'
+      + '<div class="contact-option-meta">' + NL.escHtml(u.jobTitle || u.org || '') + '</div></div></div>';
   }).join('');
   dd.classList.add('open');
 }
@@ -1059,8 +930,8 @@ function cardHTML(r, children) {
   var noteCount   = (r.notes || []).length;
   var hasChildren = children && children.length > 0;
   var cls = 'card' + (r.resolved ? ' resolved' : overdue ? ' overdue' : stale ? ' stale' : '');
-  var flags = '<span class="contact">\u21b3 ' + esc(r.contact || '\u2014') + '</span>';
-  if (r.contactType) flags += '<span class="meta-dot">\u00b7</span><span class="pill pill--' + esc(r.contactType) + '" style="font-size:9px;padding:2px 6px">' + esc(r.contactType) + '</span>';
+  var flags = '<span class="contact">\u21b3 ' + NL.escHtml(r.contact || '\u2014') + '</span>';
+  if (r.contactType) flags += '<span class="meta-dot">\u00b7</span><span class="pill pill--' + NL.escHtml(r.contactType) + '" style="font-size:9px;padding:2px 6px">' + NL.escHtml(r.contactType) + '</span>';
   if (overdue)        flags += '<span class="meta-dot">\u00b7</span><span class="flag-overdue">\u26a0 Overdue ' + fmtDate(r.chaseDate) + '</span>';
   else if (dueToday)  flags += '<span class="meta-dot">\u00b7</span><span class="flag-due">\u23f0 Due today</span>';
   else if (r.chaseDate) flags += '<span class="meta-dot">\u00b7</span><span>Chase: ' + fmtDate(r.chaseDate) + '</span>';
@@ -1070,14 +941,14 @@ function cardHTML(r, children) {
   if (hasChildren) flags += '<span class="meta-dot">\u00b7</span><span class="pill pill--parent" style="font-size:9px;padding:2px 6px">' + children.length + ' linked</span>';
   var html = '<div class="' + cls + '" id="card-' + id + '">'
     + '<div class="card-main">'
-      + '<div class="urgency-pip urgency-' + esc(r.urgency||'medium') + '"></div>'
+      + '<div class="urgency-pip urgency-' + NL.escHtml(r.urgency||'medium') + '"></div>'
       + '<div class="card-body">'
-        + '<div class="card-title">' + esc(r.title) + '</div>'
+        + '<div class="card-title">' + NL.escHtml(r.title) + '</div>'
         + '<div class="card-meta">' + flags + '</div>'
       + '</div>'
       + '<div class="card-actions">'
         + '<span class="pill pill--' + tone.key + '">' + tone.label + '</span>'
-        + '<button class="card-expand-btn" onclick="togglePanel(\'' + escJ(id) + '\')">&#8943;</button>'
+        + '<button class="card-expand-btn" onclick="togglePanel(\'' + NL.escJ(id) + '\')">&#8943;</button>'
       + '</div>'
     + '</div>'
     + panelHTML(id, r);
@@ -1085,11 +956,11 @@ function cardHTML(r, children) {
     html += '<div class="children-group">'
       + '<div class="children-label">Linked requests (' + children.length + ')</div>'
       + children.map(function(c) { return childCardHTML(c); }).join('')
-      + '<button class="add-child-btn" onclick="openModal(null,\'' + escJ(id) + '\')">+ Add linked request</button>'
+      + '<button class="add-child-btn" onclick="openModal(null,\'' + NL.escJ(id) + '\')">+ Add linked request</button>'
       + '</div>';
   } else if (!r.resolved) {
     html += '<div class="children-group" style="padding-top:0">'
-      + '<button class="add-child-btn" onclick="openModal(null,\'' + escJ(id) + '\')">+ Add linked request</button>'
+      + '<button class="add-child-btn" onclick="openModal(null,\'' + NL.escJ(id) + '\')">+ Add linked request</button>'
       + '</div>';
   }
   return html + '</div>';
@@ -1101,19 +972,19 @@ function childCardHTML(r) {
   var overdue = isOverdue(r);
   var stale   = isStale(r);
   var cls = 'card child-card' + (r.resolved ? ' resolved' : overdue ? ' overdue' : stale ? ' stale' : '');
-  var flags = '<span class="contact">\u21b3 ' + esc(r.contact||'\u2014') + '</span>';
+  var flags = '<span class="contact">\u21b3 ' + NL.escHtml(r.contact||'\u2014') + '</span>';
   if (overdue) flags += '<span class="meta-dot">\u00b7</span><span class="flag-overdue">\u26a0 Overdue</span>';
   else if (isDueToday(r)) flags += '<span class="meta-dot">\u00b7</span><span class="flag-due">\u23f0 Today</span>';
   return '<div class="' + cls + '" id="card-' + id + '">'
     + '<div class="card-main">'
-      + '<div class="urgency-pip urgency-' + esc(r.urgency||'medium') + '"></div>'
+      + '<div class="urgency-pip urgency-' + NL.escHtml(r.urgency||'medium') + '"></div>'
       + '<div class="card-body">'
-        + '<div class="card-title" style="font-size:13px">' + esc(r.title) + '</div>'
+        + '<div class="card-title" style="font-size:13px">' + NL.escHtml(r.title) + '</div>'
         + '<div class="card-meta">' + flags + '</div>'
       + '</div>'
       + '<div class="card-actions">'
         + '<span class="pill pill--' + tone.key + '">' + tone.label + '</span>'
-        + '<button class="card-expand-btn" onclick="togglePanel(\'' + escJ(id) + '\')">&#8943;</button>'
+        + '<button class="card-expand-btn" onclick="togglePanel(\'' + NL.escJ(id) + '\')">&#8943;</button>'
       + '</div>'
     + '</div>'
     + panelHTML(id, r)
@@ -1123,58 +994,58 @@ function childCardHTML(r) {
 function panelHTML(id, r) {
   var opts = function(group, items) {
     return items.map(function(o) {
-      return '<button class="guided-opt" onclick="selectOpt(this,\'' + escJ(id) + '\',\'' + group + '\')">' + o + '</button>';
+      return '<button class="guided-opt" onclick="selectOpt(this,\'' + NL.escJ(id) + '\',\'' + group + '\')">' + o + '</button>';
     }).join('');
   };
   return '<div class="card-panel" id="panel-' + id + '">'
     + '<div class="panel-tabs">'
-      + '<button class="panel-tab active" onclick="showPanelTab(\'' + escJ(id) + '\',\'chase\',this)">Chase Email</button>'
-      + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'notes\',this)">Notes</button>'
-      + '<button class="panel-tab" onclick="showPanelTab(\'' + escJ(id) + '\',\'actions\',this)">Actions</button>'
+      + '<button class="panel-tab active" onclick="showPanelTab(\'' + NL.escJ(id) + '\',\'chase\',this)">Chase Email</button>'
+      + '<button class="panel-tab" onclick="showPanelTab(\'' + NL.escJ(id) + '\',\'notes\',this)">Notes</button>'
+      + '<button class="panel-tab" onclick="showPanelTab(\'' + NL.escJ(id) + '\',\'actions\',this)">Actions</button>'
     + '</div>'
     + '<div class="panel-content" id="ptab-' + id + '-chase">'
       + '<div id="email-start-' + id + '">'
         + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.6;">Answer a few quick questions so the email is as relevant as possible.</div>'
-        + '<button class="btn btn--primary btn--sm" onclick="startGuided(\'' + escJ(id) + '\')">Start &#8594;</button>'
+        + '<button class="btn btn--primary btn--sm" onclick="startGuided(\'' + NL.escJ(id) + '\')">Start &#8594;</button>'
       + '</div>'
       + '<div class="guided-panel" id="guided-' + id + '">'
         + '<div class="guided-step active" id="gstep-' + id + '-1">'
           + '<div class="guided-q"><span>Step 1 of 6</span>What are you chasing?</div>'
-          + '<input class="guided-input" id="g-what-' + id + '" value="' + esc(r.title) + '">'
-          + '<div class="guided-nav"><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',1)">Next &#8594;</button><span class="guided-progress">1 / 6</span></div>'
+          + '<input class="guided-input" id="g-what-' + id + '" value="' + NL.escHtml(r.title) + '">'
+          + '<div class="guided-nav"><button class="btn btn--primary btn--sm" onclick="gNext(\'' + NL.escJ(id) + '\',1)">Next &#8594;</button><span class="guided-progress">1 / 6</span></div>'
         + '</div>'
         + '<div class="guided-step" id="gstep-' + id + '-2">'
           + '<div class="guided-q"><span>Step 2 of 6</span>Who are you chasing?</div>'
-          + '<input class="guided-input" id="g-who-' + id + '" value="' + esc(r.contact||'') + '">'
-          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',2)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',2)">Next &#8594;</button><span class="guided-progress">2 / 6</span></div>'
+          + '<input class="guided-input" id="g-who-' + id + '" value="' + NL.escHtml(r.contact||'') + '">'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + NL.escJ(id) + '\',2)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + NL.escJ(id) + '\',2)">Next &#8594;</button><span class="guided-progress">2 / 6</span></div>'
         + '</div>'
         + '<div class="guided-step" id="gstep-' + id + '-3">'
           + '<div class="guided-q"><span>Step 3 of 6</span>What do you need them to do?</div>'
           + '<div class="guided-options" id="g-action-' + id + '">' + opts('action', ['Send information','Give approval','Send a document','Make a decision','Confirm availability','Other']) + '</div>'
-          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',3)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',3)">Next &#8594;</button><span class="guided-progress">3 / 6</span></div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + NL.escJ(id) + '\',3)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + NL.escJ(id) + '\',3)">Next &#8594;</button><span class="guided-progress">3 / 6</span></div>'
         + '</div>'
         + '<div class="guided-step" id="gstep-' + id + '-4">'
           + '<div class="guided-q"><span>Step 4 of 6</span>Is there a deadline?</div>'
           + '<div class="guided-options" id="g-deadline-' + id + '">' + opts('deadline', ['By end of today','By end of this week','By a specific date','As soon as possible','No specific deadline']) + '</div>'
-          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',4)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',4)">Next &#8594;</button><span class="guided-progress">4 / 6</span></div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + NL.escJ(id) + '\',4)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + NL.escJ(id) + '\',4)">Next &#8594;</button><span class="guided-progress">4 / 6</span></div>'
         + '</div>'
         + '<div class="guided-step" id="gstep-' + id + '-5">'
           + '<div class="guided-q"><span>Step 5 of 6</span>What happens if they don\'t respond?</div>'
           + '<div class="guided-options" id="g-impact-' + id + '">' + opts('impact', ['Nothing yet \u2014 just nudging','It\'s blocking my work','It\'s blocking the team','Escalation may be needed']) + '</div>'
-          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',5)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + escJ(id) + '\',5)">Next &#8594;</button><span class="guided-progress">5 / 6</span></div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + NL.escJ(id) + '\',5)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="gNext(\'' + NL.escJ(id) + '\',5)">Next &#8594;</button><span class="guided-progress">5 / 6</span></div>'
         + '</div>'
         + '<div class="guided-step" id="gstep-' + id + '-6">'
           + '<div class="guided-q"><span>Step 6 of 6</span>Anything else to include? <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-muted)">Optional</span></div>'
           + '<textarea class="guided-textarea" id="g-extras-' + id + '" placeholder="Any extra context, specific wording, or details\u2026"></textarea>'
-          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + escJ(id) + '\',6)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="generateEmail(\'' + escJ(id) + '\')">Generate Email &#8594;</button><span class="guided-progress">6 / 6</span></div>'
+          + '<div class="guided-nav"><button class="btn btn--ghost btn--sm" onclick="gBack(\'' + NL.escJ(id) + '\',6)">&#8592; Back</button><button class="btn btn--primary btn--sm" onclick="generateEmail(\'' + NL.escJ(id) + '\')">Generate Email &#8594;</button><span class="guided-progress">6 / 6</span></div>'
         + '</div>'
       + '</div>'
       + '<div id="email-result-' + id + '" style="display:none">'
         + '<div class="email-preview" id="email-' + id + '" contenteditable="false"></div>'
         + '<div class="email-actions">'
-          + '<button class="btn btn--ghost btn--sm" onclick="resetGuided(\'' + escJ(id) + '\')">&#8592; Redo</button>'
-          + '<button class="btn btn--navy btn--sm" id="copy-btn-' + id + '" onclick="copyEmail(\'' + escJ(id) + '\')" disabled>Copy</button>'
-          + '<button class="btn btn--primary btn--sm" id="chase-btn-' + id + '" onclick="recordChase(\'' + escJ(id) + '\')" disabled>Mark as Chased</button>'
+          + '<button class="btn btn--ghost btn--sm" onclick="resetGuided(\'' + NL.escJ(id) + '\')">&#8592; Redo</button>'
+          + '<button class="btn btn--navy btn--sm" id="copy-btn-' + id + '" onclick="copyEmail(\'' + NL.escJ(id) + '\')" disabled>Copy</button>'
+          + '<button class="btn btn--primary btn--sm" id="chase-btn-' + id + '" onclick="recordChase(\'' + NL.escJ(id) + '\')" disabled>Mark as Chased</button>'
           + '<span class="copy-confirm" id="copy-ok-' + id + '">\u2713 Copied</span>'
         + '</div>'
       + '</div>'
@@ -1182,17 +1053,17 @@ function panelHTML(id, r) {
     + '<div class="panel-content" id="ptab-' + id + '-notes" style="display:none">'
       + '<div class="notes-thread" id="notes-' + id + '">' + renderNotes(r.notes||[]) + '</div>'
       + '<div class="note-add">'
-        + '<input class="note-input" id="note-input-' + id + '" placeholder="Add a note\u2026" onkeydown="if(event.key===\'Enter\')addNote(\'' + escJ(id) + '\')">'
-        + '<button class="btn btn--navy btn--sm" onclick="addNote(\'' + escJ(id) + '\')">Add</button>'
+        + '<input class="note-input" id="note-input-' + id + '" placeholder="Add a note\u2026" onkeydown="if(event.key===\'Enter\')addNote(\'' + NL.escJ(id) + '\')">'
+        + '<button class="btn btn--navy btn--sm" onclick="addNote(\'' + NL.escJ(id) + '\')">Add</button>'
       + '</div>'
     + '</div>'
     + '<div class="panel-content" id="ptab-' + id + '-actions" style="display:none">'
       + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
         + (!r.resolved
-            ? '<button class="btn btn--green btn--sm" onclick="resolveRequest(\'' + escJ(id) + '\')">\u2713 Mark Resolved</button>'
+            ? '<button class="btn btn--green btn--sm" onclick="resolveRequest(\'' + NL.escJ(id) + '\')">\u2713 Mark Resolved</button>'
             : '<span class="pill pill--resolved">Resolved</span>')
-        + '<button class="btn btn--ghost btn--sm" onclick="openModal(\'' + escJ(id) + '\')">Edit</button>'
-        + '<button class="btn btn--danger btn--sm" onclick="deleteReq(\'' + escJ(id) + '\')">Delete</button>'
+        + '<button class="btn btn--ghost btn--sm" onclick="openModal(\'' + NL.escJ(id) + '\')">Edit</button>'
+        + '<button class="btn btn--danger btn--sm" onclick="deleteReq(\'' + NL.escJ(id) + '\')">Delete</button>'
       + '</div>'
     + '</div>'
     + '</div>';
@@ -1205,14 +1076,14 @@ function renderNotes(notes) {
       var nid = 'cn-' + i + '-' + Math.random().toString(36).slice(2,5);
       return '<div class="note-entry note-chase">'
         + '<div class="note-chase-header">'
-          + '<span class="note-ts">' + esc(n.ts) + '</span>'
-          + '<span class="pill pill--' + esc(getTone(n.chaseNum-1).key) + '" style="font-size:9px;padding:1px 6px">Chase #' + n.chaseNum + '</span>'
+          + '<span class="note-ts">' + NL.escHtml(n.ts) + '</span>'
+          + '<span class="pill pill--' + NL.escHtml(getTone(n.chaseNum-1).key) + '" style="font-size:9px;padding:1px 6px">Chase #' + n.chaseNum + '</span>'
           + '<button class="note-toggle" onclick="toggleChaseNote(\'' + nid + '\')">Show email</button>'
         + '</div>'
-        + '<div class="note-chase-body" id="' + nid + '">' + esc(n.emailText||'') + '</div>'
+        + '<div class="note-chase-body" id="' + nid + '">' + NL.escHtml(n.emailText||'') + '</div>'
         + '</div>';
     }
-    return '<div class="note-entry"><div class="note-ts">' + esc(n.ts) + '</div><div class="note-body">' + esc(n.text||'') + '</div></div>';
+    return '<div class="note-entry"><div class="note-ts">' + NL.escHtml(n.ts) + '</div><div class="note-body">' + NL.escHtml(n.text||'') + '</div></div>';
   }).join('');
 }
 
@@ -1466,17 +1337,7 @@ function saveRequest() {
 
 
 
-/* Standard topbar wiring — set user name and bind sign out */
-function wireTopbar(session) {
-  var userEl = document.getElementById('topbarUser');
-  if (userEl) userEl.textContent = session && (session.name || session.email) || '';
-  var btn = document.getElementById('signOutBtn');
-  if (btn) {
-    btn.addEventListener('click', function() {
-      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
-    });
-  }
-}
+/* Topbar wiring handled by nl-topbar.js */
 
 window.nlAuthReady = function(session) {
   STATE.session = session;
