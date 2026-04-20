@@ -1,272 +1,2179 @@
-/* =======================================================================
-   NL Archive - GA Metrics Fetcher
-   Version: 2.1
-   Date: 20/04/2026
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<!--
+  NL Tools — Website Archive
+  Version: 1.6
+  Date: 20/04/2026
 
-   Queries the GA4 Data API for page-level engagement metrics, scroll
-   depth and traffic source breakdown, and writes everything to
-   assets/data/ga-metrics.json.
+  CHANGELOG
+  v1.6 (20/04/2026)
+    - GA data window extended backwards to 8 Nov 2024 (earliest date the
+      GA4 property has data). Previously we only showed traffic since the
+      new site launch (Oct 2025), which hid ~11 months of pre-launch views
+      for legacy articles. Legacy URLs like the Morecambe statement now
+      show their full ~65k view counts instead of ~34.
+    - Modal sub-label and card tooltip updated from "Since Oct 2025" to
+      "Since Nov 2024".
+    - Tool logic unchanged - this is a data window change triggered by
+      running fetch-ga-metrics.js v2.1 + rebuild-index.js v2.4.
 
-   The main rebuild script (rebuild-index.js) reads this file and merges
-   the metrics into article records during index generation.
+  v1.5 (20/04/2026)
+    - Card redesign ("Option D"):
+        * Views badge becomes two-line: view count on top, dwell time
+          underneath (disambiguates vs adjacent word count which could
+          read as "reading time").
+        * Traffic-light dot removed from cards (redundant with the view
+          count badge, which already signals performance at a glance).
+        * Word count shown in footer, labelled "NNN words" so it's clear
+          it's an article attribute, not a GA metric.
+        * "Colour by" dropdown removed (no longer needed without the dot).
+    - Modal metrics panel expands from 5 to 7 cells, adding:
+        * Scroll — % of users who scrolled to 90% depth (GA4 built-in
+          scroll event count / users). Green >50%, amber 25-50%, red <25%.
+        * Read-through % — average engagement time as a fraction of
+          expected reading time (based on wordCount at 225 wpm). Tells you
+          whether people actually read the thing rather than bouncing.
+          Green 60-150%, amber 30-60% or >150%, red <30%.
+    - Modal now also shows a traffic source breakdown bar under the stats
+      panel (Direct / Organic Search / Social / Referral etc.) with
+      coloured segments sized by percentage of views. Only appears when
+      source data is available.
+    - Requires articles-index.json with schemaVersion 3 and metrics objects
+      containing scrollRate + sources (built by rebuild-index.js v2.4 +
+      fetch-ga-metrics.js v2.0).
 
-   AUTH
-     Uses Workload Identity Federation - no JSON key required. The
-     GitHub Actions workflow authenticates via OIDC, impersonates the
-     nl-archive-ga-reader service account, which has GA4 Viewer access.
+  v1.4 (19/04/2026)
+    - Added GA metrics display: views, users, engagement time, engagement rate
+    - Card badge shows view count (top-right of hero image)
+    - Traffic light dot on each card colours by views (data-driven thresholds:
+      green >1000, amber 300-1000, red <300). Toggle between colouring by
+      Views / Engagement time / Both via new dropdown next to view toggle.
+    - Modal now shows 5-stat panel at top: Views, Users, Time, Engaged, Length
+      (Length = word count + reading time combined)
+    - List view adds three metric columns: Views, Time, Engaged
+    - New sort options: Most viewed, Longest engagement, Longest read
+    - Word count computed client-side from bodyText (client-side derived until
+      rebuild-index.js v2.3 bakes wordCount into the JSON)
+    - CSV export now includes all metrics fields regardless of format choice
+    - Graceful degradation: articles with null/missing metrics show em-dashes
+      everywhere, no crashes, no misleading zeros
 
-   WHAT THIS QUERIES
+  v1.3 (19/04/2026)
+    - Body text search enabled — requires articles-index.json v2+
+      (with bodyText field populated by rebuild-index.js v2.0)
+    - CSV export dropdown for admins — three formats:
+        * Metadata only (instant)
+        * With plaintext body (instant, uses bodyText from index)
+        * With full HTML body (rate-limited byslug fetch per article)
+    - Export button only visible to admins (session.tools.{key}.admin)
+    - Confirmation dialogue for full-HTML exports over 50 articles
 
-     Query 1 - core metrics by page path
-       Dimension:  pagePath
-       Metrics:    screenPageViews, totalUsers, userEngagementDuration,
-                   engagementRate
+  v1.2 (19/04/2026)
+    - Full rewrite following modern system-file pattern (matches
+      Vacancies v3.10 architecture)
+    - Loads Firebase SDK (compat 10.12.0) BEFORE auth-guard
+    - firebase.initializeApp() with nl-tools config
+    - window.NL_TOOL object for topbar/changelog integration
+    - Topbar reduced to <div id="nlTopbar"></div> auto-rendered by nl-topbar.js
+    - Loads /tools/system/ shared files (nl-brand.css, nl-utils.js,
+      nl-topbar.js, auth-guard.js)
+    - Removed duplicated CSS for topbar, buttons, base reset
+    - Fixes blocking auth-guard error "firebase is not defined"
 
-     Query 2 - scroll depth event counts by page path
-       Dimension:  pagePath
-       Metrics:    eventCount (filtered to eventName = 'scroll')
-       Note:       GA4 fires the built-in scroll event at 90% page depth.
-                   We return scroll count per path so the merge can compute
-                   scrollReached90Pct = scrollCount / totalUsers.
+  v1.1 (19/04/2026)
+    - NL_TOOL_KEY updated to 'staff-website-archive'
 
-     Query 3 - traffic source breakdown by page path
-       Dimensions: pagePath, sessionDefaultChannelGroup
-       Metrics:    screenPageViews
-       Output:     per-path map of channel -> views
-                     { "Organic Search": 1200, "Direct": 450, ... }
+  v1.0 (19/04/2026)
+    - Initial build
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Website Archive — NL Tools</title>
 
-     Date range: 2024-11-08 -> today. This is the earliest date the GA4
-                 property has data. Covers both the legacy site (Nov 2024
-                 to Sept 2025) and the new site (Oct 2025 onwards).
-     Filter:     NO path filter. We pull everything. Legacy pre-migration
-                 URLs like /national-league-statement-morecambe-fc-83850
-                 still appear and need to be captured so the rebuild's
-                 ID-suffix merge can join them to modern article records.
-
-   CHANGELOG
-   v2.1 (20/04/2026)
-     - Extended START_DATE from 2025-10-01 to 2024-11-08, the earliest
-       date the GA4 property has data. Unlocks ~11 months of pre-migration
-       traffic that was previously ignored. Legacy URLs get their real
-       numbers - e.g. Morecambe statement jumps from 34 views to ~65k.
-     - File size roughly triples but still well under 10MB.
-   v2.0 (20/04/2026)
-     - Added scroll depth query (event count per path)
-     - Added traffic source query (channel group breakdown per path)
-     - Removed /news/ path filter so legacy URLs are captured. Old URLs
-       like /national-league-statement-morecambe-fc-83850 had 64k+ views
-       that were being ignored. Merge script now matches by -XXXXX ID
-       suffix.
-   v1.0 (19/04/2026) - Initial build
-======================================================================= */
-
-const fs = require('fs');
-const path = require('path');
-const { BetaAnalyticsDataClient } = require('@google-analytics/data');
-
-const OUTPUT_PATH = path.join(__dirname, '..', 'assets', 'data', 'ga-metrics.json');
-const GA_PROPERTY_ID = process.env.GA_PROPERTY_ID;
-const START_DATE = '2024-11-08';  // earliest date GA4 property has data
-const PAGE_SIZE = 100000;
-
-function log(msg) {
-  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  console.log('[' + ts + '] ' + msg);
-}
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/**
- * Normalise a GA pagePath. Strips query string, fragment, and trailing slash.
- */
-function normalisePath(pagePath) {
-  if (!pagePath) return '';
-  let p = pagePath.split('?')[0];
-  p = p.split('#')[0];
-  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
-  return p;
-}
-
-/**
- * Run a report with automatic pagination. Stops when a response returns
- * fewer rows than PAGE_SIZE.
- */
-async function runReportPaginated(client, request, label) {
-  const allRows = [];
-  let offset = 0;
-  let page = 1;
-
-  while (true) {
-    const paged = Object.assign({}, request, { limit: PAGE_SIZE, offset: offset });
-    log('  ' + label + ': page ' + page + ' (offset ' + offset + ')');
-    const [response] = await client.runReport(paged);
-    const rows = response.rows || [];
-    log('    got ' + rows.length + ' rows');
-    allRows.push.apply(allRows, rows);
-    if (rows.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-    page++;
-  }
-  return allRows;
-}
-
-async function main() {
-  if (!GA_PROPERTY_ID) {
-    throw new Error('GA_PROPERTY_ID env var not set');
-  }
-
-  log('GA METRICS FETCH v2.0');
-  log('  property: ' + GA_PROPERTY_ID);
-  log('  range:    ' + START_DATE + ' -> ' + today());
-
-  const client = new BetaAnalyticsDataClient();
-  const byPath = {};
-
-  // ========== QUERY 1: Core metrics ==========
-  log('');
-  log('QUERY 1: Core metrics (pageViews, users, engagement)');
-  const coreRows = await runReportPaginated(client, {
-    property: 'properties/' + GA_PROPERTY_ID,
-    dateRanges: [{ startDate: START_DATE, endDate: today() }],
-    dimensions: [{ name: 'pagePath' }],
-    metrics: [
-      { name: 'screenPageViews' },
-      { name: 'totalUsers' },
-      { name: 'userEngagementDuration' },
-      { name: 'engagementRate' }
-    ]
-  }, 'core');
-
-  coreRows.forEach(row => {
-    const p = normalisePath(row.dimensionValues[0].value);
-    if (!p) return;
-
-    const pv = parseInt(row.metricValues[0].value, 10) || 0;
-    const users = parseInt(row.metricValues[1].value, 10) || 0;
-    const engDur = parseFloat(row.metricValues[2].value) || 0;
-    const engRate = parseFloat(row.metricValues[3].value) || 0;
-
-    if (byPath[p]) {
-      // Aggregate if multiple raw paths normalise to the same canonical path
-      byPath[p].pageViews += pv;
-      byPath[p].users += users;
-      byPath[p].engagementDurationSecs += engDur;
-      const totalUsers = byPath[p].users;
-      byPath[p].engagementRate = totalUsers > 0
-        ? ((byPath[p].engagementRate * (totalUsers - users)) + (engRate * users)) / totalUsers
-        : 0;
-    } else {
-      byPath[p] = {
-        pageViews: pv,
-        users: users,
-        engagementDurationSecs: engDur,
-        engagementRate: engRate,
-        scrollCount: 0,
-        sources: {}
-      };
-    }
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=9">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+    authDomain:        "nl-tools.firebaseapp.com",
+    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:         "nl-tools",
+    storageBucket:     "nl-tools.firebasestorage.app",
+    messagingSenderId: "801354670005",
+    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
   });
-  log('Core metrics: ' + Object.keys(byPath).length + ' unique paths');
+</script>
+<script>
+  window.NL_TOOL = {
+    title: 'Website Archive',
+    toolKey: 'staff-website-archive'
+  };
+  var NL_TOOL_KEY = 'staff-website-archive';
 
-  // ========== QUERY 2: Scroll depth ==========
-  log('');
-  log('QUERY 2: Scroll event counts');
-  const scrollRows = await runReportPaginated(client, {
-    property: 'properties/' + GA_PROPERTY_ID,
-    dateRanges: [{ startDate: START_DATE, endDate: today() }],
-    dimensions: [{ name: 'pagePath' }],
-    metrics: [{ name: 'eventCount' }],
-    dimensionFilter: {
-      filter: {
-        fieldName: 'eventName',
-        stringFilter: { matchType: 'EXACT', value: 'scroll' }
+  window.NL_CHANGELOG = [
+    {
+      date: '20 April 2026',
+      version: 'v1.6',
+      items: [
+        'Analytics data now covers Nov 2024 onwards instead of just Oct 2025. Legacy articles show their full view history — many will jump significantly.'
+      ]
+    },
+    {
+      date: '20 April 2026',
+      version: 'v1.5',
+      items: [
+        'Cards redesigned — view count and average engagement time now stack on a single badge, clearer word count label in the footer.',
+        'Article modal shows two new metrics: scroll depth (% of users who reached 90% of the page) and read-through % (how much of the expected reading time they actually spent).',
+        'Modal now also shows a traffic source breakdown bar — where readers came from (search, social, direct etc.).',
+        'Pre-migration legacy URLs now correctly join to their modern article records, so older pieces show their full view history.'
+      ]
+    },
+    {
+      date: '19 April 2026',
+      version: 'v1.4',
+      items: [
+        'Google Analytics metrics now visible: views, engagement time, engagement rate.',
+        'Each card shows view count and a traffic-light dot for at-a-glance performance.',
+        'Article modal shows a 5-stat panel with views, users, time, engagement and length.',
+        'New sort options: Most viewed, Longest engagement, Longest read.',
+        'Metrics also included in CSV exports for content audits.'
+      ]
+    },
+    {
+      date: '19 April 2026',
+      version: 'v1.3',
+      items: [
+        'Search now covers full article body text, not just titles and sub-headers.',
+        'Admin-only CSV export for bulk downloads of filtered results.',
+        'Reading experience unchanged — articles still render in full with images, tweets and embedded widgets.'
+      ]
+    },
+    {
+      date: '19 April 2026',
+      version: 'v1.0',
+      items: [
+        'Initial release — search and read the NL website article archive.',
+        'Filter by date range, author, category, or free-text search.',
+        'Click any article to read in-tool with tweets and embedded widgets.',
+        'Use ← → keys to navigate between articles in a result set.'
+      ]
+    }
+  ];
+</script>
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=6"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
+
+<style>
+/* Tool-specific styles only — base reset, fonts, tokens, topbar, buttons
+   and pills all come from nl-brand.css */
+
+.main {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+/* ============ FILTERS PANEL ============ */
+.filters {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+}
+.filters__row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: end;
+}
+.filters__row + .filters__row { margin-top: 12px; }
+@media (max-width: 980px) { .filters__row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .filters__row { grid-template-columns: 1fr; } }
+
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field__label {
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+.field input[type=text],
+.field input[type=date],
+.field input[type=search],
+.field select {
+  font-family: var(--font);
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+}
+.field input:focus, .field select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(158,0,0,0.10);
+}
+
+.scope {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 12px; color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.scope label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.scope input[type=checkbox] { accent-color: var(--primary); }
+
+/* ============ CONTROL BAR ============ */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.controls__count {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.controls__count strong {
+  color: var(--text);
+  font-weight: 900; font-variation-settings: 'wght' 900;
+}
+.controls__spacer { flex: 1; }
+
+.sort-select {
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--text);
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--white);
+}
+.view-toggle button {
+  background: none;
+  border: none;
+  padding: 7px 11px;
+  font-family: var(--font);
+  font-size: 10px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-toggle button.active {
+  background: var(--navy);
+  color: var(--white);
+}
+
+/* ============ RESULTS — GRID MODE ============ */
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.card__img-wrap {
+  aspect-ratio: 16 / 9;
+  background: var(--off-white);
+  overflow: hidden;
+  position: relative;
+}
+.card__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card__img-placeholder {
+  width: 100%; height: 100%;
+  background: linear-gradient(135deg, #dfe4ee 0%, #c9cfdb 100%);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.card__body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.card__meta { display: flex; align-items: center; gap: 8px; font-size: 10px; }
+.card__pill {
+  background: var(--navy);
+  color: var(--white);
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 9px; font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.card__date {
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.card__title {
+  font-size: 15px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  color: var(--text);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card__sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card__footer {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+/* ============ METRICS — SHARED ============ */
+/* Traffic light dot. Still used in list view and modal. */
+.tl-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.tl-dot--green  { background: #2ea544; }
+.tl-dot--amber  { background: #d89420; }
+.tl-dot--red    { background: #c73030; }
+.tl-dot--null   { background: transparent; border: 1px dashed var(--text-muted); }
+
+/* Card views badge — two-line stack (views on top, dwell underneath) */
+.card__views-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(26, 42, 68, 0.90);
+  color: var(--white);
+  padding: 5px 9px;
+  border-radius: 8px;
+  line-height: 1.25;
+  text-align: right;
+  backdrop-filter: blur(4px);
+}
+.card__views-badge-line1 {
+  font-size: 11px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  letter-spacing: 0.02em;
+}
+.card__views-badge-line2 {
+  font-size: 9px;
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  opacity: 0.80;
+  margin-top: 1px;
+}
+.card__views-badge--null {
+  background: rgba(100, 100, 100, 0.75);
+  font-style: italic;
+}
+.card__views-badge--null .card__views-badge-line1 {
+  font-weight: 500; font-variation-settings: 'wght' 500;
+}
+
+/* Card footer — word count replaces dwell+dot */
+.card__wordcount {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.card__wordcount--null { opacity: 0.5; }
+
+/* ============ MODAL METRICS PANEL ============ */
+.modal-metrics {
+  background: var(--off-white);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+}
+.modal-metrics__cell { min-width: 0; }
+.modal-metrics__label {
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+.modal-metrics__value {
+  font-size: 16px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.modal-metrics__value--null {
+  color: var(--text-muted);
+  font-weight: 500; font-variation-settings: 'wght' 500;
+  font-style: italic;
+}
+.modal-metrics__value--green { color: #1c7a2e; }
+.modal-metrics__value--amber { color: #b67a12; }
+.modal-metrics__value--red   { color: #a82525; }
+.modal-metrics__sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  margin-top: 1px;
+}
+
+@media (max-width: 860px) {
+  .modal-metrics { grid-template-columns: repeat(4, 1fr); row-gap: 10px; }
+}
+@media (max-width: 620px) {
+  .modal-metrics { grid-template-columns: repeat(3, 1fr); row-gap: 10px; }
+}
+
+/* ============ MODAL TRAFFIC SOURCES ============ */
+.modal-sources {
+  background: var(--off-white);
+  border-radius: var(--radius);
+  padding: 10px 14px 12px;
+  margin-bottom: 18px;
+}
+.modal-sources__label {
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.modal-sources__bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border);
+  margin-bottom: 8px;
+}
+.modal-sources__seg {
+  height: 100%;
+  min-width: 2px;
+}
+.modal-sources__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+}
+.modal-sources__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.modal-sources__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.modal-sources__legend-label {
+  color: var(--text-muted);
+}
+.modal-sources__legend-val {
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text);
+  margin-left: 1px;
+}
+
+/* ============ LIST VIEW METRIC COLUMNS ============ */
+/* List row now: 70px img | 90px date | 1fr title | 130px author | 55px views | 55px time | 55px eng */
+
+.row__metric {
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+}
+.row__metric--green { color: #1c7a2e; }
+.row__metric--amber { color: #b67a12; }
+.row__metric--red   { color: #a82525; }
+.row__metric--null  { color: var(--text-muted); font-weight: 500; font-variation-settings: 'wght' 500; }
+
+.row__header {
+  display: grid;
+  grid-template-columns: 70px 90px 1fr 130px 55px 55px 55px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--off-white);
+  border-bottom: 1px solid var(--border);
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  cursor: default;
+}
+.row__header > span { min-width: 0; }
+.row__header-metric { text-align: right; }
+.row__header-sortable { cursor: pointer; user-select: none; }
+.row__header-sortable:hover { color: var(--text); }
+.row__header-sortable.active { color: var(--primary); }
+
+/* ============ RESULTS — LIST MODE ============ */
+.results-list {
+  display: flex; flex-direction: column;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.row {
+  display: grid;
+  grid-template-columns: 70px 90px 1fr 130px 55px 55px 55px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--off-white); }
+.row > div, .row > span { min-width: 0; }
+.row__img {
+  width: 70px; height: 40px;
+  background: var(--off-white);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.row__img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.row__date {
+  font-size: 11px; color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.row__title {
+  font-size: 13px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  color: var(--text);
+  line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row__sub {
+  font-size: 11px; color: var(--text-muted); line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.row__author {
+  font-size: 12px; color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+@media (max-width: 860px) {
+  .row { grid-template-columns: 60px 1fr 55px; gap: 10px; }
+  .row__header { grid-template-columns: 60px 1fr 55px; }
+  .row__date, .row__author,
+  .row__metric--time, .row__metric--eng,
+  .row__header-metric-time, .row__header-metric-eng { display: none; }
+  .row__img { width: 60px; height: 36px; }
+}
+
+/* ============ EMPTY STATES ============ */
+.empty {
+  padding: 60px 20px;
+  text-align: center;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.empty__title {
+  font-size: 16px; font-weight: 900; font-variation-settings: 'wght' 900;
+  color: var(--text); margin-bottom: 8px;
+}
+.empty__msg {
+  font-size: 13px; color: var(--text-muted); line-height: 1.5;
+  max-width: 440px; margin: 0 auto;
+}
+
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600; font-variation-settings: 'wght' 600;
+}
+.spinner-inline {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============ MODAL ============ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,42,68,0.72);
+  z-index: 500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  overscroll-behavior: contain;
+}
+.modal-backdrop.open { display: flex; }
+.article-modal {
+  background: var(--white);
+  border-radius: 10px;
+  max-width: 920px;
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+  animation: modalIn 0.18s ease-out;
+}
+@keyframes modalIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+.article-modal__head {
+  background: var(--primary);
+  color: var(--white);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.article-modal__meta {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.article-modal__nav-btn,
+.article-modal__close {
+  background: rgba(255,255,255,0.14);
+  border: none;
+  color: var(--white);
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  font-family: var(--font);
+}
+.article-modal__nav-btn { font-size: 14px; }
+.article-modal__close   { font-size: 16px; margin-left: 6px; }
+.article-modal__nav-btn:hover:not(:disabled),
+.article-modal__close:hover { background: rgba(255,255,255,0.24); }
+.article-modal__nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.article-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px 40px 40px;
+}
+.article-modal__hero {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--off-white);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 22px;
+}
+.article-modal__hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.article-modal__category {
+  display: inline-block;
+  background: var(--navy);
+  color: var(--white);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
+}
+.article-modal__title {
+  font-size: 28px;
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  line-height: 1.15;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.article-modal__sub {
+  font-size: 17px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 18px;
+  font-weight: 500; font-variation-settings: 'wght' 500;
+}
+.article-modal__byline {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 700; font-variation-settings: 'wght' 700;
+  margin-bottom: 24px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.article-modal__byline strong { color: var(--text); }
+
+.article-modal__content {
+  font-size: 16px; line-height: 1.7;
+  color: var(--text);
+}
+.article-modal__content h3 {
+  font-size: 20px;
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  margin: 26px 0 14px;
+  color: var(--text);
+  line-height: 1.3;
+}
+.article-modal__content h3:first-child { margin-top: 0; }
+.article-modal__content h4 {
+  font-size: 18px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  margin: 24px 0 10px;
+  color: var(--primary);
+}
+.article-modal__content p { margin-bottom: 14px; }
+.article-modal__content a { color: var(--navy); text-decoration: underline; }
+.article-modal__content strong { font-weight: 800; font-variation-settings: 'wght' 800; }
+.article-modal__content ul, .article-modal__content ol { padding-left: 22px; margin-bottom: 14px; }
+.article-modal__content li { margin-bottom: 6px; }
+.article-modal__content blockquote {
+  border-left: 3px solid var(--primary);
+  padding: 4px 0 4px 16px;
+  margin: 14px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.article-modal__content img { max-width: 100%; height: auto; border-radius: 4px; margin: 10px 0; }
+.article-modal__content .twitter-tweet { margin: 16px auto !important; }
+.article-modal__content iframe { max-width: 100%; border-radius: 4px; }
+.article-modal__content table { max-width: 100%; margin: 16px 0; }
+
+.article-modal__foot {
+  padding: 14px 20px;
+  background: var(--off-white);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.article-modal__foot-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600; font-variation-settings: 'wght' 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-left: auto;
+}
+
+/* ============ EXPORT DROPDOWN ============ */
+.export-wrap {
+  position: relative;
+}
+.export-btn {
+  font-size: 10px;
+}
+.export-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 280px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  z-index: 50;
+  overflow: hidden;
+}
+.export-menu.open { display: block; }
+.export-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.export-menu__item:last-child { border-bottom: none; }
+.export-menu__item:hover { background: var(--off-white); }
+.export-menu__item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.export-menu__item span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ============ EXPORT PROGRESS MODAL ============ */
+.export-modal {
+  background: var(--white);
+  border-radius: 10px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+  animation: modalIn 0.18s ease-out;
+}
+.export-modal__head {
+  background: var(--navy);
+  color: var(--white);
+  padding: 14px 20px;
+  font-size: 13px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.export-modal__body {
+  padding: 20px;
+}
+.export-progress {
+  width: 100%;
+  height: 8px;
+  background: var(--off-white);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 14px 0;
+}
+.export-progress__fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s;
+}
+.export-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.export-stats__item {
+  text-align: center;
+  padding: 10px;
+  background: var(--off-white);
+  border-radius: var(--radius);
+}
+.export-stats__num {
+  display: block;
+  font-size: 20px;
+  font-weight: 900; font-variation-settings: 'wght' 900;
+  color: var(--navy);
+}
+.export-stats__label {
+  display: block;
+  font-size: 9px;
+  font-weight: 800; font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.export-modal__foot {
+  padding: 14px 20px;
+  background: var(--off-white);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+</style>
+</head>
+<body>
+
+<div id="nlTopbar"></div>
+<div class="main" id="mainContent">
+
+  <!-- FILTERS -->
+  <div class="filters">
+    <div class="filters__row">
+      <div class="field">
+        <label class="field__label" for="qInput">Search</label>
+        <input type="search" id="qInput" placeholder="Type to search titles and sub-headers…" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field__label" for="fromInput">From</label>
+        <input type="date" id="fromInput">
+      </div>
+      <div class="field">
+        <label class="field__label" for="toInput">To</label>
+        <input type="date" id="toInput">
+      </div>
+      <div class="field">
+        <label class="field__label" for="authorInput">Author</label>
+        <select id="authorInput">
+          <option value="">Any author</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="catInput">Category</label>
+        <select id="catInput">
+          <option value="">Any category</option>
+        </select>
+      </div>
+    </div>
+    <div class="filters__row" style="grid-template-columns: 1fr auto; align-items: center;">
+      <div class="scope">
+        <label>
+          <input type="checkbox" id="scopeBody">
+          Include article body in search
+        </label>
+      </div>
+      <button class="btn btn--ghost" id="resetBtn">Reset filters</button>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="controls">
+    <div class="controls__count" id="countDisplay">Loading archive…</div>
+    <div class="controls__spacer"></div>
+    <div class="export-wrap" id="exportWrap" style="display:none;">
+      <button class="btn btn--navy export-btn" id="exportBtn" type="button">
+        Export <span id="exportCount">0</span> ▾
+      </button>
+      <div class="export-menu" id="exportMenu">
+        <button class="export-menu__item" data-format="meta">
+          <strong>Metadata only</strong>
+          <span>Title, date, author, category, URL — instant</span>
+        </button>
+        <button class="export-menu__item" data-format="plaintext">
+          <strong>With plaintext body</strong>
+          <span>Full text, stripped of HTML — instant</span>
+        </button>
+        <button class="export-menu__item" data-format="html">
+          <strong>With full HTML body</strong>
+          <span>Full fidelity — fetches each article, rate-limited</span>
+        </button>
+      </div>
+    </div>
+    <select class="sort-select" id="sortSelect">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="views">Most viewed</option>
+      <option value="engagement">Longest engagement</option>
+      <option value="length">Longest read</option>
+    </select>
+    <div class="view-toggle">
+      <button id="viewGrid" class="active" data-view="grid">Grid</button>
+      <button id="viewList" data-view="list">List</button>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="resultsRoot">
+    <div class="loading">
+      <div class="spinner-inline"></div>
+      <div>Loading archive index…</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL -->
+<div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="articleModalTitle">
+  <div class="article-modal" id="articleModal">
+    <div class="article-modal__head">
+      <button class="article-modal__nav-btn" id="prevBtn" title="Previous (←)" aria-label="Previous article">&larr;</button>
+      <button class="article-modal__nav-btn" id="nextBtn" title="Next (→)" aria-label="Next article">&rarr;</button>
+      <div class="article-modal__meta" id="modalMeta"></div>
+      <button class="article-modal__close" id="closeBtn" title="Close (Esc)" aria-label="Close">&times;</button>
+    </div>
+    <div class="article-modal__body" id="modalBody">
+      <div class="loading"><div class="spinner-inline"></div><div>Loading article…</div></div>
+    </div>
+    <div class="article-modal__foot">
+      <a class="btn btn--navy" id="readOnSite" href="#" target="_blank" rel="noopener">Read on site ↗</a>
+      <span class="article-modal__foot-hint">← → navigate · Esc to close</span>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT PROGRESS MODAL -->
+<div class="modal-backdrop" id="exportModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" style="display:none;">
+  <div class="export-modal">
+    <div class="export-modal__head" id="exportModalTitle">Exporting articles</div>
+    <div class="export-modal__body">
+      <div id="exportStatus" style="font-size: 13px; color: var(--text-muted);">Preparing…</div>
+      <div class="export-progress"><div class="export-progress__fill" id="exportProgressFill" style="width:0%"></div></div>
+      <div class="export-stats">
+        <div class="export-stats__item">
+          <span class="export-stats__num" id="exportDone">0</span>
+          <span class="export-stats__label">Done</span>
+        </div>
+        <div class="export-stats__item">
+          <span class="export-stats__num" id="exportTotal">0</span>
+          <span class="export-stats__label">Total</span>
+        </div>
+        <div class="export-stats__item">
+          <span class="export-stats__num" id="exportFailed">0</span>
+          <span class="export-stats__label">Failed</span>
+        </div>
+      </div>
+    </div>
+    <div class="export-modal__foot">
+      <button class="btn btn--ghost" id="exportCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   NL Website Archive — main script
+   Entry point is window.nlAuthReady, called by auth-guard.js
+   ================================================================ */
+
+var INDEX_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/articles-index.json';
+var BYSLUG_URL = 'https://news.cms.web.gc.nationalleagueservices.co.uk/v1/byslug';
+var SITE_BASE = 'https://www.thenationalleague.org.uk';
+
+var LS_KEY_VIEW = 'nl-archive-view';
+var LS_KEY_BODY_CACHE = 'nl-archive-bodies';
+var BODY_CACHE_CAP_BYTES = 4 * 1024 * 1024;
+
+var STATE = {
+  articles: [],
+  filtered: [],
+  view: 'grid',
+  modalIndex: -1,
+  bodyCache: {},
+  searchTimer: null,
+  isAdmin: false,
+  exportRunning: false,
+  exportCancelled: false,
+  colourBy: 'views'  // views | engagement | both
+};
+
+var LS_KEY_COLOUR_BY = 'nl-archive-colour-by';
+
+function $(id) { return document.getElementById(id); }
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  var day = String(d.getDate()).padStart(2, '0');
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var yyyy = d.getFullYear();
+  return day + '/' + mm + '/' + yyyy;
+}
+
+function formatDateLong(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function debounce(fn, ms) {
+  return function() {
+    var args = arguments;
+    clearTimeout(STATE.searchTimer);
+    STATE.searchTimer = setTimeout(function() { fn.apply(null, args); }, ms);
+  };
+}
+
+/* ============ METRIC HELPERS ============ */
+// Data-driven thresholds based on 2026 article distribution (~10k articles, p90 ~1000 views)
+var VIEWS_GREEN  = 1000;
+var VIEWS_AMBER  = 300;
+var DWELL_GREEN  = 30;  // seconds. Most high-traffic NL articles dwell <60s, so 30s is a meaningful bar
+var DWELL_AMBER  = 15;
+
+/* Format a number as "12.4k" / "1.2M" / "847" */
+function formatCount(n) {
+  if (n == null) return '—';
+  n = Number(n);
+  if (!isFinite(n)) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 10000)   return Math.round(n / 1000) + 'k';
+  if (n >= 1000)    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(Math.round(n));
+}
+
+/* Format seconds as "3m 42s" / "42s" */
+function formatDuration(secs) {
+  if (secs == null) return '—';
+  secs = Math.round(Number(secs));
+  if (!isFinite(secs) || secs < 0) return '—';
+  if (secs < 60) return secs + 's';
+  var m = Math.floor(secs / 60);
+  var s = secs % 60;
+  return m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+}
+
+function formatPct(rate) {
+  if (rate == null) return '—';
+  var n = Number(rate);
+  if (!isFinite(n)) return '—';
+  return Math.round(n * 100) + '%';
+}
+
+/* Traffic-light tier for a views count: 'green' | 'amber' | 'red' | 'null' */
+function viewsTier(v) {
+  if (v == null) return 'null';
+  if (v >= VIEWS_GREEN) return 'green';
+  if (v >= VIEWS_AMBER) return 'amber';
+  return 'red';
+}
+
+function dwellTier(d) {
+  if (d == null) return 'null';
+  if (d >= DWELL_GREEN) return 'green';
+  if (d >= DWELL_AMBER) return 'amber';
+  return 'red';
+}
+
+/* "Both" = worst of views and dwell. Null if either is null. */
+function bothTier(views, dwell) {
+  if (views == null || dwell == null) return 'null';
+  var vt = viewsTier(views);
+  var dt = dwellTier(dwell);
+  // red wins, then amber, else green
+  if (vt === 'red' || dt === 'red') return 'red';
+  if (vt === 'amber' || dt === 'amber') return 'amber';
+  return 'green';
+}
+
+/* Resolve which tier to use based on colour-by setting */
+function cardTier(article) {
+  var m = article.metrics;
+  if (!m) return 'null';
+  var mode = STATE.colourBy || 'views';
+  if (mode === 'engagement') return dwellTier(m.avgEngagementTimeSecs);
+  if (mode === 'both')       return bothTier(m.pageViews, m.avgEngagementTimeSecs);
+  return viewsTier(m.pageViews);
+}
+
+/* Compute word count from bodyText. Cached on the article object after first use. */
+function wordCount(article) {
+  if (article._wc != null) return article._wc;
+  if (article.wordCount != null) { article._wc = article.wordCount; return article._wc; }
+  if (!article.bodyText) { article._wc = 0; return 0; }
+  // Simple whitespace split. Good enough for all practical purposes.
+  var wc = article.bodyText.trim().split(/\s+/).filter(Boolean).length;
+  article._wc = wc;
+  return wc;
+}
+
+function readingTimeMins(article) {
+  var wc = wordCount(article);
+  if (!wc) return 0;
+  return Math.max(1, Math.ceil(wc / 225));
+}
+
+/* ============ AUTH-GUARD ENTRY POINT ============ */
+window.nlAuthReady = function(session) {
+  // Topbar rendered automatically by nl-topbar.js from window.NL_TOOL
+  // Determine admin status for export button visibility
+  var toolPerms = (session && session.tools && session.tools[NL_TOOL_KEY]) || {};
+  STATE.isAdmin = !!(toolPerms.admin || (session && session.role === 'nl-admin'));
+  init();
+};
+
+/* ============ INIT ============ */
+function init() {
+  var savedView = localStorage.getItem(LS_KEY_VIEW);
+  if (savedView === 'list' || savedView === 'grid') {
+    STATE.view = savedView;
+  }
+  applyViewToggleUI();
+
+  try {
+    var raw = localStorage.getItem(LS_KEY_BODY_CACHE);
+    if (raw) STATE.bodyCache = JSON.parse(raw);
+  } catch (e) { STATE.bodyCache = {}; }
+
+  wireControls();
+  loadIndex();
+}
+
+function wireControls() {
+  var doFilter = debounce(applyFilters, 150);
+
+  $('qInput').addEventListener('input', doFilter);
+  $('fromInput').addEventListener('change', applyFilters);
+  $('toInput').addEventListener('change', applyFilters);
+  $('authorInput').addEventListener('change', applyFilters);
+  $('catInput').addEventListener('change', applyFilters);
+  $('scopeBody').addEventListener('change', applyFilters);
+  $('sortSelect').addEventListener('change', applyFilters);
+
+  $('resetBtn').addEventListener('click', function() {
+    $('qInput').value = '';
+    $('fromInput').value = '';
+    $('toInput').value = '';
+    $('authorInput').value = '';
+    $('catInput').value = '';
+    $('scopeBody').checked = false;
+    $('sortSelect').value = 'newest';
+    applyFilters();
+  });
+
+  $('viewGrid').addEventListener('click', function() { setView('grid'); });
+  $('viewList').addEventListener('click', function() { setView('list'); });
+
+  $('closeBtn').addEventListener('click', closeModal);
+  $('prevBtn').addEventListener('click', function() { navModal(-1); });
+  $('nextBtn').addEventListener('click', function() { navModal(1); });
+  $('modalBackdrop').addEventListener('click', function(e) {
+    if (e.target === $('modalBackdrop')) closeModal();
+  });
+
+  // Export dropdown
+  if (STATE.isAdmin) {
+    $('exportWrap').style.display = 'inline-block';
+    $('exportBtn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      $('exportMenu').classList.toggle('open');
+    });
+    document.addEventListener('click', function(e) {
+      if (!$('exportWrap').contains(e.target)) {
+        $('exportMenu').classList.remove('open');
       }
+    });
+    var menuItems = document.querySelectorAll('.export-menu__item');
+    menuItems.forEach(function(item) {
+      item.addEventListener('click', function() {
+        $('exportMenu').classList.remove('open');
+        var format = item.getAttribute('data-format');
+        startExport(format);
+      });
+    });
+    $('exportCancelBtn').addEventListener('click', function() {
+      if (STATE.exportRunning) {
+        STATE.exportCancelled = true;
+      } else {
+        closeExportModal();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', onKeyDown);
+}
+
+/* ============ DATA LOAD ============ */
+function loadIndex() {
+  fetch(INDEX_URL, { cache: 'no-cache' })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data) {
+      STATE.articles = Array.isArray(data) ? data : (data.articles || []);
+      if (!STATE.articles.length) {
+        showEmpty('No articles in index', 'The archive index file exists but contains no articles. Trigger a rebuild to populate it.');
+        return;
+      }
+      STATE.articles.sort(function(a, b) {
+        return (b.publishedDateTime || '').localeCompare(a.publishedDateTime || '');
+      });
+      populateFilterDropdowns();
+      applyFilters();
+    })
+    .catch(function(err) {
+      showEmpty("Couldn't load archive",
+        'The archive index could not be fetched. ' + (err && err.message ? err.message : '') +
+        '. Check that articles-index.json exists in the tools repo.');
+    });
+}
+
+function populateFilterDropdowns() {
+  var authors = {};
+  var cats = {};
+  STATE.articles.forEach(function(a) {
+    var au = (a.postAuthor || '').trim();
+    var c = a.newsCategory || '';
+    if (au) authors[au] = (authors[au] || 0) + 1;
+    if (c) cats[c] = (cats[c] || 0) + 1;
+  });
+
+  var authorSel = $('authorInput');
+  authorSel.innerHTML = '<option value="">Any author</option>';
+  Object.keys(authors).sort(function(a, b) { return authors[b] - authors[a]; }).forEach(function(au) {
+    var opt = document.createElement('option');
+    opt.value = au; opt.textContent = au + ' (' + authors[au] + ')';
+    authorSel.appendChild(opt);
+  });
+
+  var catSel = $('catInput');
+  catSel.innerHTML = '<option value="">Any category</option>';
+  Object.keys(cats).sort(function(a, b) { return cats[b] - cats[a]; }).forEach(function(c) {
+    var opt = document.createElement('option');
+    opt.value = c; opt.textContent = c + ' (' + cats[c] + ')';
+    catSel.appendChild(opt);
+  });
+}
+
+/* ============ FILTERING ============ */
+function applyFilters() {
+  var q = $('qInput').value.trim().toLowerCase();
+  var from = $('fromInput').value || '';
+  var to = $('toInput').value || '';
+  var author = $('authorInput').value || '';
+  var cat = $('catInput').value || '';
+  var scopeBody = $('scopeBody').checked;
+  var sort = $('sortSelect').value;
+
+  var out = STATE.articles.filter(function(a) {
+    var date = (a.publishedDateTime || '').slice(0, 10);
+    if (from && date < from) return false;
+    if (to && date > to) return false;
+    if (author && (a.postAuthor || '').trim() !== author) return false;
+    if (cat && a.newsCategory !== cat) return false;
+
+    if (q) {
+      var hay = ((a.postTitle || '') + ' ' + (a.description || '')).toLowerCase();
+      if (scopeBody && a.bodyText) hay += ' ' + a.bodyText.toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
     }
-  }, 'scroll');
 
-  let scrollMatched = 0;
-  scrollRows.forEach(row => {
-    const p = normalisePath(row.dimensionValues[0].value);
-    if (!p || !byPath[p]) return;
-    const count = parseInt(row.metricValues[0].value, 10) || 0;
-    byPath[p].scrollCount += count;
-    scrollMatched++;
-  });
-  log('Scroll events: ' + scrollRows.length + ' rows, ' + scrollMatched + ' matched to paths');
-
-  // ========== QUERY 3: Traffic source ==========
-  log('');
-  log('QUERY 3: Traffic source breakdown');
-  const sourceRows = await runReportPaginated(client, {
-    property: 'properties/' + GA_PROPERTY_ID,
-    dateRanges: [{ startDate: START_DATE, endDate: today() }],
-    dimensions: [
-      { name: 'pagePath' },
-      { name: 'sessionDefaultChannelGroup' }
-    ],
-    metrics: [{ name: 'screenPageViews' }]
-  }, 'sources');
-
-  let sourceMatched = 0;
-  sourceRows.forEach(row => {
-    const p = normalisePath(row.dimensionValues[0].value);
-    const channel = row.dimensionValues[1].value || 'Unknown';
-    if (!p || !byPath[p]) return;
-    const pv = parseInt(row.metricValues[0].value, 10) || 0;
-    byPath[p].sources[channel] = (byPath[p].sources[channel] || 0) + pv;
-    sourceMatched++;
-  });
-  log('Source breakdown: ' + sourceRows.length + ' rows, ' + sourceMatched + ' matched to paths');
-
-  // ========== DERIVE & ROUND ==========
-  Object.keys(byPath).forEach(p => {
-    const m = byPath[p];
-    m.engagementDurationSecs = Math.round(m.engagementDurationSecs);
-    m.engagementRate = Math.round(m.engagementRate * 1000) / 1000;
-    m.avgEngagementTimeSecs = m.users > 0 ? Math.round(m.engagementDurationSecs / m.users) : 0;
-    // Scroll-to-90% rate: what % of users scrolled deep into the article.
-    // GA4 default scroll event fires once per session at 90% depth.
-    m.scrollRate = m.users > 0 ? Math.round((m.scrollCount / m.users) * 1000) / 1000 : 0;
+    return true;
   });
 
-  // ========== SANITY LOG ==========
-  log('');
-  log('Top 10 article paths by views:');
-  const top = Object.entries(byPath)
-    .sort((a, b) => b[1].pageViews - a[1].pageViews)
-    .slice(0, 10);
-  top.forEach(([p, m]) => {
-    log('  ' + String(m.pageViews).padStart(7) + ' v | ' +
-        String(m.users).padStart(6) + ' u | ' +
-        String(m.avgEngagementTimeSecs).padStart(3) + 's | ' +
-        (m.scrollRate * 100).toFixed(0).padStart(3) + '% scroll | ' +
-        p.slice(0, 70));
+  // Sort: null metrics always fall to the end on metric-based sorts
+  if (sort === 'oldest') {
+    out.sort(function(a, b) { return (a.publishedDateTime || '').localeCompare(b.publishedDateTime || ''); });
+  } else if (sort === 'views') {
+    out.sort(function(a, b) {
+      var av = (a.metrics && a.metrics.pageViews != null) ? a.metrics.pageViews : -1;
+      var bv = (b.metrics && b.metrics.pageViews != null) ? b.metrics.pageViews : -1;
+      return bv - av;
+    });
+  } else if (sort === 'engagement') {
+    out.sort(function(a, b) {
+      var av = (a.metrics && a.metrics.avgEngagementTimeSecs != null) ? a.metrics.avgEngagementTimeSecs : -1;
+      var bv = (b.metrics && b.metrics.avgEngagementTimeSecs != null) ? b.metrics.avgEngagementTimeSecs : -1;
+      return bv - av;
+    });
+  } else if (sort === 'length') {
+    out.sort(function(a, b) { return wordCount(b) - wordCount(a); });
+  } else {
+    // newest first (default)
+    out.sort(function(a, b) { return (b.publishedDateTime || '').localeCompare(a.publishedDateTime || ''); });
+  }
+
+  STATE.filtered = out;
+  renderResults();
+  updateExportCount();
+}
+
+/* ============ RENDER RESULTS ============ */
+function renderResults() {
+  var root = $('resultsRoot');
+  var n = STATE.filtered.length;
+  var total = STATE.articles.length;
+
+  $('countDisplay').innerHTML = '<strong>' + n.toLocaleString() + '</strong> of ' + total.toLocaleString() + ' articles';
+
+  if (!n) {
+    root.innerHTML = '<div class="empty"><div class="empty__title">No matches</div><div class="empty__msg">No articles match these filters. Try broadening the date range, clearing search terms, or picking "Any author/category".</div></div>';
+    return;
+  }
+
+  var cap = 300;
+  var toRender = STATE.filtered.slice(0, cap);
+
+  if (STATE.view === 'grid') {
+    root.innerHTML = '<div class="results-grid">' + toRender.map(cardHTML).join('') + '</div>';
+  } else {
+    root.innerHTML = '<div class="results-list">' + listHeaderHTML() + toRender.map(rowHTML).join('') + '</div>';
+  }
+
+  if (n > cap) {
+    root.innerHTML += '<div class="empty" style="margin-top: 14px; padding: 20px;"><div class="empty__msg">Showing first ' + cap.toLocaleString() + ' of ' + n.toLocaleString() + ' matches. Narrow filters to see the rest.</div></div>';
+  }
+
+  var cards = root.querySelectorAll('[data-idx]');
+  cards.forEach(function(el) {
+    el.addEventListener('click', function() {
+      openModal(parseInt(el.getAttribute('data-idx'), 10));
+    });
   });
 
-  // ========== PERSIST ==========
-  const dir = path.dirname(OUTPUT_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  // List view header click-to-sort
+  var sortableHeaders = root.querySelectorAll('.row__header-sortable');
+  sortableHeaders.forEach(function(el) {
+    el.addEventListener('click', function() {
+      var sortKey = el.getAttribute('data-sort');
+      if (!sortKey) return;
+      $('sortSelect').value = sortKey;
+      applyFilters();
+    });
+  });
+}
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    propertyId: GA_PROPERTY_ID,
-    startDate: START_DATE,
-    endDate: today(),
-    pathCount: Object.keys(byPath).length,
-    schemaVersion: 2,
-    metrics: byPath
+function cardHTML(a, i) {
+  var img = a.imageUrl || '';
+  var imgMarkup = img
+    ? '<img class="card__img" src="' + esc(img) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling&&(this.nextElementSibling.style.display=\'flex\')">'
+    : '';
+  var placeholderStyle = img ? 'display:none;' : '';
+
+  var m = a.metrics;
+  var viewsBadge;
+  if (m && m.pageViews != null) {
+    var line1 = formatCount(m.pageViews) + ' views';
+    var line2Text;
+    if (m.avgEngagementTimeSecs != null) {
+      line2Text = formatDuration(m.avgEngagementTimeSecs) + ' avg';
+    } else {
+      line2Text = '';
+    }
+    viewsBadge =
+      '<div class="card__views-badge" title="Page views and average engagement time since Nov 2024">' +
+        '<div class="card__views-badge-line1">' + esc(line1) + '</div>' +
+        (line2Text ? '<div class="card__views-badge-line2">' + esc(line2Text) + '</div>' : '') +
+      '</div>';
+  } else {
+    viewsBadge =
+      '<div class="card__views-badge card__views-badge--null" title="No analytics data for this article">' +
+        '<div class="card__views-badge-line1">no data</div>' +
+      '</div>';
+  }
+
+  // Word count in footer — computed client-side from bodyText
+  var wc = wordCount(a);
+  var wcMarkup;
+  if (wc > 0) {
+    wcMarkup = '<span class="card__wordcount">' + esc(wc.toLocaleString() + ' words') + '</span>';
+  } else {
+    wcMarkup = '<span class="card__wordcount card__wordcount--null">&mdash;</span>';
+  }
+
+  return '<div class="card" data-idx="' + i + '">' +
+    '<div class="card__img-wrap">' +
+      imgMarkup +
+      '<div class="card__img-placeholder" style="' + placeholderStyle + '">National League</div>' +
+      viewsBadge +
+    '</div>' +
+    '<div class="card__body">' +
+      '<div class="card__meta">' +
+        '<span class="card__pill">' + esc(a.newsCategory || '—') + '</span>' +
+        '<span class="card__date">' + esc(formatDate(a.publishedDateTime)) + '</span>' +
+      '</div>' +
+      '<div class="card__title">' + esc(a.postTitle || '(untitled)') + '</div>' +
+      (a.description ? '<div class="card__sub">' + esc(a.description) + '</div>' : '') +
+      '<div class="card__footer">' +
+        '<span>' + esc((a.postAuthor || '').trim() || '—') + '</span>' +
+        wcMarkup +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function rowHTML(a, i) {
+  var img = a.imageUrl || '';
+  var imgMarkup = img
+    ? '<img src="' + esc(img) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
+    : '';
+
+  var m = a.metrics;
+  var viewsVal, viewsTierClass, timeVal, timeTierClass, engVal, engTierClass;
+
+  if (m && m.pageViews != null) {
+    viewsVal = formatCount(m.pageViews);
+    viewsTierClass = 'row__metric--' + viewsTier(m.pageViews);
+  } else {
+    viewsVal = '—';
+    viewsTierClass = 'row__metric--null';
+  }
+
+  if (m && m.avgEngagementTimeSecs != null) {
+    timeVal = formatDuration(m.avgEngagementTimeSecs);
+    timeTierClass = 'row__metric--' + dwellTier(m.avgEngagementTimeSecs);
+  } else {
+    timeVal = '—';
+    timeTierClass = 'row__metric--null';
+  }
+
+  if (m && m.engagementRate != null) {
+    engVal = formatPct(m.engagementRate);
+    // Use a simpler rate-based tier: >50% green, 30-50% amber, <30% red
+    var er = m.engagementRate;
+    engTierClass = er >= 0.5 ? 'row__metric--green' : (er >= 0.3 ? 'row__metric--amber' : 'row__metric--red');
+  } else {
+    engVal = '—';
+    engTierClass = 'row__metric--null';
+  }
+
+  return '<div class="row" data-idx="' + i + '">' +
+    '<div class="row__img">' + imgMarkup + '</div>' +
+    '<div class="row__date">' + esc(formatDate(a.publishedDateTime)) + '</div>' +
+    '<div>' +
+      '<div class="row__title">' + esc(a.postTitle || '(untitled)') + '</div>' +
+      (a.description ? '<div class="row__sub">' + esc(a.description) + '</div>' : '') +
+    '</div>' +
+    '<div class="row__author">' + esc((a.postAuthor || '').trim() || '—') + '</div>' +
+    '<span class="row__metric ' + viewsTierClass + '">' + esc(viewsVal) + '</span>' +
+    '<span class="row__metric row__metric--time ' + timeTierClass + '">' + esc(timeVal) + '</span>' +
+    '<span class="row__metric row__metric--eng ' + engTierClass + '">' + esc(engVal) + '</span>' +
+  '</div>';
+}
+
+/* Header row for list view */
+function listHeaderHTML() {
+  var sortMap = {
+    newest: '', oldest: '',
+    views: 'views', engagement: 'engagement', length: 'length'
+  };
+  var currentSort = $('sortSelect').value;
+  var active = sortMap[currentSort] || '';
+  return '<div class="row__header">' +
+    '<span></span>' +
+    '<span>Date</span>' +
+    '<span>Title</span>' +
+    '<span>Author</span>' +
+    '<span class="row__header-metric row__header-sortable' + (active === 'views' ? ' active' : '') + '" data-sort="views">Views</span>' +
+    '<span class="row__header-metric row__header-sortable row__header-metric-time' + (active === 'engagement' ? ' active' : '') + '" data-sort="engagement">Time</span>' +
+    '<span class="row__header-metric row__header-metric-eng">Eng.</span>' +
+  '</div>';
+}
+
+function showEmpty(title, msg) {
+  $('resultsRoot').innerHTML =
+    '<div class="empty">' +
+      '<div class="empty__title">' + esc(title) + '</div>' +
+      '<div class="empty__msg">' + esc(msg) + '</div>' +
+    '</div>';
+  $('countDisplay').textContent = '';
+}
+
+/* ============ VIEW TOGGLE ============ */
+function setView(v) {
+  STATE.view = v;
+  localStorage.setItem(LS_KEY_VIEW, v);
+  applyViewToggleUI();
+  renderResults();
+}
+
+function applyViewToggleUI() {
+  $('viewGrid').classList.toggle('active', STATE.view === 'grid');
+  $('viewList').classList.toggle('active', STATE.view === 'list');
+}
+
+/* ============ MODAL ============ */
+function openModal(index) {
+  if (index < 0 || index >= STATE.filtered.length) return;
+  STATE.modalIndex = index;
+  $('modalBackdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  renderModal();
+}
+
+function closeModal() {
+  $('modalBackdrop').classList.remove('open');
+  document.body.style.overflow = '';
+  STATE.modalIndex = -1;
+}
+
+function navModal(delta) {
+  var next = STATE.modalIndex + delta;
+  if (next < 0 || next >= STATE.filtered.length) return;
+  STATE.modalIndex = next;
+  renderModal();
+  $('modalBody').scrollTop = 0;
+}
+
+function renderModal() {
+  var a = STATE.filtered[STATE.modalIndex];
+  if (!a) return;
+
+  var metaText = (a.newsCategory || '—') + ' · ' + formatDateLong(a.publishedDateTime) + ' · ' + ((a.postAuthor || '').trim() || '—') + '   ·   ' + (STATE.modalIndex + 1) + ' of ' + STATE.filtered.length;
+  $('modalMeta').textContent = metaText;
+
+  $('prevBtn').disabled = STATE.modalIndex <= 0;
+  $('nextBtn').disabled = STATE.modalIndex >= STATE.filtered.length - 1;
+
+  var onSite = a.postSlug ? (SITE_BASE + a.postSlug) : '#';
+  $('readOnSite').href = onSite;
+
+  var body = $('modalBody');
+
+  var cached = STATE.bodyCache[a.postSlug];
+  if (cached && cached.content) {
+    renderModalBody(a, cached.content);
+    return;
+  }
+
+  body.innerHTML = '<div class="loading"><div class="spinner-inline"></div><div>Loading article…</div></div>';
+
+  fetchArticleBody(a.postSlug).then(function(content) {
+    STATE.bodyCache[a.postSlug] = { content: content, ts: Date.now() };
+    persistBodyCache();
+    var current = STATE.filtered[STATE.modalIndex];
+    if (current && current.postSlug === a.postSlug) {
+      renderModalBody(a, content);
+    }
+  }).catch(function(err) {
+    body.innerHTML =
+      '<div class="empty">' +
+        '<div class="empty__title">Couldn\'t load article</div>' +
+        '<div class="empty__msg">' + esc(err && err.message ? err.message : 'Unknown error') + '. Try "Read on site" instead.</div>' +
+      '</div>';
+  });
+}
+
+function renderModalBody(a, content) {
+  var html = '';
+
+  // Metrics panel — 5 cells
+  html += buildModalMetricsPanel(a);
+
+  if (a.imageUrl) {
+    html += '<div class="article-modal__hero"><img src="' + esc(a.imageUrl) + '" alt="" onerror="this.parentNode.style.display=\'none\'"></div>';
+  }
+  if (a.newsCategory) {
+    html += '<div class="article-modal__category">' + esc(a.newsCategory) + '</div>';
+  }
+  html += '<h1 class="article-modal__title" id="articleModalTitle">' + esc(a.postTitle || '') + '</h1>';
+  if (a.description) {
+    html += '<div class="article-modal__sub">' + esc(a.description) + '</div>';
+  }
+
+  var byline = '';
+  if (a.postAuthor) byline += 'By <strong>' + esc(a.postAuthor) + '</strong>';
+  if (a.publishedDateTime) byline += (byline ? ' · ' : '') + formatDateLong(a.publishedDateTime);
+  if (byline) html += '<div class="article-modal__byline">' + byline + '</div>';
+
+  html += '<div class="article-modal__content" id="modalArticleContent">';
+  content.forEach(function(row) {
+    if (!row || !row.rowData) return;
+    var widget = row.rowData;
+    var type = widget.widgetType;
+    var data = widget.widgetData;
+    if (!data) return;
+
+    if (type === 'TextBlockWidget') {
+      if (data.content) html += data.content;
+    } else if (type === 'ThirdPartyV2Widget') {
+      if (data.content) html += '<div class="embed-widget">' + data.content + '</div>';
+    }
+  });
+  html += '</div>';
+
+  $('modalBody').innerHTML = html;
+  $('modalBody').scrollTop = 0;
+
+  executeInlineScripts($('modalArticleContent'));
+
+  setTimeout(function() {
+    if (window.twttr && window.twttr.widgets && window.twttr.widgets.load) {
+      try { window.twttr.widgets.load($('modalArticleContent')); } catch(e) {}
+    }
+  }, 100);
+}
+
+/* Build the metrics section shown at the top of the modal.
+   Composed of:
+     - Top strip: 7 metric cells (Views, Users, Avg time, Engaged, Scroll, Read, Length)
+     - Bottom: traffic source breakdown bar (only shown when data exists) */
+function buildModalMetricsPanel(a) {
+  var m = a.metrics;
+  var wc = wordCount(a);
+  var rt = readingTimeMins(a);
+  var lengthStr = wc ? (wc.toLocaleString() + 'w · ' + rt + ' min') : '—';
+
+  function cell(label, value, tierClass, sub) {
+    var valClass = 'modal-metrics__value' + (tierClass ? ' ' + tierClass : '');
+    var subMarkup = sub ? '<div class="modal-metrics__sub">' + esc(sub) + '</div>' : '';
+    return '<div class="modal-metrics__cell">' +
+      '<div class="modal-metrics__label">' + esc(label) + '</div>' +
+      '<div class="' + valClass + '">' + esc(value) + '</div>' +
+      subMarkup +
+      '</div>';
+  }
+
+  var viewsVal, viewsCls, usersVal, usersCls, timeVal, timeCls, engVal, engCls;
+
+  if (m && m.pageViews != null) {
+    viewsVal = m.pageViews.toLocaleString();
+    viewsCls = 'modal-metrics__value--' + viewsTier(m.pageViews);
+  } else {
+    viewsVal = '—';
+    viewsCls = 'modal-metrics__value--null';
+  }
+
+  if (m && m.users != null) {
+    usersVal = m.users.toLocaleString();
+    usersCls = '';
+  } else {
+    usersVal = '—';
+    usersCls = 'modal-metrics__value--null';
+  }
+
+  if (m && m.avgEngagementTimeSecs != null) {
+    timeVal = formatDuration(m.avgEngagementTimeSecs);
+    timeCls = 'modal-metrics__value--' + dwellTier(m.avgEngagementTimeSecs);
+  } else {
+    timeVal = '—';
+    timeCls = 'modal-metrics__value--null';
+  }
+
+  if (m && m.engagementRate != null) {
+    engVal = formatPct(m.engagementRate);
+    var er = m.engagementRate;
+    engCls = 'modal-metrics__value--' + (er >= 0.5 ? 'green' : (er >= 0.3 ? 'amber' : 'red'));
+  } else {
+    engVal = '—';
+    engCls = 'modal-metrics__value--null';
+  }
+
+  // Scroll rate: GA4 fires the built-in 'scroll' event once per session
+  // when user reaches 90% depth. scrollRate = scrollCount / users.
+  var scrollVal, scrollCls;
+  if (m && m.scrollRate != null) {
+    scrollVal = Math.round(m.scrollRate * 100) + '%';
+    var sr = m.scrollRate;
+    scrollCls = 'modal-metrics__value--' + (sr >= 0.5 ? 'green' : (sr >= 0.25 ? 'amber' : 'red'));
+  } else {
+    scrollVal = '—';
+    scrollCls = 'modal-metrics__value--null';
+  }
+
+  // Read-through: how much of the expected reading time did the average
+  // user actually spend? avgEngagementTimeSecs / (wordCount × seconds-per-word).
+  // 225 wpm = ~0.267 sec/word. Values >1 mean people stay longer than text requires.
+  // For service content with tiny word counts this can be huge; cap display at 999%.
+  var readVal, readCls, readSub = null;
+  if (m && m.avgEngagementTimeSecs != null && wc > 0) {
+    var expectedSecs = wc * (60 / 225);
+    var rate = m.avgEngagementTimeSecs / expectedSecs;
+    var pct = Math.round(rate * 100);
+    readVal = Math.min(pct, 999) + '%';
+    // >100% = people spent MORE than expected reading time (re-reading, pausing, etc.)
+    // Green band is 60-150% - solid engagement without being suspicious
+    if (pct >= 60 && pct <= 150) readCls = 'modal-metrics__value--green';
+    else if (pct >= 30 || pct > 150) readCls = 'modal-metrics__value--amber';
+    else readCls = 'modal-metrics__value--red';
+    readSub = 'of ' + (rt >= 1 ? rt + ' min read' : '<1 min');
+  } else {
+    readVal = '—';
+    readCls = 'modal-metrics__value--null';
+  }
+
+  var lengthCls = wc ? '' : 'modal-metrics__value--null';
+
+  var strip = '<div class="modal-metrics">' +
+    cell('Views',     viewsVal, viewsCls, m ? 'Since Nov 2024' : null) +
+    cell('Users',     usersVal, usersCls, null) +
+    cell('Avg time',  timeVal,  timeCls,  null) +
+    cell('Engaged',   engVal,   engCls,   null) +
+    cell('Scroll',    scrollVal, scrollCls, 'To 90% depth') +
+    cell('Read-thru', readVal,  readCls,  readSub) +
+    cell('Length',    lengthStr, lengthCls, null) +
+    '</div>';
+
+  // Traffic source breakdown — only render when we have source data
+  var sourceBar = '';
+  if (m && m.sources && Object.keys(m.sources).length > 0) {
+    sourceBar = buildTrafficSourceBar(m.sources, m.pageViews || 0);
+  }
+
+  return strip + sourceBar;
+}
+
+/* Horizontal bar showing traffic source mix.
+   Groups channels by colour family so the bar reads at a glance. */
+function buildTrafficSourceBar(sources, totalViews) {
+  if (!sources || !totalViews) return '';
+  var entries = Object.entries(sources)
+    .filter(function(e) { return e[1] > 0; })
+    .sort(function(a, b) { return b[1] - a[1]; });
+  if (!entries.length) return '';
+
+  // Channel colour mapping. GA4 default channel groups:
+  var channelColours = {
+    'Direct':               '#555',
+    'Organic Search':       '#2e7d32',
+    'Paid Search':          '#558b2f',
+    'Organic Social':       '#1976d2',
+    'Paid Social':          '#0d47a1',
+    'Referral':             '#7b1fa2',
+    'Email':                '#f57c00',
+    'Display':              '#c2185b',
+    'Organic Video':        '#d81b60',
+    'Paid Video':           '#880e4f',
+    'Cross-network':        '#6a1b9a',
+    'Affiliates':           '#ad1457',
+    'Audio':                '#00838f',
+    'SMS':                  '#00695c',
+    'Mobile Push':          '#4527a0',
+    'Unassigned':           '#888',
+    'Unknown':              '#aaa'
   };
 
-  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(payload, null, 2));
-  const sizeMB = (fs.statSync(OUTPUT_PATH).size / 1024 / 1024).toFixed(2);
-  log('');
-  log('Wrote ' + OUTPUT_PATH + ' (' + sizeMB + 'MB, ' + Object.keys(byPath).length + ' paths)');
+  var segmentsHtml = '';
+  var legendHtml = '';
+  entries.forEach(function(e) {
+    var channel = e[0];
+    var views = e[1];
+    var pct = (views / totalViews) * 100;
+    if (pct < 0.5) return;  // skip slivers <0.5%
+    var colour = channelColours[channel] || '#999';
+    segmentsHtml +=
+      '<div class="modal-sources__seg" style="width:' + pct.toFixed(2) + '%;background:' + colour + ';" ' +
+      'title="' + esc(channel) + ' — ' + views.toLocaleString() + ' views (' + pct.toFixed(1) + '%)"></div>';
+    legendHtml +=
+      '<div class="modal-sources__legend-item">' +
+        '<span class="modal-sources__legend-dot" style="background:' + colour + ';"></span>' +
+        '<span class="modal-sources__legend-label">' + esc(channel) + '</span>' +
+        '<span class="modal-sources__legend-val">' + pct.toFixed(0) + '%</span>' +
+      '</div>';
+  });
+
+  if (!segmentsHtml) return '';
+
+  return '<div class="modal-sources">' +
+    '<div class="modal-sources__label">Traffic sources</div>' +
+    '<div class="modal-sources__bar">' + segmentsHtml + '</div>' +
+    '<div class="modal-sources__legend">' + legendHtml + '</div>' +
+    '</div>';
 }
 
-main().catch(err => {
-  console.error('FATAL:', err.message);
-  if (err.stack) console.error(err.stack);
-  process.exit(1);
-});
+function executeInlineScripts(container) {
+  if (!container) return;
+  var scripts = container.querySelectorAll('script');
+  scripts.forEach(function(oldScript) {
+    var newScript = document.createElement('script');
+    Array.from(oldScript.attributes).forEach(function(attr) {
+      newScript.setAttribute(attr.name, attr.value);
+    });
+    if (oldScript.textContent) newScript.textContent = oldScript.textContent;
+    oldScript.parentNode.replaceChild(newScript, oldScript);
+  });
+}
+
+/* ============ BYSLUG FETCH ============ */
+function fetchArticleBody(slug) {
+  if (!slug) return Promise.reject(new Error('No slug provided'));
+  var url = BYSLUG_URL + '?postSlug=' + encodeURI(slug);
+
+  return fetch(url, { method: 'GET', headers: { 'Accept': '*/*' } })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(json) {
+      if (!json.success || !json.body || !json.body[0]) {
+        throw new Error('Unexpected response shape');
+      }
+      return json.body[0].content || [];
+    });
+}
+
+/* ============ BODY CACHE PERSISTENCE ============ */
+function persistBodyCache() {
+  try {
+    var raw = JSON.stringify(STATE.bodyCache);
+    if (raw.length > BODY_CACHE_CAP_BYTES) {
+      evictOldestCacheEntries();
+      raw = JSON.stringify(STATE.bodyCache);
+    }
+    localStorage.setItem(LS_KEY_BODY_CACHE, raw);
+  } catch (e) {
+    STATE.bodyCache = {};
+    try { localStorage.removeItem(LS_KEY_BODY_CACHE); } catch (_) {}
+  }
+}
+
+function evictOldestCacheEntries() {
+  var entries = Object.keys(STATE.bodyCache).map(function(k) {
+    return { key: k, ts: STATE.bodyCache[k].ts || 0 };
+  });
+  entries.sort(function(a, b) { return a.ts - b.ts; });
+  var dropCount = Math.ceil(entries.length * 0.25);
+  for (var i = 0; i < dropCount; i++) {
+    delete STATE.bodyCache[entries[i].key];
+  }
+}
+
+/* ============ EXPORT ============ */
+function updateExportCount() {
+  var el = $('exportCount');
+  if (el) el.textContent = STATE.filtered.length.toLocaleString();
+}
+
+async function startExport(format) {
+  if (!STATE.filtered.length) {
+    alert('No articles to export. Adjust your filters first.');
+    return;
+  }
+  
+  var articles = STATE.filtered.slice(); // snapshot — don't let filter changes during export affect it
+  var needsFetch = format === 'html';
+  
+  // Confirmation for slow exports over 50 articles
+  if (needsFetch && articles.length > 50) {
+    var mins = Math.ceil((articles.length * 500) / 60000);
+    var go = confirm('Export ' + articles.length + ' articles with full HTML bodies?\n\n' +
+                     'This will fetch each article individually (~' + mins + ' minutes).\n\n' +
+                     'You can cancel mid-export to keep what\'s been fetched so far.');
+    if (!go) return;
+  }
+  
+  STATE.exportRunning = true;
+  STATE.exportCancelled = false;
+  openExportModal();
+  
+  $('exportTotal').textContent = articles.length;
+  $('exportDone').textContent = '0';
+  $('exportFailed').textContent = '0';
+  $('exportProgressFill').style.width = '0%';
+  
+  if (needsFetch) {
+    $('exportStatus').textContent = 'Fetching bodies…';
+  } else {
+    $('exportStatus').textContent = 'Building export…';
+  }
+  
+  var rows = [];
+  var failed = 0;
+  
+  for (var i = 0; i < articles.length; i++) {
+    if (STATE.exportCancelled) break;
+    
+    var a = articles[i];
+    var m = a.metrics;
+    var row = {
+      headline:      a.postTitle || '',
+      subheader:     a.description || '',
+      timestamp:     a.publishedDateTime || '',
+      author:        a.postAuthor || '',
+      news_category: a.newsCategory || '',
+      url:           SITE_BASE + (a.postSlug || ''),
+      image_url:     a.imageUrl || '',
+      body_text:     '',
+      body_html:     '',
+      word_count:    wordCount(a) || '',
+      reading_time_mins: readingTimeMins(a) || '',
+      page_views:    (m && m.pageViews != null) ? m.pageViews : '',
+      users:         (m && m.users != null) ? m.users : '',
+      avg_engagement_time_secs: (m && m.avgEngagementTimeSecs != null) ? m.avgEngagementTimeSecs : '',
+      engagement_rate: (m && m.engagementRate != null) ? m.engagementRate : ''
+    };
+    
+    if (format === 'plaintext') {
+      row.body_text = a.bodyText || '';
+    } else if (format === 'html') {
+      // Fetch body via byslug
+      try {
+        var content = await fetchArticleBody(a.postSlug);
+        var html = '';
+        var plain = a.bodyText || '';
+        content.forEach(function(widgetRow) {
+          if (!widgetRow || !widgetRow.rowData) return;
+          var w = widgetRow.rowData;
+          if (!w.widgetData) return;
+          if (w.widgetType === 'TextBlockWidget' && w.widgetData.content) {
+            html += w.widgetData.content;
+          } else if (w.widgetType === 'ThirdPartyV2Widget' && w.widgetData.content) {
+            html += '<div class="embed">' + w.widgetData.content + '</div>';
+          }
+        });
+        row.body_html = html;
+        row.body_text = plain;
+      } catch (err) {
+        failed++;
+        row.body_html = '[FETCH FAILED: ' + (err && err.message || 'unknown') + ']';
+      }
+    }
+    
+    rows.push(row);
+    
+    // Update progress
+    var done = i + 1;
+    $('exportDone').textContent = done;
+    $('exportFailed').textContent = failed;
+    $('exportProgressFill').style.width = (done / articles.length * 100) + '%';
+    
+    // Rate limit only on html format (which actually fetches)
+    if (needsFetch && i < articles.length - 1 && !STATE.exportCancelled) {
+      await sleep(500);
+    }
+  }
+  
+  // Build CSV
+  $('exportStatus').textContent = 'Building CSV…';
+  var csv = buildCSV(rows, format);
+  
+  // Download
+  downloadCSV(csv, format);
+  
+  // Done
+  var cancelled = STATE.exportCancelled;
+  STATE.exportRunning = false;
+  STATE.exportCancelled = false;
+  $('exportStatus').textContent = cancelled
+    ? 'Cancelled — downloaded ' + rows.length + ' of ' + articles.length + ' articles'
+    : 'Complete — downloaded ' + rows.length + ' article' + (rows.length === 1 ? '' : 's');
+  $('exportCancelBtn').textContent = 'Close';
+}
+
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+function openExportModal() {
+  $('exportModalBackdrop').classList.add('open');
+  $('exportModalBackdrop').style.display = 'flex';
+  $('exportCancelBtn').textContent = 'Cancel';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeExportModal() {
+  $('exportModalBackdrop').classList.remove('open');
+  $('exportModalBackdrop').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function csvEscape(s) {
+  if (s == null) return '';
+  var str = String(s);
+  if (/[",\r\n]/.test(str)) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+function buildCSV(rows, format) {
+  // Metrics columns appear in all formats — they're small numbers, always useful
+  var metricCols = ['word_count', 'reading_time_mins', 'page_views', 'users', 'avg_engagement_time_secs', 'engagement_rate'];
+  var headers;
+  if (format === 'meta') {
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category']
+      .concat(metricCols)
+      .concat(['image_url', 'url']);
+  } else if (format === 'plaintext') {
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category']
+      .concat(metricCols)
+      .concat(['body_text', 'image_url', 'url']);
+  } else {
+    headers = ['headline', 'sub-header', 'timestamp', 'author', 'news_category']
+      .concat(metricCols)
+      .concat(['body_text', 'body_html', 'image_url', 'url']);
+  }
+  
+  var lines = [headers.join(',')];
+  rows.forEach(function(r) {
+    var vals = headers.map(function(h) {
+      var key = h === 'sub-header' ? 'subheader' : h;
+      return csvEscape(r[key]);
+    });
+    lines.push(vals.join(','));
+  });
+  
+  // BOM for Excel UTF-8 recognition
+  return '\ufeff' + lines.join('\r\n');
+}
+
+function downloadCSV(csv, format) {
+  var now = new Date();
+  var stamp = now.getFullYear() + '-' +
+              String(now.getMonth() + 1).padStart(2, '0') + '-' +
+              String(now.getDate()).padStart(2, '0') + '_' +
+              String(now.getHours()).padStart(2, '0') +
+              String(now.getMinutes()).padStart(2, '0');
+  var filename = 'nl-archive_' + format + '_' + stamp + '.csv';
+  
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+
+
+function onKeyDown(e) {
+  var modalOpen = $('modalBackdrop').classList.contains('open');
+
+  if (modalOpen) {
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); navModal(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); navModal(1); }
+  } else {
+    if (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT' && document.activeElement.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      $('qInput').focus();
+    }
+  }
+}
+
+</script>
+
+</body>
+</html>
