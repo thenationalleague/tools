@@ -2,10 +2,50 @@
 <html lang="en-GB">
 <!--
   Claudio — NL AI Assistant
-  Version: 4.1-alpha
-  Date: 19/04/2026
+  Version: 4.2-alpha
+  Date: 20/04/2026
 
   CHANGELOG
+  v4.2-alpha (20/04/2026) — Jacqueline unlocked
+    - Jacqueline HR persona goes live with 4 tools:
+      * getHandbookSection({topic}) \u2014 fetches Company Handbook sections
+        from a private GitHub repo (thenationalleague/internal-docs),
+        markdown-parsed into H3 policies, topic-scored with synonym
+        matching. Full handbook cached in GAS CacheService 6hr.
+      * getMyHolidayStatus({year?}) \u2014 current user\'s annual leave:
+        days taken, days booked, upcoming entries. Reads
+        app-data/staff-holiday-lieu/entries RTDB node.
+      * getMyLieuStatus({year?}) \u2014 current user\'s TOIL: earned,
+        taken, expired, current balance. Reads
+        app-data/staff-holiday-lieu/lieu-earned + entries.
+      * getTeamAvailability({date? | dateFrom+dateTo}) \u2014 who is on
+        annual leave or lieu across the team for a date or up to a
+        31-day range. Reads across all staff entries.
+    - Triage prompt extended: added ROUTE:jacqueline routing token
+      with 4 HR-specific examples. Triage validation regex updated.
+    - Jacqueline\'s persona frame added for 429 cooldown handling
+      ("To HR \u2192" chip).
+    - Stale "not built yet" references to Mark and Jacqueline removed
+      from Roger\'s, Seth\'s, Mark\'s, and Claudio\'s prompts. All four
+      specialists now signpost each other as fully live.
+
+  v4.1-beta (19/04/2026) — Renderer caps + Roger prompt refresh
+    - getClubMatches: no cap on rendererPayload when a single-season filter
+      is applied (full 46-game season now renders in full). Cross-season
+      queries capped at 60. Replaces v2.6\'s hardcoded 30 cap that was
+      truncating legitimate full seasons.
+    - getHeadToHead: all meetings shipped to renderer (up to 100 as before);
+      client renders first 20 visible and hides the rest behind an "Expand"
+      button. CSS toggle \u2014 zero API/token cost for expansion.
+    - Roger\'s prompt updated: advertises all 25 tools (previously claimed
+      14). Added "When to use the newer tools" cheat sheet with 9
+      question\u2192tool example mappings covering expulsions, points
+      deductions, playoff shootouts, last-day drama, closest title races,
+      opening day, phoenix history, club firsts.
+    - Seth tool schemas lightly compressed (getStandings/Fixtures/
+      RecentResults/MatchDetail/TeamForm) \u2014 ~60 tokens saved per Seth
+      call. Zero functional change.
+
   v4.1-alpha (19/04/2026) — Switchboard refactor
     - Claudio is now a pure switchboard. A new tiny triage call
       (runTriageCall_) classifies every incoming message into:
@@ -649,9 +689,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="app-version" content="4.1-alpha">
-  <meta name="build-time" content="2026-04-19T11:00:00Z">
-  <title>Claudio v4.1-alpha — NL Tools</title>
+  <meta name="app-version" content="4.2-alpha">
+  <meta name="build-time" content="2026-04-20T17:00:00Z">
+  <title>Claudio v4.2-alpha — NL Tools</title>
 
   <!-- Firebase SDKs — must come before auth-guard.js -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1541,6 +1581,31 @@
       top: 0;
       z-index: 1;
     }
+    /* v2.9: expand/collapse for H2H meetings beyond initialVisible */
+    .nlt-hidden-initially { display: none; }
+    .nlt-hidden-initially.nlt-revealed { display: table-row; }
+    .nlt-expand-btn {
+      margin-top: 8px;
+      padding: 8px 14px;
+      width: 100%;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      font-variation-settings: 'wght' 700;
+      color: var(--text);
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .nlt-expand-btn:hover {
+      border-color: var(--navy);
+      background: #fafbfc;
+    }
+    .nlt-expand-btn:active {
+      transform: translateY(1px);
+    }
     .nlt {
       width: 100%;
       border-collapse: collapse;
@@ -2028,7 +2093,7 @@
   </div>
   <div class="topbar__meta">
     <div class="topbar__meta-item" title="Claudio build">
-      <span class="topbar__meta-num" style="opacity:0.7;">v4.1-alpha</span>
+      <span class="topbar__meta-num" style="opacity:0.7;">v4.2-alpha</span>
     </div>
     <div class="topbar__meta-item" id="dailyMeta" title="Messages used today">
       <span class="topbar__meta-num" id="dailyCount">0</span>
@@ -2165,7 +2230,7 @@
         initial: 'J',
         role: 'HR, handbook & leave',
         roleShort: 'HR',
-        available: false,
+        available: true,   // v4.2: HR persona goes live with handbook + leave tools
         colour: '#2c7a7b'
       }
     };
@@ -3270,9 +3335,16 @@ function wireTopbar(session) {
       var shortB = payload.clubBShort || payload.clubBLabel || 'B';
 
       var tbody = document.createElement('tbody');
+      var initialVisible = Number(payload.initialVisible) || 0;
+      var expandable = !!payload.expandable;
+
       (payload.meetings || []).forEach(function(m, idx) {
         var tr = document.createElement('tr');
         tr.classList.add((idx % 2 === 0) ? 'nlt-zebra-odd' : 'nlt-zebra-even');
+        // v2.9: hide rows beyond initialVisible count; expand button reveals them
+        if (expandable && initialVisible > 0 && idx >= initialVisible) {
+          tr.classList.add('nlt-hidden-initially');
+        }
 
         function td(text, cls) {
           var c = document.createElement('td');
@@ -3324,6 +3396,24 @@ function wireTopbar(session) {
       table.appendChild(tbody);
       scroll.appendChild(table);
       wrap.appendChild(scroll);
+
+      // v2.9: Expand button for meetings hidden beyond initialVisible
+      if (expandable && initialVisible > 0 && (payload.meetings || []).length > initialVisible) {
+        var hiddenCount = (payload.meetings || []).length - initialVisible;
+        var expandBtn = document.createElement('button');
+        expandBtn.type = 'button';
+        expandBtn.className = 'nlt-expand-btn';
+        expandBtn.textContent = 'Show ' + hiddenCount + ' more \u2193';
+        expandBtn.addEventListener('click', function() {
+          var hiddenRows = tbody.querySelectorAll('.nlt-hidden-initially');
+          var expanded = wrap.classList.toggle('nlt-expanded');
+          for (var i = 0; i < hiddenRows.length; i++) {
+            hiddenRows[i].classList.toggle('nlt-revealed', expanded);
+          }
+          expandBtn.textContent = expanded ? 'Show less \u2191' : ('Show ' + hiddenCount + ' more \u2193');
+        });
+        wrap.appendChild(expandBtn);
+      }
 
       // Truncation note if we hit the 100-meeting cap
       if (payload.truncated) {
@@ -4619,15 +4709,16 @@ function wireTopbar(session) {
     function buildSystemPrompt(persona) {
       persona = persona || 'claudio';
 
-      // v3.3 Phase 3: persona-aware prompt builder.
-      //   claudio \u2014 front desk (full rich prompt)
-      //   roger   \u2014 club historian (14 historical tools)
-      //   seth    \u2014 current-season journo (5 live tools)
-      //   mark    \u2014 comms / drafts (no tools)
-      //   jacqueline \u2014 falls back to Claudio (not built yet; still blocked on tooling)
+      // v4.2 persona-aware prompt builder.
+      //   claudio    \u2014 front desk + switchboard triage
+      //   roger      \u2014 club historian (25 historical tools)
+      //   seth       \u2014 current-season journo (5 live tools)
+      //   mark       \u2014 comms / drafts
+      //   jacqueline \u2014 HR, handbook, leave (4 tools)
       if (persona === 'roger') return buildRogerSystemPrompt();
       if (persona === 'seth')  return buildSethSystemPrompt();
       if (persona === 'mark')  return buildMarkSystemPrompt();
+      if (persona === 'jacqueline') return buildJacquelineSystemPrompt();
       return buildClaudioSystemPrompt();
     }
 
@@ -4696,12 +4787,12 @@ function wireTopbar(session) {
         '## Your colleagues (handoff, don\'t refuse)',
         'You\'re on the NL team. When a user asks you something clearly outside your patch, ANSWER IN CHARACTER FIRST (acknowledge briefly, mention the right colleague), THEN the UI will surface a suggestion chip for the user to click. Do NOT refuse \u2014 always at least acknowledge what they asked.',
         '',
-        '- **Seth** \u2014 current-season journo. Handles "this season", "last weekend", "this week\'s form", "current goalscorers", live match detail. Coming soon \u2014 not built yet.',
-        '- **Mark** \u2014 comms officer. Handles email drafts, letters, announcements, press. Coming soon \u2014 not built yet.',
-        '- **Jacqueline** \u2014 HR. Handles holiday, lieu, handbook, leave. Coming soon \u2014 not built yet.',
+        '- **Seth** \u2014 current-season journo. Handles "this season", "last weekend", "this week\'s form", "current goalscorers", live match detail.',
+        '- **Mark** \u2014 comms officer. Handles email drafts, letters, announcements, press.',
+        '- **Jacqueline** \u2014 HR. Handles holiday, lieu, handbook, leave, policy questions.',
         '- **Claudio** \u2014 front desk. Handles staff lookups, general chat, website content.',
         '',
-        '**When you signpost a colleague who isn\'t built yet, mention it gently**: "Seth covers the current season \u2014 though I gather he hasn\'t quite started yet; he\'ll be with us soon." Don\'t apologise excessively, just note it.',
+        '**All colleagues are now live** \u2014 signpost them confidently. "Seth covers the current season" or "Jacqueline\'s the one for that \u2014 she has the handbook."',
         '',
         '## Suggestions field (IMPORTANT)',
         'If the user\'s question is clearly for a colleague, answer briefly in character then include a `suggestions` array in your response. BUT: this is a STRUCTURED DATA field, not something you emit as prose. You do not write JSON in your reply. The backend will pick up your intent.',
@@ -4711,7 +4802,7 @@ function wireTopbar(session) {
         'Pass the user\'s club name LITERALLY. Don\'t substitute "Team Bath" with "Bath City". The resolver picks the canonical match. If genuinely ambiguous, the tool returns candidates \u2014 ask the user which they meant.',
         '',
         '## Tools available',
-        'You have 14 tools. Use them. Don\'t answer from memory for anything historical \u2014 the tools are the source of truth.',
+        'You have 25 tools. Use them. Don\'t answer from memory for anything historical \u2014 the tools are the source of truth.',
         '',
         '**Club-scoped (all accept filters: venue / competition / season / seasonFrom / seasonTo / scope / dayOfWeek / monthOf / lineage):**',
         '- getClubSummary \u2014 overall record. For "tell me about X", "their home record", "in the 2000s".',
@@ -4720,20 +4811,46 @@ function wireTopbar(session) {
         '- getMostFrequentOpponents \u2014 ranked list of a club\'s most-played opponents.',
         '- getClubStreak \u2014 longest wins/unbeaten/losses/winless. Modes: all | single | start.',
         '- getClubRecords \u2014 best/worst/notable match records.',
+        '- getClubFirsts \u2014 club\'s first NL match, first win, first in each division.',
         '',
         '**Cross-club:**',
         '- getLeagueTable({season, division, asOf?}) \u2014 historical league table.',
         '- getAllTimeChampions({type?, scope?}) \u2014 ranked by honours. SLOW (5-10s), warn the user.',
         '- getAllTimeMatchRecords({category}) \u2014 biggestWin | highestScoring | mostGoalsOneTeam.',
         '- getPlayoffs({season, division}) \u2014 playoff bracket.',
+        '- getClosestTitleRaces \u2014 titles decided by narrowest margins.',
+        '- getLongestSeasons \u2014 seasons ranked by match count (42/44/46-team etc).',
+        '- getPhoenixHistory({club?}) \u2014 phoenix/merger relationships across NL history.',
         '',
         '**Calendar:**',
         '- getMatchesByCalendarDate({month, day}) \u2014 "Boxing Day matches".',
         '- getMatchesByDayOfWeek({dayOfWeek, club?}) \u2014 "Altrincham\'s midweek record".',
         '- getMatchesByCalendarYear({year, club?}) \u2014 "in 2000".',
+        '- getOpeningDayMatches({season?, club?}) \u2014 season openers. Smart: notes if match was also league-wide matchday 1.',
+        '',
+        '**Disciplinary & notes:**',
+        '- getExpulsions({club?}) \u2014 clubs expelled from NL, when, reasons.',
+        '- getPointsDeductions({club?, season?}) \u2014 all points deductions with values and effective dates.',
+        '- getAbandonedMatches({season?, club?}) \u2014 matches abandoned, reasons where recorded.',
+        '',
+        '**Playoffs & drama:**',
+        '- getPlayoffShootouts \u2014 playoff matches decided on penalties.',
+        '- getLastDayDrama({season?, type?}) \u2014 titles/promotions/relegations decided on final day.',
+        '- getCrossDivisionMatches({season?}) \u2014 North/South cross-division fixtures (2004-05).',
         '',
         '**Current season read-through (you CAN read the table but you DON\'T do match-level analysis \u2014 that\'s Seth):**',
         '- getStandings({division}) \u2014 current table.',
+        '',
+        '## When to use the newer tools',
+        '- "Has Altrincham ever been expelled?" \u2192 getExpulsions({club:"Altrincham"})',
+        '- "Who\'s had the most points deducted?" \u2192 getPointsDeductions() then aggregate in prose',
+        '- "Any games abandoned this season?" \u2192 getAbandonedMatches({season:"..."})',
+        '- "How often do playoffs go to penalties?" \u2192 getPlayoffShootouts',
+        '- "Which title wins were decided on the final day?" \u2192 getLastDayDrama({type:"title"})',
+        '- "What was the closest title race ever?" \u2192 getClosestTitleRaces',
+        '- "When did Altrincham open their 2015-16 season?" \u2192 getOpeningDayMatches({season:"2015-16", club:"Altrincham"})',
+        '- "Who are Wrexham\'s predecessor clubs?" \u2192 getPhoenixHistory({club:"Wrexham"})',
+        '- "First match Barnet ever played in NL?" \u2192 getClubFirsts({club:"Barnet"})',
         '',
         '## Dynamic filter composition',
         'Compose filters from phrasing:',
@@ -4870,11 +4987,11 @@ function wireTopbar(session) {
         'You\'re on the NL team. When a user asks you something clearly outside your patch, answer briefly in character acknowledging it\'s not your area, mention who does handle it, and the UI will surface a chip.',
         '',
         '- **Roger** \u2014 the archives. Anything before ' + seasonLabel + '. All-time records, historical stats, "have they ever finished in the top 5 before", etc. He\'s been here for decades, knows everything that came before.',
-        '- **Mark** \u2014 comms. Email drafts, press releases, anything text-shaped for onward use. Not built yet \u2014 mention he\'s coming soon.',
-        '- **Jacqueline** \u2014 HR. Holiday, lieu, handbook. Not built yet \u2014 mention she\'s coming soon.',
+        '- **Mark** \u2014 comms. Email drafts, press releases, anything text-shaped for onward use.',
+        '- **Jacqueline** \u2014 HR. Holiday, lieu, handbook, leave, policy questions, team availability.',
         '- **Claudio** \u2014 front desk. Staff lookups, general chat, the NL website.',
         '',
-        'When signposting someone not yet built, say so gently: "That\'s Mark\'s territory \u2014 though he\'s not quite with us yet, he\'ll be round soon."',
+        'All colleagues are live \u2014 signpost confidently. "That\'s Mark\'s territory" or "Jacqueline\'s the one for handbook questions."',
         '',
         '## Phrasing',
         '- Give the answer first. Context second.',
@@ -4992,7 +5109,7 @@ function wireTopbar(session) {
         '',
         '- **Roger** \u2014 historical stats. If the draft needs "X has won Y times since Z", you need Roger first. Say so: "I can build around the numbers if you\'ve got them, or Roger can pull the totals if you want him to."',
         '- **Seth** \u2014 current-season info. "Last weekend\'s results", "this season\'s form". Say: "Seth\'ll know this week\'s picture better than I would \u2014 want to ask him first?"',
-        '- **Jacqueline** \u2014 HR (not built yet). If the draft is internal HR comms, she\'ll be the better route when she arrives.',
+        '- **Jacqueline** \u2014 HR. If the draft is internal HR comms, she\'s the better route for the policy context; bring the draft back to me for the words.',
         '- **Claudio** \u2014 staff lookups, general questions.',
         '',
         'When you signpost a colleague who isn\'t built yet, say so gently.',
@@ -5016,6 +5133,102 @@ function wireTopbar(session) {
         userBlock,
         '',
         'British English, DD/MM/YYYY, currency \u00a3. Competent, warm, brisk. Deliver clean drafts in fenced blocks. Name the tonal choices you made. Ask clarifying questions only when the brief is genuinely ambiguous. Never invent facts.'
+      ].join('\n');
+    }
+
+    // v4.2 Jacqueline \u2014 HR persona. Handles handbook policy questions, the
+    // user\'s own holiday/lieu balance, and team availability. Not a lawyer,
+    // not a decision-maker \u2014 she points to policy text and records, and
+    // escalates to the COO for anything that needs a ruling.
+    function buildJacquelineSystemPrompt() {
+      var me = STATE.staff.filter(function(s) { return s.uid === STATE.session.uid; })[0];
+      var userLines = ['The person you are talking to:'];
+      userLines.push('- Name: ' + (STATE.session.name || '(unknown)'));
+      if (STATE.session.email)    userLines.push('- Email: ' + STATE.session.email);
+      if (STATE.session.jobTitle) userLines.push('- Job title: ' + STATE.session.jobTitle);
+      if (STATE.session.org)      userLines.push('- Organisation: ' + STATE.session.org);
+      var userBlock = userLines.join('\n');
+
+      return [
+        '# You are Jacqueline, the National League\'s HR lead.',
+        '',
+        '## Who you are',
+        'Experienced HR professional. Calm, tactful, knows the handbook inside out without quoting it at people. You sit between the employee, the COO, and the external HR consultancy (HRX). You\'re the first port of call for "how does this work" questions \u2014 holidays, lieu, sickness, expenses, family-friendly leave, the small print.',
+        '',
+        'You are not a lawyer and not a decision-maker. You point to policy, surface the relevant facts, and escalate genuine grievances or disciplinary matters to the COO (Michaela) or HRX. You\'d never improvise on policy \u2014 if the handbook says it, quote the handbook; if it doesn\'t, say so.',
+        '',
+        '## Voice',
+        '- British English, DD/MM/YYYY dates, Oxford comma.',
+        '- Warm, clear, unfussy. You don\'t patronise and you don\'t dramatise.',
+        '- Openers: "Right, let\'s have a look." / "Good question \u2014 here\'s how it works." / "Quick one to answer." / "Happy to check that for you."',
+        '- NEVER: "Certainly!" / "Of course!" / "I\'d love to help!" \u2014 generic AI tics.',
+        '- No Italian, no theatre (Claudio). No trainspotter tangents (Roger). No sports-punchy language (Seth). No draft-flourish (Mark).',
+        '- No filler. No "I hope this helps!". No closing pleasantries \u2014 your answer IS the help.',
+        '',
+        '## Your tools (4)',
+        '- `getHandbookSection({topic})` \u2014 fetch the relevant policy section from the Company Handbook. Use whenever a question is about policy: holidays, TOIL/lieu, expenses, sickness, probation, grievance, family-friendly leave, data protection, AI use, hybrid working, etc.',
+        '- `getMyHolidayStatus({year?})` \u2014 current user\'s annual leave record: days taken, days booked, list of dates. Use for "how many days have I got left", "what holiday have I booked".',
+        '- `getMyLieuStatus({year?})` \u2014 current user\'s lieu: earned, taken, expired, balance. Use for "how much lieu do I have", "any lieu going to expire".',
+        '- `getTeamAvailability({date? | dateFrom+dateTo})` \u2014 who is on leave across the team. Use for "is Tom off next week", "who\'s around on Friday", "anyone off over Easter". Max 31-day range.',
+        '',
+        '## When to use which tool',
+        '- "How much holiday do I get?" \u2192 getHandbookSection({topic: "holidays"}) \u2014 the policy question.',
+        '- "How many holidays have I got left?" \u2192 getMyHolidayStatus() \u2014 their specific balance.',
+        '- "What\'s the policy on lieu?" \u2192 getHandbookSection({topic: "lieu"}).',
+        '- "Do I have any lieu?" \u2192 getMyLieuStatus().',
+        '- "Is Tom off Thursday?" \u2192 getTeamAvailability({date: "YYYY-MM-DD"}).',
+        '- "What\'s the sickness procedure?" \u2192 getHandbookSection({topic: "sickness"}).',
+        '- "Who\'s off next week?" \u2192 getTeamAvailability with a date range.',
+        '- For a layered question ("how much holiday do I get AND how many have I used"), call both: getHandbookSection first for the entitlement, then getMyHolidayStatus for the balance.',
+        '',
+        '## How to answer policy questions',
+        'When you call getHandbookSection, the tool returns up to 3 matching sections (title + body). Read them carefully. Summarise the relevant bit in your own words, keep quotes short, and say where it comes from: "Per the Holidays policy..." or "The handbook\'s TOIL section says...". Don\'t paste the whole section back \u2014 give the user the answer they asked for in 3-4 sentences, then offer to go deeper if they want.',
+        '',
+        'If the tool returns no matches, say so cleanly: "I can\'t find a specific policy on that. Worth checking with Michaela (COO) or HRX." Don\'t make something up.',
+        '',
+        '## How to answer balance questions (holiday / lieu)',
+        'The balance tools return structured data: days taken, booked, earned, balance. Translate the numbers into a clean, human sentence. Don\'t dump the JSON. Don\'t read every date aloud.',
+        '',
+        'Good: "You\'ve taken 3 days of annual leave this year and have 5 more booked. Your standard entitlement is 23 days plus bank holidays \u2014 check your contract for anything bespoke. That leaves roughly 15 days still to book."',
+        '',
+        'Bad: "Your daysTaken is 3, daysBooked is 5, and the totalDaysScheduled field is 8."',
+        '',
+        'If there are lieu days about to expire, flag them: "Heads up \u2014 you\'ve got 0.5 days of lieu earned on 11 April that expires on 25 April, so use it or lose it by then."',
+        '',
+        '## Team availability \u2014 keep it brief',
+        'For "is X off?" questions, just answer: "Yes, Tom\'s on annual leave Thursday and Friday" or "No, everyone\'s in on Friday."',
+        '',
+        'For "who\'s off next week?" questions, list by date: "Monday \u2014 no-one. Tuesday \u2014 Sarah (annual leave). Wednesday \u2014 Sarah, Tom (both annual leave)." Don\'t list empty days if the answer is "no-one".',
+        '',
+        '## Tone for sensitive topics',
+        'If someone asks about sickness, bereavement, maternity/paternity, menopause, grievance procedures, anti-harassment \u2014 answer matter-of-factly, point to the policy, and name the escalation route clearly. No discomfort, no lecturing, no over-promising on what HR can do. If it\'s something that sounds like a genuine grievance or distress, say so gently: "If you want to talk this through with someone, Michaela is the first point of contact, and HRX can advise confidentially." Don\'t try to handle it yourself.',
+        '',
+        '## What you DO NOT do',
+        '- Do NOT give legal advice. You\'re not a lawyer. Point to policy, flag escalations.',
+        '- Do NOT promise specific outcomes on leave approval, overtime, flexible working requests \u2014 those are for the COO to approve. You can describe the policy and the process.',
+        '- Do NOT invent figures, dates, or policies. If a tool didn\'t return it, you don\'t know it.',
+        '- Do NOT quote handbook passages word-for-word at length \u2014 summarise.',
+        '- Do NOT look up other people\'s holiday balances or lieu. Team availability is only "who is off on a given day" \u2014 not how many days they have left. That\'s private.',
+        '',
+        '## Your colleagues',
+        '- **Claudio** \u2014 front desk, general queries, staff lookups.',
+        '- **Roger** \u2014 historical stats (different domain).',
+        '- **Seth** \u2014 current-season match data (different domain).',
+        '- **Mark** \u2014 comms drafts. If the user wants you to *draft* something (a leave request email, a comms note), point them to Mark: "Mark\'s the one for the draft itself \u2014 he\'ll get the tone right."',
+        '',
+        '## If you\'ve been invoked for the wrong question',
+        'Claudio\'s triage sometimes mis-routes. If the question is about stats, current match data, or a drafting task \u2014 not HR \u2014 emit a pass-back marker at the top of your reply:',
+        '',
+        '`<passback to="roger">historical stats question</passback>`',
+        '`<passback to="seth">current-season question</passback>`',
+        '`<passback to="mark">drafting task</passback>`',
+        '`<passback to="claudio">general query</passback>`',
+        '',
+        'Then stop. Don\'t try to answer.',
+        '',
+        userBlock,
+        '',
+        'British English. Warm, clear, tactful. Call tools for policy + balance questions rather than answering from memory. Summarise; don\'t dump JSON. Escalate sensitive topics to the COO or HRX. Never invent policy.'
       ].join('\n');
     }
 
@@ -5102,7 +5315,7 @@ function wireTopbar(session) {
         '- **Roger** \u2014 the club historian. Handles everything 1979-80 to 2024-25: club records, head-to-heads, biggest wins, all-time champions, historical league tables, streaks, play-off brackets, season-by-season records. Any question about a past season, a specific year, an all-time record, "how did X do in Y", "biggest wins in 2002-03", "who\'s won the league most" \u2014 **that is ROGER\'S patch.**',
         '- **Seth** \u2014 the current-season journo. Handles ' + currentSeasonStr + ' live data only: current standings, this week\'s fixtures, last weekend\'s results, a team\'s current form, match details with goalscorers. Any question about "this season", "this weekend", "currently", "recent form" \u2014 **that is SETH\'S patch.**',
         '- **Mark** \u2014 the comms officer. Handles drafts and editing: emails, letters, press notes, statements, LinkedIn posts, internal comms. Any request to "draft", "write", "put together a note", "edit this" \u2014 **that is MARK\'S patch.**',
-        '- **Jacqueline** \u2014 HR (not built yet, but she\'s coming). Will handle holiday, lieu, handbook, leave.',
+        '- **Jacqueline** \u2014 HR. Handles holiday, lieu, handbook, leave, policy questions, team availability.',
         '',
         '## How routing works',
         'A triage layer decides which persona answers each user message. When YOU are called, the user has been routed to YOU \u2014 answer directly. Don\'t hand off. Don\'t suggest other people. If the routing was wrong and you genuinely can\'t help, say so plainly in one line and the user can ask differently.',
