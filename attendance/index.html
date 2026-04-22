@@ -7,6 +7,16 @@
 
 <!--
   Changelog
+  v2.5 — 22/04/2026 — Two fixes to the Breakdown chart:
+                      1. Tiny visiting-fan slices now show their number FLOATED OUTSIDE
+                         the bar (right of the slice) instead of being hidden. The bar
+                         still scales to actual proportion, but the number is always
+                         visible and readable. Applies to Rochdale fans on the Away view
+                         too when they're the tiny slice.
+                      2. "split —" text replaced with a WHITE STAR (★) flush-right inside
+                         the red bar. Cleaner, culturally reads as "something noteworthy
+                         here", and doesn't try to communicate a half-sentence. Legend
+                         shows the star in navy so it's visible on white.
   v2.4 — 22/04/2026 — Fixed three issues with the Breakdown chart's missing-data states:
                       1. Not-yet-submitted matches now render as a SHORT grey hatched bar
                          (18% width) with italic "awaiting submission" text. No longer
@@ -600,7 +610,7 @@
     font-variation-settings: 'wght' 800;
     transition: width 0.3s ease;
   }
-  /* Submitted but split not recorded — red bar at total width, small label at end */
+  /* Submitted but split not recorded — red bar at total width, white star on right */
   .match-bar-split-unknown {
     background: linear-gradient(90deg, #c81010, var(--primary));
     height: 100%;
@@ -617,12 +627,22 @@
     font-weight: 800;
     font-variation-settings: 'wght' 800;
   }
-  .match-bar-split-unknown .split-note {
-    font-size: 0.85em;
-    opacity: 0.8;
-    font-style: italic;
-    font-weight: 600;
-    font-variation-settings: 'wght' 600;
+  .match-bar-split-unknown .split-star {
+    font-size: 1.2em;
+    line-height: 1;
+    color: white;
+    display: inline-block;
+  }
+  /* Floating number that sits OUTSIDE a narrow slice, to the right of it */
+  .match-bar-float-label {
+    font-size: 0.82em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--navy);
+    padding-left: 6px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
   }
   /* Not yet submitted — short grey fuzzy/hatched bar */
   .match-bar-missing {
@@ -643,7 +663,8 @@
     font-variation-settings: 'wght' 700;
     font-style: italic;
   }
-  /* Hide the in-bar label when the slice is too narrow to hold it */
+  /* Tiny slices: hide the in-bar label so it doesn't overflow.
+     A separate float-label is added outside the slice to still show the number. */
   .match-bar-home.tiny,
   .match-bar-away.tiny { color: transparent; }
   .match-total {
@@ -862,7 +883,7 @@
 </head>
 <body>
 
-<div class="mockup-banner">Real 2025/26 data · NL Premier · Rochdale · v2.4</div>
+<div class="mockup-banner">Real 2025/26 data · NL Premier · Rochdale · v2.5</div>
 
 <div class="topbar">
   <div class="topbar-left">
@@ -1013,7 +1034,7 @@
       <div class="legend-item"><span class="legend-swatch" style="background: linear-gradient(90deg, #c81010, #9e0000);"></span><span id="legendHome">Rochdale fans</span></div>
       <div class="legend-item"><span class="legend-swatch" style="background: linear-gradient(90deg, #223b7c, #2a4a8c);"></span>Visiting fans</div>
       <div class="legend-item"><span class="legend-swatch" style="background: repeating-linear-gradient(45deg, #e8ebf0, #e8ebf0 3px, #dde1e8 3px, #dde1e8 6px);"></span>Awaiting submission</div>
-      <div class="legend-item"><span style="font-style: italic; color: var(--text-muted); margin-right: 4px;">split —</span>Visiting fan count not supplied</div>
+      <div class="legend-item"><span style="color: var(--navy); font-size: 1.15em; margin-right: 4px; line-height: 1;">★</span>Visiting fan count not supplied</div>
     </div>
   </div>
 
@@ -1256,7 +1277,7 @@
       //  (3) Submitted with split → normal two-tone bar
 
       if (m.total === null) {
-        // State 1: match not submitted — small grey fuzzy bar, fixed short width
+        // State 1: match not submitted — small grey fuzzy bar
         var missing = document.createElement('div');
         missing.className = 'match-bar-missing';
         missing.style.width = '18%';
@@ -1264,66 +1285,105 @@
         track.appendChild(missing);
       } else if (matchMode === 'home') {
         if (m.home !== null && m.away !== null) {
-          // State 3: two-tone split
+          // State 3: two-tone split. Float tiny numbers outside their slice.
+          var homeTiny = isTiny(m.home);
+          var awayTiny = isTiny(m.away);
+
           var homeBar = document.createElement('div');
-          homeBar.className = 'match-bar-home' + (isTiny(m.home) ? ' tiny' : '');
+          homeBar.className = 'match-bar-home' + (homeTiny ? ' tiny' : '');
           homeBar.style.width = ((m.home / maxTotal) * 100) + '%';
           homeBar.textContent = fmt(m.home);
+          track.appendChild(homeBar);
+
+          // Home number is essentially always large enough — but keep the safety net
+          if (homeTiny) {
+            var homeFloat = document.createElement('div');
+            homeFloat.className = 'match-bar-float-label';
+            homeFloat.style.color = 'var(--primary)';
+            homeFloat.textContent = fmt(m.home);
+            track.appendChild(homeFloat);
+          }
 
           var awayBar = document.createElement('div');
-          awayBar.className = 'match-bar-away' + (isTiny(m.away) ? ' tiny' : '');
+          awayBar.className = 'match-bar-away' + (awayTiny ? ' tiny' : '');
           awayBar.style.width = ((m.away / maxTotal) * 100) + '%';
           awayBar.textContent = fmt(m.away);
-
-          track.appendChild(homeBar);
           track.appendChild(awayBar);
+
+          if (awayTiny) {
+            var awayFloat = document.createElement('div');
+            awayFloat.className = 'match-bar-float-label';
+            awayFloat.textContent = fmt(m.away);
+            track.appendChild(awayFloat);
+          }
         } else {
-          // State 2: submitted, no split — red bar scaled to total, total inside, quiet "split —" label
+          // State 2: submitted, no split — red bar, total left-inside, white star right-inside
           var split = document.createElement('div');
           split.className = 'match-bar-split-unknown';
           split.style.width = ((m.total / maxTotal) * 100) + '%';
+
           var totalSpan = document.createElement('span');
           totalSpan.className = 'split-total';
           totalSpan.textContent = fmt(m.total);
-          var noteSpan = document.createElement('span');
-          noteSpan.className = 'split-note';
-          noteSpan.textContent = 'split —';
+
+          var starSpan = document.createElement('span');
+          starSpan.className = 'split-star';
+          starSpan.textContent = '★';
+
           split.appendChild(totalSpan);
-          split.appendChild(noteSpan);
+          split.appendChild(starSpan);
           track.appendChild(split);
         }
       } else {
         // Away match view
         if (m.rochdaleFans !== null) {
-          // State 3: two-tone
           var homeFans = m.total - m.rochdaleFans;
+          var hostTiny = isTiny(homeFans);
+          var rochTiny = isTiny(m.rochdaleFans);
+
           var hostBar = document.createElement('div');
-          hostBar.className = 'match-bar-away' + (isTiny(homeFans) ? ' tiny' : '');
+          hostBar.className = 'match-bar-away' + (hostTiny ? ' tiny' : '');
           hostBar.style.width = ((homeFans / maxTotal) * 100) + '%';
           hostBar.textContent = fmt(homeFans);
+          track.appendChild(hostBar);
+
+          if (hostTiny) {
+            var hostFloat = document.createElement('div');
+            hostFloat.className = 'match-bar-float-label';
+            hostFloat.textContent = fmt(homeFans);
+            track.appendChild(hostFloat);
+          }
 
           var rochBar = document.createElement('div');
-          rochBar.className = 'match-bar-home' + (isTiny(m.rochdaleFans) ? ' tiny' : '');
+          rochBar.className = 'match-bar-home' + (rochTiny ? ' tiny' : '');
           rochBar.style.width = ((m.rochdaleFans / maxTotal) * 100) + '%';
           rochBar.textContent = fmt(m.rochdaleFans);
-
-          track.appendChild(hostBar);
           track.appendChild(rochBar);
+
+          if (rochTiny) {
+            var rochFloat = document.createElement('div');
+            rochFloat.className = 'match-bar-float-label';
+            rochFloat.style.color = 'var(--primary)';
+            rochFloat.textContent = fmt(m.rochdaleFans);
+            track.appendChild(rochFloat);
+          }
         } else {
-          // State 2: submitted but split unknown — navy bar (it's a host club's crowd), total inside, quiet label
+          // State 2: submitted but split unknown — navy bar (host's total), total inside, white star
           var split = document.createElement('div');
           split.className = 'match-bar-split-unknown';
-          // Override to navy gradient for away matches (host's crowd, not Rochdale's)
           split.style.background = 'linear-gradient(90deg, var(--navy), var(--navy-light))';
           split.style.width = ((m.total / maxTotal) * 100) + '%';
+
           var totalSpan = document.createElement('span');
           totalSpan.className = 'split-total';
           totalSpan.textContent = fmt(m.total);
-          var noteSpan = document.createElement('span');
-          noteSpan.className = 'split-note';
-          noteSpan.textContent = 'split —';
+
+          var starSpan = document.createElement('span');
+          starSpan.className = 'split-star';
+          starSpan.textContent = '★';
+
           split.appendChild(totalSpan);
-          split.appendChild(noteSpan);
+          split.appendChild(starSpan);
           track.appendChild(split);
         }
       }
