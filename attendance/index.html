@@ -7,6 +7,19 @@
 
 <!--
   Changelog
+  v2.4 — 22/04/2026 — Fixed three issues with the Breakdown chart's missing-data states:
+                      1. Not-yet-submitted matches now render as a SHORT grey hatched bar
+                         (18% width) with italic "awaiting submission" text. No longer
+                         full-width red — was too visually dominant. Now reads as "empty
+                         slot" not "claimed bar".
+                      2. Submitted-but-split-unknown matches now show the TOTAL number
+                         inside the bar (like normal home-fan bars) with a small italic
+                         "split —" label to flag the gap. Previously only showed an
+                         asterisk with no total visible.
+                      3. Dropped the asterisk symbol entirely — asterisks are superscripted
+                         in most fonts and kept floating to the top. Replaced with text
+                         labels ("awaiting submission" / "split —") that centre naturally.
+                      Legend updated to reflect the three distinct missing-data states.
   v2.3 — 22/04/2026 — Four tweaks:
                       1. Page title "Benchmarks" → "Crowd insights" (reduces clash with
                          the "Benchmarking" section header below).
@@ -587,18 +600,48 @@
     font-variation-settings: 'wght' 800;
     transition: width 0.3s ease;
   }
-  .match-bar-unknown {
+  /* Submitted but split not recorded — red bar at total width, small label at end */
+  .match-bar-split-unknown {
     background: linear-gradient(90deg, #c81010, var(--primary));
     height: 100%;
     color: white;
-    font-size: 1.4em;
-    font-weight: 900;
-    font-variation-settings: 'wght' 900;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    padding-right: 12px;
-    line-height: 0;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 0.78em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+  }
+  .match-bar-split-unknown .split-total {
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+  }
+  .match-bar-split-unknown .split-note {
+    font-size: 0.85em;
+    opacity: 0.8;
+    font-style: italic;
+    font-weight: 600;
+    font-variation-settings: 'wght' 600;
+  }
+  /* Not yet submitted — short grey fuzzy/hatched bar */
+  .match-bar-missing {
+    background: repeating-linear-gradient(
+      45deg,
+      #e8ebf0,
+      #e8ebf0 5px,
+      #dde1e8 5px,
+      #dde1e8 10px
+    );
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    color: var(--text-muted);
+    font-size: 0.78em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    font-style: italic;
   }
   /* Hide the in-bar label when the slice is too narrow to hold it */
   .match-bar-home.tiny,
@@ -819,7 +862,7 @@
 </head>
 <body>
 
-<div class="mockup-banner">Real 2025/26 data · NL Premier · Rochdale · v2.3</div>
+<div class="mockup-banner">Real 2025/26 data · NL Premier · Rochdale · v2.4</div>
 
 <div class="topbar">
   <div class="topbar-left">
@@ -969,7 +1012,8 @@
     <div class="match-chart-legend">
       <div class="legend-item"><span class="legend-swatch" style="background: linear-gradient(90deg, #c81010, #9e0000);"></span><span id="legendHome">Rochdale fans</span></div>
       <div class="legend-item"><span class="legend-swatch" style="background: linear-gradient(90deg, #223b7c, #2a4a8c);"></span>Visiting fans</div>
-      <div class="legend-item"><span style="font-weight: 900; color: var(--primary); font-size: 1.1em; margin-right: 2px; line-height: 0.6;">*</span> Attendance not yet submitted</div>
+      <div class="legend-item"><span class="legend-swatch" style="background: repeating-linear-gradient(45deg, #e8ebf0, #e8ebf0 3px, #dde1e8 3px, #dde1e8 6px);"></span>Awaiting submission</div>
+      <div class="legend-item"><span style="font-style: italic; color: var(--text-muted); margin-right: 4px;">split —</span>Visiting fan count not supplied</div>
     </div>
   </div>
 
@@ -1212,12 +1256,12 @@
       //  (3) Submitted with split → normal two-tone bar
 
       if (m.total === null) {
-        // State 1: full red asterisk bar, unknown total
-        var unk = document.createElement('div');
-        unk.className = 'match-bar-unknown';
-        unk.style.width = '100%';
-        unk.textContent = '*';
-        track.appendChild(unk);
+        // State 1: match not submitted — small grey fuzzy bar, fixed short width
+        var missing = document.createElement('div');
+        missing.className = 'match-bar-missing';
+        missing.style.width = '18%';
+        missing.textContent = 'awaiting submission';
+        track.appendChild(missing);
       } else if (matchMode === 'home') {
         if (m.home !== null && m.away !== null) {
           // State 3: two-tone split
@@ -1234,12 +1278,19 @@
           track.appendChild(homeBar);
           track.appendChild(awayBar);
         } else {
-          // State 2: submitted, no split — scaled red bar, asterisk right-aligned
-          var unk = document.createElement('div');
-          unk.className = 'match-bar-unknown';
-          unk.style.width = ((m.total / maxTotal) * 100) + '%';
-          unk.textContent = '*';
-          track.appendChild(unk);
+          // State 2: submitted, no split — red bar scaled to total, total inside, quiet "split —" label
+          var split = document.createElement('div');
+          split.className = 'match-bar-split-unknown';
+          split.style.width = ((m.total / maxTotal) * 100) + '%';
+          var totalSpan = document.createElement('span');
+          totalSpan.className = 'split-total';
+          totalSpan.textContent = fmt(m.total);
+          var noteSpan = document.createElement('span');
+          noteSpan.className = 'split-note';
+          noteSpan.textContent = 'split —';
+          split.appendChild(totalSpan);
+          split.appendChild(noteSpan);
+          track.appendChild(split);
         }
       } else {
         // Away match view
@@ -1259,12 +1310,21 @@
           track.appendChild(hostBar);
           track.appendChild(rochBar);
         } else {
-          // State 2: submitted but split unknown
-          var unk = document.createElement('div');
-          unk.className = 'match-bar-unknown';
-          unk.style.width = ((m.total / maxTotal) * 100) + '%';
-          unk.textContent = '*';
-          track.appendChild(unk);
+          // State 2: submitted but split unknown — navy bar (it's a host club's crowd), total inside, quiet label
+          var split = document.createElement('div');
+          split.className = 'match-bar-split-unknown';
+          // Override to navy gradient for away matches (host's crowd, not Rochdale's)
+          split.style.background = 'linear-gradient(90deg, var(--navy), var(--navy-light))';
+          split.style.width = ((m.total / maxTotal) * 100) + '%';
+          var totalSpan = document.createElement('span');
+          totalSpan.className = 'split-total';
+          totalSpan.textContent = fmt(m.total);
+          var noteSpan = document.createElement('span');
+          noteSpan.className = 'split-note';
+          noteSpan.textContent = 'split —';
+          split.appendChild(totalSpan);
+          split.appendChild(noteSpan);
+          track.appendChild(split);
         }
       }
 
