@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance — Benchmarks (Rochdale, real data) — NL Tools</title>
+
+<!--
+  Changelog
+  v2.3 — 22/04/2026 — Four tweaks:
+                      1. Page title "Benchmarks" → "Crowd insights" (reduces clash with
+                         the "Benchmarking" section header below).
+                      2. Club-strip line now infers games-played from date-passed, and
+                         reports missing submissions in brackets. Rochdale has played 22
+                         home league matches but only submitted 9 — "attendance data
+                         missing for 13 home and 8 away matches" becomes visible.
+                      3. Match-by-match chart now includes all date-passed fixtures, not
+                         just ones with data. Unsubmitted matches render as a full-width
+                         red bar (same colour as Rochdale's home fans, implying data is
+                         there somewhere but not recorded) with a large centre-vertically
+                         asterisk flush right. Treats missing data as seamless rather than
+                         pariah. Home matches: 27 shown, 13 missing submission.
+                      4. Replaced hatched/navy unknown state with this new red-asterisk
+                         treatment throughout.
+  v2.2 — 22/04/2026 — Filters now actually work. Wired up Division/All-72 scope and
+                      All/Weekend/Midweek day-of-week filters — 6 pre-computed view
+                      combinations × 3 chart views = 18 ranked lists baked in.
+                      Clubs with fewer than 3 data points excluded per view (with a
+                      "N of X clubs listed" caveat under the chart explaining why).
+                      Fixed 3 hero card errors from v2.0/2.1:
+                        - Overall rank: 27/72 → 11/72 (was fabricated, now correct)
+                        - Division avg: 3,134 → 2,776 (actual avg-of-club-avgs)
+                        - Rochdale vs div avg: -14% → ≈ division avg (actually -2.7%)
+                      Hero cards stay static — only the chart responds to filters,
+                      per design discussion. Weekend = Sat/Sun; Midweek = Mon-Fri.
+  v2.1 — 22/04/2026 — Split page into two named sections: "Benchmarking" (cards + 3-view
+                      ranked chart, league only) and "Breakdown" (match chart + totals,
+                      user-controllable via cup toggles). Fixed "split not recorded" — now
+                      renders as full-length navy bar with right-aligned asterisk and a
+                      legend item instead of hatched pattern. Narrow away-fan slices (below
+                      40px width) no longer display labels, avoiding drift off the bar.
+                      Kept two separate sets of cup toggles in Breakdown per user request.
+  v2.0 — 22/04/2026 — Rebuilt with REAL 2025/26 season-to-date data.
+                      Logged-in club: Rochdale FC (NL Premier).
+                      Consolidated three ranked bar charts into one with toggle.
+                      Replaced 5-match rolling avg with match-by-match two-tone bar chart
+                      (home fans bottom, away fans top). Cup toggle on that chart only.
+                      Anon bars fully unlabelled — no letters, no codes.
+                      v1.0 was hardcoded Chesterfield mockup data.
+  NOT wired to Firebase — data baked into HTML for preview only.
+-->
+
+<style>
+  @font-face {
+    font-family: "carbona-variable";
+    src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
+         url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
+    font-display: swap;
+    font-style: normal;
+    font-weight: 200 900;
+    font-stretch: normal;
+  }
+
+  :root {
+    --primary:     #9e0000;
+    --primary-dim: #7a0000;
+    --navy:        #223b7c;
+    --navy-mid:    #1a2f63;
+    --navy-light:  #2a4a8c;
+    --red:         #c0392b;
+    --red-light:   #fdf0ef;
+    --green:       #1e7e34;
+    --green-light: #edf7ee;
+    --amber:       #e67e22;
+    --amber-light: #fef6ec;
+    --info:        #3b82f6;
+    --info-light:  #eef2ff;
+    --white:       #ffffff;
+    --off-white:   #f4f6f9;
+    --text:        #1a2a44;
+    --text-muted:  #5a6a82;
+    --border:      #dde3ed;
+    --radius:      6px;
+    --shadow:      0 2px 12px rgba(10, 22, 40, 0.10);
+    --shadow-lg:   0 8px 32px rgba(10, 22, 40, 0.18);
+    --font:        'carbona-variable','carbona',sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    font-size: clamp(15px, 0.8vw + 11.5px, 19px);
+    line-height: 1.5;
+    font-variation-settings: 'wght' 400;
+    color: var(--text);
+    background: var(--off-white);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .topbar {
+    background: var(--primary);
+    color: var(--white);
+    padding: 14px clamp(16px, 2.5vw, 44px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 4px solid var(--navy);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .topbar-logo { height: 34px; }
+  .topbar-title {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 1.1em;
+    letter-spacing: 0.01em;
+  }
+  .topbar-right { font-size: 0.85em; opacity: 0.85; }
+
+  .page {
+    max-width: 1700px;
+    margin: 0 auto;
+    padding: clamp(24px, 3vw, 56px) clamp(16px, 2.5vw, 44px) 70px;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 28px;
+    overflow-x: auto;
+  }
+  .tab {
+    padding: 12px 20px;
+    font-family: var(--font);
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    font-size: 0.95em;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-bottom: -2px;
+  }
+  .tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+  .tab-badge {
+    display: inline-block;
+    background: var(--amber);
+    color: white;
+    font-size: 0.75em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  h1 {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: clamp(1.6em, 2.5vw, 2.2em);
+    margin: 0 0 6px 0;
+    letter-spacing: -0.01em;
+  }
+  .page-subtitle {
+    color: var(--text-muted);
+    margin: 0 0 32px 0;
+    font-size: 1.05em;
+  }
+  h2 {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 1.3em;
+    margin: 0 0 4px 0;
+    letter-spacing: -0.005em;
+  }
+  .section-subtitle {
+    color: var(--text-muted);
+    margin: 0 0 18px 0;
+    font-size: 0.95em;
+  }
+
+  .club-strip {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--navy);
+    color: white;
+    padding: 18px 24px;
+    border-radius: var(--radius);
+    margin-bottom: 28px;
+    box-shadow: var(--shadow);
+  }
+  .club-strip img {
+    height: 52px;
+    width: 52px;
+    object-fit: contain;
+    background: white;
+    border-radius: 6px;
+    padding: 4px;
+  }
+  .club-strip-text { flex: 1; }
+  .club-strip-name {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 1.25em;
+    letter-spacing: -0.005em;
+  }
+  .club-strip-sub { font-size: 0.9em; opacity: 0.85; margin-top: 2px; }
+
+  .rank-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .rank-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+  }
+  .rank-label {
+    font-size: 0.8em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+  }
+  .rank-value {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 2.2em;
+    line-height: 1;
+    color: var(--navy);
+    letter-spacing: -0.02em;
+  }
+  .rank-value .rank-total {
+    font-size: 0.5em;
+    color: var(--text-muted);
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+  }
+  .rank-delta {
+    margin-top: 8px;
+    font-size: 0.9em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+  }
+  .rank-delta.pos { color: var(--green); }
+  .rank-delta.neg { color: var(--red); }
+  .rank-delta.neu { color: var(--text-muted); }
+  .rank-card.hero {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary-dim);
+  }
+  .rank-card.hero .rank-label { color: rgba(255,255,255,0.85); }
+  .rank-card.hero .rank-value { color: white; }
+  .rank-card.hero .rank-value .rank-total { color: rgba(255,255,255,0.7); }
+
+  .narrative-card {
+    background: linear-gradient(135deg, #fff7ed 0%, #fef6ec 100%);
+    border-left: 4px solid var(--amber);
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    margin-bottom: 28px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .narrative-icon {
+    background: var(--amber);
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 1.1em;
+    flex-shrink: 0;
+  }
+  .narrative-text {
+    font-size: 0.95em;
+  }
+  .narrative-text strong {
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--amber);
+  }
+
+  .league-banner {
+    background: var(--info-light);
+    border-left: 4px solid var(--info);
+    padding: 10px 16px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--text);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .league-banner-icon {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    color: var(--info);
+  }
+
+  .filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 24px;
+  }
+  .filter-label {
+    font-size: 0.85em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+  .chip-group {
+    display: inline-flex;
+    background: var(--off-white);
+    border-radius: 6px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .chip {
+    padding: 6px 14px;
+    font-family: var(--font);
+    font-size: 0.88em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip.active {
+    background: var(--navy);
+    color: white;
+  }
+  .chip:hover:not(.active) { color: var(--text); }
+
+  .chart-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 26px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .chart-header-left { flex: 1; min-width: 220px; }
+  .chart-header-right {
+    text-align: right;
+    font-size: 0.85em;
+    color: var(--text-muted);
+  }
+  .chart-your-value {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 1.8em;
+    color: var(--primary);
+    line-height: 1;
+  }
+  .chart-your-label {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    margin-top: 4px;
+  }
+
+  /* View toggle (home att / away brought / travelling) */
+  .view-toggle {
+    display: inline-flex;
+    background: var(--off-white);
+    border-radius: 8px;
+    padding: 4px;
+    gap: 2px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .view-tab {
+    padding: 8px 16px;
+    font-family: var(--font);
+    font-size: 0.9em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .view-tab.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 1px 4px rgba(158,0,0,0.25);
+  }
+  .view-tab:hover:not(.active) { color: var(--text); }
+
+  .bars {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 10px;
+  }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 26px 1fr 70px;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+  }
+  .bar-rank {
+    font-size: 0.85em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--text-muted);
+    text-align: right;
+  }
+  .bar-track {
+    position: relative;
+    height: 22px;
+    background: var(--off-white);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: linear-gradient(90deg, var(--navy-light), var(--navy));
+    border-radius: 4px;
+    transition: width 0.4s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    color: white;
+    font-size: 0.82em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+  }
+  .bar-row.you .bar-fill {
+    background: linear-gradient(90deg, #c81010, var(--primary));
+  }
+  .bar-row.you .bar-rank {
+    color: var(--primary);
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+  }
+  .bar-value {
+    font-size: 0.9em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    text-align: right;
+    color: var(--text);
+  }
+  .bar-row.you .bar-value {
+    color: var(--primary);
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+  }
+  .bar-label-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+
+  /* Match-by-match two-tone bar chart */
+  .match-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 10px;
+  }
+  .match-row {
+    display: grid;
+    grid-template-columns: 70px 170px 1fr 80px;
+    align-items: center;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--off-white);
+  }
+  .match-row:last-child { border-bottom: none; }
+  .match-date {
+    font-size: 0.82em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    color: var(--text-muted);
+    text-align: right;
+  }
+  .match-opp {
+    font-size: 0.88em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .match-comp-badge {
+    display: inline-block;
+    font-size: 0.7em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    padding: 1px 6px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 5px;
+    letter-spacing: 0.02em;
+  }
+  .match-comp-National  { background: var(--navy); color: white; }
+  .match-comp-FA-Cup    { background: #5b4a8c; color: white; }
+  .match-comp-FA-Trophy { background: #8c4a5b; color: white; }
+  .match-comp-NL-Cup    { background: #4a7e5b; color: white; }
+
+  .match-bar-track {
+    position: relative;
+    height: 24px;
+    background: var(--off-white);
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+  }
+  .match-bar-home {
+    background: linear-gradient(90deg, #c81010, var(--primary));
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    color: white;
+    font-size: 0.78em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    transition: width 0.3s ease;
+  }
+  .match-bar-away {
+    background: linear-gradient(90deg, var(--navy), var(--navy-light));
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-left: 6px;
+    color: white;
+    font-size: 0.78em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    transition: width 0.3s ease;
+  }
+  .match-bar-unknown {
+    background: linear-gradient(90deg, #c81010, var(--primary));
+    height: 100%;
+    color: white;
+    font-size: 1.4em;
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 12px;
+    line-height: 0;
+  }
+  /* Hide the in-bar label when the slice is too narrow to hold it */
+  .match-bar-home.tiny,
+  .match-bar-away.tiny { color: transparent; }
+  .match-total {
+    font-size: 0.92em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--text);
+    text-align: right;
+  }
+
+  .match-chart-legend {
+    display: flex;
+    gap: 18px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+    font-size: 0.85em;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+  }
+  .legend-swatch {
+    width: 16px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .footnote {
+    background: var(--amber-light);
+    border-left: 3px solid var(--amber);
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--text);
+    margin-top: 14px;
+  }
+  .footnote strong { font-weight: 800; font-variation-settings: 'wght' 800; }
+
+  .totals-card {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
+    color: white;
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  .totals-card h2 { color: white; }
+  .totals-card .section-subtitle { color: rgba(255,255,255,0.8); }
+  .totals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    margin-top: 18px;
+  }
+  .total-stat-label {
+    font-size: 0.8em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+    margin-bottom: 4px;
+  }
+  .total-stat-value {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: 2em;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .cup-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+  }
+  .cup-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    color: white;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .cup-toggle:hover { background: rgba(255,255,255,0.18); }
+  .cup-toggle.active {
+    background: white;
+    color: var(--navy);
+    border-color: white;
+  }
+  .cup-toggle-check {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1.5px solid currentColor;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+  }
+  .cup-toggle.active .cup-toggle-check { background: var(--navy); color: white; border-color: var(--navy); }
+  .cup-toggle.active .cup-toggle-check::after { content: '\\2713'; }
+
+  /* Match chart cup toggle (light version for use on white card) */
+  .cup-toggles-light {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .cup-toggle-light {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    background: var(--off-white);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 0.82em;
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .cup-toggle-light.active {
+    background: var(--navy);
+    color: white;
+    border-color: var(--navy);
+  }
+
+  .home-away-switch {
+    display: inline-flex;
+    background: var(--off-white);
+    border-radius: 8px;
+    padding: 4px;
+    gap: 2px;
+  }
+  .home-away-switch button {
+    padding: 7px 16px;
+    font-family: var(--font);
+    font-size: 0.88em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .home-away-switch button.active {
+    background: var(--navy);
+    color: white;
+  }
+
+  .mockup-banner {
+    background: var(--amber);
+    color: white;
+    text-align: center;
+    padding: 8px 16px;
+    font-size: 0.85em;
+    font-weight: 800;
+    font-variation-settings: 'wght' 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* Named section dividers — Benchmarking / Breakdown */
+  .section-divider {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin: 40px 0 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+  }
+  .section-divider:first-of-type { margin-top: 0; }
+  .section-divider h2 {
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    font-size: clamp(1.3em, 1.8vw, 1.65em);
+    margin: 0;
+    letter-spacing: -0.01em;
+    color: var(--navy);
+  }
+  .section-divider .section-scope {
+    font-size: 0.88em;
+    color: var(--text-muted);
+    font-weight: 700;
+    font-variation-settings: 'wght' 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .section-divider .section-scope.league {
+    color: var(--info);
+  }
+  .section-divider .section-scope.controlled {
+    color: var(--primary);
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-banner">Real 2025/26 data · NL Premier · Rochdale · v2.3</div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <img class="topbar-logo"
+         src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
+         alt="National League"
+         onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <span class="topbar-title">Attendance</span>
+  </div>
+  <div class="topbar-right">Rochdale FC &middot; Club user</div>
+</div>
+
+<div class="page">
+
+  <div class="tabs">
+    <button class="tab">Outstanding <span class="tab-badge">2</span></button>
+    <button class="tab">My fixtures</button>
+    <button class="tab">Submitted</button>
+    <button class="tab active">Crowd insights</button>
+  </div>
+
+  <h1>Crowd insights</h1>
+  <p class="page-subtitle">See how Rochdale compares to the rest of the National League on crowds and travelling support.</p>
+
+  <div class="club-strip">
+    <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/Rochdale.png"
+         alt="Rochdale"
+         onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
+    <div class="club-strip-text">
+      <div class="club-strip-name">Rochdale AFC</div>
+      <div class="club-strip-sub">National League Premier &middot; 2025/26 season &middot; 22 home &amp; 23 away league matches played <span style="opacity: 0.65;">(attendance data missing for 13 home and 8 away)</span></div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       SECTION 1 — BENCHMARKING (league only)
+       ========================================================= -->
+  <div class="section-divider">
+    <h2>Benchmarking</h2>
+    <span class="section-scope league">League matches only</span>
+  </div>
+
+  <!-- Narrative insight card — proves the tool surfaces actionable stories -->
+  <div class="narrative-card">
+    <div class="narrative-icon">★</div>
+    <div class="narrative-text">
+      <strong>Standout stat:</strong> Your home crowds sit bang on the division average (2,700 vs 2,776), but you’re <strong>5th for travelling support</strong>. Rochdale fans travel more per home fan than any other NL Premier club — a ratio of 19%, more than double the division average of 9%.
+    </div>
+  </div>
+
+  <!-- Hero rank cards -->
+  <div class="rank-grid">
+    <div class="rank-card hero">
+      <div class="rank-label">Home Attendance</div>
+      <div class="rank-value">9<span class="rank-total">/24 in division</span></div>
+      <div class="rank-delta" style="color: rgba(255,255,255,0.9);">11<span style="opacity: 0.7;">/72</span> overall</div>
+    </div>
+    <div class="rank-card">
+      <div class="rank-label">Avg Home Crowd</div>
+      <div class="rank-value">2,700</div>
+      <div class="rank-delta neu">≈ division avg (2,776)</div>
+    </div>
+    <div class="rank-card hero" style="background: linear-gradient(135deg, var(--amber) 0%, #d35400 100%); border-color: #c2571a;">
+      <div class="rank-label">Travelling Support</div>
+      <div class="rank-value">5<span class="rank-total">/24 in division</span></div>
+      <div class="rank-delta" style="color: rgba(255,255,255,0.9);">521 avg · punching above weight</div>
+    </div>
+    <div class="rank-card">
+      <div class="rank-label">Best Home Crowd</div>
+      <div class="rank-value">3,466</div>
+      <div class="rank-delta neu">vs Solihull Moors &middot; 23 Sep</div>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <span class="filter-label">View</span>
+    <div class="chip-group" id="scopeGroup">
+      <button class="chip active" data-scope="division">Division (NL Premier)</button>
+      <button class="chip" data-scope="all_72">All 72 clubs</button>
+    </div>
+    <span class="filter-label" style="margin-left: 12px;">Matches</span>
+    <div class="chip-group" id="timingGroup">
+      <button class="chip active" data-timing="all">All league</button>
+      <button class="chip" data-timing="weekend">Weekend only</button>
+      <button class="chip" data-timing="midweek">Midweek only</button>
+    </div>
+  </div>
+
+  <!-- Ranked bar chart with three-view toggle -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-header-left">
+        <h2 id="rankChartTitle">Average home attendance</h2>
+        <p class="section-subtitle" id="rankChartSubtitle">Rochdale ranked against the other 23 clubs in NL Premier</p>
+      </div>
+      <div class="chart-header-right">
+        <div class="chart-your-value" id="rankYourValue">2,700</div>
+        <div class="chart-your-label" id="rankYourLabel">Rochdale avg</div>
+      </div>
+    </div>
+
+    <div class="view-toggle" id="viewToggle">
+      <button class="view-tab active" data-view="home_att">Home attendance</button>
+      <button class="view-tab" data-view="away_fans_brought">Away fans brought to us</button>
+      <button class="view-tab" data-view="own_fans_away">Our travelling support</button>
+    </div>
+
+    <div class="bars" id="rankBars"></div>
+    <div id="rankListingNote" style="margin-top: 14px; font-size: 0.85em; color: var(--text-muted); text-align: right;"></div>
+    <div class="footnote" id="rankFootnote" style="display: none;"></div>
+  </div>
+
+  <!-- =========================================================
+       SECTION 2 — BREAKDOWN (user-controllable)
+       ========================================================= -->
+  <div class="section-divider">
+    <h2>Breakdown</h2>
+    <span class="section-scope controlled">All competitions · you choose what to include</span>
+  </div>
+
+  <!-- Match-by-match two-tone bar chart -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-header-left">
+        <h2 id="matchChartTitle">Match-by-match attendance</h2>
+        <p class="section-subtitle">Total crowd split into Rochdale fans and visiting fans, across all competitions played so far</p>
+      </div>
+      <div class="chart-header-right">
+        <div class="home-away-switch" id="homeAwaySwitch">
+          <button class="active" data-mode="home">Home matches</button>
+          <button data-mode="away">Away matches</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cup-toggles-light" id="matchCupToggles">
+      <span style="font-size: 0.82em; font-weight: 800; font-variation-settings: 'wght' 800; color: var(--text-muted); margin-right: 4px;">INCLUDE:</span>
+      <button class="cup-toggle-light active" data-comp="National">League</button>
+      <button class="cup-toggle-light active" data-comp="FA Cup">FA Cup</button>
+      <button class="cup-toggle-light active" data-comp="FA Trophy">FA Trophy</button>
+      <button class="cup-toggle-light active" data-comp="NL Cup">NL Cup</button>
+    </div>
+
+    <div class="match-chart" id="matchChart"></div>
+
+    <div class="match-chart-legend">
+      <div class="legend-item"><span class="legend-swatch" style="background: linear-gradient(90deg, #c81010, #9e0000);"></span><span id="legendHome">Rochdale fans</span></div>
+      <div class="legend-item"><span class="legend-swatch" style="background: linear-gradient(90deg, #223b7c, #2a4a8c);"></span>Visiting fans</div>
+      <div class="legend-item"><span style="font-weight: 900; color: var(--primary); font-size: 1.1em; margin-right: 2px; line-height: 0.6;">*</span> Attendance not yet submitted</div>
+    </div>
+  </div>
+
+  <!-- Attendance to date (all comps) -->
+  <div class="totals-card">
+    <h2>Attendance to date</h2>
+    <p class="section-subtitle">Total crowds and travelling support across all competitions. Toggle below to include or exclude specific cup runs.</p>
+
+    <div class="totals-grid" id="totalsGrid"></div>
+
+    <div class="cup-toggles" id="totalsCupToggles">
+      <span style="font-size: 0.85em; font-weight: 800; font-variation-settings: 'wght' 800; align-self: center; margin-right: 8px; opacity: 0.85;">INCLUDE:</span>
+      <button class="cup-toggle active" data-comp="league"><span class="cup-toggle-check"></span>League</button>
+      <button class="cup-toggle active" data-comp="fa_cup"><span class="cup-toggle-check"></span>FA Cup</button>
+      <button class="cup-toggle active" data-comp="fa_trophy"><span class="cup-toggle-check"></span>FA Trophy</button>
+      <button class="cup-toggle active" data-comp="nl_cup"><span class="cup-toggle-check"></span>NL Cup</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Real 2025/26 Rochdale data (baked in for mockup)
+  var DATA = {"clubName": "Rochdale", "division": "National League Premier", "season": "2025/26", "rankedViews": {"division__all": {"home_att": [{"club": "Southend United", "value": 8234, "n": 9}, {"club": "Carlisle United", "value": 7633, "n": 10}, {"club": "York City", "value": 6130, "n": 10}, {"club": "Scunthorpe United", "value": 4497, "n": 9}, {"club": "Hartlepool United", "value": 3802, "n": 20}, {"club": "Morecambe", "value": 2931, "n": 23}, {"club": "Yeovil Town", "value": 2815, "n": 10}, {"club": "Woking", "value": 2770, "n": 10}, {"club": "Rochdale", "value": 2700, "n": 9}, {"club": "Aldershot Town", "value": 2430, "n": 10}, {"club": "Sutton United", "value": 2410, "n": 22}, {"club": "Eastleigh", "value": 2392, "n": 23}, {"club": "Truro City", "value": 2326, "n": 15}, {"club": "Altrincham", "value": 2018, "n": 13}, {"club": "Forest Green Rovers", "value": 2002, "n": 22}, {"club": "Boston United", "value": 1952, "n": 9}, {"club": "FC Halifax Town", "value": 1516, "n": 14}, {"club": "Wealdstone", "value": 1488, "n": 10}, {"club": "Tamworth", "value": 1242, "n": 9}, {"club": "Solihull Moors", "value": 1146, "n": 23}, {"club": "Boreham Wood", "value": 1139, "n": 10}, {"club": "Braintree Town", "value": 1065, "n": 23}, {"club": "Brackley Town", "value": 1053, "n": 10}, {"club": "Gateshead", "value": 923, "n": 10}], "away_fans_brought": [{"club": "York City", "value": 511, "n": 10}, {"club": "Altrincham", "value": 398, "n": 13}, {"club": "Morecambe", "value": 325, "n": 23}, {"club": "Woking", "value": 291, "n": 5}, {"club": "Sutton United", "value": 273, "n": 22}, {"club": "Aldershot Town", "value": 271, "n": 10}, {"club": "Wealdstone", "value": 270, "n": 10}, {"club": "FC Halifax Town", "value": 254, "n": 14}, {"club": "Solihull Moors", "value": 249, "n": 23}, {"club": "Southend United", "value": 236, "n": 9}, {"club": "Tamworth", "value": 236, "n": 9}, {"club": "Truro City", "value": 228, "n": 13}, {"club": "Boreham Wood", "value": 224, "n": 10}, {"club": "Rochdale", "value": 221, "n": 8}, {"club": "Braintree Town", "value": 219, "n": 23}, {"club": "Eastleigh", "value": 213, "n": 23}, {"club": "Yeovil Town", "value": 195, "n": 10}, {"club": "Carlisle United", "value": 192, "n": 10}, {"club": "Gateshead", "value": 190, "n": 10}, {"club": "Scunthorpe United", "value": 190, "n": 9}, {"club": "Hartlepool United", "value": 187, "n": 20}, {"club": "Forest Green Rovers", "value": 183, "n": 22}, {"club": "Boston United", "value": 167, "n": 9}, {"club": "Brackley Town", "value": 124, "n": 3}], "own_fans_away": [{"club": "Carlisle United", "value": 770, "n": 13}, {"club": "Southend United", "value": 763, "n": 12}, {"club": "York City", "value": 645, "n": 12}, {"club": "Scunthorpe United", "value": 532, "n": 12}, {"club": "Rochdale", "value": 521, "n": 14}, {"club": "Hartlepool United", "value": 277, "n": 13}, {"club": "Yeovil Town", "value": 253, "n": 12}, {"club": "Aldershot Town", "value": 245, "n": 16}, {"club": "Woking", "value": 242, "n": 15}, {"club": "Boston United", "value": 183, "n": 15}, {"club": "Morecambe", "value": 175, "n": 13}, {"club": "Forest Green Rovers", "value": 172, "n": 10}, {"club": "FC Halifax Town", "value": 168, "n": 15}, {"club": "Altrincham", "value": 140, "n": 13}, {"club": "Solihull Moors", "value": 127, "n": 13}, {"club": "Wealdstone", "value": 118, "n": 14}, {"club": "Sutton United", "value": 114, "n": 10}, {"club": "Tamworth", "value": 109, "n": 14}, {"club": "Truro City", "value": 102, "n": 15}, {"club": "Boreham Wood", "value": 83, "n": 14}, {"club": "Eastleigh", "value": 82, "n": 14}, {"club": "Gateshead", "value": 73, "n": 12}, {"club": "Brackley Town", "value": 68, "n": 14}, {"club": "Braintree Town", "value": 53, "n": 13}]}, "division__weekend": {"home_att": [{"club": "Carlisle United", "value": 8465, "n": 6}, {"club": "Southend United", "value": 8122, "n": 7}, {"club": "York City", "value": 6124, "n": 4}, {"club": "Scunthorpe United", "value": 4561, "n": 6}, {"club": "Hartlepool United", "value": 3802, "n": 15}, {"club": "Morecambe", "value": 3010, "n": 16}, {"club": "Yeovil Town", "value": 2900, "n": 7}, {"club": "Woking", "value": 2852, "n": 6}, {"club": "Aldershot Town", "value": 2679, "n": 6}, {"club": "Rochdale", "value": 2578, "n": 5}, {"club": "Truro City", "value": 2538, "n": 10}, {"club": "Sutton United", "value": 2479, "n": 16}, {"club": "Eastleigh", "value": 2443, "n": 17}, {"club": "Altrincham", "value": 2286, "n": 7}, {"club": "Forest Green Rovers", "value": 2212, "n": 15}, {"club": "Boston United", "value": 2165, "n": 4}, {"club": "FC Halifax Town", "value": 1583, "n": 12}, {"club": "Wealdstone", "value": 1397, "n": 9}, {"club": "Tamworth", "value": 1323, "n": 6}, {"club": "Solihull Moors", "value": 1258, "n": 17}, {"club": "Boreham Wood", "value": 1115, "n": 6}, {"club": "Braintree Town", "value": 1096, "n": 19}, {"club": "Brackley Town", "value": 1068, "n": 7}, {"club": "Gateshead", "value": 860, "n": 8}], "away_fans_brought": [{"club": "Altrincham", "value": 464, "n": 7}, {"club": "Aldershot Town", "value": 330, "n": 6}, {"club": "Morecambe", "value": 317, "n": 16}, {"club": "Tamworth", "value": 302, "n": 6}, {"club": "Solihull Moors", "value": 301, "n": 17}, {"club": "Truro City", "value": 294, "n": 9}, {"club": "FC Halifax Town", "value": 281, "n": 12}, {"club": "Boston United", "value": 270, "n": 4}, {"club": "York City", "value": 268, "n": 4}, {"club": "Yeovil Town", "value": 258, "n": 7}, {"club": "Braintree Town", "value": 240, "n": 19}, {"club": "Sutton United", "value": 237, "n": 16}, {"club": "Southend United", "value": 229, "n": 7}, {"club": "Forest Green Rovers", "value": 228, "n": 15}, {"club": "Woking", "value": 219, "n": 4}, {"club": "Eastleigh", "value": 207, "n": 17}, {"club": "Scunthorpe United", "value": 205, "n": 6}, {"club": "Carlisle United", "value": 202, "n": 6}, {"club": "Wealdstone", "value": 183, "n": 9}, {"club": "Boreham Wood", "value": 168, "n": 6}, {"club": "Hartlepool United", "value": 163, "n": 15}, {"club": "Rochdale", "value": 130, "n": 4}, {"club": "Gateshead", "value": 129, "n": 8}], "own_fans_away": [{"club": "Southend United", "value": 693, "n": 7}, {"club": "York City", "value": 636, "n": 10}, {"club": "Carlisle United", "value": 599, "n": 10}, {"club": "Rochdale", "value": 533, "n": 12}, {"club": "Scunthorpe United", "value": 473, "n": 10}, {"club": "Woking", "value": 302, "n": 9}, {"club": "Aldershot Town", "value": 263, "n": 13}, {"club": "Yeovil Town", "value": 238, "n": 8}, {"club": "Morecambe", "value": 219, "n": 8}, {"club": "Boston United", "value": 199, "n": 12}, {"club": "Forest Green Rovers", "value": 198, "n": 7}, {"club": "Hartlepool United", "value": 192, "n": 8}, {"club": "Altrincham", "value": 159, "n": 11}, {"club": "Tamworth", "value": 138, "n": 9}, {"club": "Sutton United", "value": 135, "n": 6}, {"club": "Wealdstone", "value": 126, "n": 10}, {"club": "FC Halifax Town", "value": 125, "n": 10}, {"club": "Truro City", "value": 111, "n": 9}, {"club": "Boreham Wood", "value": 86, "n": 10}, {"club": "Solihull Moors", "value": 85, "n": 10}, {"club": "Brackley Town", "value": 72, "n": 8}, {"club": "Eastleigh", "value": 62, "n": 9}, {"club": "Gateshead", "value": 44, "n": 7}, {"club": "Braintree Town", "value": 39, "n": 8}]}, "division__midweek": {"home_att": [{"club": "Carlisle United", "value": 6386, "n": 4}, {"club": "York City", "value": 6134, "n": 6}, {"club": "Scunthorpe United", "value": 4368, "n": 3}, {"club": "Hartlepool United", "value": 3803, "n": 5}, {"club": "Rochdale", "value": 2852, "n": 4}, {"club": "Morecambe", "value": 2751, "n": 7}, {"club": "Woking", "value": 2646, "n": 4}, {"club": "Yeovil Town", "value": 2618, "n": 3}, {"club": "Eastleigh", "value": 2248, "n": 6}, {"club": "Sutton United", "value": 2228, "n": 6}, {"club": "Aldershot Town", "value": 2055, "n": 4}, {"club": "Truro City", "value": 1903, "n": 5}, {"club": "Boston United", "value": 1781, "n": 5}, {"club": "Altrincham", "value": 1705, "n": 6}, {"club": "Forest Green Rovers", "value": 1553, "n": 7}, {"club": "Boreham Wood", "value": 1176, "n": 4}, {"club": "Tamworth", "value": 1081, "n": 3}, {"club": "Brackley Town", "value": 1018, "n": 3}, {"club": "Braintree Town", "value": 916, "n": 4}, {"club": "Solihull Moors", "value": 828, "n": 6}], "away_fans_brought": [{"club": "York City", "value": 673, "n": 6}, {"club": "Sutton United", "value": 370, "n": 6}, {"club": "Morecambe", "value": 344, "n": 7}, {"club": "Altrincham", "value": 320, "n": 6}, {"club": "Rochdale", "value": 312, "n": 4}, {"club": "Boreham Wood", "value": 309, "n": 4}, {"club": "Hartlepool United", "value": 257, "n": 5}, {"club": "Eastleigh", "value": 228, "n": 6}, {"club": "Aldershot Town", "value": 184, "n": 4}, {"club": "Carlisle United", "value": 178, "n": 4}, {"club": "Scunthorpe United", "value": 160, "n": 3}, {"club": "Braintree Town", "value": 118, "n": 4}, {"club": "Tamworth", "value": 103, "n": 3}, {"club": "Solihull Moors", "value": 101, "n": 6}, {"club": "Forest Green Rovers", "value": 85, "n": 7}, {"club": "Boston United", "value": 84, "n": 5}, {"club": "Truro City", "value": 81, "n": 4}, {"club": "Yeovil Town", "value": 50, "n": 3}], "own_fans_away": [{"club": "Carlisle United", "value": 1342, "n": 3}, {"club": "Southend United", "value": 861, "n": 5}, {"club": "Hartlepool United", "value": 411, "n": 5}, {"club": "Yeovil Town", "value": 284, "n": 4}, {"club": "Solihull Moors", "value": 268, "n": 3}, {"club": "FC Halifax Town", "value": 254, "n": 5}, {"club": "Aldershot Town", "value": 168, "n": 3}, {"club": "Woking", "value": 151, "n": 6}, {"club": "Boston United", "value": 118, "n": 3}, {"club": "Eastleigh", "value": 118, "n": 5}, {"club": "Gateshead", "value": 113, "n": 5}, {"club": "Forest Green Rovers", "value": 111, "n": 3}, {"club": "Morecambe", "value": 105, "n": 5}, {"club": "Wealdstone", "value": 98, "n": 4}, {"club": "Truro City", "value": 89, "n": 6}, {"club": "Sutton United", "value": 82, "n": 4}, {"club": "Boreham Wood", "value": 76, "n": 4}, {"club": "Braintree Town", "value": 76, "n": 5}, {"club": "Brackley Town", "value": 63, "n": 6}, {"club": "Tamworth", "value": 59, "n": 5}]}, "all_72__all": {"home_att": [{"club": "Southend United", "value": 8234, "n": 9}, {"club": "Carlisle United", "value": 7633, "n": 10}, {"club": "York City", "value": 6130, "n": 10}, {"club": "Scunthorpe United", "value": 4497, "n": 9}, {"club": "Hartlepool United", "value": 3802, "n": 20}, {"club": "Torquay United", "value": 3453, "n": 23}, {"club": "Macclesfield", "value": 3152, "n": 22}, {"club": "Morecambe", "value": 2931, "n": 23}, {"club": "Yeovil Town", "value": 2815, "n": 10}, {"club": "Woking", "value": 2770, "n": 10}, {"club": "Rochdale", "value": 2700, "n": 9}, {"club": "Kidderminster Harriers", "value": 2622, "n": 9}, {"club": "Hereford", "value": 2506, "n": 20}, {"club": "Aldershot Town", "value": 2430, "n": 10}, {"club": "Sutton United", "value": 2410, "n": 22}, {"club": "Eastleigh", "value": 2392, "n": 23}, {"club": "Truro City", "value": 2326, "n": 15}, {"club": "Chester", "value": 2259, "n": 8}, {"club": "Maidstone United", "value": 2135, "n": 9}, {"club": "Altrincham", "value": 2018, "n": 13}, {"club": "South Shields", "value": 2009, "n": 23}, {"club": "Forest Green Rovers", "value": 2002, "n": 22}, {"club": "Boston United", "value": 1952, "n": 9}, {"club": "Worthing", "value": 1832, "n": 9}, {"club": "Dorking Wanderers", "value": 1680, "n": 23}, {"club": "Dagenham & Redbridge", "value": 1620, "n": 23}, {"club": "Chelmsford City", "value": 1552, "n": 8}, {"club": "FC Halifax Town", "value": 1516, "n": 14}, {"club": "Wealdstone", "value": 1488, "n": 10}, {"club": "Merthyr Town", "value": 1445, "n": 8}, {"club": "Ebbsfleet United", "value": 1368, "n": 23}, {"club": "Darlington", "value": 1300, "n": 8}, {"club": "Horsham", "value": 1300, "n": 9}, {"club": "AFC Totton", "value": 1274, "n": 9}, {"club": "Maidenhead United", "value": 1256, "n": 23}, {"club": "AFC Telford United", "value": 1252, "n": 11}, {"club": "Marine", "value": 1247, "n": 23}, {"club": "Tamworth", "value": 1242, "n": 9}, {"club": "Dover Athletic", "value": 1225, "n": 22}, {"club": "Spennymoor Town", "value": 1215, "n": 8}, {"club": "Southport", "value": 1204, "n": 15}, {"club": "Chorley", "value": 1192, "n": 15}, {"club": "Solihull Moors", "value": 1146, "n": 23}, {"club": "Boreham Wood", "value": 1139, "n": 10}, {"club": "King's Lynn Town", "value": 1129, "n": 23}, {"club": "Braintree Town", "value": 1065, "n": 23}, {"club": "Brackley Town", "value": 1053, "n": 10}, {"club": "Salisbury", "value": 1045, "n": 23}, {"club": "Bath City", "value": 1025, "n": 9}, {"club": "AFC Fylde", "value": 1010, "n": 8}, {"club": "Weston-super-Mare", "value": 976, "n": 9}, {"club": "Eastbourne Borough", "value": 959, "n": 23}, {"club": "Radcliffe", "value": 940, "n": 10}, {"club": "Tonbridge Angels", "value": 930, "n": 9}, {"club": "Gateshead", "value": 923, "n": 10}, {"club": "Farnborough", "value": 916, "n": 23}, {"club": "Scarborough Athletic", "value": 881, "n": 7}, {"club": "Bedford Town", "value": 867, "n": 20}, {"club": "Buxton", "value": 830, "n": 22}, {"club": "Hornchurch", "value": 815, "n": 9}, {"club": "Enfield Town", "value": 805, "n": 22}, {"club": "Chesham United", "value": 800, "n": 23}, {"club": "Worksop Town", "value": 783, "n": 23}, {"club": "Hampton & Richmond Borough", "value": 767, "n": 13}, {"club": "Slough Town", "value": 727, "n": 8}, {"club": "Oxford City", "value": 709, "n": 23}, {"club": "Chippenham Town", "value": 690, "n": 23}, {"club": "Hemel Hempstead Town", "value": 681, "n": 22}, {"club": "Leamington", "value": 600, "n": 11}, {"club": "Alfreton Town", "value": 508, "n": 9}, {"club": "Curzon Ashton", "value": 413, "n": 23}, {"club": "Peterborough Sports", "value": 336, "n": 23}], "away_fans_brought": [{"club": "York City", "value": 511, "n": 10}, {"club": "Altrincham", "value": 398, "n": 13}, {"club": "Morecambe", "value": 325, "n": 23}, {"club": "Woking", "value": 291, "n": 5}, {"club": "Sutton United", "value": 273, "n": 22}, {"club": "Aldershot Town", "value": 271, "n": 10}, {"club": "Wealdstone", "value": 270, "n": 10}, {"club": "FC Halifax Town", "value": 254, "n": 14}, {"club": "Solihull Moors", "value": 249, "n": 23}, {"club": "Southend United", "value": 236, "n": 9}, {"club": "Tamworth", "value": 236, "n": 9}, {"club": "Truro City", "value": 228, "n": 13}, {"club": "Boreham Wood", "value": 224, "n": 10}, {"club": "Worksop Town", "value": 223, "n": 3}, {"club": "Rochdale", "value": 221, "n": 8}, {"club": "Braintree Town", "value": 219, "n": 23}, {"club": "Eastleigh", "value": 213, "n": 23}, {"club": "Marine", "value": 206, "n": 7}, {"club": "Yeovil Town", "value": 195, "n": 10}, {"club": "Carlisle United", "value": 192, "n": 10}, {"club": "Gateshead", "value": 190, "n": 10}, {"club": "Scunthorpe United", "value": 190, "n": 9}, {"club": "Hartlepool United", "value": 187, "n": 20}, {"club": "Dorking Wanderers", "value": 186, "n": 23}, {"club": "Forest Green Rovers", "value": 183, "n": 22}, {"club": "Dagenham & Redbridge", "value": 180, "n": 23}, {"club": "Macclesfield", "value": 175, "n": 22}, {"club": "Boston United", "value": 167, "n": 9}, {"club": "Ebbsfleet United", "value": 166, "n": 12}, {"club": "Salisbury", "value": 146, "n": 23}, {"club": "AFC Fylde", "value": 128, "n": 8}, {"club": "Brackley Town", "value": 124, "n": 3}, {"club": "Southport", "value": 112, "n": 15}, {"club": "Kidderminster Harriers", "value": 99, "n": 9}, {"club": "Torquay United", "value": 94, "n": 23}, {"club": "Hereford", "value": 74, "n": 8}, {"club": "AFC Telford United", "value": 58, "n": 10}, {"club": "King's Lynn Town", "value": 37, "n": 23}], "own_fans_away": [{"club": "Carlisle United", "value": 770, "n": 13}, {"club": "Southend United", "value": 763, "n": 12}, {"club": "York City", "value": 645, "n": 12}, {"club": "Scunthorpe United", "value": 532, "n": 12}, {"club": "Rochdale", "value": 521, "n": 14}, {"club": "Torquay United", "value": 437, "n": 4}, {"club": "Chester", "value": 361, "n": 6}, {"club": "Hornchurch", "value": 287, "n": 5}, {"club": "Worthing", "value": 286, "n": 4}, {"club": "Hartlepool United", "value": 277, "n": 13}, {"club": "Horsham", "value": 276, "n": 4}, {"club": "Yeovil Town", "value": 253, "n": 12}, {"club": "Macclesfield", "value": 251, "n": 5}, {"club": "Aldershot Town", "value": 245, "n": 16}, {"club": "Woking", "value": 242, "n": 15}, {"club": "Maidstone United", "value": 233, "n": 6}, {"club": "Dorking Wanderers", "value": 213, "n": 4}, {"club": "Buxton", "value": 199, "n": 4}, {"club": "Ebbsfleet United", "value": 197, "n": 4}, {"club": "Boston United", "value": 183, "n": 15}, {"club": "AFC Telford United", "value": 182, "n": 4}, {"club": "Chelmsford City", "value": 175, "n": 5}, {"club": "Morecambe", "value": 175, "n": 13}, {"club": "Hereford", "value": 174, "n": 5}, {"club": "Forest Green Rovers", "value": 172, "n": 10}, {"club": "Tonbridge Angels", "value": 170, "n": 6}, {"club": "FC Halifax Town", "value": 168, "n": 15}, {"club": "Dagenham & Redbridge", "value": 158, "n": 4}, {"club": "Darlington", "value": 148, "n": 4}, {"club": "Altrincham", "value": 140, "n": 13}, {"club": "Southport", "value": 137, "n": 3}, {"club": "Chorley", "value": 129, "n": 5}, {"club": "Farnborough", "value": 128, "n": 4}, {"club": "Solihull Moors", "value": 127, "n": 13}, {"club": "Enfield Town", "value": 124, "n": 5}, {"club": "Kidderminster Harriers", "value": 124, "n": 6}, {"club": "Bath City", "value": 119, "n": 5}, {"club": "Weston-super-Mare", "value": 119, "n": 4}, {"club": "Wealdstone", "value": 118, "n": 14}, {"club": "Sutton United", "value": 114, "n": 10}, {"club": "AFC Totton", "value": 112, "n": 4}, {"club": "Tamworth", "value": 109, "n": 14}, {"club": "Truro City", "value": 102, "n": 15}, {"club": "Maidenhead United", "value": 100, "n": 5}, {"club": "Salisbury", "value": 98, "n": 4}, {"club": "Slough Town", "value": 94, "n": 4}, {"club": "Scarborough Athletic", "value": 93, "n": 6}, {"club": "South Shields", "value": 92, "n": 5}, {"club": "Hemel Hempstead Town", "value": 89, "n": 5}, {"club": "Boreham Wood", "value": 83, "n": 14}, {"club": "Hampton & Richmond Borough", "value": 83, "n": 4}, {"club": "Eastleigh", "value": 82, "n": 14}, {"club": "Dover Athletic", "value": 75, "n": 4}, {"club": "AFC Fylde", "value": 74, "n": 4}, {"club": "Gateshead", "value": 73, "n": 12}, {"club": "Brackley Town", "value": 68, "n": 14}, {"club": "Eastbourne Borough", "value": 62, "n": 4}, {"club": "Worksop Town", "value": 62, "n": 6}, {"club": "King's Lynn Town", "value": 61, "n": 3}, {"club": "Bedford Town", "value": 60, "n": 6}, {"club": "Merthyr Town", "value": 59, "n": 4}, {"club": "Spennymoor Town", "value": 59, "n": 4}, {"club": "Braintree Town", "value": 53, "n": 13}, {"club": "Alfreton Town", "value": 49, "n": 3}, {"club": "Chesham United", "value": 49, "n": 5}, {"club": "Radcliffe", "value": 49, "n": 4}, {"club": "Leamington", "value": 41, "n": 4}, {"club": "Chippenham Town", "value": 40, "n": 4}, {"club": "Curzon Ashton", "value": 32, "n": 5}, {"club": "Peterborough Sports", "value": 23, "n": 4}, {"club": "Oxford City", "value": 21, "n": 5}]}, "all_72__weekend": {"home_att": [{"club": "Carlisle United", "value": 8465, "n": 6}, {"club": "Southend United", "value": 8122, "n": 7}, {"club": "York City", "value": 6124, "n": 4}, {"club": "Scunthorpe United", "value": 4561, "n": 6}, {"club": "Hartlepool United", "value": 3802, "n": 15}, {"club": "Torquay United", "value": 3518, "n": 15}, {"club": "Macclesfield", "value": 3253, "n": 15}, {"club": "Morecambe", "value": 3010, "n": 16}, {"club": "Yeovil Town", "value": 2900, "n": 7}, {"club": "Woking", "value": 2852, "n": 6}, {"club": "Kidderminster Harriers", "value": 2746, "n": 6}, {"club": "Hereford", "value": 2688, "n": 11}, {"club": "Aldershot Town", "value": 2679, "n": 6}, {"club": "Rochdale", "value": 2578, "n": 5}, {"club": "Truro City", "value": 2538, "n": 10}, {"club": "Sutton United", "value": 2479, "n": 16}, {"club": "Eastleigh", "value": 2443, "n": 17}, {"club": "Chester", "value": 2402, "n": 5}, {"club": "Altrincham", "value": 2286, "n": 7}, {"club": "Maidstone United", "value": 2216, "n": 6}, {"club": "Forest Green Rovers", "value": 2212, "n": 15}, {"club": "Boston United", "value": 2165, "n": 4}, {"club": "South Shields", "value": 2013, "n": 14}, {"club": "Worthing", "value": 1857, "n": 7}, {"club": "Dorking Wanderers", "value": 1801, "n": 14}, {"club": "Dagenham & Redbridge", "value": 1747, "n": 15}, {"club": "FC Halifax Town", "value": 1583, "n": 12}, {"club": "Chelmsford City", "value": 1527, "n": 6}, {"club": "Maidenhead United", "value": 1429, "n": 15}, {"club": "Dover Athletic", "value": 1421, "n": 15}, {"club": "Wealdstone", "value": 1397, "n": 9}, {"club": "Ebbsfleet United", "value": 1379, "n": 16}, {"club": "Darlington", "value": 1369, "n": 4}, {"club": "Merthyr Town", "value": 1367, "n": 4}, {"club": "Chorley", "value": 1363, "n": 9}, {"club": "Horsham", "value": 1344, "n": 6}, {"club": "Marine", "value": 1329, "n": 14}, {"club": "AFC Telford United", "value": 1328, "n": 8}, {"club": "Tamworth", "value": 1323, "n": 6}, {"club": "AFC Totton", "value": 1272, "n": 7}, {"club": "Solihull Moors", "value": 1258, "n": 17}, {"club": "King's Lynn Town", "value": 1203, "n": 15}, {"club": "Spennymoor Town", "value": 1186, "n": 5}, {"club": "Southport", "value": 1160, "n": 8}, {"club": "Boreham Wood", "value": 1115, "n": 6}, {"club": "Bath City", "value": 1097, "n": 6}, {"club": "Braintree Town", "value": 1096, "n": 19}, {"club": "Brackley Town", "value": 1068, "n": 7}, {"club": "Salisbury", "value": 1020, "n": 17}, {"club": "Weston-super-Mare", "value": 1010, "n": 5}, {"club": "Eastbourne Borough", "value": 988, "n": 14}, {"club": "Radcliffe", "value": 976, "n": 6}, {"club": "Tonbridge Angels", "value": 966, "n": 7}, {"club": "Farnborough", "value": 939, "n": 16}, {"club": "AFC Fylde", "value": 922, "n": 5}, {"club": "Buxton", "value": 918, "n": 16}, {"club": "Enfield Town", "value": 909, "n": 11}, {"club": "Scarborough Athletic", "value": 901, "n": 6}, {"club": "Bedford Town", "value": 879, "n": 11}, {"club": "Chesham United", "value": 879, "n": 15}, {"club": "Slough Town", "value": 875, "n": 5}, {"club": "Gateshead", "value": 860, "n": 8}, {"club": "Hampton & Richmond Borough", "value": 836, "n": 9}, {"club": "Hornchurch", "value": 832, "n": 7}, {"club": "Worksop Town", "value": 801, "n": 18}, {"club": "Hemel Hempstead Town", "value": 781, "n": 15}, {"club": "Oxford City", "value": 731, "n": 19}, {"club": "Chippenham Town", "value": 721, "n": 16}, {"club": "Leamington", "value": 621, "n": 8}, {"club": "Alfreton Town", "value": 534, "n": 5}, {"club": "Curzon Ashton", "value": 457, "n": 15}, {"club": "Peterborough Sports", "value": 358, "n": 16}], "away_fans_brought": [{"club": "Altrincham", "value": 464, "n": 7}, {"club": "Aldershot Town", "value": 330, "n": 6}, {"club": "Morecambe", "value": 317, "n": 16}, {"club": "Tamworth", "value": 302, "n": 6}, {"club": "Solihull Moors", "value": 301, "n": 17}, {"club": "Truro City", "value": 294, "n": 9}, {"club": "FC Halifax Town", "value": 281, "n": 12}, {"club": "Boston United", "value": 270, "n": 4}, {"club": "York City", "value": 268, "n": 4}, {"club": "Yeovil Town", "value": 258, "n": 7}, {"club": "Braintree Town", "value": 240, "n": 19}, {"club": "Sutton United", "value": 237, "n": 16}, {"club": "Southend United", "value": 229, "n": 7}, {"club": "Forest Green Rovers", "value": 228, "n": 15}, {"club": "Worksop Town", "value": 223, "n": 3}, {"club": "Dagenham & Redbridge", "value": 221, "n": 15}, {"club": "Woking", "value": 219, "n": 4}, {"club": "Eastleigh", "value": 207, "n": 17}, {"club": "Scunthorpe United", "value": 205, "n": 6}, {"club": "Dorking Wanderers", "value": 204, "n": 14}, {"club": "Carlisle United", "value": 202, "n": 6}, {"club": "Wealdstone", "value": 183, "n": 9}, {"club": "Macclesfield", "value": 176, "n": 15}, {"club": "Boreham Wood", "value": 168, "n": 6}, {"club": "Salisbury", "value": 165, "n": 17}, {"club": "Hartlepool United", "value": 163, "n": 15}, {"club": "Ebbsfleet United", "value": 153, "n": 7}, {"club": "Rochdale", "value": 130, "n": 4}, {"club": "Gateshead", "value": 129, "n": 8}, {"club": "Kidderminster Harriers", "value": 118, "n": 6}, {"club": "AFC Fylde", "value": 97, "n": 5}, {"club": "Torquay United", "value": 97, "n": 15}, {"club": "AFC Telford United", "value": 69, "n": 7}, {"club": "Southport", "value": 68, "n": 8}, {"club": "Hereford", "value": 51, "n": 6}, {"club": "King's Lynn Town", "value": 39, "n": 15}], "own_fans_away": [{"club": "Southend United", "value": 693, "n": 7}, {"club": "York City", "value": 636, "n": 10}, {"club": "Carlisle United", "value": 599, "n": 10}, {"club": "Rochdale", "value": 533, "n": 12}, {"club": "Scunthorpe United", "value": 473, "n": 10}, {"club": "Torquay United", "value": 437, "n": 4}, {"club": "Hornchurch", "value": 432, "n": 3}, {"club": "Horsham", "value": 338, "n": 3}, {"club": "Woking", "value": 302, "n": 9}, {"club": "Aldershot Town", "value": 263, "n": 13}, {"club": "Buxton", "value": 261, "n": 3}, {"club": "Yeovil Town", "value": 238, "n": 8}, {"club": "Morecambe", "value": 219, "n": 8}, {"club": "Dorking Wanderers", "value": 214, "n": 3}, {"club": "Boston United", "value": 199, "n": 12}, {"club": "Maidstone United", "value": 199, "n": 5}, {"club": "Forest Green Rovers", "value": 198, "n": 7}, {"club": "Ebbsfleet United", "value": 197, "n": 4}, {"club": "Hartlepool United", "value": 192, "n": 8}, {"club": "Hereford", "value": 186, "n": 4}, {"club": "Tonbridge Angels", "value": 174, "n": 4}, {"club": "AFC Telford United", "value": 163, "n": 3}, {"club": "Enfield Town", "value": 161, "n": 3}, {"club": "Altrincham", "value": 159, "n": 11}, {"club": "Dagenham & Redbridge", "value": 158, "n": 4}, {"club": "Darlington", "value": 148, "n": 4}, {"club": "Tamworth", "value": 138, "n": 9}, {"club": "Sutton United", "value": 135, "n": 6}, {"club": "Wealdstone", "value": 126, "n": 10}, {"club": "FC Halifax Town", "value": 125, "n": 10}, {"club": "AFC Totton", "value": 124, "n": 3}, {"club": "Hemel Hempstead Town", "value": 112, "n": 3}, {"club": "Chorley", "value": 111, "n": 3}, {"club": "Truro City", "value": 111, "n": 9}, {"club": "Salisbury", "value": 108, "n": 3}, {"club": "South Shields", "value": 106, "n": 3}, {"club": "Scarborough Athletic", "value": 93, "n": 6}, {"club": "Boreham Wood", "value": 86, "n": 10}, {"club": "Solihull Moors", "value": 85, "n": 10}, {"club": "Hampton & Richmond Borough", "value": 83, "n": 4}, {"club": "Maidenhead United", "value": 82, "n": 3}, {"club": "Brackley Town", "value": 72, "n": 8}, {"club": "Worksop Town", "value": 72, "n": 5}, {"club": "Eastbourne Borough", "value": 70, "n": 3}, {"club": "Eastleigh", "value": 62, "n": 9}, {"club": "Bedford Town", "value": 61, "n": 3}, {"club": "King's Lynn Town", "value": 61, "n": 3}, {"club": "Spennymoor Town", "value": 59, "n": 4}, {"club": "Chesham United", "value": 52, "n": 4}, {"club": "Alfreton Town", "value": 49, "n": 3}, {"club": "Gateshead", "value": 44, "n": 7}, {"club": "Braintree Town", "value": 39, "n": 8}, {"club": "Curzon Ashton", "value": 32, "n": 4}, {"club": "Oxford City", "value": 20, "n": 3}]}, "all_72__midweek": {"home_att": [{"club": "Carlisle United", "value": 6386, "n": 4}, {"club": "York City", "value": 6134, "n": 6}, {"club": "Scunthorpe United", "value": 4368, "n": 3}, {"club": "Hartlepool United", "value": 3803, "n": 5}, {"club": "Torquay United", "value": 3329, "n": 8}, {"club": "Macclesfield", "value": 2935, "n": 7}, {"club": "Rochdale", "value": 2852, "n": 4}, {"club": "Morecambe", "value": 2751, "n": 7}, {"club": "Woking", "value": 2646, "n": 4}, {"club": "Yeovil Town", "value": 2618, "n": 3}, {"club": "Kidderminster Harriers", "value": 2374, "n": 3}, {"club": "Hereford", "value": 2284, "n": 9}, {"club": "Eastleigh", "value": 2248, "n": 6}, {"club": "Sutton United", "value": 2228, "n": 6}, {"club": "Aldershot Town", "value": 2055, "n": 4}, {"club": "Chester", "value": 2022, "n": 3}, {"club": "South Shields", "value": 2003, "n": 9}, {"club": "Maidstone United", "value": 1974, "n": 3}, {"club": "Truro City", "value": 1903, "n": 5}, {"club": "Boston United", "value": 1781, "n": 5}, {"club": "Altrincham", "value": 1705, "n": 6}, {"club": "Forest Green Rovers", "value": 1553, "n": 7}, {"club": "Merthyr Town", "value": 1524, "n": 4}, {"club": "Dorking Wanderers", "value": 1490, "n": 9}, {"club": "Dagenham & Redbridge", "value": 1381, "n": 8}, {"club": "Ebbsfleet United", "value": 1342, "n": 7}, {"club": "Spennymoor Town", "value": 1263, "n": 3}, {"club": "Southport", "value": 1253, "n": 7}, {"club": "Darlington", "value": 1231, "n": 4}, {"club": "Horsham", "value": 1213, "n": 3}, {"club": "Boreham Wood", "value": 1176, "n": 4}, {"club": "AFC Fylde", "value": 1156, "n": 3}, {"club": "Marine", "value": 1120, "n": 9}, {"club": "Salisbury", "value": 1116, "n": 6}, {"club": "Tamworth", "value": 1081, "n": 3}, {"club": "AFC Telford United", "value": 1052, "n": 3}, {"club": "Brackley Town", "value": 1018, "n": 3}, {"club": "King's Lynn Town", "value": 992, "n": 8}, {"club": "Chorley", "value": 935, "n": 6}, {"club": "Weston-super-Mare", "value": 935, "n": 4}, {"club": "Maidenhead United", "value": 933, "n": 8}, {"club": "Braintree Town", "value": 916, "n": 4}, {"club": "Eastbourne Borough", "value": 914, "n": 9}, {"club": "Radcliffe", "value": 884, "n": 4}, {"club": "Bath City", "value": 882, "n": 3}, {"club": "Farnborough", "value": 862, "n": 7}, {"club": "Bedford Town", "value": 853, "n": 9}, {"club": "Solihull Moors", "value": 828, "n": 6}, {"club": "Dover Athletic", "value": 807, "n": 7}, {"club": "Worksop Town", "value": 717, "n": 5}, {"club": "Enfield Town", "value": 700, "n": 11}, {"club": "Chesham United", "value": 654, "n": 8}, {"club": "Chippenham Town", "value": 621, "n": 7}, {"club": "Hampton & Richmond Borough", "value": 611, "n": 4}, {"club": "Oxford City", "value": 608, "n": 4}, {"club": "Buxton", "value": 596, "n": 6}, {"club": "Leamington", "value": 544, "n": 3}, {"club": "Slough Town", "value": 480, "n": 3}, {"club": "Alfreton Town", "value": 476, "n": 4}, {"club": "Hemel Hempstead Town", "value": 467, "n": 7}, {"club": "Curzon Ashton", "value": 331, "n": 8}, {"club": "Peterborough Sports", "value": 287, "n": 7}], "away_fans_brought": [{"club": "York City", "value": 673, "n": 6}, {"club": "Sutton United", "value": 370, "n": 6}, {"club": "Morecambe", "value": 344, "n": 7}, {"club": "Altrincham", "value": 320, "n": 6}, {"club": "Rochdale", "value": 312, "n": 4}, {"club": "Boreham Wood", "value": 309, "n": 4}, {"club": "Hartlepool United", "value": 257, "n": 5}, {"club": "Eastleigh", "value": 228, "n": 6}, {"club": "Marine", "value": 193, "n": 5}, {"club": "Aldershot Town", "value": 184, "n": 4}, {"club": "Ebbsfleet United", "value": 183, "n": 5}, {"club": "AFC Fylde", "value": 181, "n": 3}, {"club": "Carlisle United", "value": 178, "n": 4}, {"club": "Macclesfield", "value": 175, "n": 7}, {"club": "Southport", "value": 161, "n": 7}, {"club": "Scunthorpe United", "value": 160, "n": 3}, {"club": "Dorking Wanderers", "value": 158, "n": 9}, {"club": "Braintree Town", "value": 118, "n": 4}, {"club": "Dagenham & Redbridge", "value": 104, "n": 8}, {"club": "Tamworth", "value": 103, "n": 3}, {"club": "Solihull Moors", "value": 101, "n": 6}, {"club": "Salisbury", "value": 93, "n": 6}, {"club": "Torquay United", "value": 89, "n": 8}, {"club": "Forest Green Rovers", "value": 85, "n": 7}, {"club": "Boston United", "value": 84, "n": 5}, {"club": "Truro City", "value": 81, "n": 4}, {"club": "Kidderminster Harriers", "value": 61, "n": 3}, {"club": "Yeovil Town", "value": 50, "n": 3}, {"club": "King's Lynn Town", "value": 35, "n": 8}, {"club": "AFC Telford United", "value": 31, "n": 3}], "own_fans_away": [{"club": "Carlisle United", "value": 1342, "n": 3}, {"club": "Southend United", "value": 861, "n": 5}, {"club": "Chester", "value": 487, "n": 4}, {"club": "Hartlepool United", "value": 411, "n": 5}, {"club": "Yeovil Town", "value": 284, "n": 4}, {"club": "Solihull Moors", "value": 268, "n": 3}, {"club": "FC Halifax Town", "value": 254, "n": 5}, {"club": "Chelmsford City", "value": 225, "n": 3}, {"club": "Macclesfield", "value": 202, "n": 3}, {"club": "Aldershot Town", "value": 168, "n": 3}, {"club": "Bath City", "value": 155, "n": 3}, {"club": "Woking", "value": 151, "n": 6}, {"club": "Kidderminster Harriers", "value": 124, "n": 4}, {"club": "Boston United", "value": 118, "n": 3}, {"club": "Eastleigh", "value": 118, "n": 5}, {"club": "Gateshead", "value": 113, "n": 5}, {"club": "Forest Green Rovers", "value": 111, "n": 3}, {"club": "Morecambe", "value": 105, "n": 5}, {"club": "Wealdstone", "value": 98, "n": 4}, {"club": "Truro City", "value": 89, "n": 6}, {"club": "Sutton United", "value": 82, "n": 4}, {"club": "Dover Athletic", "value": 80, "n": 3}, {"club": "Boreham Wood", "value": 76, "n": 4}, {"club": "Braintree Town", "value": 76, "n": 5}, {"club": "Brackley Town", "value": 63, "n": 6}, {"club": "Bedford Town", "value": 60, "n": 3}, {"club": "Tamworth", "value": 59, "n": 5}, {"club": "Leamington", "value": 41, "n": 4}, {"club": "Peterborough Sports", "value": 14, "n": 3}]}}, "rochdaleMatchesHome":[{"date":"2025-08-13","dateLabel":"Wed 13 Aug","comp":"NL Cup","opp":"Burnley PL2","total":1452,"away":null,"home":null},{"date":"2025-08-16","dateLabel":"Sat 16 Aug","comp":"National","opp":"Altrincham","total":2940,"away":430,"home":2510},{"date":"2025-08-20","dateLabel":"Wed 20 Aug","comp":"National","opp":"Gateshead","total":2313,"away":88,"home":2225},{"date":"2025-08-25","dateLabel":"Mon 25 Aug","comp":"National","opp":"Sutton United","total":2647,"away":67,"home":2580},{"date":"2025-09-06","dateLabel":"Sat 06 Sep","comp":"National","opp":"Braintree Town","total":2552,"away":29,"home":2523},{"date":"2025-09-16","dateLabel":"Tue 16 Sep","comp":"NL Cup","opp":"Blackburn Rovers PL2","total":1135,"away":null,"home":null},{"date":"2025-09-23","dateLabel":"Tue 23 Sep","comp":"National","opp":"Solihull Moors","total":3466,"away":584,"home":2882},{"date":"2025-10-01","dateLabel":"Wed 01 Oct","comp":"National","opp":"FC Halifax Town","total":2981,"away":509,"home":2472},{"date":"2025-10-11","dateLabel":"Sat 11 Oct","comp":"FA Cup","opp":"York City","total":2716,"away":107,"home":2609},{"date":"2025-10-18","dateLabel":"Sat 18 Oct","comp":"National","opp":"Yeovil Town","total":2960,"away":null,"home":null},{"date":"2025-10-28","dateLabel":"Tue 28 Oct","comp":"NL Cup","opp":"Manchester United PL2","total":2295,"away":120,"home":2175},{"date":"2025-11-15","dateLabel":"Sat 15 Nov","comp":"National","opp":"Aldershot Town","total":2219,"away":31,"home":2188},{"date":"2025-11-25","dateLabel":"Tue 25 Nov","comp":"NL Cup","opp":"Everton PL2","total":635,"away":null,"home":null},{"date":"2025-11-29","dateLabel":"Sat 29 Nov","comp":"National","opp":"Eastleigh","total":2219,"away":31,"home":2188},{"date":"2025-12-30","dateLabel":"Tue 30 Dec","comp":"National","opp":"Hartlepool United","total":null,"away":null,"home":null},{"date":"2026-01-24","dateLabel":"Sat 24 Jan","comp":"National","opp":"Truro City","total":null,"away":null,"home":null},{"date":"2026-01-27","dateLabel":"Tue 27 Jan","comp":"National","opp":"Southend United","total":null,"away":null,"home":null},{"date":"2026-02-03","dateLabel":"Tue 03 Feb","comp":"National","opp":"Boreham Wood","total":null,"away":null,"home":null},{"date":"2026-02-07","dateLabel":"Sat 07 Feb","comp":"National","opp":"Carlisle United","total":null,"away":null,"home":null},{"date":"2026-02-11","dateLabel":"Wed 11 Feb","comp":"National","opp":"Forest Green Rovers","total":null,"away":null,"home":null},{"date":"2026-02-17","dateLabel":"Tue 17 Feb","comp":"National","opp":"Scunthorpe United","total":null,"away":null,"home":null},{"date":"2026-02-21","dateLabel":"Sat 21 Feb","comp":"National","opp":"Woking","total":null,"away":null,"home":null},{"date":"2026-03-03","dateLabel":"Tue 03 Mar","comp":"National","opp":"Brackley Town","total":null,"away":null,"home":null},{"date":"2026-03-07","dateLabel":"Sat 07 Mar","comp":"National","opp":"Boston United","total":null,"away":null,"home":null},{"date":"2026-03-21","dateLabel":"Sat 21 Mar","comp":"National","opp":"Tamworth","total":null,"away":null,"home":null},{"date":"2026-04-03","dateLabel":"Fri 03 Apr","comp":"National","opp":"Morecambe","total":null,"away":null,"home":null},{"date":"2026-04-11","dateLabel":"Sat 11 Apr","comp":"National","opp":"Wealdstone","total":null,"away":null,"home":null}], "rochdaleMatchesAway":[{"date":"2025-08-09","dateLabel":"Sat 09 Aug","comp":"National","opp":"Boreham Wood","total":1151,"rochdaleFans":368},{"date":"2025-08-23","dateLabel":"Sat 23 Aug","comp":"National","opp":"Brackley Town","total":1136,"rochdaleFans":null},{"date":"2025-08-30","dateLabel":"Sat 30 Aug","comp":"National","opp":"Wealdstone","total":1365,"rochdaleFans":280},{"date":"2025-09-13","dateLabel":"Sat 13 Sep","comp":"National","opp":"Truro City","total":2201,"rochdaleFans":230},{"date":"2025-09-27","dateLabel":"Sat 27 Sep","comp":"National","opp":"Carlisle United","total":8014,"rochdaleFans":720},{"date":"2025-10-04","dateLabel":"Sat 04 Oct","comp":"National","opp":"Forest Green Rovers","total":2482,"rochdaleFans":350},{"date":"2025-10-25","dateLabel":"Sat 25 Oct","comp":"National","opp":"Woking","total":2979,"rochdaleFans":368},{"date":"2025-11-08","dateLabel":"Sat 08 Nov","comp":"National","opp":"Boston United","total":1971,"rochdaleFans":259},{"date":"2025-11-11","dateLabel":"Tue 11 Nov","comp":"National","opp":"York City","total":6643,"rochdaleFans":722},{"date":"2025-11-22","dateLabel":"Sat 22 Nov","comp":"National","opp":"Tamworth","total":null,"rochdaleFans":null},{"date":"2025-12-13","dateLabel":"Sat 13 Dec","comp":"FA Trophy","opp":"Leamington","total":421,"rochdaleFans":null},{"date":"2025-12-19","dateLabel":"Fri 19 Dec","comp":"National","opp":"Altrincham","total":3332,"rochdaleFans":1056},{"date":"2025-12-26","dateLabel":"Fri 26 Dec","comp":"National","opp":"Morecambe","total":4266,"rochdaleFans":1385},{"date":"2026-01-13","dateLabel":"Tue 13 Jan","comp":"FA Trophy","opp":"Tamworth","total":null,"rochdaleFans":null},{"date":"2026-01-17","dateLabel":"Sat 17 Jan","comp":"National","opp":"Gateshead","total":null,"rochdaleFans":null},{"date":"2026-01-21","dateLabel":"Wed 21 Jan","comp":"National","opp":"Solihull Moors","total":1015,"rochdaleFans":166},{"date":"2026-02-14","dateLabel":"Sat 14 Feb","comp":"National","opp":"Yeovil Town","total":null,"rochdaleFans":null},{"date":"2026-02-24","dateLabel":"Tue 24 Feb","comp":"National","opp":"FC Halifax Town","total":null,"rochdaleFans":null},{"date":"2026-02-28","dateLabel":"Sat 28 Feb","comp":"National","opp":"Aldershot Town","total":null,"rochdaleFans":null},{"date":"2026-03-14","dateLabel":"Sat 14 Mar","comp":"National","opp":"Eastleigh","total":2541,"rochdaleFans":330},{"date":"2026-03-17","dateLabel":"Tue 17 Mar","comp":"National","opp":"Southend United","total":null,"rochdaleFans":null},{"date":"2026-03-25","dateLabel":"Wed 25 Mar","comp":"National","opp":"Scunthorpe United","total":null,"rochdaleFans":null},{"date":"2026-03-28","dateLabel":"Sat 28 Mar","comp":"National","opp":"Sutton United","total":2520,"rochdaleFans":375},{"date":"2026-04-06","dateLabel":"Mon 06 Apr","comp":"National","opp":"Hartlepool United","total":null,"rochdaleFans":null},{"date":"2026-04-18","dateLabel":"Sat 18 Apr","comp":"National","opp":"Braintree Town","total":1309,"rochdaleFans":679}], "totals": {"league": {"total_home_crowd": 24297, "home_matches": 9, "avg_home": 2700, "total_away_support_brought": 1769, "away_support_n": 8, "total_fans_travelling": 7288, "travelling_n": 14}, "fa_cup": {"total_home_crowd": 2716, "home_matches": 1, "avg_home": 2716, "total_away_support_brought": 107, "away_support_n": 1, "total_fans_travelling": 0, "travelling_n": 0}, "fa_trophy": {"total_home_crowd": 0, "home_matches": 0, "avg_home": 0, "total_away_support_brought": 0, "away_support_n": 0, "total_fans_travelling": 0, "travelling_n": 0}, "nl_cup": {"total_home_crowd": 5517, "home_matches": 4, "avg_home": 1379, "total_away_support_brought": 120, "away_support_n": 1, "total_fans_travelling": 0, "travelling_n": 0}, "all": {"total_home_crowd": 32530, "home_matches": 14, "avg_home": 2324, "total_away_support_brought": 1996, "away_support_n": 10, "total_fans_travelling": 7288, "travelling_n": 14}}, "summaryStats": {"homeAvg": 2700, "awayBroughtAvg": 221, "ownFansAwayAvg": 521, "homeMatchesPlayed": 9, "awayMatchesPlayed": 15}};
+
+  function fmt(n) {
+    return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  // ========= RANKED BAR CHART =========
+  // Filter state: scope (division|all_72), timing (all|weekend|midweek), view (home_att|away_fans_brought|own_fans_away)
+  var currentScope  = 'division';
+  var currentTiming = 'all';
+  var currentView   = 'home_att';
+
+  var viewMeta = {
+    home_att: {
+      titleBase: 'Average home attendance',
+      label: 'Rochdale avg',
+      needsAwayCaveat: false
+    },
+    away_fans_brought: {
+      titleBase: 'Away support brought to your ground',
+      label: 'Rochdale avg',
+      needsAwayCaveat: true
+    },
+    own_fans_away: {
+      titleBase: 'Your travelling support',
+      label: 'Rochdale avg',
+      needsAwayCaveat: true
+    }
+  };
+
+  function buildSubtitle() {
+    var scopeText  = currentScope === 'division' ? 'NL Premier' : 'all 72 National League clubs';
+    var timingText = currentTiming === 'all'     ? '' :
+                     currentTiming === 'weekend' ? ' · weekend kickoffs only' :
+                                                   ' · midweek kickoffs only';
+    var viewText = currentView === 'home_att'          ? 'home crowds' :
+                   currentView === 'away_fans_brought' ? 'visiting fans at home games' :
+                                                         'Rochdale travelling support';
+    return 'Ranked across ' + scopeText + ' by ' + viewText + timingText;
+  }
+
+  function renderRankChart() {
+    var poolKey = currentScope + '__' + currentTiming;
+    var pool = DATA.rankedViews[poolKey];
+    var data = pool ? pool[currentView] : [];
+    var meta = viewMeta[currentView];
+
+    document.getElementById('rankChartTitle').textContent    = meta.titleBase;
+    document.getElementById('rankChartSubtitle').textContent = buildSubtitle();
+    document.getElementById('rankYourLabel').textContent     = meta.label;
+
+    var foot = document.getElementById('rankFootnote');
+
+    // Find Rochdale's rank in this slice
+    var youEntry = null;
+    var youRank  = null;
+    data.forEach(function(d, i) {
+      if (d.club === DATA.clubName) { youEntry = d; youRank = i + 1; }
+    });
+
+    if (youEntry) {
+      document.getElementById('rankYourValue').textContent = fmt(youEntry.value);
+    } else {
+      document.getElementById('rankYourValue').textContent = '—';
+    }
+
+    // Build footnote combining "not ranked" state + caveats
+    var notes = [];
+    if (!youEntry) {
+      notes.push('<strong>Rochdale not ranked in this view</strong> — fewer than 3 matches played meeting these criteria.');
+    }
+    if (meta.needsAwayCaveat && data.length) {
+      notes.push('Averages exclude matches where away attendance wasn\'t recorded. Clubs vary in how consistently they log visitor figures.');
+    }
+    if (!data.length) {
+      notes.push('No clubs have enough recorded data in this combination yet.');
+    }
+    if (notes.length) {
+      foot.innerHTML = notes.map(function(n) { return '<div>' + (notes.length > 1 ? '• ' : '') + n + '</div>'; }).join('');
+      foot.style.display = 'block';
+    } else {
+      foot.style.display = 'none';
+    }
+
+    var container = document.getElementById('rankBars');
+    container.innerHTML = '';
+
+    // Populate "N of X clubs listed" caption
+    var noteEl = document.getElementById('rankListingNote');
+    var expected = currentScope === 'division' ? 24 : 72;
+    var listed = data.length;
+    if (listed === 0) {
+      noteEl.textContent = '';
+    } else if (listed < expected) {
+      noteEl.innerHTML = '<strong>' + listed + '</strong> of ' + expected + ' clubs listed · ' +
+                         (expected - listed) + ' excluded (fewer than 3 recorded matches in this view)';
+    } else {
+      noteEl.innerHTML = '<strong>' + listed + '</strong> of ' + expected + ' clubs listed';
+    }
+
+    if (!data.length) return;
+
+    var max = Math.max.apply(null, data.map(function(d) { return d.value; }));
+
+    data.forEach(function(d, i) {
+      var isYou = d.club === DATA.clubName;
+      var row = document.createElement('div');
+      row.className = 'bar-row' + (isYou ? ' you' : '');
+
+      var rank = document.createElement('div');
+      rank.className = 'bar-rank';
+      rank.textContent = (i + 1);
+
+      var track = document.createElement('div');
+      track.className = 'bar-track';
+
+      var fill = document.createElement('div');
+      fill.className = 'bar-fill';
+      fill.style.width = (d.value / max * 100) + '%';
+      if (isYou) fill.textContent = DATA.clubName;
+      track.appendChild(fill);
+
+      var value = document.createElement('div');
+      value.className = 'bar-value';
+      value.textContent = fmt(d.value);
+
+      row.appendChild(rank);
+      row.appendChild(track);
+      row.appendChild(value);
+      container.appendChild(row);
+    });
+  }
+
+  // View tab handlers (Home attendance / Away fans brought / Travelling)
+  document.querySelectorAll('#viewToggle .view-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#viewToggle .view-tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentView = btn.dataset.view;
+      renderRankChart();
+    });
+  });
+
+  // Scope chip handlers (Division / All 72)
+  document.querySelectorAll('#scopeGroup .chip').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#scopeGroup .chip').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentScope = btn.dataset.scope;
+      renderRankChart();
+    });
+  });
+
+  // Timing chip handlers (All / Weekend / Midweek)
+  document.querySelectorAll('#timingGroup .chip').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#timingGroup .chip').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentTiming = btn.dataset.timing;
+      renderRankChart();
+    });
+  });
+
+  renderRankChart();
+
+  // ========= MATCH-BY-MATCH CHART =========
+  var matchMode = 'home';
+  var activeCups = { 'National': true, 'FA Cup': true, 'FA Trophy': true, 'NL Cup': true };
+
+  function renderMatchChart() {
+    var matches = matchMode === 'home' ? DATA.rochdaleMatchesHome : DATA.rochdaleMatchesAway;
+    var filtered = matches.filter(function(m) { return activeCups[m.comp]; });
+
+    // Update legend label
+    document.getElementById('legendHome').textContent =
+      matchMode === 'home' ? 'Rochdale fans (home)' : 'Rochdale fans (travelling)';
+
+    document.getElementById('matchChartTitle').textContent =
+      matchMode === 'home' ? 'Home matches — crowd breakdown' : 'Away matches — crowd breakdown';
+
+    var container = document.getElementById('matchChart');
+    container.innerHTML = '';
+
+    if (!filtered.length) {
+      container.innerHTML = '<p style="color: var(--text-muted); padding: 20px; text-align: center;">No matches match your filters.</p>';
+      return;
+    }
+
+    var maxTotal = Math.max.apply(null, filtered.map(function(m) { return m.total || 0; }));
+
+    filtered.forEach(function(m) {
+      var row = document.createElement('div');
+      row.className = 'match-row';
+
+      var date = document.createElement('div');
+      date.className = 'match-date';
+      date.textContent = m.dateLabel;
+
+      var opp = document.createElement('div');
+      opp.className = 'match-opp';
+      var badgeClass = 'match-comp-' + m.comp.replace(/ /g, '-');
+      var compShort = m.comp === 'National' ? 'LGE' :
+                      m.comp === 'FA Cup' ? 'FAC' :
+                      m.comp === 'FA Trophy' ? 'TRO' :
+                      m.comp === 'NL Cup' ? 'NLC' : m.comp;
+      opp.innerHTML = '<span class="match-comp-badge ' + badgeClass + '">' + compShort + '</span>' +
+                      (matchMode === 'home' ? 'vs ' : 'at ') + m.opp;
+
+      var track = document.createElement('div');
+      track.className = 'match-bar-track';
+
+      function isTiny(val) { return (val / maxTotal) < 0.05; }
+
+      // Three states per match:
+      //  (1) Match not submitted at all → total is null → full red asterisk bar, no number
+      //  (2) Submitted, but split not known → total present, away/rochdaleFans null → scaled red bar + asterisk + total number
+      //  (3) Submitted with split → normal two-tone bar
+
+      if (m.total === null) {
+        // State 1: full red asterisk bar, unknown total
+        var unk = document.createElement('div');
+        unk.className = 'match-bar-unknown';
+        unk.style.width = '100%';
+        unk.textContent = '*';
+        track.appendChild(unk);
+      } else if (matchMode === 'home') {
+        if (m.home !== null && m.away !== null) {
+          // State 3: two-tone split
+          var homeBar = document.createElement('div');
+          homeBar.className = 'match-bar-home' + (isTiny(m.home) ? ' tiny' : '');
+          homeBar.style.width = ((m.home / maxTotal) * 100) + '%';
+          homeBar.textContent = fmt(m.home);
+
+          var awayBar = document.createElement('div');
+          awayBar.className = 'match-bar-away' + (isTiny(m.away) ? ' tiny' : '');
+          awayBar.style.width = ((m.away / maxTotal) * 100) + '%';
+          awayBar.textContent = fmt(m.away);
+
+          track.appendChild(homeBar);
+          track.appendChild(awayBar);
+        } else {
+          // State 2: submitted, no split — scaled red bar, asterisk right-aligned
+          var unk = document.createElement('div');
+          unk.className = 'match-bar-unknown';
+          unk.style.width = ((m.total / maxTotal) * 100) + '%';
+          unk.textContent = '*';
+          track.appendChild(unk);
+        }
+      } else {
+        // Away match view
+        if (m.rochdaleFans !== null) {
+          // State 3: two-tone
+          var homeFans = m.total - m.rochdaleFans;
+          var hostBar = document.createElement('div');
+          hostBar.className = 'match-bar-away' + (isTiny(homeFans) ? ' tiny' : '');
+          hostBar.style.width = ((homeFans / maxTotal) * 100) + '%';
+          hostBar.textContent = fmt(homeFans);
+
+          var rochBar = document.createElement('div');
+          rochBar.className = 'match-bar-home' + (isTiny(m.rochdaleFans) ? ' tiny' : '');
+          rochBar.style.width = ((m.rochdaleFans / maxTotal) * 100) + '%';
+          rochBar.textContent = fmt(m.rochdaleFans);
+
+          track.appendChild(hostBar);
+          track.appendChild(rochBar);
+        } else {
+          // State 2: submitted but split unknown
+          var unk = document.createElement('div');
+          unk.className = 'match-bar-unknown';
+          unk.style.width = ((m.total / maxTotal) * 100) + '%';
+          unk.textContent = '*';
+          track.appendChild(unk);
+        }
+      }
+
+      var total = document.createElement('div');
+      total.className = 'match-total';
+      total.textContent = m.total === null ? '—' : fmt(m.total);
+
+      row.appendChild(date);
+      row.appendChild(opp);
+      row.appendChild(track);
+      row.appendChild(total);
+      container.appendChild(row);
+    });
+  }
+
+  document.querySelectorAll('#homeAwaySwitch button').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#homeAwaySwitch button').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      matchMode = btn.dataset.mode;
+      renderMatchChart();
+    });
+  });
+
+  document.querySelectorAll('#matchCupToggles .cup-toggle-light').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      btn.classList.toggle('active');
+      activeCups[btn.dataset.comp] = btn.classList.contains('active');
+      renderMatchChart();
+    });
+  });
+
+  renderMatchChart();
+
+  // ========= TOTALS GRID =========
+  var totalsCups = { league: true, fa_cup: true, fa_trophy: true, nl_cup: true };
+
+  function renderTotals() {
+    var grid = document.getElementById('totalsGrid');
+    var sum = { crowd: 0, homeMatches: 0, awayBrought: 0, awayBroughtN: 0, travelling: 0, travellingN: 0 };
+    Object.keys(totalsCups).forEach(function(k) {
+      if (totalsCups[k]) {
+        var t = DATA.totals[k];
+        sum.crowd        += t.total_home_crowd;
+        sum.homeMatches  += t.home_matches;
+        sum.awayBrought  += t.total_away_support_brought;
+        sum.awayBroughtN += t.away_support_n;
+        sum.travelling   += t.total_fans_travelling;
+        sum.travellingN  += t.travelling_n;
+      }
+    });
+
+    var avgHome = sum.homeMatches > 0 ? Math.round(sum.crowd / sum.homeMatches) : 0;
+
+    grid.innerHTML = '';
+    var cards = [
+      { label: 'Total home crowd',            value: fmt(sum.crowd) },
+      { label: 'Avg home crowd',              value: fmt(avgHome) },
+      { label: 'Away fans brought to you',    value: fmt(sum.awayBrought), sub: sum.awayBroughtN + ' matches recorded' },
+      { label: 'Fans you took away',          value: fmt(sum.travelling),  sub: sum.travellingN + ' matches recorded' }
+    ];
+    cards.forEach(function(c) {
+      var div = document.createElement('div');
+      var lbl = document.createElement('div');
+      lbl.className = 'total-stat-label';
+      lbl.textContent = c.label;
+      var val = document.createElement('div');
+      val.className = 'total-stat-value';
+      val.textContent = c.value;
+      div.appendChild(lbl);
+      div.appendChild(val);
+      if (c.sub) {
+        var sub = document.createElement('div');
+        sub.style.fontSize = '0.75em';
+        sub.style.opacity = '0.75';
+        sub.style.marginTop = '4px';
+        sub.textContent = c.sub;
+        div.appendChild(sub);
+      }
+      grid.appendChild(div);
+    });
+  }
+
+  document.querySelectorAll('#totalsCupToggles .cup-toggle').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      btn.classList.toggle('active');
+      totalsCups[btn.dataset.comp] = btn.classList.contains('active');
+      renderTotals();
+    });
+  });
+
+  renderTotals();
+</script>
+
+</body>
+</html>
