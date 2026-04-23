@@ -1,7 +1,7 @@
 /* =========================================================================
    NL Tools — Topbar renderer
    File: /tools/system/nl-topbar.js
-   Version: v1.0 (17/04/2026)
+   Version: v1.3 (21/04/2026)
 
    Renders the standardised NL Tools topbar into #nlTopbar slot. Reads
    session from window.NL_SESSION (set by auth-guard) and tool catalogue
@@ -31,11 +31,63 @@
    which doesn't use auth-guard directly).
 
    Changelog
+   v1.3 (21/04/2026)
+     - Added "Install as app" item in profile dropdown. Captures Android Chrome's
+       beforeinstallprompt event and fires the native install dialog on click.
+       Hidden by default; revealed when browser confirms site is installable.
+       Also hidden if app is already installed (display-mode: standalone).
+     - Gracefully no-ops on iOS Safari and Firefox (no beforeinstallprompt support).
+
+   v1.2 (17/04/2026)
+     - Added "What's new" changelog feature. Tool pages declare
+       window.NL_CHANGELOG = [{date, version, items: []}] and the most recent
+       version appears as a clickable badge next to the title. Click opens a
+       modal with full user-friendly release notes. Unread versions show a
+       green dot (tracked per-tool via localStorage).
+     - Removed kicker from default visible topbar (version badge replaces it).
+       kicker still supported if set explicitly (legacy fallback).
+
+   v1.1 (17/04/2026)
+     - Sign-out now calls NL.writeAudit and nlSession.clear before firebase signOut.
+
    v1.0 (17/04/2026)
      - Initial centralised topbar component.
    ========================================================================= */
 
 (function() {
+
+  /* ── PWA install prompt capture ──────────────────────────────────────────
+     Android Chrome fires beforeinstallprompt when site is installable.
+     We capture it to trigger the native install dialog from our own UI
+     (the "Install as app" item in the profile dropdown). */
+  var deferredInstallPrompt = null;
+  var isAppInstalled = false;
+
+  if (typeof window !== 'undefined') {
+    /* Detect if already running as installed PWA */
+    if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+      isAppInstalled = true;
+    }
+    if (window.navigator && window.navigator.standalone === true) {
+      isAppInstalled = true; /* iOS Safari detection */
+    }
+
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      /* Update any open dropdown to show the item */
+      var installItems = document.querySelectorAll('.topbar__dd-item--install');
+      installItems.forEach(function(el) { el.style.display = ''; });
+    });
+
+    window.addEventListener('appinstalled', function() {
+      isAppInstalled = true;
+      deferredInstallPrompt = null;
+      var installItems = document.querySelectorAll('.topbar__dd-item--install');
+      installItems.forEach(function(el) { el.style.display = 'none'; });
+    });
+  }
+
   'use strict';
 
   /* ── Namespace ───────────────────────────────────────────────────────── */
@@ -106,9 +158,40 @@
     logo.onerror = function() { this.onerror = null; this.src = LOGO_FALLBACK; };
     header.appendChild(logo);
 
-    /* Title + kicker */
+    /* Title + (clickable version badge if NL_CHANGELOG is declared) */
     var titleWrap = el('div', { class: 'topbar__title-wrap' });
-    titleWrap.appendChild(el('span', { class: 'topbar__title', text: opts.title }));
+    var titleRow  = el('div', { class: 'topbar__title-row' });
+    titleRow.appendChild(el('span', { class: 'topbar__title', text: opts.title }));
+
+    /* Version badge — clickable, opens What's new modal */
+    var changelog = window.NL_CHANGELOG;
+    if (changelog && changelog.length && changelog[0].version) {
+      var versionBtn = el('button', {
+        class: 'topbar__version',
+        type:  'button',
+        'aria-label': "What's new in " + changelog[0].version,
+        title: "What's new"
+      });
+      versionBtn.textContent = changelog[0].version;
+      /* Unread dot if this version hasn't been seen */
+      var seenKey = 'nl_changelog_seen:' + (opts.toolKey || 'portal');
+      try {
+        var seen = localStorage.getItem(seenKey);
+        if (seen !== changelog[0].version) {
+          var dot = el('span', { class: 'topbar__version-dot', 'aria-label': 'New' });
+          versionBtn.appendChild(dot);
+        }
+      } catch(e) { /* localStorage may be blocked */ }
+      versionBtn.addEventListener('click', function() {
+        openChangelogModal(changelog, opts.toolKey, opts.title);
+        try { localStorage.setItem(seenKey, changelog[0].version); } catch(e) {}
+        var existingDot = versionBtn.querySelector('.topbar__version-dot');
+        if (existingDot) existingDot.remove();
+      });
+      titleRow.appendChild(versionBtn);
+    }
+    titleWrap.appendChild(titleRow);
+
     if (opts.kicker) {
       titleWrap.appendChild(el('span', { class: 'topbar__kicker', text: opts.kicker }));
     }
@@ -241,6 +324,28 @@
       dd.appendChild(adminBtn);
     }
 
+    /* Install as app — shown only if browser fired beforeinstallprompt and app
+       not already installed. Hidden by default (style.display='none') and
+       revealed by the event listener when the prompt becomes available. */
+    var installBtn = el('button', { class: 'topbar__dd-item topbar__dd-item--install' });
+    installBtn.innerHTML =
+      '<span class="topbar__dd-item-icon">⬇️</span>' +
+      '<span class="topbar__dd-item-label">Install as app</span>';
+    installBtn.style.display = (deferredInstallPrompt && !isAppInstalled) ? '' : 'none';
+    installBtn.addEventListener('click', function() {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then(function(result) {
+        /* result.outcome: 'accepted' or 'dismissed' */
+        deferredInstallPrompt = null;
+        installBtn.style.display = 'none';
+      }).catch(function() {
+        deferredInstallPrompt = null;
+        installBtn.style.display = 'none';
+      });
+    });
+    dd.appendChild(installBtn);
+
     /* Sign out */
     dd.appendChild(el('div', { class: 'topbar__dd-divider' }));
     var signOut = el('button', { class: 'topbar__dd-item topbar__dd-item--danger' });
@@ -248,13 +353,27 @@
       '<span class="topbar__dd-item-icon">\u21aa</span>' +
       '<span class="topbar__dd-item-label">Sign out</span>';
     signOut.addEventListener('click', function() {
-      if (window.firebase && firebase.auth) {
-        firebase.auth().signOut().then(function() {
+      /* Before sign-out: write audit entry (needs auth to succeed) and clear session cache */
+      try {
+        if (window.NL && window.NL.writeAudit) {
+          window.NL.writeAudit('signed_out', 'Signed out');
+        }
+      } catch(e) {}
+      try {
+        if (window.nlSession && window.nlSession.clear) {
+          window.nlSession.clear();
+        }
+      } catch(e) {}
+      /* Allow audit write to fire, then sign out */
+      setTimeout(function() {
+        if (window.firebase && firebase.auth) {
+          firebase.auth().signOut().then(function() {
+            window.location.replace('/tools/');
+          });
+        } else {
           window.location.replace('/tools/');
-        });
-      } else {
-        window.location.replace('/tools/');
-      }
+        }
+      }, 50);
     });
     dd.appendChild(signOut);
 
@@ -395,6 +514,103 @@
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     /* Up to 4 initials — first letter of each word */
     return parts.slice(0, 4).map(function(p) { return p.charAt(0); }).join('').toUpperCase();
+  }
+
+
+  /* ── Changelog modal ──────────────────────────────────────────────────── */
+  function openChangelogModal(changelog, toolKey, toolTitle) {
+    /* Remove any existing modal first */
+    var existing = document.getElementById('nlChangelogBackdrop');
+    if (existing) existing.remove();
+
+    var backdrop = el('div', { id: 'nlChangelogBackdrop', class: 'nl-changelog-backdrop' });
+    var modal    = el('div', { class: 'nl-changelog-modal' });
+
+    var head = el('div', { class: 'nl-changelog-modal__head' });
+    head.appendChild(el('h3', { text: "What's new" + (toolTitle ? ' in ' + toolTitle : '') }));
+    var closeBtn = el('button', {
+      class: 'nl-changelog-modal__close',
+      type: 'button',
+      'aria-label': 'Close'
+    });
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', function() { backdrop.remove(); });
+    head.appendChild(closeBtn);
+    modal.appendChild(head);
+
+    var body = el('div', { class: 'nl-changelog-modal__body' });
+    if (!changelog.length) {
+      body.appendChild(el('p', { text: 'No updates yet.' }));
+    } else {
+      changelog.forEach(function(entry) {
+        var entryEl = el('div', { class: 'nl-changelog-entry' });
+        var meta    = el('div', { class: 'nl-changelog-entry__meta' });
+        if (entry.date) meta.appendChild(el('span', { class: 'nl-changelog-entry__date', text: entry.date }));
+        if (entry.version) {
+          meta.appendChild(el('span', { class: 'nl-changelog-entry__sep', text: '·' }));
+          meta.appendChild(el('span', { class: 'nl-changelog-entry__version', text: entry.version }));
+        }
+        entryEl.appendChild(meta);
+        if (entry.items && entry.items.length) {
+          var ul = el('ul', { class: 'nl-changelog-entry__list' });
+          entry.items.forEach(function(item) {
+            ul.appendChild(el('li', { text: item }));
+          });
+          entryEl.appendChild(ul);
+        } else if (entry.note) {
+          entryEl.appendChild(el('p', { class: 'nl-changelog-entry__note', text: entry.note }));
+        }
+        body.appendChild(entryEl);
+      });
+    }
+    modal.appendChild(body);
+
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+
+    /* Click backdrop to close */
+    backdrop.addEventListener('click', function(e) {
+      if (e.target === backdrop) backdrop.remove();
+    });
+    /* Esc to close */
+    var escHandler = function(e) {
+      if (e.key === 'Escape') {
+        backdrop.remove();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
+  /* Inject changelog modal styles (one-shot) */
+  if (!document.getElementById('nl-changelog-styles')) {
+    var cs = document.createElement('style');
+    cs.id = 'nl-changelog-styles';
+    cs.textContent = [
+      '.topbar__title-row{display:flex;align-items:center;gap:8px;}',
+      '.topbar__version{position:relative;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);border:1px solid rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;font-family:var(--font);cursor:pointer;transition:all 0.15s;white-space:nowrap;letter-spacing:0.04em;}',
+      '.topbar__version:hover{background:rgba(255,255,255,0.25);border-color:rgba(255,255,255,0.35);}',
+      '.topbar__version-dot{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#4ade80;border:1.5px solid var(--primary);box-shadow:0 0 0 1px rgba(255,255,255,0.4);}',
+      '.nl-changelog-backdrop{position:fixed;inset:0;background:rgba(10,22,40,0.65);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto;animation:nlFade 0.15s ease-out;}',
+      '.nl-changelog-modal{background:var(--white);border-radius:10px;width:100%;max-width:560px;box-shadow:0 16px 60px rgba(0,0,0,0.3);overflow:hidden;margin:auto;animation:nlFade 0.2s ease-out;}',
+      '.nl-changelog-modal__head{background:var(--primary);color:var(--white);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:7px solid var(--navy);}',
+      '.nl-changelog-modal__head h3{color:var(--white);font-size:14px;font-weight:900;font-variation-settings:\'wght\' 900;text-transform:uppercase;letter-spacing:0.1em;margin:0;}',
+      '.nl-changelog-modal__close{background:none;border:none;color:rgba(255,255,255,0.6);font-size:26px;cursor:pointer;line-height:1;padding:2px 8px;font-family:var(--font);}',
+      '.nl-changelog-modal__close:hover{color:var(--white);}',
+      '.nl-changelog-modal__body{padding:24px;max-height:65vh;overflow-y:auto;}',
+      '.nl-changelog-entry{padding:16px 0;border-bottom:1px solid var(--border);}',
+      '.nl-changelog-entry:first-child{padding-top:0;}',
+      '.nl-changelog-entry:last-child{border-bottom:none;padding-bottom:0;}',
+      '.nl-changelog-entry__meta{display:flex;gap:8px;margin-bottom:10px;align-items:center;}',
+      '.nl-changelog-entry__date{font-size:12px;font-weight:900;font-variation-settings:\'wght\' 900;color:var(--navy);text-transform:uppercase;letter-spacing:0.08em;}',
+      '.nl-changelog-entry__sep{color:var(--text-muted);font-size:12px;}',
+      '.nl-changelog-entry__version{font-size:11px;color:var(--text-muted);font-weight:600;background:var(--off-white);border:1px solid var(--border);padding:1px 7px;border-radius:10px;}',
+      '.nl-changelog-entry__list{margin:0;padding-left:20px;}',
+      '.nl-changelog-entry__list li{font-size:14px;line-height:1.6;color:var(--text);margin-bottom:6px;}',
+      '.nl-changelog-entry__list li:last-child{margin-bottom:0;}',
+      '.nl-changelog-entry__note{font-size:14px;line-height:1.6;color:var(--text);}'
+    ].join('\n');
+    document.head.appendChild(cs);
   }
 
 })();
