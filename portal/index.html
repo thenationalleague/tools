@@ -1,11 +1,25 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.64 (17/04/2026)
+  Version: v5.65 (21/04/2026)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
   Changelog:
+  v5.65 (21/04/2026) — PWA setup (portal only):
+           * Added manifest link + favicons + theme-color meta in <head>
+           * Added apple-mobile-web-app-* meta tags for iOS install
+           * Registered /tools/sw.js service worker with scope /tools/
+           * Requires: /tools/manifest.json + /tools/sw.js + icons in
+             /tools/assets/icons/ (favicon-16/32, icon-192/512, maskable-512,
+             apple-touch-icon). Files already uploaded — this wires them up.
+           * Users can now install the portal as a standalone app. Install
+             flow: Android auto-prompt / iOS Share→Add to Home Screen /
+             Desktop Chrome install icon in address bar.
+           * No retrofit to other tool pages yet — installed app scope covers
+             all /tools/ URLs via service worker, but tool page browser tabs
+             won't show the rose favicon without a later head-tag sweep.
+
   v5.64 (20/04/2026) — Universal container:
            * Removed local .page-body override. nl-brand.css v2.2 now handles
              .page-body, .page, .container as universal aliases for .main —
@@ -148,6 +162,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NL Tools</title>
 
+<!-- PWA — install as app on mobile/desktop -->
+<link rel="manifest" href="/tools/manifest.json">
+<meta name="theme-color" content="#9e0000">
+
+<!-- Favicons -->
+<link rel="icon" type="image/png" sizes="32x32" href="/tools/assets/icons/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/tools/assets/icons/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/tools/assets/icons/apple-touch-icon.png">
+
+<!-- iOS PWA meta — status bar, app title -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NL Tools">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="NL Tools">
+
 <!-- Firebase compat CDN -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -181,6 +211,17 @@
   /* Public-facing "What's new" — shown when users click the version badge. */
   window.NL_CHANGELOG = [
     {
+      date: '21 April 2026',
+      version: 'v5.65',
+      items: [
+        'You can now install NL Tools as an app on your phone or desktop.',
+        'Android: menu → "Install app" or wait for the banner.',
+        'iPhone: Share button → "Add to Home Screen".',
+        'Desktop Chrome/Edge: install icon appears in the address bar.',
+        'Once installed, NL Tools opens in its own window — no browser bar.'
+      ]
+    },
+    {
       date: '17 April 2026',
       version: 'v5.63',
       items: [
@@ -190,6 +231,14 @@
       ]
     }
   ];
+
+  /* PWA — register service worker for installable app experience */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/tools/sw.js', { scope: '/tools/' })
+        .catch(function(err) { console.warn('[PWA] SW registration failed:', err); });
+    });
+  }
 </script>
 <script src="/tools/system/nl-utils.js?v=5"></script>
 <script src="/tools/system/nl-topbar.js?v=6"></script>
