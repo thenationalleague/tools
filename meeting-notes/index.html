@@ -9,6 +9,9 @@
   v1.1  23/04/2026  Real Firebase config, SDK 10.7.1, correct system file paths,
                     robust nlAuthReady with getIdToken force refresh + _initDone guard,
                     RTDB listener error handlers that warn but don't wipe state
+  v1.2  23/04/2026  Fixed script load order — Firebase CDN + init must come before
+                    nl-utils.js and auth-guard.js. Previous order caused auth-guard
+                    to fire before Firebase existed, preventing page load entirely.
 -->
 <head>
 <meta charset="utf-8">
@@ -434,7 +437,25 @@
 </div>
 
 <!-- NL Tool config -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
 <script>
+var fbCfg = {
+  apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+  authDomain:        "nl-tools.firebaseapp.com",
+  databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nl-tools",
+  storageBucket:     "nl-tools.firebasestorage.app",
+  messagingSenderId: "801354670005",
+  appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+};
+firebase.initializeApp(fbCfg);
+var db = firebase.database();
+
+var NL_TOOL_KEY = 'staff-meeting-notes';
+
 window.NL_TOOL = {
   title:   'Meeting Notes',
   toolKey: 'staff-meeting-notes',
@@ -454,31 +475,12 @@ window.NL_CHANGELOG = [
     ]
   }
 ];
-var NL_TOOL_KEY = 'staff-meeting-notes';
 </script>
 
 <script src="/tools/nl-utils.js?v=5"></script>
 <script src="/tools/auth-guard.js?v=4"></script>
 
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-
 <script>
-/* ── FIREBASE INIT ─────────────────────────────────────────────────── */
-var firebaseConfig = {
-  apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
-  authDomain:        "nl-tools.firebaseapp.com",
-  databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:         "nl-tools",
-  storageBucket:     "nl-tools.firebasestorage.app",
-  messagingSenderId: "801354670005",
-  appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
-};
-firebase.initializeApp(firebaseConfig);
-var db = firebase.database();
-
 var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
 var MN_PATH    = '/app-data/staff-meeting-notes';
 
