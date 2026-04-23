@@ -1,10 +1,22 @@
 <!DOCTYPE html>
 <!--
   NL Tasks — NL Tools
-  Version: 6.2
-  Date: 15/04/2026
+  Version: 6.3
+  Date: 20/04/2026
 
   CHANGELOG
+  v6.3 (20/04/2026) — System file migration:
+    * Migrated to /tools/system/ shared files (nl-brand.css?v=11, nl-utils.js?v=5,
+      nl-topbar.js?v=7, auth-guard.js?v=4)
+    * Replaced custom topbar markup with <div id="nlTopbar"></div>
+    * Overdue badge preserved via NL_TOOL.extras.middle injection (id="topbarBadge")
+    * showToast() now delegates to NL.toast (56 callers unchanged)
+    * Local esc() removed — now NL.escHtml (5 callers)
+    * Stripped duplicated CSS: @font-face, :root, * reset, body, html, topbar
+      rules (kept .topbar__badge), shared btn rules
+    * Container sizing (.app, .body-wrap) inherits fluid rule from nl-brand.css v2.2
+    * Added NL_CHANGELOG public release notes
+
   v5.0 (15/04/2026)
     - Sidebar simplified: My Day / All Tasks / Projects only
     - Task create panel slimmed down: title, due, priority, assign, tags
@@ -47,48 +59,71 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script>
-var firebaseConfig = {
-  apiKey:            'AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU',
-  authDomain:        'nl-tools.firebaseapp.com',
-  databaseURL:       'https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId:         'nl-tools',
-  storageBucket:     'nl-tools.firebasestorage.app',
-  messagingSenderId: '801354670005',
-  appId:             '1:801354670005:web:05d8ebad3e7e63610d03fc'
-};
-firebase.initializeApp(firebaseConfig);
+firebase.initializeApp({
+  apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+  authDomain:        "nl-tools.firebaseapp.com",
+  databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nl-tools",
+  storageBucket:     "nl-tools.firebasestorage.app",
+  messagingSenderId: "801354670005",
+  appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+});
 </script>
-<script>var NL_TOOL_KEY = 'staff-tasks';</script>
-<script src="/tools/auth-guard.js"></script>
+
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=11">
+
+<script>
+  window.NL_TOOL = {
+    title: 'Tasks',
+    toolKey: 'staff-tasks',
+    extras: {
+      /* Overdue count badge — updated by JS after render via id="topbarBadge" */
+      middle: '<span class="topbar__badge" id="topbarBadge"></span>'
+    }
+  };
+  var NL_TOOL_KEY = 'staff-tasks';
+
+  /* Public-facing "What's new" — shown when users click the version badge. */
+  window.NL_CHANGELOG = [
+    {
+      date: '20 April 2026',
+      version: 'v6.3',
+      items: [
+        'Refreshed design — cleaner layout consistent with other NL Tools.',
+        'Standardised profile menu matching other tools.',
+        'Layout now fills wide screens more comfortably.'
+      ]
+    },
+    {
+      date: '15 April 2026',
+      version: 'v6.2',
+      items: [
+        'Board view: drag-and-drop on desktop, tap-to-change on mobile.',
+        'Gantt view: warning flag when a task starts before its dependency ends.',
+        'Dependencies and start dates restored to task create and detail panels.',
+        'Inline task rename — click the title in the detail panel.',
+        'Tasks inherit project deadline if none set (visible as dashed bar).',
+        'Mobile bottom nav for faster switching between views.'
+      ]
+    },
+    {
+      date: '15 April 2026',
+      version: 'v5.0',
+      items: [
+        'Sidebar simplified to My Day / All Tasks / Projects.',
+        'Projects now have colour coding, board view, Gantt, member management.',
+        'Activity feed auto-logs task changes.'
+      ]
+    }
+  ];
+</script>
+
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=7"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <style>
-@font-face {
-  font-family: "carbona-variable";
-  src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-       url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-  font-display: swap; font-style: normal; font-weight: 200 900;
-}
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
-
-:root {
-  --primary: #9e0000; --primary-dim: #7a0000;
-  --navy: #223b7c; --navy-mid: #1a2f63;
-  --red: #c0392b; --red-light: #fdf0ef;
-  --green: #1e7e34; --green-light: #edf7ee;
-  --amber: #e67e22; --amber-light: #fef6ec;
-  --purple: #5b21b6; --purple-light: #ede9ff;
-  --white: #ffffff; --off-white: #f4f6f9;
-  --text: #1a2a44; --text-muted: #5a6a82;
-  --border: #dde3ed; --radius: 8px;
-  --shadow: 0 2px 12px rgba(10,22,40,0.10);
-  --font: 'carbona-variable','carbona',sans-serif;
-  --sidebar-w: 220px;
-  --topbar-h: 64px;
-  --bottombar-h: 60px;
-}
-
-body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variation-settings: 'wght' 400; color: var(--text); background: var(--off-white); overflow: hidden; }
+html, body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variation-settings: 'wght' 400; color: var(--text); background: var(--off-white); overflow: hidden; }
 
 /* APP SHELL */
 .app { display: flex; flex-direction: column; height: 100vh; }
@@ -406,14 +441,12 @@ body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variati
 .danger-zone__lbl { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--red); margin-bottom: 8px; }
 
 /* BUTTONS */
-.btn { padding: 10px 18px; border-radius: var(--radius); border: none; font-family: var(--font); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
 .btn-primary { background: var(--navy); color: var(--white); }
 .btn-primary:hover:not(:disabled) { background: var(--navy-mid); }
 .btn-ghost { background: none; border: 1px solid var(--border); color: var(--text-muted); }
 .btn-ghost:hover:not(:disabled) { border-color: var(--navy); color: var(--navy); }
 .btn-danger { background: var(--red-light); color: var(--red); border: 1px solid #f5c6c2; }
 .btn-danger:hover:not(:disabled) { background: #fae0de; }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-sm { padding: 6px 12px; font-size: 10px; }
 
 /* EMPTY */
@@ -457,96 +490,9 @@ body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variati
 @media (min-width: 769px) { .bottom-nav { display: none; } }
 
 /* ── Standard NL Tools Topbar (see nl-brand skill) ─────────────────────── */
-.topbar {
-  background: var(--primary);
-  color: var(--white);
-  padding: 0 20px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-  width: 100%;
-  box-sizing: border-box;
-}
-.topbar__logo {
-  height: 42px;
-  flex-shrink: 0;
-}
-.topbar__title-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-  gap: 3px;
-}
-.topbar__title {
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  font-size: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--white);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.topbar__kicker {
-  font-size: 9px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.6);
-  white-space: nowrap;
-}
-.topbar__user {
-  font-size: 13px;
-  color: rgba(255,255,255,0.8);
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,0.3);
-  color: var(--white);
-  padding: 7px 14px;
-  border-radius: var(--radius);
-  font-size: 11px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn:hover { background: rgba(255,255,255,0.12); }
-.topbar__btn--icon {
-  padding: 7px 10px;
-  font-size: 14px;
-}
 /* Mobile: hide user name, icon-only Portal. Kicker stays visible. */
 @media (max-width: 700px) {
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar__user { display: none; }
-  .topbar__btn-text-portal { display: none; }
-  .topbar__btn--portal { padding: 7px 10px; }
-  .topbar__title { font-size: 17px; }
-}
+  }
 
 </style>
 </head>
@@ -554,22 +500,9 @@ body { font-family: var(--font); font-size: 15px; line-height: 1.5; font-variati
 <div id="pageWrap" style="display:none;">
 <div class="app">
 
-  <header class="topbar">
-  <img class="topbar__logo"
-    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title-wrap">
-    <span class="topbar__title">Tasks</span>
-    <span class="topbar__kicker">NL Tools</span>
-  </div>
-  <span class="topbar__user" id="topbarUser"></span>
-  <span class="topbar__badge" id="topbarBadge"></span>
-  <a href="/tools/portal/" class="topbar__btn topbar__btn--portal" aria-label="Back to portal">
-    <span>←</span><span class="topbar__btn-text-portal">Portal</span>
-  </a>
-  <button class="topbar__btn" id="signOutBtn">Sign out</button>
-</header>
+  <!-- Topbar — auto-rendered by /tools/system/nl-topbar.js from window.NL_TOOL.
+       Overdue badge injected via NL_TOOL.extras.middle (id="topbarBadge") -->
+  <div id="nlTopbar"></div>
 
   <div class="body-wrap">
     <nav class="sidebar" id="sidebar">
@@ -685,8 +618,16 @@ var S = {
 };
 
 /* ─── HELPERS ────────────────────────────────────────────── */
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function showToast(msg,type){ var t=document.getElementById('toast'); t.textContent=msg; t.className='toast '+(type||'success')+' show'; setTimeout(function(){ t.classList.remove('show'); },3500); }
+/* NL.escHtml() provided by NL.escHtml in nl-utils.js */
+function showToast(msg, type) {
+  if (window.NL && window.NL.toast) { NL.toast(msg, type); return; }
+  /* Fallback */
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'toast ' + (type || 'success') + ' show';
+  setTimeout(function() { t.classList.remove('show'); }, 3500);
+}
 function ensureAuth(){ return new Promise(function(resolve,reject){ var u=firebase.auth().onAuthStateChanged(function(user){ u(); if(user) resolve(user); else reject(new Error('Not authenticated')); }); }); }
 function pad(n){ return n<10?'0'+n:String(n); }
 function fmtDT(ts){ if(!ts) return '—'; var d=new Date(ts); return pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
@@ -699,22 +640,12 @@ function initials(name){ if(!name||name==='Unknown') return '?'; var p=String(na
 function uname(uid){ if(uid===SESSION.uid) return 'You'; return S.users[uid]?S.users[uid].name:'Unknown'; }
 function statusLabel(s){ return s==='to-do'?'To Do':s==='in-progress'?'In Progress':s==='done'?'Done':'—'; }
 function pillStatus(s){ var c=s==='done'?'done':s==='in-progress'?'inprog':'todo'; return '<span class="pill pill-'+c+'">'+statusLabel(s)+'</span>'; }
-function pillPri(p){ return '<span class="pill pill-'+esc(p||'low')+'">'+esc(p||'low')+'</span>'; }
+function pillPri(p){ return '<span class="pill pill-'+NL.escHtml(p||'low')+'">'+NL.escHtml(p||'low')+'</span>'; }
 function projColour(p){ return (p&&p.colour)||PROJ_COLOURS[0]; }
 
 /* ─── AUTH ───────────────────────────────────────────────── */
 
-/* Standard topbar wiring — set user name and bind sign out */
-function wireTopbar(session) {
-  var userEl = document.getElementById('topbarUser');
-  if (userEl) userEl.textContent = session && (session.name || session.email) || '';
-  var btn = document.getElementById('signOutBtn');
-  if (btn) {
-    btn.addEventListener('click', function() {
-      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
-    });
-  }
-}
+/* Topbar wiring handled by nl-topbar.js */
 
 window.nlAuthReady = function(session){
   SESSION = session;
@@ -1903,7 +1834,7 @@ function mkHeader(title,sub){
 }
 function mkEmpty(icon,text){ var el=document.createElement('div'); el.className='empty'; var ic=document.createElement('div'); ic.className='empty__icon'; ic.textContent=icon; var tx=document.createElement('div'); tx.className='empty__text'; tx.textContent=text; el.appendChild(ic); el.appendChild(tx); return el; }
 function mkSec(lbl){ var s=document.createElement('div'); s.className='det-sec'; var l=document.createElement('div'); l.className='det-sec__lbl'; l.textContent=lbl; s.appendChild(l); return s; }
-function miHtml(label,value){ return '<div class="meta-item"><label>'+esc(label)+'</label><span>'+esc(value)+'</span></div>'; }
+function miHtml(label,value){ return '<div class="meta-item"><label>'+NL.escHtml(label)+'</label><span>'+NL.escHtml(value)+'</span></div>'; }
 function mkFg(lbl,inputEl){ var fg=document.createElement('div'); fg.className='fg'; var l=document.createElement('label'); l.textContent=lbl; fg.appendChild(l); if(inputEl&&typeof inputEl==='object'&&inputEl.nodeType) fg.appendChild(inputEl); return fg; }
 function mkEl(tag,id,type,placeholder){ var el=document.createElement(tag); el.id=id; if(type) el.type=type; if(placeholder) el.placeholder=placeholder; return el; }
 function mkSel(id,opts){ var el=document.createElement('select'); if(id) el.id=id; opts.forEach(function(o){ var op=document.createElement('option'); op.value=o.v; op.textContent=o.l; el.appendChild(op); }); return el; }
