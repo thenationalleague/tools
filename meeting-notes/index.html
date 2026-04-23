@@ -11,9 +11,9 @@
                     RTDB listener error handlers that warn but don't wipe state
   v1.2  23/04/2026  Fixed script load order
   v1.3  23/04/2026  Fixed system file paths, nlTopbar inside pageWrap, removed duplicate nl-topbar.js
-  v1.4  23/04/2026  Fixed .main layout conflict with nl-brand.css, added mnDataReady guard
-                    to prevent premature renders, added attendees + inline contact creation
-                    to new meeting form
+  v1.4  23/04/2026  Fixed .main layout conflict, mnDataReady guard, inline contact creation
+  v1.5  23/04/2026  Fixed PERMISSION_DENIED — nlAuthReady now always calls getIdToken(true)
+                    on the confirmed live user, never trusts currentUser directly
 -->
 <head>
 <meta charset="utf-8">
@@ -519,32 +519,41 @@ window.nlAuthReady = function(userData) {
   mnSession = userData;
 
   function startApp(uid) {
-    if (startApp._done) return; /* guard: init must only run once */
+    if (startApp._done) return;
     startApp._done = true;
     mnSession.uid = uid;
     mnDataReady = true;
     mnLoadData();
   }
 
-  /* Force token refresh before RTDB reads to avoid PERMISSION_DENIED */
+  /* Always wait for onAuthStateChanged to confirm a live auth token.
+     Do not trust currentUser directly — it may be set from cache without
+     a valid token, causing PERMISSION_DENIED on all RTDB reads. */
   var cu = firebase.auth().currentUser;
   if (cu) {
+    /* Token refresh forces Firebase to obtain a fresh token before reads */
     cu.getIdToken(true)
       .then(function() { startApp(cu.uid); })
-      .catch(function()  { startApp(cu.uid); });
-    return;
+      .catch(function() {
+        /* If refresh fails, fall back to onAuthStateChanged */
+        firebase.auth().onAuthStateChanged(function(user) {
+          if (user) { startApp(user.uid); }
+          else { window.location.replace('/tools/'); }
+        });
+      });
+  } else {
+    /* No currentUser yet — wait for Firebase Auth to restore the session */
+    var unsub = firebase.auth().onAuthStateChanged(function(user) {
+      unsub();
+      if (user) {
+        user.getIdToken(true)
+          .then(function() { startApp(user.uid); })
+          .catch(function() { startApp(user.uid); });
+      } else {
+        window.location.replace('/tools/');
+      }
+    });
   }
-
-  /* sessionStorage session used by guard but Firebase Auth not restored yet —
-     wait for it (happens on direct URL / bookmark access) */
-  var unsub = firebase.auth().onAuthStateChanged(function(user) {
-    unsub();
-    if (user) {
-      startApp(user.uid);
-    } else {
-      window.location.replace('/tools/');
-    }
-  });
 };
 
 /* ── DATA LOADING ──────────────────────────────────────────────────── */
