@@ -1,288 +1,431 @@
 <!DOCTYPE html>
 <html lang="en">
 <!--
-  Meetings Tool — NL Tools Portal
-  Demo / mockup. No Firebase. All data in-memory.
-  v1.0  23/04/2026  Initial demo
-  v1.1  23/04/2026  Live modal
-  v1.2  23/04/2026  Notes token, perspective switcher
-  v1.3  23/04/2026  Clean rebuild attempt
-  v1.4  23/04/2026  Simplified — agenda, scratchpad, general note, minutes only
+  Meeting Notes — NL Tools Portal
+  Tool key: staff-meeting-notes
+  RTDB path: /app-data/staff-meeting-notes/
+  ============================================================
+  v1.0  23/04/2026  Initial build
+  v1.1  23/04/2026  Real Firebase config, SDK 10.7.1, correct system file paths,
+                    robust nlAuthReady with getIdToken force refresh + _initDone guard,
+                    RTDB listener error handlers that warn but don't wipe state
 -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Meetings — NL Tools</title>
+<title>Meeting Notes — NL Tools</title>
+
+<link rel="stylesheet" href="/tools/nl-brand.css?v=10">
+
 <style>
-@font-face{font-family:"carbona-variable";src:url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");font-display:swap;font-style:normal;font-weight:200 900}
-:root{
-  --primary:#9e0000;--primary-dim:#7a0000;
-  --navy:#223b7c;--navy-mid:#1a2f63;
-  --green:#1e7e34;--green-light:#edf7ee;
-  --amber:#e67e22;--amber-light:#fef6ec;
-  --info:#3b82f6;--info-light:#eef2ff;
-  --red:#c0392b;--red-light:#fdf0ef;
-  --white:#fff;--off-white:#f4f6f9;
-  --text:#1a2a44;--muted:#5a6a82;--border:#dde3ed;
-  --radius:6px;--shadow:0 2px 12px rgba(10,22,40,.1);--shadow-lg:0 8px 32px rgba(10,22,40,.18);
-  --font:'carbona-variable','carbona',sans-serif
+/* ── MEETING NOTES — tool-specific CSS ─────────────────────────────── */
+
+/* Sidebar layout */
+#pageWrap { display: flex; flex-direction: column; min-height: 100vh; }
+.mn-shell { display: flex; flex: 1; overflow: hidden; height: calc(100vh - 54px); }
+.mn-sidebar {
+  width: 220px; min-width: 220px;
+  background: var(--white); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow-y: auto;
+  flex-shrink: 0;
 }
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--font);font-size:clamp(14px,.7vw+11px,17px);line-height:1.5;font-variation-settings:'wght' 400;color:var(--text);background:var(--off-white);-webkit-font-smoothing:antialiased}
+.mn-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.mn-page-header {
+  background: var(--white); border-bottom: 1px solid var(--border);
+  padding: 13px 22px; display: flex; align-items: center;
+  justify-content: space-between; flex-shrink: 0;
+}
+.mn-page-header h1 { font-size: 17px; font-variation-settings: 'wght' 800; margin: 0; }
+.mn-page-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
 
-/* TOPBAR */
-.topbar{height:54px;background:var(--primary);border-bottom:3px solid var(--navy);display:flex;align-items:center;padding:0 20px;gap:14px;position:sticky;top:0;z-index:100}
-.topbar img{height:30px}
-.topbar__div{width:1px;height:24px;background:rgba(255,255,255,.3)}
-.topbar__kicker{font-size:11px;font-variation-settings:'wght' 700;color:rgba(255,255,255,.7);letter-spacing:.06em;text-transform:uppercase}
-.topbar__title{font-size:15px;font-variation-settings:'wght' 800;color:#fff}
-.topbar__spacer{flex:1}
-.topbar__av{width:34px;height:34px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-variation-settings:'wght' 700}
+/* Sidebar items */
+.mn-sb-label {
+  font-size: 10px; font-variation-settings: 'wght' 800;
+  color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase;
+  padding: 14px 16px 5px;
+}
+.mn-sb-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 16px; font-size: 13px; color: var(--text-muted);
+  cursor: pointer; border-left: 3px solid transparent; transition: background .1s;
+}
+.mn-sb-item:hover { background: var(--off-white); color: var(--text); }
+.mn-sb-item.active {
+  color: var(--text); background: var(--off-white);
+  border-left-color: var(--primary); font-variation-settings: 'wght' 600;
+}
+.mn-proj-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
-/* LIVE BANNER */
-.live-banner{display:none;background:var(--navy);padding:0 20px;height:38px;align-items:center;gap:12px;position:sticky;top:54px;z-index:99;cursor:pointer}
-.live-banner:hover{background:var(--navy-mid)}
-.live-banner.on{display:flex}
-.lb-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;animation:pulse 1.4s infinite;flex-shrink:0}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.lb-text{font-size:13px;font-variation-settings:'wght' 700;color:#fff;flex:1}
-.lb-cta{font-size:12px;font-variation-settings:'wght' 700;color:rgba(255,255,255,.8);padding:3px 12px;border:1px solid rgba(255,255,255,.3);border-radius:20px}
+/* Live banner */
+.mn-live-banner {
+  display: none; background: var(--navy); padding: 0 22px;
+  height: 38px; align-items: center; gap: 12px;
+  cursor: pointer; transition: background .15s; flex-shrink: 0;
+}
+.mn-live-banner:hover { background: var(--navy-mid); }
+.mn-live-banner.visible { display: flex; }
+.mn-live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #4ade80; flex-shrink: 0;
+  animation: mn-pulse 1.4s infinite;
+}
+@keyframes mn-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+.mn-live-text { font-size: 13px; font-variation-settings: 'wght' 700; color: #fff; flex: 1; }
+.mn-live-cta {
+  font-size: 12px; font-variation-settings: 'wght' 700;
+  color: rgba(255,255,255,.8); padding: 3px 12px;
+  border: 1px solid rgba(255,255,255,.3); border-radius: 20px;
+}
 
-/* SHELL */
-.shell{display:flex;height:calc(100vh - 54px);overflow:hidden}
-.sidebar{width:220px;min-width:220px;background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
-.sb-label{font-size:10px;font-variation-settings:'wght' 800;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:14px 16px 5px}
-.sb-item{display:flex;align-items:center;gap:9px;padding:7px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-left:3px solid transparent;transition:background .1s}
-.sb-item:hover{background:var(--off-white);color:var(--text)}
-.sb-item.active{color:var(--text);background:var(--off-white);border-left-color:var(--primary);font-variation-settings:'wght' 600}
-.pdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.ph{background:var(--white);border-bottom:1px solid var(--border);padding:13px 22px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.ph h1{font-size:17px;font-variation-settings:'wght' 800}
-.pb{flex:1;overflow-y:auto;padding:18px 22px}
+/* Meeting cards */
+.mn-card {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 13px 16px; margin-bottom: 8px;
+  display: flex; align-items: flex-start; gap: 12px;
+  cursor: pointer; transition: border-color .12s, box-shadow .12s;
+}
+.mn-card:hover { border-color: #b0b8cc; box-shadow: var(--shadow); }
+.mn-card__dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.mn-card__body { flex: 1; min-width: 0; }
+.mn-card__title { font-size: 14px; font-variation-settings: 'wght' 700; }
+.mn-card__meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.mn-card__right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
 
-/* BUTTONS */
-.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-family:var(--font);font-size:13px;font-variation-settings:'wght' 700;border-radius:var(--radius);border:1px solid var(--border);background:var(--white);color:var(--text);cursor:pointer;white-space:nowrap;transition:background .1s}
-.btn:hover{background:var(--off-white)}
-.btn-p{background:var(--primary);color:#fff;border-color:var(--primary)}
-.btn-p:hover{background:var(--primary-dim);border-color:var(--primary-dim)}
-.btn-n{background:var(--navy);color:#fff;border-color:var(--navy)}
-.btn-n:hover{background:var(--navy-mid)}
-.btn-g{background:transparent;border-color:transparent;color:var(--muted)}
-.btn-g:hover{background:var(--off-white);color:var(--text)}
-.btn-sm{padding:5px 11px;font-size:12px}
+/* Meeting detail */
+.mn-detail-title {
+  font-size: 20px; font-variation-settings: 'wght' 900;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+}
+.mn-detail-meta {
+  font-size: 13px; color: var(--text-muted);
+  display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.mn-detail-acts { display: flex; gap: 8px; align-items: center; margin-bottom: 22px; }
 
-/* PILLS */
-.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-variation-settings:'wght' 700}
-.p-upcoming{background:var(--info-light);color:var(--info)}
-.p-live{background:#dcfce7;color:#166534}
-.p-done{background:var(--green-light);color:var(--green)}
-.p-owner{background:#f0e8e8;color:var(--primary)}
-.p-part{background:var(--off-white);color:var(--muted)}
-.p-open{background:var(--info-light);color:var(--info)}
-.p-waiting{background:var(--amber-light);color:var(--amber)}
+/* Section blocks */
+.mn-section {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: 14px; overflow: hidden;
+}
+.mn-section__hdr {
+  padding: 10px 16px; background: var(--off-white);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.mn-section__label {
+  font-size: 10px; font-variation-settings: 'wght' 800;
+  color: var(--text-muted); letter-spacing: .07em; text-transform: uppercase;
+}
+.mn-section__body { padding: 14px 16px; }
 
-/* MEETING LIST */
-.mcard{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:13px 16px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
-.mcard:hover{border-color:#b0b8cc;box-shadow:var(--shadow)}
-.mcard__dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px}
-.mcard__body{flex:1;min-width:0}
-.mcard__title{font-size:14px;font-variation-settings:'wght' 700}
-.mcard__meta{font-size:12px;color:var(--muted);margin-top:3px}
-.mcard__right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+/* Agenda items */
+.mn-ag-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.mn-ag-item:last-child { border-bottom: none; }
+.mn-ag-num {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--border); color: var(--text-muted);
+  font-size: 11px; font-variation-settings: 'wght' 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.mn-ag-title { flex: 1; font-size: 13px; font-variation-settings: 'wght' 600; }
+.mn-ag-time { font-size: 12px; color: var(--text-muted); }
 
-/* DETAIL */
-.detail-title{font-size:20px;font-variation-settings:'wght' 900;display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.detail-meta{font-size:13px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.detail-acts{display:flex;gap:8px;align-items:center;margin-bottom:22px}
+/* Scratchpad */
+.mn-scratchpad {
+  width: 100%;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px; line-height: 1.95; color: var(--text);
+  background: #faf8f0;
+  border: 1px dashed #c8c4b0; border-radius: var(--radius);
+  padding: 12px 14px; resize: vertical; outline: none; min-height: 160px;
+  background-image: repeating-linear-gradient(
+    transparent, transparent 28px, #e4e0d0 28px, #e4e0d0 29px
+  );
+  transition: border-color .12s;
+}
+.mn-scratchpad:focus { border-color: #a0987a; background: #fffdf5; }
+.mn-scratchpad::placeholder { color: #b0a880; font-style: italic; }
 
-/* SECTION BLOCKS */
-.section{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden}
-.section__hdr{padding:11px 16px;background:var(--off-white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.section__label{font-size:11px;font-variation-settings:'wght' 800;color:var(--muted);letter-spacing:.07em;text-transform:uppercase}
-.section__body{padding:14px 16px}
+/* Share opt-in bar */
+.mn-share-bar {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 12px; background: #fffbf0;
+  border: 1px solid #e0d8b0; border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  font-size: 12px; color: var(--text-muted);
+}
+.mn-share-bar label { cursor: pointer; flex: 1; }
+.mn-share-note {
+  font-size: 11px; font-variation-settings: 'wght' 700;
+  color: var(--amber); opacity: 0; transition: opacity .2s; white-space: nowrap;
+}
 
-/* AGENDA ITEMS */
-.ag-item{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
-.ag-item:last-child{border-bottom:none}
-.ag-num{width:22px;height:22px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-variation-settings:'wght' 800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.ag-title{flex:1;font-size:13px;font-variation-settings:'wght' 600;color:var(--text)}
-.ag-time{font-size:12px;color:var(--muted)}
+/* General note textarea */
+.mn-gen-note {
+  width: 100%;
+  font-family: var(--font); font-size: 13px; font-variation-settings: 'wght' 400;
+  line-height: 1.7; color: var(--text); background: var(--white);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 12px; resize: vertical; outline: none; min-height: 80px;
+}
+.mn-gen-note:focus { border-color: var(--navy); }
+.mn-gen-note::placeholder { color: var(--text-muted); }
 
-/* SCRATCHPAD */
-.scratchpad{width:100%;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.95;color:var(--text);background:#faf8f0;border:1px dashed #c8c4b0;border-radius:var(--radius);padding:12px 14px;resize:vertical;outline:none;min-height:160px;background-image:repeating-linear-gradient(transparent,transparent 28px,#e4e0d0 28px,#e4e0d0 29px);transition:border-color .12s}
-.scratchpad:focus{border-color:#a0987a;background:#fffdf5}
-.scratchpad::placeholder{color:#b0a880;font-style:italic}
-.share-bar{display:flex;align-items:center;gap:9px;padding:9px 12px;background:#fffbf0;border:1px solid #e0d8b0;border-top:none;border-radius:0 0 var(--radius) var(--radius);font-size:12px;color:var(--muted)}
-.share-bar label{cursor:pointer;flex:1}
-.share-note{font-size:11px;font-variation-settings:'wght' 700;color:var(--amber);opacity:0;transition:opacity .2s;white-space:nowrap}
+/* Minutes */
+.mn-minutes-body { font-size: 14px; line-height: 1.75; color: var(--text); }
+.mn-minutes-body p { margin-bottom: 10px; }
+.mn-minutes-body p:last-child { margin-bottom: 0; }
+.mn-minutes-textarea {
+  width: 100%; font-family: var(--font); font-size: 14px;
+  font-variation-settings: 'wght' 400; line-height: 1.75;
+  color: var(--text); background: var(--white);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; resize: vertical; outline: none; min-height: 140px;
+}
+.mn-minutes-textarea:focus { border-color: var(--navy); }
 
-/* GENERAL NOTE textarea */
-.gen-note{width:100%;font-family:var(--font);font-size:13px;font-variation-settings:'wght' 400;line-height:1.7;color:var(--text);background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;resize:vertical;outline:none;min-height:80px}
-.gen-note:focus{border-color:var(--navy)}
-.gen-note::placeholder{color:var(--muted)}
+/* Action rows (within minutes) */
+.mn-arow {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 12px; background: var(--white);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 6px;
+}
+.mn-acheck {
+  width: 16px; height: 16px; border-radius: 3px;
+  border: 1.5px solid var(--border); flex-shrink: 0; margin-top: 2px;
+  cursor: pointer; display: flex; align-items: center;
+  justify-content: center; font-size: 10px; color: #fff; transition: background .1s;
+}
+.mn-acheck.done { background: var(--green); border-color: var(--green); }
+.mn-acheck.waiting { background: var(--amber); border-color: var(--amber); }
+.mn-arow__body { flex: 1; min-width: 0; }
+.mn-arow__title { font-size: 13px; }
+.mn-arow__title.done { text-decoration: line-through; color: var(--text-muted); }
+.mn-arow__meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.mn-arow__right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 
-/* MINUTES */
-.minutes-body{font-size:14px;line-height:1.75;color:var(--text)}
-.minutes-body p{margin-bottom:10px}
-.minutes-body p:last-child{margin-bottom:0}
+/* Calendar */
+.mn-cal { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+.mn-cal-lbl { font-size: 11px; font-variation-settings: 'wght' 700; color: var(--text-muted); text-align: center; padding: 4px 0; }
+.mn-cal-cell {
+  font-size: 12px; text-align: center; padding: 5px 2px;
+  border-radius: 4px; cursor: pointer; color: var(--text-muted);
+  position: relative; min-height: 30px;
+}
+.mn-cal-cell:hover { background: var(--off-white); }
+.mn-cal-cell.today { font-variation-settings: 'wght' 800; color: var(--text); background: var(--off-white); }
+.mn-cal-cell.has-mtg::after {
+  content: ''; position: absolute; bottom: 3px; left: 50%;
+  transform: translateX(-50%); width: 5px; height: 5px;
+  border-radius: 50%; background: var(--primary);
+}
 
-/* ACTION ROWS */
-.arow{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px}
-.acheck{width:16px;height:16px;border-radius:3px;border:1.5px solid var(--border);flex-shrink:0;margin-top:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;transition:background .1s}
-.acheck.done{background:var(--green);border-color:var(--green)}
-.acheck.waiting{background:var(--amber);border-color:var(--amber)}
-.arow__body{flex:1;min-width:0}
-.arow__title{font-size:13px}
-.arow__title.done{text-decoration:line-through;color:var(--muted)}
-.arow__meta{font-size:11px;color:var(--muted);margin-top:3px}
-.arow__right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+/* Contacts */
+.mn-cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 10px; }
+.mn-ccard {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+  display: flex; align-items: flex-start; gap: 10px;
+  cursor: pointer; transition: border-color .12s;
+}
+.mn-ccard:hover { border-color: #b0b8cc; }
+.mn-cav {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--info-light); color: var(--info);
+  font-size: 12px; font-variation-settings: 'wght' 800;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.mn-cname { font-size: 13px; font-variation-settings: 'wght' 700; }
+.mn-corg { font-size: 12px; color: var(--text-muted); }
+.mn-cemail { font-size: 11px; color: var(--text-muted); margin-top: 2px; word-break: break-all; }
 
-/* FILTER CHIPS */
-.frow{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
-.chip{font-size:12px;font-variation-settings:'wght' 600;padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:var(--white);color:var(--muted);cursor:pointer;transition:all .12s}
-.chip:hover{border-color:#b0b8cc;color:var(--text)}
-.chip.active{background:var(--primary);border-color:var(--primary);color:#fff}
+/* Filter chips */
+.mn-frow { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.mn-chip {
+  font-size: 12px; font-variation-settings: 'wght' 600;
+  padding: 4px 12px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--white);
+  color: var(--text-muted); cursor: pointer; transition: all .12s;
+}
+.mn-chip:hover { border-color: #b0b8cc; color: var(--text); }
+.mn-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-/* STATS */
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
-.stat{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 15px}
-.stat__n{font-size:26px;font-variation-settings:'wght' 900;line-height:1}
-.stat__l{font-size:11px;font-variation-settings:'wght' 800;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
-
-/* CALENDAR */
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
-.cal-lbl{font-size:11px;font-variation-settings:'wght' 700;color:var(--muted);text-align:center;padding:4px 0}
-.cal-cell{font-size:12px;text-align:center;padding:5px 2px;border-radius:4px;cursor:pointer;color:var(--muted);position:relative;min-height:30px}
-.cal-cell:hover{background:var(--off-white)}
-.cal-cell.today{font-variation-settings:'wght' 800;color:var(--text);background:var(--off-white)}
-.cal-cell.has::after{content:'';position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--primary)}
-
-/* CONTACTS */
-.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
-.ccard{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;transition:border-color .12s}
-.ccard:hover{border-color:#b0b8cc}
-.cav{width:36px;height:36px;border-radius:50%;background:var(--info-light);color:var(--info);font-size:12px;font-variation-settings:'wght' 800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.cname{font-size:13px;font-variation-settings:'wght' 700}
-.corg{font-size:12px;color:var(--muted)}
-.cemail{font-size:11px;color:var(--muted);margin-top:2px;word-break:break-all}
-
-/* EMPTY */
-.empty{text-align:center;padding:48px 20px;color:var(--muted);font-size:14px}
-
-/* TOAST */
-.toast{position:fixed;bottom:24px;right:24px;padding:10px 18px;border-radius:var(--radius);font-family:var(--font);font-size:13px;font-variation-settings:'wght' 600;color:#fff;box-shadow:var(--shadow-lg);opacity:0;transform:translateY(8px);transition:opacity .25s,transform .25s;pointer-events:none;z-index:999}
-.toast.show{opacity:1;transform:translateY(0)}
-.toast.success{background:var(--green)}
-.toast.error{background:var(--red)}
-.toast.info{background:var(--navy)}
+/* Pills */
+.mn-pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-variation-settings: 'wght' 700; }
+.mn-pill--upcoming { background: var(--info-light); color: var(--info); }
+.mn-pill--live { background: #dcfce7; color: #166534; }
+.mn-pill--done { background: var(--green-light); color: var(--green); }
+.mn-pill--owner { background: #f0e8e8; color: var(--primary); }
+.mn-pill--part { background: var(--off-white); color: var(--text-muted); }
+.mn-pill--open { background: var(--info-light); color: var(--info); }
+.mn-pill--waiting { background: var(--amber-light); color: var(--amber); }
 
 /* LIVE MODAL */
-.backdrop{display:none;position:fixed;inset:0;background:rgba(10,20,40,.6);z-index:200;align-items:stretch;justify-content:center}
-.backdrop.open{display:flex}
-.modal{display:flex;flex-direction:column;width:100%;max-width:1000px;margin:14px;background:var(--white);border-radius:10px;overflow:hidden;box-shadow:var(--shadow-lg)}
-.modal-hdr{background:var(--navy);padding:12px 18px;display:flex;align-items:center;gap:12px;flex-shrink:0}
-.modal-hdr__dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.modal-hdr__title{font-size:15px;font-variation-settings:'wght' 800;color:#fff;flex:1}
-.modal-hdr__meta{font-size:12px;color:rgba(255,255,255,.6)}
-.live-pill{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.12);border-radius:20px;padding:3px 10px;font-size:11px;font-variation-settings:'wght' 700;color:#fff}
-.live-pill__dot{width:7px;height:7px;border-radius:50%;background:#4ade80;animation:pulse 1.4s infinite}
-.modal-body{display:flex;flex:1;overflow:hidden;min-height:0}
+.mn-backdrop {
+  display: none; position: fixed; inset: 0;
+  background: rgba(10,20,40,.6); z-index: 500;
+  align-items: stretch; justify-content: center;
+}
+.mn-backdrop.open { display: flex; }
+.mn-modal {
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 1040px; margin: 14px;
+  background: var(--white); border-radius: 10px;
+  overflow: hidden; box-shadow: var(--shadow-lg);
+}
+.mn-modal-hdr {
+  background: var(--navy); padding: 12px 18px;
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.mn-modal-hdr__dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.mn-modal-hdr__title { font-size: 15px; font-variation-settings: 'wght' 800; color: #fff; flex: 1; }
+.mn-modal-hdr__meta { font-size: 12px; color: rgba(255,255,255,.6); }
+.mn-modal-live-pill {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,.12); border-radius: 20px;
+  padding: 3px 10px; font-size: 11px; font-variation-settings: 'wght' 700; color: #fff;
+}
+.mn-modal-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; animation: mn-pulse 1.4s infinite; }
+.mn-modal-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 
-/* Modal left — agenda */
-.modal-agenda{width:240px;min-width:240px;border-right:1px solid var(--border);background:var(--off-white);display:flex;flex-direction:column;overflow-y:auto}
-.ma-label{font-size:10px;font-variation-settings:'wght' 800;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:13px 15px 5px}
-.ma-item{display:flex;align-items:flex-start;gap:9px;padding:9px 15px;cursor:pointer;border-left:3px solid transparent;transition:background .1s}
-.ma-item:hover{background:#eceef3}
-.ma-item.active{background:var(--white);border-left-color:var(--primary)}
-.ma-item__num{width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:10px;font-variation-settings:'wght' 800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.ma-item.active .ma-item__num{background:var(--primary);color:#fff}
-.ma-item__title{font-size:13px;font-variation-settings:'wght' 600;color:var(--text)}
-.ma-item__time{font-size:11px;color:var(--muted);margin-top:2px}
+/* Modal agenda panel */
+.mn-modal-agenda {
+  width: 240px; min-width: 240px;
+  border-right: 1px solid var(--border);
+  background: var(--off-white); display: flex;
+  flex-direction: column; overflow-y: auto;
+}
+.mn-modal-agenda__label {
+  font-size: 10px; font-variation-settings: 'wght' 800;
+  color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase;
+  padding: 13px 15px 5px;
+}
+.mn-mrow {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 9px 15px; cursor: pointer; border-left: 3px solid transparent; transition: background .1s;
+}
+.mn-mrow:hover { background: #eceef3; }
+.mn-mrow.active { background: var(--white); border-left-color: var(--primary); }
+.mn-mrow__num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--border); color: var(--text-muted);
+  font-size: 10px; font-variation-settings: 'wght' 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.mn-mrow.active .mn-mrow__num { background: var(--primary); color: #fff; }
+.mn-mrow.done-item .mn-mrow__num { background: var(--green); color: #fff; }
+.mn-mrow.done-item .mn-mrow__title { text-decoration: line-through; color: var(--text-muted); }
+.mn-mrow__title { font-size: 13px; font-variation-settings: 'wght' 600; color: var(--text); }
+.mn-mrow__sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.mn-modal-agenda__footer {
+  padding: 11px 15px; border-top: 1px solid var(--border);
+  margin-top: auto; flex-shrink: 0;
+}
 
 /* Modal right — scratchpad */
-.modal-right{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.modal-right__hdr{padding:13px 18px 11px;border-bottom:1px solid var(--border);flex-shrink:0}
-.modal-right__title{font-size:15px;font-variation-settings:'wght' 800;margin-bottom:3px}
-.modal-right__meta{font-size:12px;color:var(--muted)}
-.modal-right__body{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
-.modal-right__footer{padding:11px 18px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--white)}
-.prog{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
-.prog-bar{width:90px;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
-.prog-fill{height:100%;background:var(--primary);border-radius:3px;transition:width .3s}
+.mn-modal-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.mn-modal-right__hdr { padding: 13px 18px 11px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.mn-modal-right__title { font-size: 15px; font-variation-settings: 'wght' 800; margin-bottom: 3px; }
+.mn-modal-right__meta { font-size: 12px; color: var(--text-muted); }
+.mn-modal-right__body { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.mn-modal-right__footer {
+  padding: 11px 18px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; background: var(--white);
+}
+.mn-prog { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.mn-prog-bar { width: 90px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.mn-prog-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width .3s; }
 
-.sp-label{font-size:10px;font-variation-settings:'wght' 800;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+/* Spinner overlay */
+.mn-ai-overlay {
+  display: none; position: absolute; inset: 0;
+  background: rgba(244,246,249,.85); z-index: 10;
+  align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px;
+  font-size: 14px; font-variation-settings: 'wght' 600; color: var(--text-muted);
+}
+.mn-ai-overlay.visible { display: flex; }
 </style>
 </head>
 <body>
+<div id="nlTopbar"></div>
+<div id="pageWrap" style="display:none">
 
-<div class="topbar">
-  <img src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png" alt="NL" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__div"></div>
-  <span class="topbar__kicker">NL Tools</span>
-  <div class="topbar__div"></div>
-  <span class="topbar__title">Meetings</span>
-  <div class="topbar__spacer"></div>
-  <div class="topbar__av">RB</div>
-</div>
-
-<div class="live-banner" id="liveBanner" onclick="reopenModal()">
-  <div class="lb-dot"></div>
-  <div class="lb-text" id="liveBannerText"></div>
-  <div class="lb-cta">Return to meeting →</div>
-</div>
-
-<div class="shell">
-  <nav class="sidebar">
-    <div class="sb-label">Views</div>
-    <div class="sb-item active" onclick="switchView('meetings',this)">☰&nbsp; All meetings</div>
-    <div class="sb-item" onclick="switchView('actions',this)">◎&nbsp; My actions</div>
-    <div class="sb-item" onclick="switchView('calendar',this)">▦&nbsp; Calendar</div>
-    <div class="sb-item" onclick="switchView('contacts',this)">✉&nbsp; Contacts</div>
-    <div class="sb-label">Projects</div>
-    <div class="sb-item ap" onclick="filterProj('all',this)" style="color:var(--text)"><span class="pdot" style="background:#888"></span> All projects</div>
-    <div class="sb-item" onclick="filterProj('Two Circles',this)"><span class="pdot" style="background:#185FA5"></span> Two Circles</div>
-    <div class="sb-item" onclick="filterProj('EFL',this)"><span class="pdot" style="background:#3B6D11"></span> EFL</div>
-    <div class="sb-item" onclick="filterProj('Board',this)"><span class="pdot" style="background:#9e0000"></span> Board</div>
-    <div class="sb-item" onclick="filterProj('Internal Ops',this)"><span class="pdot" style="background:#854F0B"></span> Internal Ops</div>
-  </nav>
-  <div class="main">
-    <div class="ph"><h1 id="pageTitle">All meetings</h1><button class="btn btn-p btn-sm" onclick="toast('New meeting form — coming in full build','info')">+ New meeting</button></div>
-    <div class="pb" id="pb"></div>
+  <!-- Live meeting banner -->
+  <div class="mn-live-banner" id="mnLiveBanner" onclick="mnReopenModal()">
+    <div class="mn-live-dot"></div>
+    <div class="mn-live-text" id="mnLiveBannerText"></div>
+    <div class="mn-live-cta">Return to meeting →</div>
   </div>
+
+  <div class="mn-shell">
+    <!-- Sidebar -->
+    <nav class="mn-sidebar">
+      <div class="mn-sb-label">Views</div>
+      <div class="mn-sb-item active" id="sb-meetings" onclick="mnSwitchView('meetings',this)">☰&nbsp; All meetings</div>
+      <div class="mn-sb-item" id="sb-actions" onclick="mnSwitchView('actions',this)">◎&nbsp; My actions</div>
+      <div class="mn-sb-item" id="sb-calendar" onclick="mnSwitchView('calendar',this)">▦&nbsp; Calendar</div>
+      <div class="mn-sb-item" id="sb-contacts" onclick="mnSwitchView('contacts',this)">✉&nbsp; Contacts</div>
+      <div class="mn-sb-label">Projects</div>
+      <div class="mn-sb-item active-proj" id="proj-all" onclick="mnFilterProj('all',this)" style="color:var(--text)">
+        <span class="mn-proj-dot" style="background:#888"></span> All projects
+      </div>
+      <div id="mnProjList"></div>
+    </nav>
+
+    <!-- Main -->
+    <div class="mn-main">
+      <div class="mn-page-header">
+        <h1 id="mnPageTitle">All meetings</h1>
+        <button class="btn btn--primary btn--sm" onclick="mnNewMeeting()">+ New meeting</button>
+      </div>
+      <div class="mn-page-body" id="mnPageBody">
+        <div class="loading-row"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
-<div class="toast" id="toastEl"></div>
-
-<!-- LIVE MODAL -->
-<div class="backdrop" id="backdrop">
-  <div class="modal">
-    <div class="modal-hdr">
-      <div class="modal-hdr__dot" id="mDot"></div>
-      <div class="modal-hdr__title" id="mTitle"></div>
-      <div class="modal-hdr__meta" id="mMeta"></div>
-      <div class="live-pill"><div class="live-pill__dot"></div> Live</div>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.2);margin-left:8px" id="mEndBtn" onclick="endMeeting()">✕ End</button>
+<!-- Live meeting modal -->
+<div class="mn-backdrop" id="mnBackdrop">
+  <div class="mn-modal">
+    <div class="mn-modal-hdr">
+      <div class="mn-modal-hdr__dot" id="mnModalDot"></div>
+      <div class="mn-modal-hdr__title" id="mnModalTitle"></div>
+      <div class="mn-modal-hdr__meta" id="mnModalMeta"></div>
+      <div class="mn-modal-live-pill"><div class="mn-modal-live-dot"></div> Live</div>
+      <button class="btn btn--sm" id="mnModalEndBtn"
+        style="background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.2);margin-left:8px"
+        onclick="mnEndMeeting()">✕ End</button>
     </div>
-    <div class="modal-body">
-      <div class="modal-agenda">
-        <div class="ma-label">Agenda</div>
-        <div id="maList"></div>
+    <div class="mn-modal-body">
+      <div class="mn-modal-agenda">
+        <div class="mn-modal-agenda__label">Agenda</div>
+        <div id="mnModalAgendaList"></div>
+        <div class="mn-modal-agenda__footer" id="mnModalAgendaFooter"></div>
       </div>
-      <div class="modal-right">
-        <div class="modal-right__hdr">
-          <div class="modal-right__title" id="mRightTitle">Scratchpad</div>
-          <div class="modal-right__meta" id="mRightMeta">Your private notes for this meeting</div>
+      <div class="mn-modal-right">
+        <div class="mn-modal-right__hdr">
+          <div class="mn-modal-right__title">Scratchpad</div>
+          <div class="mn-modal-right__meta">Private to you · not visible to anyone else</div>
         </div>
-        <div class="modal-right__body" id="mRightBody"></div>
-        <div class="modal-right__footer">
-          <div class="prog">
-            <span id="mProgTxt">Agenda</span>
-            <div class="prog-bar"><div class="prog-fill" id="mProgFill" style="width:0%"></div></div>
+        <div class="mn-modal-right__body" id="mnModalRightBody"></div>
+        <div class="mn-modal-right__footer">
+          <div class="mn-prog">
+            <span id="mnProgText">0 of 0 items</span>
+            <div class="mn-prog-bar"><div class="mn-prog-fill" id="mnProgFill" style="width:0%"></div></div>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-sm btn-g" onclick="mPrev()">← Prev</button>
-            <button class="btn btn-sm btn-n" onclick="mNext()">Next →</button>
+            <button class="btn btn--sm btn--ghost" onclick="mnModalPrev()">← Prev</button>
+            <button class="btn btn--sm btn--navy" onclick="mnModalNext()">Next →</button>
           </div>
         </div>
       </div>
@@ -290,415 +433,1233 @@ body{font-family:var(--font);font-size:clamp(14px,.7vw+11px,17px);line-height:1.
   </div>
 </div>
 
+<!-- NL Tool config -->
 <script>
-var PROJ={'Two Circles':'#185FA5','EFL':'#3B6D11','Board':'#9e0000','Internal Ops':'#854F0B'};
-var ME='rb';
-
-var meetings=[
-  {id:1,title:'Q2 Strategy Review',project:'Two Circles',date:'22/04/2026',owner:'rb',ownerName:'Richard Browning',attendees:['Sarah Holt','Mike Byrne'],phase:'after',
-   generalNote:'Quarterly review with Two Circles. Standing agenda covers campaign performance, season planning, and commercial.',
-   scratchpad:{rb:'Good meeting — Sarah seemed stretched on resource. Worth a separate call before the contract renewal.\n\nCTR numbers are solid but need to understand why club content isn\'t converting.'},
-   sharedScratchpads:{},
-   agenda:[{title:'Campaign performance review',time:'15 min'},{title:'Season 25/26 planning',time:'20 min'},{title:'Contract renewal discussion',time:'10 min'}]},
-  {id:2,title:'Broadcast Rights Update',project:'EFL',date:'18/04/2026',owner:'rb',ownerName:'Richard Browning',attendees:['James Whitfield'],phase:'during',
-   generalNote:'',scratchpad:{},sharedScratchpads:{},
-   agenda:[{title:'Current rights position',time:'10 min'},{title:'Package 3 negotiations',time:'30 min'},{title:'NL exposure commitments',time:'15 min'}]},
-  {id:3,title:'April Board Pack Review',project:'Board',date:'02/05/2026',owner:'ps',ownerName:'Phil Sherwood',attendees:['Richard Browning','Michaela Dean'],phase:'upcoming',
-   generalNote:'Monthly board prep. Phil chairs. Richard presents digital section.',
-   scratchpad:{},sharedScratchpads:{},
-   agenda:[{title:'Financial update sign-off',time:'20 min'},{title:'Digital strategy slides',time:'15 min'},{title:'Season review section',time:'10 min'}]},
-  {id:4,title:'Weekly Ops Catch-up',project:'Internal Ops',date:'23/04/2026',owner:'rb',ownerName:'Richard Browning',attendees:['Tom Richards'],phase:'upcoming',
-   generalNote:'',scratchpad:{},sharedScratchpads:{},
-   agenda:[{title:'Content calendar review',time:'10 min'},{title:'Systems & tools update',time:'10 min'}]}
+window.NL_TOOL = {
+  title:   'Meeting Notes',
+  toolKey: 'staff-meeting-notes',
+  kicker:  'NL Tools'
+};
+window.NL_CHANGELOG = [
+  {
+    date: '23 April 2026',
+    version: 'v1.0',
+    items: [
+      'Meeting Notes launched — create and manage meetings end-to-end.',
+      'Projects organise your meetings by relationship or workstream.',
+      'Live meeting modal with private scratchpad and agenda tracking.',
+      'AI minutes generation from your notes (coming soon).',
+      'Action points tracked across all meetings in one view.',
+      'Personal contacts directory.'
+    ]
+  }
 ];
+var NL_TOOL_KEY = 'staff-meeting-notes';
+</script>
 
-var actions=[
-  {id:1,title:'Draft scope doc for 25/26 season campaign',meeting:'Q2 Strategy Review',project:'Two Circles',status:'open',due:'30 Apr'},
-  {id:2,title:'Receive updated reach data from Sarah',meeting:'Q2 Strategy Review',project:'Two Circles',status:'waiting',due:'25 Apr',assignee:'Sarah Holt'},
-  {id:3,title:'Prepare NL exposure summary for Package 3',meeting:'Broadcast Rights Update',project:'EFL',status:'open',due:'28 Apr'},
-  {id:4,title:'Finalise digital strategy slides',meeting:'Board Pack Review',project:'Board',status:'open',due:'01 May'},
-  {id:5,title:'Confirm playoff match day schedule',meeting:'Weekly Ops',project:'Internal Ops',status:'done',due:'22 Apr'}
-];
+<script src="/tools/nl-utils.js?v=5"></script>
+<script src="/tools/auth-guard.js?v=4"></script>
 
-var contacts=[
-  {name:'Sarah Holt',org:'Two Circles',email:'s.holt@twocircles.com',initials:'SH'},
-  {name:'Mike Byrne',org:'Two Circles',email:'m.byrne@twocircles.com',initials:'MB'},
-  {name:'James Whitfield',org:'EFL',email:'j.whitfield@efl.com',initials:'JW'},
-  {name:'Phil Sherwood',org:'National League',email:'p.sherwood@thenationalleague.com',initials:'PS'},
-  {name:'Michaela Dean',org:'National League',email:'m.dean@thenationalleague.com',initials:'MD'},
-  {name:'Tom Richards',org:'National League',email:'t.richards@thenationalleague.com',initials:'TR'}
-];
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
-var curView='meetings',curProj='all',curMeeting=null,afilt='all',ofilt='all';
-var liveMtg=null,liveIdx=null,liveDone={};
+<script>
+/* ── FIREBASE INIT ─────────────────────────────────────────────────── */
+var firebaseConfig = {
+  apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+  authDomain:        "nl-tools.firebaseapp.com",
+  databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nl-tools",
+  storageBucket:     "nl-tools.firebasestorage.app",
+  messagingSenderId: "801354670005",
+  appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+};
+firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
 
-function toast(msg,type){
-  var t=document.getElementById('toastEl');
-  t.textContent=msg;t.className='toast '+(type||'info');t.classList.add('show');
-  setTimeout(function(){t.classList.remove('show');},3000);
+var NL_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+var MN_PATH    = '/app-data/staff-meeting-notes';
+
+/* ── APP STATE ─────────────────────────────────────────────────────── */
+var mnSession    = null;
+var mnView       = 'meetings';
+var mnCurProj    = 'all';
+var mnCurMeeting = null;
+var mnProjects   = {};       // loaded from RTDB
+var mnMeetings   = {};       // loaded from RTDB
+var mnContacts   = {};       // loaded from RTDB
+var mnActions    = {};       // loaded from RTDB
+
+// Live modal state
+var mnLiveMtg    = null;
+var mnLiveIdx    = null;
+var mnLiveDone   = {};
+
+// Filters
+var mnActionFilter = 'all';
+var mnOrgFilter    = 'all';
+
+var PROJ_COLOURS = ['#185FA5','#3B6D11','#9e0000','#854F0B','#5B2D8E','#0E7490'];
+
+/* ── AUTH READY ────────────────────────────────────────────────────── */
+window.nlAuthReady = function(userData) {
+  mnSession = userData;
+
+  function startApp(uid) {
+    if (startApp._done) return; /* guard: init must only run once */
+    startApp._done = true;
+    mnSession.uid = uid;
+    mnLoadData();
+  }
+
+  /* Force token refresh before RTDB reads to avoid PERMISSION_DENIED */
+  var cu = firebase.auth().currentUser;
+  if (cu) {
+    cu.getIdToken(true)
+      .then(function() { startApp(cu.uid); })
+      .catch(function()  { startApp(cu.uid); });
+    return;
+  }
+
+  /* sessionStorage session used by guard but Firebase Auth not restored yet —
+     wait for it (happens on direct URL / bookmark access) */
+  var unsub = firebase.auth().onAuthStateChanged(function(user) {
+    unsub();
+    if (user) {
+      startApp(user.uid);
+    } else {
+      window.location.replace('/tools/');
+    }
+  });
+};
+
+/* ── DATA LOADING ──────────────────────────────────────────────────── */
+function mnLoadData() {
+  var uid = mnSession.uid;
+
+  // Load projects
+  db.ref(MN_PATH + '/projects').on('value', function(snap) {
+    mnProjects = snap.val() || {};
+    mnRenderProjSidebar();
+    mnRefreshView();
+  }, function(err) { console.warn('projects listener error:', err.code); });
+
+  // Load meetings (only ones owned by or attended by this user)
+  db.ref(MN_PATH + '/meetings').on('value', function(snap) {
+    if (snap.exists()) mnMeetings = snap.val() || {};
+    mnRefreshView();
+  }, function(err) { console.warn('meetings listener error:', err.code); });
+
+  // Load actions for this user
+  db.ref(MN_PATH + '/actions').orderByChild('ownerUid').equalTo(uid).on('value', function(snap) {
+    if (snap.exists()) mnActions = snap.val() || {};
+    // Also load actions assigned to this user
+    db.ref(MN_PATH + '/actions').orderByChild('assigneeUid').equalTo(uid).on('value', function(snap2) {
+      var assigned = snap2.val() || {};
+      Object.keys(assigned).forEach(function(k) { mnActions[k] = assigned[k]; });
+      if (mnView === 'actions') mnRefreshView();
+    }, function(err) { console.warn('assigned actions listener error:', err.code); });
+    if (mnView === 'actions') mnRefreshView();
+  }, function(err) { console.warn('actions listener error:', err.code); });
+
+  // Load contacts for this user
+  db.ref(MN_PATH + '/contacts/' + uid).on('value', function(snap) {
+    if (snap.exists()) mnContacts = snap.val() || {};
+    if (mnView === 'contacts') mnRefreshView();
+  }, function(err) { console.warn('contacts listener error:', err.code); });
 }
 
-function updateBanner(){
-  var b=document.getElementById('liveBanner');
-  var bt=document.getElementById('liveBannerText');
-  if(liveMtg){b.classList.add('on');bt.textContent='● '+liveMtg.title+' is in progress';}
-  else{b.classList.remove('on');}
-}
-
-function reopenModal(){if(liveMtg)openModal(liveMtg,false);}
-
-function switchView(v,el){
-  curView=v;curMeeting=null;
-  var titles={meetings:'All meetings',actions:'My actions',calendar:'Calendar',contacts:'Contacts'};
-  document.getElementById('pageTitle').textContent=titles[v];
-  document.querySelectorAll('.sb-item[onclick*="switchView"]').forEach(function(n){n.classList.remove('active');});
-  if(el)el.classList.add('active');
-  var b=document.getElementById('pb');b.innerHTML='';
-  if(v==='meetings')renderList(b);
-  if(v==='actions')renderActions(b);
-  if(v==='calendar')renderCalendar(b);
-  if(v==='contacts')renderContacts(b);
-}
-
-function filterProj(p,el){
-  curProj=p;curMeeting=null;
-  document.querySelectorAll('.ap').forEach(function(n){n.classList.remove('ap');});
-  if(el)el.classList.add('ap');
-  document.getElementById('pageTitle').textContent=p==='all'?'All meetings':p;
-  var b=document.getElementById('pb');b.innerHTML='';
-  curView='meetings';renderList(b);
-}
-
-/* ── MEETING LIST ── */
-function renderList(c){
-  var list=curProj==='all'?meetings:meetings.filter(function(m){return m.project===curProj;});
-  if(!list.length){var e=document.createElement('div');e.className='empty';e.innerHTML='<div style="font-size:28px;margin-bottom:8px">📋</div><p>No meetings here yet.</p>';c.appendChild(e);return;}
-  list.forEach(function(m){
-    var isOwner=m.owner===ME;
-    var isLive=liveMtg&&liveMtg.id===m.id;
-    var card=document.createElement('div');card.className='mcard';
-    var dot=document.createElement('div');dot.className='mcard__dot';dot.style.background=PROJ[m.project]||'#888';card.appendChild(dot);
-    var body=document.createElement('div');body.className='mcard__body';
-    var title=document.createElement('div');title.className='mcard__title';title.textContent=m.title;
-    var meta=document.createElement('div');meta.className='mcard__meta';
-    meta.textContent=m.date+' · '+m.project+' · '+(isOwner?'You (owner)':m.ownerName+' (owner)');
-    body.appendChild(title);body.appendChild(meta);card.appendChild(body);
-    var right=document.createElement('div');right.className='mcard__right';
-    var pp=document.createElement('span');
-    if(isLive){pp.className='pill p-live';pp.innerHTML='<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#166534;margin-right:4px;animation:pulse 1.4s infinite"></span>Live now';}
-    else if(m.phase==='upcoming'){pp.className='pill p-upcoming';pp.textContent='Upcoming';}
-    else if(m.phase==='during'){pp.className='pill p-upcoming';pp.textContent='In progress';}
-    else{pp.className='pill p-done';pp.textContent='Complete';}
-    var rp=document.createElement('span');rp.className='pill '+(isOwner?'p-owner':'p-part');rp.textContent=isOwner?'Owner':'Participant';
-    right.appendChild(pp);right.appendChild(rp);card.appendChild(right);
-    card.onclick=function(){openDetail(m);};
-    c.appendChild(card);
+/* ── SIDEBAR PROJECTS ──────────────────────────────────────────────── */
+function mnRenderProjSidebar() {
+  var list = document.getElementById('mnProjList');
+  list.innerHTML = '';
+  var colIdx = 0;
+  Object.keys(mnProjects).forEach(function(key) {
+    var p = mnProjects[key];
+    var colour = p.colour || PROJ_COLOURS[colIdx % PROJ_COLOURS.length];
+    colIdx++;
+    var item = document.createElement('div');
+    item.className = 'mn-sb-item';
+    item.id = 'proj-' + key;
+    var dot = document.createElement('span');
+    dot.className = 'mn-proj-dot';
+    dot.style.background = colour;
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(' ' + NL.escHtml(p.name)));
+    item.onclick = (function(k) { return function() { mnFilterProj(k, item); }; })(key);
+    list.appendChild(item);
   });
 }
 
-/* ── MEETING DETAIL ── */
-function openDetail(m){
-  curMeeting=m;
-  var isOwner=m.owner===ME;
-  var isLive=liveMtg&&liveMtg.id===m.id;
-  var canStart=m.phase!=='after';
-  var pb=document.getElementById('pb');pb.innerHTML='';
-  document.getElementById('pageTitle').textContent=m.title;
+/* ── VIEW ROUTING ──────────────────────────────────────────────────── */
+function mnSwitchView(view, el) {
+  mnView = view;
+  mnCurMeeting = null;
+  var titles = { meetings: 'All meetings', actions: 'My actions', calendar: 'Calendar', contacts: 'Contacts' };
+  document.getElementById('mnPageTitle').textContent = titles[view];
+  document.querySelectorAll('.mn-sb-item[id^="sb-"]').forEach(function(n) { n.classList.remove('active'); });
+  if (el) el.classList.add('active');
+  mnRefreshView();
+}
 
-  var back=document.createElement('button');back.className='btn btn-g btn-sm';back.style.marginBottom='14px';back.textContent='← All meetings';
-  back.onclick=function(){curMeeting=null;document.getElementById('pageTitle').textContent='All meetings';pb.innerHTML='';renderList(pb);};
-  pb.appendChild(back);
+function mnFilterProj(p, el) {
+  mnCurProj = p;
+  mnCurMeeting = null;
+  document.querySelectorAll('.active-proj').forEach(function(n) { n.classList.remove('active-proj'); });
+  if (el) el.classList.add('active-proj');
+  document.getElementById('mnPageTitle').textContent = p === 'all' ? 'All meetings' : (mnProjects[p] ? mnProjects[p].name : p);
+  mnView = 'meetings';
+  document.querySelectorAll('.mn-sb-item[id^="sb-"]').forEach(function(n) { n.classList.remove('active'); });
+  document.getElementById('sb-meetings').classList.add('active');
+  mnRefreshView();
+}
 
-  // Title + meta
-  var tr=document.createElement('div');tr.className='detail-title';
-  var tdot=document.createElement('span');tdot.className='pdot';tdot.style.cssText='width:12px;height:12px;background:'+(PROJ[m.project]||'#888');
-  tr.appendChild(tdot);var ttxt=document.createElement('span');ttxt.textContent=m.title;tr.appendChild(ttxt);
-  pb.appendChild(tr);
-  var meta=document.createElement('div');meta.className='detail-meta';
-  meta.innerHTML='<span>📅 '+m.date+'</span><span>🏷 '+m.project+'</span><span>👥 '+(isOwner?'You & '+m.attendees.join(', '):m.ownerName+', '+m.attendees.join(', '))+'</span>';
-  pb.appendChild(meta);
+function mnRefreshView() {
+  if (mnCurMeeting) { mnRenderDetail(mnCurMeeting); return; }
+  var body = document.getElementById('mnPageBody');
+  body.innerHTML = '';
+  if (mnView === 'meetings') mnRenderList(body);
+  if (mnView === 'actions')  mnRenderActions(body);
+  if (mnView === 'calendar') mnRenderCalendar(body);
+  if (mnView === 'contacts') mnRenderContacts(body);
+}
+
+/* ── MEETINGS LIST ─────────────────────────────────────────────────── */
+function mnRenderList(container) {
+  var uid = mnSession.uid;
+  var keys = Object.keys(mnMeetings).filter(function(k) {
+    var m = mnMeetings[k];
+    if (m.ownerUid !== uid && (!m.attendeeUids || !m.attendeeUids[uid])) return false;
+    if (mnCurProj !== 'all' && m.projectKey !== mnCurProj) return false;
+    return true;
+  });
+
+  // Sort by date descending
+  keys.sort(function(a, b) {
+    return (mnMeetings[b].dateIso || '') > (mnMeetings[a].dateIso || '') ? 1 : -1;
+  });
+
+  if (!keys.length) {
+    var e = document.createElement('div');
+    e.className = 'empty-row';
+    e.innerHTML = '<td colspan="5">No meetings yet. <a href="#" onclick="mnNewMeeting();return false">Create your first meeting →</a></td>';
+    container.innerHTML = '<table class="table"><tbody></tbody></table>';
+    container.querySelector('tbody').appendChild(e);
+    return;
+  }
+
+  keys.forEach(function(key) {
+    var m = mnMeetings[key];
+    var isOwner = m.ownerUid === uid;
+    var isLive  = mnLiveMtg && mnLiveMtg.key === key;
+    var proj    = mnProjects[m.projectKey] || {};
+    var colour  = proj.colour || '#888';
+    var card    = document.createElement('div');
+    card.className = 'mn-card';
+
+    var dot = document.createElement('div');
+    dot.className = 'mn-card__dot';
+    dot.style.background = colour;
+    card.appendChild(dot);
+
+    var body = document.createElement('div');
+    body.className = 'mn-card__body';
+    var title = document.createElement('div');
+    title.className = 'mn-card__title';
+    title.textContent = m.title || 'Untitled meeting';
+    var meta = document.createElement('div');
+    meta.className = 'mn-card__meta';
+    meta.textContent = (m.dateDisplay || '') + (proj.name ? ' · ' + proj.name : '') +
+      ' · ' + (isOwner ? 'You (owner)' : (m.ownerName || 'Unknown') + ' (owner)');
+    body.appendChild(title);
+    body.appendChild(meta);
+    card.appendChild(body);
+
+    var right = document.createElement('div');
+    right.className = 'mn-card__right';
+    var pp = document.createElement('span');
+    if (isLive) {
+      pp.className = 'mn-pill mn-pill--live';
+      pp.innerHTML = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#166534;margin-right:4px;animation:mn-pulse 1.4s infinite"></span>Live now';
+    } else if (m.phase === 'upcoming') {
+      pp.className = 'mn-pill mn-pill--upcoming'; pp.textContent = 'Upcoming';
+    } else if (m.phase === 'during') {
+      pp.className = 'mn-pill mn-pill--upcoming'; pp.textContent = 'In progress';
+    } else {
+      pp.className = 'mn-pill mn-pill--done'; pp.textContent = 'Complete';
+    }
+    var rp = document.createElement('span');
+    rp.className = 'mn-pill ' + (isOwner ? 'mn-pill--owner' : 'mn-pill--part');
+    rp.textContent = isOwner ? 'Owner' : 'Participant';
+    right.appendChild(pp);
+    right.appendChild(rp);
+    card.appendChild(right);
+
+    card.onclick = (function(k) { return function() { mnOpenDetail(k); }; })(key);
+    container.appendChild(card);
+  });
+}
+
+/* ── MEETING DETAIL ────────────────────────────────────────────────── */
+function mnOpenDetail(key) {
+  mnCurMeeting = key;
+  mnRenderDetail(key);
+}
+
+function mnRenderDetail(key) {
+  var m       = mnMeetings[key];
+  if (!m) return;
+  var uid     = mnSession.uid;
+  var isOwner = m.ownerUid === uid;
+  var isLive  = mnLiveMtg && mnLiveMtg.key === key;
+  var proj    = mnProjects[m.projectKey] || {};
+  var colour  = proj.colour || '#888';
+  var body    = document.getElementById('mnPageBody');
+  body.innerHTML = '';
+  document.getElementById('mnPageTitle').textContent = m.title || 'Meeting';
+
+  // Back button
+  var back = document.createElement('button');
+  back.className = 'btn btn--ghost btn--sm';
+  back.style.marginBottom = '14px';
+  back.textContent = '← All meetings';
+  back.onclick = function() { mnCurMeeting = null; document.getElementById('mnPageTitle').textContent = 'All meetings'; mnRefreshView(); };
+  body.appendChild(back);
+
+  // Title
+  var titleRow = document.createElement('div');
+  titleRow.className = 'mn-detail-title';
+  var tdot = document.createElement('span');
+  tdot.className = 'mn-proj-dot';
+  tdot.style.cssText = 'width:12px;height:12px;background:' + colour;
+  titleRow.appendChild(tdot);
+  var ttxt = document.createElement('span');
+  ttxt.textContent = m.title || 'Untitled meeting';
+  titleRow.appendChild(ttxt);
+  body.appendChild(titleRow);
+
+  // Meta
+  var meta = document.createElement('div');
+  meta.className = 'mn-detail-meta';
+  var attendeeNames = Object.values(m.attendeeNames || {}).join(', ');
+  meta.innerHTML = '<span>📅 ' + NL.escHtml(m.dateDisplay || '') + '</span>' +
+    (proj.name ? '<span>🏷 ' + NL.escHtml(proj.name) + '</span>' : '') +
+    '<span>👥 ' + NL.escHtml(isOwner ? 'You & ' + attendeeNames : (m.ownerName || '') + (attendeeNames ? ', ' + attendeeNames : '')) + '</span>';
+  body.appendChild(meta);
 
   // Action buttons
-  var acts=document.createElement('div');acts.className='detail-acts';
-  if(isLive){
-    var rb=document.createElement('button');rb.className='btn btn-p btn-sm';rb.innerHTML='● Return to live meeting';rb.onclick=function(){openModal(m,false);};acts.appendChild(rb);
-  } else if(canStart){
-    var sb=document.createElement('button');sb.className='btn btn-p btn-sm';sb.innerHTML='▶ Start meeting';sb.onclick=function(){openModal(m,true);};acts.appendChild(sb);
+  var acts = document.createElement('div');
+  acts.className = 'mn-detail-acts';
+  if (isLive) {
+    var rejoin = document.createElement('button');
+    rejoin.className = 'btn btn--primary btn--sm';
+    rejoin.innerHTML = '● Return to live meeting';
+    rejoin.onclick = function() { mnOpenModal(key, false); };
+    acts.appendChild(rejoin);
+  } else if (m.phase !== 'after') {
+    var startBtn = document.createElement('button');
+    startBtn.className = 'btn btn--primary btn--sm';
+    startBtn.innerHTML = '▶ Start meeting';
+    startBtn.onclick = function() { mnOpenModal(key, true); };
+    acts.appendChild(startBtn);
   }
-  pb.appendChild(acts);
+  if (isOwner && m.phase !== 'after') {
+    var editBtn = document.createElement('button');
+    editBtn.className = 'btn btn--sm';
+    editBtn.textContent = 'Edit meeting';
+    editBtn.onclick = function() { mnEditMeeting(key); };
+    acts.appendChild(editBtn);
+  }
+  body.appendChild(acts);
 
-  // ── SECTION 1: Agenda ──
-  var agSec=document.createElement('div');agSec.className='section';
-  var agHdr=document.createElement('div');agHdr.className='section__hdr';
-  var agLbl=document.createElement('div');agLbl.className='section__label';agLbl.textContent='Agenda';
-  agHdr.appendChild(agLbl);agSec.appendChild(agHdr);
-  var agBody=document.createElement('div');agBody.className='section__body';
+  // ── SECTION: Agenda ──
+  var agSec = document.createElement('div');
+  agSec.className = 'mn-section';
+  var agHdr = document.createElement('div');
+  agHdr.className = 'mn-section__hdr';
+  var agLbl = document.createElement('div');
+  agLbl.className = 'mn-section__label';
+  agLbl.textContent = 'Agenda';
+  agHdr.appendChild(agLbl);
+  agSec.appendChild(agHdr);
+  var agBody = document.createElement('div');
+  agBody.className = 'mn-section__body';
 
   // General note
-  if(m.generalNote||isOwner){
-    var gnWrap=document.createElement('div');gnWrap.style.marginBottom='14px';
-    var gnLbl=document.createElement('div');gnLbl.style.cssText='font-size:10px;font-variation-settings:"wght" 800;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px';gnLbl.textContent='General note';
-    gnWrap.appendChild(gnLbl);
-    if(isOwner){
-      var gnTa=document.createElement('textarea');gnTa.className='gen-note';gnTa.placeholder='Add context, standing notes, or an intro for this meeting…';gnTa.value=m.generalNote||'';gnTa.oninput=function(){m.generalNote=gnTa.value;};
-      gnWrap.appendChild(gnTa);
-    } else {
-      var gnTxt=document.createElement('div');gnTxt.style.cssText='font-size:13px;color:var(--text);line-height:1.65;padding:8px 0';gnTxt.textContent=m.generalNote||'No general note.';gnWrap.appendChild(gnTxt);
-    }
-    agBody.appendChild(gnWrap);
-    var divider=document.createElement('div');divider.style.cssText='border-top:1px solid var(--border);margin-bottom:12px';agBody.appendChild(divider);
+  var gnWrap = document.createElement('div');
+  gnWrap.style.marginBottom = '14px';
+  var gnLbl = document.createElement('div');
+  gnLbl.style.cssText = 'font-size:10px;font-variation-settings:"wght" 800;color:var(--text-muted);letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px';
+  gnLbl.textContent = 'General note';
+  gnWrap.appendChild(gnLbl);
+  if (isOwner) {
+    var gnTa = document.createElement('textarea');
+    gnTa.className = 'mn-gen-note';
+    gnTa.placeholder = 'Add context, standing notes, or an intro for this meeting…';
+    gnTa.value = m.generalNote || '';
+    gnTa.onblur = function() {
+      NL.ensureAuth().then(function() {
+        db.ref(MN_PATH + '/meetings/' + key + '/generalNote').set(gnTa.value);
+        NL.writeAudit('meeting_note_saved', 'General note saved: ' + (m.title || key));
+      });
+    };
+    gnWrap.appendChild(gnTa);
+  } else {
+    var gnTxt = document.createElement('div');
+    gnTxt.style.cssText = 'font-size:13px;color:var(--text);line-height:1.65;padding:4px 0';
+    gnTxt.textContent = m.generalNote || 'No general note.';
+    gnWrap.appendChild(gnTxt);
   }
+  agBody.appendChild(gnWrap);
+
+  var divider = document.createElement('div');
+  divider.style.cssText = 'border-top:1px solid var(--border);margin-bottom:12px';
+  agBody.appendChild(divider);
 
   // Agenda items
-  m.agenda.forEach(function(a,i){
-    var item=document.createElement('div');item.className='ag-item';
-    var num=document.createElement('div');num.className='ag-num';num.textContent=i+1;
-    var title=document.createElement('div');title.className='ag-title';title.textContent=a.title;
-    var time=document.createElement('div');time.className='ag-time';time.textContent=a.time;
-    item.appendChild(num);item.appendChild(title);item.appendChild(time);
-    agBody.appendChild(item);
-  });
+  var agenda = m.agenda || [];
+  if (!agenda.length) {
+    var noAg = document.createElement('div');
+    noAg.style.cssText = 'font-size:13px;color:var(--text-muted);font-style:italic';
+    noAg.textContent = isOwner ? 'No agenda items yet — edit this meeting to add some.' : 'No agenda items added.';
+    agBody.appendChild(noAg);
+  } else {
+    agenda.forEach(function(a, i) {
+      var item = document.createElement('div');
+      item.className = 'mn-ag-item';
+      var num = document.createElement('div');
+      num.className = 'mn-ag-num';
+      num.textContent = i + 1;
+      var title = document.createElement('div');
+      title.className = 'mn-ag-title';
+      title.textContent = a.title || '';
+      var time = document.createElement('div');
+      time.className = 'mn-ag-time';
+      time.textContent = a.time || '';
+      item.appendChild(num); item.appendChild(title); item.appendChild(time);
+      agBody.appendChild(item);
+    });
+  }
   agSec.appendChild(agBody);
-  pb.appendChild(agSec);
+  body.appendChild(agSec);
 
-  // ── SECTION 2: Scratchpad (only if live or past) ──
-  if(m.phase==='during'||m.phase==='after'||isLive){
-    var spSec=document.createElement('div');spSec.className='section';
-    var spHdr=document.createElement('div');spHdr.className='section__hdr';
-    var spLbl=document.createElement('div');spLbl.className='section__label';spLbl.textContent='Scratchpad — private';
+  // ── SECTION: Scratchpad (live or after only) ──
+  if (m.phase === 'during' || m.phase === 'after' || isLive) {
+    var spSec = document.createElement('div');
+    spSec.className = 'mn-section';
+    var spHdr = document.createElement('div');
+    spHdr.className = 'mn-section__hdr';
+    var spLbl = document.createElement('div');
+    spLbl.className = 'mn-section__label';
+    spLbl.textContent = 'Scratchpad — private';
     spHdr.appendChild(spLbl);
-    if(isLive){var spLivePill=document.createElement('span');spLivePill.className='pill p-live';spLivePill.style.fontSize='10px';spLivePill.textContent='Live';spHdr.appendChild(spLivePill);}
-    spSec.appendChild(spHdr);
-    var spBody=document.createElement('div');spBody.className='section__body';spBody.style.padding='0';
-
-    if(isLive){
-      var spNote=document.createElement('div');spNote.style.cssText='padding:10px 16px 0;font-size:12px;color:var(--muted)';spNote.textContent='Your scratchpad is open in the live meeting modal — notes auto-saved.';spBody.appendChild(spNote);
+    if (isLive) {
+      var lp = document.createElement('span');
+      lp.className = 'mn-pill mn-pill--live';
+      lp.style.fontSize = '10px';
+      lp.textContent = 'Live';
+      spHdr.appendChild(lp);
     }
+    spSec.appendChild(spHdr);
+    var spBody = document.createElement('div');
+    spBody.className = 'mn-section__body';
+    spBody.style.padding = '0';
 
-    var spTa=document.createElement('textarea');spTa.className='scratchpad';
-    spTa.style.cssText='border-radius:0;border-left:none;border-right:none;border-bottom:none'+(m.phase==='after'?';border-top:none':'');
-    spTa.placeholder='Your private notes for this meeting — nobody else can see these unless you choose to share.';
-    if(!m.scratchpad)m.scratchpad={};
-    spTa.value=m.scratchpad[ME]||'';
-    spTa.oninput=function(){m.scratchpad[ME]=spTa.value;};
+    var spTa = document.createElement('textarea');
+    spTa.className = 'mn-scratchpad';
+    spTa.style.cssText = 'border-radius:0;border-left:none;border-right:none;' + (m.phase === 'after' ? 'border-top:none;border-bottom:none' : 'border-bottom:none');
+    spTa.placeholder = 'Your private notes for this meeting — nobody else can see these unless you choose to share.';
+    var spKey = MN_PATH + '/scratchpads/' + key + '/' + uid;
+    db.ref(spKey).once('value').then(function(snap) { spTa.value = snap.val() || ''; });
+    spTa.onblur = function() {
+      NL.ensureAuth().then(function() {
+        db.ref(spKey).set(spTa.value);
+      });
+    };
     spBody.appendChild(spTa);
 
     // Share opt-in for participants
-    if(!isOwner&&(m.phase==='during'||m.phase==='after')){
-      var sb=document.createElement('div');sb.className='share-bar';
-      var chk=document.createElement('input');chk.type='checkbox';chk.id='shareChk';chk.style.cursor='pointer';
-      var lbl=document.createElement('label');lbl.htmlFor='shareChk';lbl.style.cssText='cursor:pointer;flex:1;font-size:12px;color:var(--muted)';
-      lbl.textContent='Share my notes with '+m.ownerName+' to include in the AI-generated minutes';
-      var sn=document.createElement('span');sn.className='share-note';sn.textContent='Owner will see these';
-      chk.onchange=function(){sn.style.opacity=chk.checked?'1':'0';if(chk.checked)toast('Notes will be shared with '+m.ownerName,'info');};
-      sb.appendChild(chk);sb.appendChild(lbl);sb.appendChild(sn);spBody.appendChild(sb);
+    if (!isOwner && (m.phase === 'during' || m.phase === 'after')) {
+      var sbBar = document.createElement('div');
+      sbBar.className = 'mn-share-bar';
+      var sbChk = document.createElement('input');
+      sbChk.type = 'checkbox'; sbChk.id = 'mnShareChk';
+      sbChk.style.cursor = 'pointer';
+      // Load existing share state
+      db.ref(MN_PATH + '/share-flags/' + key + '/' + uid).once('value').then(function(snap) {
+        sbChk.checked = !!snap.val();
+        sbNote.style.opacity = sbChk.checked ? '1' : '0';
+      });
+      var sbLbl = document.createElement('label');
+      sbLbl.htmlFor = 'mnShareChk';
+      sbLbl.style.cssText = 'cursor:pointer;flex:1;font-size:12px;color:var(--text-muted)';
+      sbLbl.textContent = 'Share my notes with ' + (m.ownerName || 'the owner') + ' to include in the AI-generated minutes';
+      var sbNote = document.createElement('span');
+      sbNote.className = 'mn-share-note';
+      sbNote.textContent = 'Owner will see these';
+      sbChk.onchange = function() {
+        sbNote.style.opacity = sbChk.checked ? '1' : '0';
+        NL.ensureAuth().then(function() {
+          db.ref(MN_PATH + '/share-flags/' + key + '/' + uid).set(sbChk.checked ? true : null);
+          if (sbChk.checked) NL.toast('Notes will be shared with ' + (m.ownerName || 'the owner'), 'info');
+        });
+      };
+      sbBar.appendChild(sbChk); sbBar.appendChild(sbLbl); sbBar.appendChild(sbNote);
+      spBody.appendChild(sbBar);
     }
-    spSec.appendChild(spBody);pb.appendChild(spSec);
+    spSec.appendChild(spBody);
+    body.appendChild(spSec);
   }
 
-  // ── SECTION 3: Minutes (only if after) ──
-  if(m.phase==='after'){
-    var minSec=document.createElement('div');minSec.className='section';
-    var minHdr=document.createElement('div');minHdr.className='section__hdr';
-    var minLbl=document.createElement('div');minLbl.className='section__label';minLbl.textContent='Minutes';
+  // ── SECTION: Minutes (after only) ──
+  if (m.phase === 'after') {
+    var minSec = document.createElement('div');
+    minSec.className = 'mn-section';
+    minSec.style.position = 'relative';
+    var minHdr = document.createElement('div');
+    minHdr.className = 'mn-section__hdr';
+    var minLbl = document.createElement('div');
+    minLbl.className = 'mn-section__label';
+    minLbl.textContent = 'Minutes';
     minHdr.appendChild(minLbl);
-    if(isOwner){
-      var pubBtn=document.createElement('button');pubBtn.className='btn btn-p btn-sm';pubBtn.textContent='Publish to attendees';pubBtn.onclick=function(){toast('Minutes published','success');};
-      minHdr.appendChild(pubBtn);
+
+    if (isOwner) {
+      var minBtns = document.createElement('div');
+      minBtns.style.display = 'flex'; minBtns.style.gap = '8px';
+
+      if (!m.minutes) {
+        // Generate button
+        var genBtn = document.createElement('button');
+        genBtn.className = 'btn btn--navy btn--sm';
+        genBtn.textContent = 'Generate with AI';
+        genBtn.onclick = function() { mnGenerateMinutes(key, minSec); };
+        minBtns.appendChild(genBtn);
+      } else {
+        // Publish button
+        var pubBtn = document.createElement('button');
+        pubBtn.className = 'btn btn--primary btn--sm';
+        pubBtn.textContent = m.published ? '✓ Published' : 'Publish to attendees';
+        pubBtn.onclick = function() { mnPublishMinutes(key, pubBtn); };
+        minBtns.appendChild(pubBtn);
+        // Regenerate
+        var regenBtn = document.createElement('button');
+        regenBtn.className = 'btn btn--sm';
+        regenBtn.textContent = 'Regenerate';
+        regenBtn.onclick = function() { mnGenerateMinutes(key, minSec); };
+        minBtns.appendChild(regenBtn);
+      }
+      minHdr.appendChild(minBtns);
     }
     minSec.appendChild(minHdr);
-    var minBody=document.createElement('div');minBody.className='section__body';
-    var minTxt=document.createElement('div');minTxt.className='minutes-body';
-    minTxt.innerHTML='<p>The Q2 review confirmed strong performance in NL Premier coverage with CTR up 12%. Social impressions are healthy but conversion on club-level content remains weak — retargeting strategy to be revisited before the next cycle.</p>'+
-      '<p>Season 25/26 planning moves to an end-of-May brief rather than July. Contract renewal discussions were positive; Two Circles flagged an additional digital resource request to factor into negotiations.</p>';
-    minBody.appendChild(minTxt);
 
-    var apHead=document.createElement('div');apHead.style.cssText='margin-top:18px;margin-bottom:10px;font-size:13px;font-variation-settings:"wght" 800;color:var(--text)';apHead.textContent='Action points';
-    minBody.appendChild(apHead);
-    [{title:'Draft scope doc for 25/26 season',status:'open'},{title:'Receive updated reach data from Sarah',status:'waiting'},{title:'Review conversion targeting on club content',status:'open'}].forEach(function(a){
-      var row=document.createElement('div');row.className='arow';
-      var chk=document.createElement('div');chk.className='acheck '+(a.status==='waiting'?'waiting':'');chk.textContent=a.status==='waiting'?'~':'';
-      var b=document.createElement('div');b.className='arow__body';
-      var t=document.createElement('div');t.className='arow__title';t.textContent=a.title;b.appendChild(t);
-      var r=document.createElement('div');r.className='arow__right';
-      var p=document.createElement('span');p.className='pill p-'+(a.status==='waiting'?'waiting':'open');p.textContent=a.status;r.appendChild(p);
-      row.appendChild(chk);row.appendChild(b);row.appendChild(r);minBody.appendChild(row);
+    // AI spinner overlay
+    var overlay = document.createElement('div');
+    overlay.className = 'mn-ai-overlay';
+    overlay.id = 'mnAiOverlay-' + key;
+    overlay.innerHTML = '<div class="spinner"></div><div>Generating minutes…</div>';
+    minSec.appendChild(overlay);
+
+    var minBody = document.createElement('div');
+    minBody.className = 'mn-section__body';
+    minBody.id = 'mnMinutesBody-' + key;
+
+    if (!m.minutes) {
+      var noMin = document.createElement('div');
+      noMin.style.cssText = 'font-size:13px;color:var(--text-muted);font-style:italic';
+      noMin.textContent = isOwner
+        ? 'No minutes yet. Click "Generate with AI" to produce minutes from your notes.'
+        : 'Minutes have not been generated yet.';
+      minBody.appendChild(noMin);
+    } else {
+      mnRenderMinutesBody(minBody, key, m, isOwner);
+    }
+    minSec.appendChild(minBody);
+    body.appendChild(minSec);
+  }
+}
+
+function mnRenderMinutesBody(container, key, m, isOwner) {
+  container.innerHTML = '';
+  if (isOwner) {
+    // Editable textarea for owner to review/edit before publish
+    var ta = document.createElement('textarea');
+    ta.className = 'mn-minutes-textarea';
+    ta.value = m.minutes || '';
+    ta.onblur = function() {
+      NL.ensureAuth().then(function() {
+        db.ref(MN_PATH + '/meetings/' + key + '/minutes').set(ta.value);
+      });
+    };
+    container.appendChild(ta);
+  } else {
+    // Read-only for participants
+    var div = document.createElement('div');
+    div.className = 'mn-minutes-body';
+    var paras = (m.minutes || '').split('\n\n');
+    paras.forEach(function(p) {
+      if (!p.trim()) return;
+      var el = document.createElement('p');
+      el.textContent = p.trim();
+      div.appendChild(el);
+    });
+    container.appendChild(div);
+  }
+
+  // Action points from minutes
+  var actions = m.minutesActions || [];
+  if (actions.length) {
+    var apHead = document.createElement('div');
+    apHead.style.cssText = 'margin-top:18px;margin-bottom:10px;font-size:13px;font-variation-settings:"wght" 800;color:var(--text)';
+    apHead.textContent = 'Action points';
+    container.appendChild(apHead);
+    actions.forEach(function(a) {
+      var row = document.createElement('div');
+      row.className = 'mn-arow';
+      var chk = document.createElement('div');
+      chk.className = 'mn-acheck ' + (a.status === 'done' ? 'done' : a.status === 'waiting' ? 'waiting' : '');
+      chk.textContent = a.status === 'done' ? '✓' : a.status === 'waiting' ? '~' : '';
+      var b = document.createElement('div'); b.className = 'mn-arow__body';
+      var t = document.createElement('div');
+      t.className = 'mn-arow__title' + (a.status === 'done' ? ' done' : '');
+      t.textContent = a.title || '';
+      b.appendChild(t);
+      if (a.due || a.assignee) {
+        var mt = document.createElement('div'); mt.className = 'mn-arow__meta';
+        mt.textContent = (a.due ? 'Due ' + a.due : '') + (a.assignee ? ' · ' + a.assignee : '');
+        b.appendChild(mt);
+      }
+      var r = document.createElement('div'); r.className = 'mn-arow__right';
+      var pp = document.createElement('span');
+      pp.className = 'mn-pill mn-pill--' + (a.status || 'open');
+      pp.textContent = a.status || 'open';
+      r.appendChild(pp);
+      row.appendChild(chk); row.appendChild(b); row.appendChild(r);
+      container.appendChild(row);
+    });
+  }
+}
+
+/* ── AI MINUTES GENERATION ─────────────────────────────────────────── */
+function mnGenerateMinutes(key, section) {
+  var overlay = document.getElementById('mnAiOverlay-' + key);
+  if (overlay) overlay.classList.add('visible');
+
+  var m = mnMeetings[key];
+  var uid = mnSession.uid;
+
+  // Gather: owner scratchpad + any shared participant scratchpads
+  var scratchpadRef = db.ref(MN_PATH + '/scratchpads/' + key);
+  var shareFlagsRef = db.ref(MN_PATH + '/share-flags/' + key);
+
+  Promise.all([
+    scratchpadRef.once('value'),
+    shareFlagsRef.once('value')
+  ]).then(function(results) {
+    var scratchpads = results[0].val() || {};
+    var shareFlags  = results[1].val() || {};
+    var ownerNotes  = scratchpads[uid] || '';
+    var sharedNotes = [];
+    Object.keys(shareFlags).forEach(function(participantUid) {
+      if (shareFlags[participantUid] && scratchpads[participantUid]) {
+        sharedNotes.push(scratchpads[participantUid]);
+      }
     });
 
-    if(isOwner){var note=document.createElement('div');note.style.cssText='margin-top:12px;font-size:12px;color:var(--muted);font-style:italic';note.textContent='You can edit the minutes above before publishing.';minBody.appendChild(note);}
-    minSec.appendChild(minBody);pb.appendChild(minSec);
+    var agenda = (m.agenda || []).map(function(a, i) {
+      return (i + 1) + '. ' + a.title + (a.time ? ' (' + a.time + ')' : '');
+    }).join('\n');
+
+    var prompt = 'You are producing formal meeting minutes for ' + (m.title || 'a meeting') + ' held on ' + (m.dateDisplay || 'an unspecified date') + '.\n\n' +
+      'Meeting agenda:\n' + agenda + '\n\n' +
+      'Primary notes (from the meeting owner):\n' + (ownerNotes || '(no notes provided)') + '\n\n' +
+      (sharedNotes.length ? 'Additional notes from participants:\n' + sharedNotes.join('\n\n---\n\n') + '\n\n' : '') +
+      'Produce concise, professional meeting minutes in plain prose. Include:\n' +
+      '1. A short summary paragraph of what was discussed and decided.\n' +
+      '2. Key decisions made (if any).\n' +
+      '3. A list of action points in the format: "Action: [description] — [owner if mentioned] — due [date if mentioned]"\n\n' +
+      'Write in third person. Keep it factual. Do not invent details not present in the notes. If notes are sparse, produce a minimal but professional record.';
+
+    // GAS proxy call to Anthropic API
+    fetch(NL_GAS_URL + '?cb=' + Date.now(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        action: 'generateMeetingMinutes',
+        prompt: prompt,
+        meetingId: key,
+        meetingTitle: m.title || 'Meeting'
+      })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      if (overlay) overlay.classList.remove('visible');
+      if (!result.success) {
+        NL.toast('Could not generate minutes: ' + (result.error || 'unknown error'), 'error');
+        return;
+      }
+      var minutes = result.minutes || '';
+      var actions = result.actions || [];
+
+      NL.ensureAuth().then(function() {
+        db.ref(MN_PATH + '/meetings/' + key + '/minutes').set(minutes);
+        db.ref(MN_PATH + '/meetings/' + key + '/minutesActions').set(actions.length ? actions : null);
+        NL.writeAudit('minutes_generated', 'Minutes generated for: ' + (m.title || key));
+        NL.toast('Minutes generated — review and publish when ready', 'success');
+        mnRenderDetail(key);
+
+        // Save extracted actions to /actions node
+        actions.forEach(function(a) {
+          var aRef = db.ref(MN_PATH + '/actions').push();
+          aRef.set({
+            title:      a.title || '',
+            meetingKey: key,
+            meetingTitle: m.title || '',
+            projectKey: m.projectKey || '',
+            ownerUid:   uid,
+            status:     'open',
+            due:        a.due || '',
+            createdAt:  Date.now()
+          });
+        });
+      });
+    })
+    .catch(function(err) {
+      if (overlay) overlay.classList.remove('visible');
+      NL.toast('Error generating minutes — the AI integration will be available once GAS is updated.', 'error');
+      console.error('Minutes generation error:', err);
+    });
+  });
+}
+
+function mnPublishMinutes(key, btn) {
+  NL.ensureAuth().then(function() {
+    db.ref(MN_PATH + '/meetings/' + key + '/published').set(true);
+    NL.writeAudit('minutes_published', 'Minutes published for: ' + (mnMeetings[key] ? mnMeetings[key].title : key));
+    NL.toast('Minutes published to attendees', 'success');
+    btn.textContent = '✓ Published';
+  });
+}
+
+/* ── LIVE MODAL ────────────────────────────────────────────────────── */
+function mnOpenModal(key, isNew) {
+  var m = mnMeetings[key];
+  if (!m) return;
+  var uid = mnSession.uid;
+  var isOwner = m.ownerUid === uid;
+
+  if (isNew) {
+    mnLiveMtg  = { key: key };
+    mnLiveIdx  = null;
+    mnLiveDone = {};
+    NL.ensureAuth().then(function() {
+      db.ref(MN_PATH + '/meetings/' + key + '/phase').set('during');
+      NL.writeAudit('meeting_started', 'Meeting started: ' + (m.title || key));
+    });
+    mnUpdateBanner();
   }
+
+  document.getElementById('mnModalDot').style.background  = (mnProjects[m.projectKey] || {}).colour || '#888';
+  document.getElementById('mnModalTitle').textContent     = m.title || 'Meeting';
+  document.getElementById('mnModalMeta').textContent      = (m.dateDisplay || '') + ' · ' + ((mnProjects[m.projectKey] || {}).name || '') + ' · ' + (isOwner ? 'You are the owner' : 'You are a participant');
+  document.getElementById('mnModalEndBtn').textContent    = isOwner ? '✕ End meeting' : '✕ Leave';
+
+  mnRenderModalAgenda(key);
+  mnUpdateProgress();
+  mnRenderModalScratchpad(key);
+
+  document.getElementById('mnBackdrop').classList.add('open');
 }
 
-/* ── LIVE MODAL ── */
-function openModal(m, isNew){
-  if(isNew){liveMtg=m;liveIdx=null;liveDone={};if(m.phase!=='after')m.phase='during';updateBanner();}
-  var isOwner=m.owner===ME;
-  document.getElementById('mDot').style.background=PROJ[m.project]||'#888';
-  document.getElementById('mTitle').textContent=m.title;
-  document.getElementById('mMeta').textContent=m.date+' · '+m.project+' · '+(isOwner?'You are the owner':'You are a participant');
-  document.getElementById('mEndBtn').textContent=isOwner?'✕ End meeting':'✕ Leave';
-  renderModalAgenda();
-  updateProgress();
-  // Default right panel
-  var rb=document.getElementById('mRightBody');rb.innerHTML='';
-  document.getElementById('mRightTitle').textContent='Scratchpad';
-  document.getElementById('mRightMeta').textContent='Private to you · nobody else can see this';
-  renderScratchpad(rb,m,isOwner);
-  document.getElementById('backdrop').classList.add('open');
-}
+function mnRenderModalScratchpad(key) {
+  var uid     = mnSession.uid;
+  var m       = mnMeetings[key];
+  var isOwner = m.ownerUid === uid;
+  var body    = document.getElementById('mnModalRightBody');
+  body.innerHTML = '';
 
-function renderScratchpad(container,m,isOwner){
-  container.innerHTML='';
-  var lbl=document.createElement('div');lbl.className='sp-label';lbl.textContent='Your notes — private';container.appendChild(lbl);
-  if(!m.scratchpad)m.scratchpad={};
-  var ta=document.createElement('textarea');ta.className='scratchpad';ta.style.flex='1';
-  ta.placeholder='Free-form notes for this meeting…\nNobody else sees these unless you choose to share.';
-  ta.value=m.scratchpad[ME]||'';
-  ta.oninput=function(){m.scratchpad[ME]=ta.value;};
-  container.appendChild(ta);
-  if(!isOwner){
-    var sb=document.createElement('div');sb.className='share-bar';sb.style.borderRadius='0 0 '+getComputedStyle(document.documentElement).getPropertyValue('--radius')+' '+getComputedStyle(document.documentElement).getPropertyValue('--radius');
-    var chk=document.createElement('input');chk.type='checkbox';chk.id='mShareChk';chk.style.cursor='pointer';
-    var lbl2=document.createElement('label');lbl2.htmlFor='mShareChk';lbl2.style.cssText='cursor:pointer;flex:1;font-size:12px;color:var(--muted)';
-    lbl2.textContent='Share with '+m.ownerName+' for AI minutes';
-    var sn=document.createElement('span');sn.className='share-note';sn.textContent='Owner will see these';
-    chk.onchange=function(){sn.style.opacity=chk.checked?'1':'0';if(chk.checked)toast('Notes shared with '+m.ownerName,'info');};
-    sb.appendChild(chk);sb.appendChild(lbl2);sb.appendChild(sn);container.appendChild(sb);
-  }
-  setTimeout(function(){if(ta)ta.focus();},50);
-}
+  var lbl = document.createElement('div');
+  lbl.style.cssText = 'font-size:10px;font-variation-settings:"wght" 800;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px';
+  lbl.textContent = 'Your notes — private';
+  body.appendChild(lbl);
 
-function renderModalAgenda(){
-  var list=document.getElementById('maList');list.innerHTML='';
-  if(!liveMtg)return;
-  liveMtg.agenda.forEach(function(a,i){
-    var item=document.createElement('div');item.className='ma-item'+(liveIdx===i?' active':'');
-    var num=document.createElement('div');num.className='ma-item__num';num.textContent=liveDone[i]?'✓':(i+1);
-    var body=document.createElement('div');
-    var title=document.createElement('div');title.className='ma-item__title';title.textContent=a.title;
-    var time=document.createElement('div');time.className='ma-item__time';time.textContent=a.time+(liveDone[i]?' · done':'');
-    body.appendChild(title);body.appendChild(time);
-    item.appendChild(num);item.appendChild(body);
-    item.onclick=function(){
-      liveIdx=i;
-      // Clicking agenda item just highlights it — scratchpad stays as is
-      renderModalAgenda();updateProgress();
-      if(liveDone[i]===undefined){}
-      // Toggle done on double click via button below
+  var ta = document.createElement('textarea');
+  ta.className = 'mn-scratchpad';
+  ta.style.flex = '1';
+  ta.placeholder = 'Free-form notes for this meeting…\nNobody else sees these unless you choose to share.';
+  var spKey = MN_PATH + '/scratchpads/' + key + '/' + uid;
+  db.ref(spKey).once('value').then(function(snap) { ta.value = snap.val() || ''; });
+  ta.onblur = function() {
+    NL.ensureAuth().then(function() { db.ref(spKey).set(ta.value); });
+  };
+  body.appendChild(ta);
+
+  if (!isOwner) {
+    var sb = document.createElement('div');
+    sb.className = 'mn-share-bar';
+    var chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.id = 'mnModalShareChk'; chk.style.cursor = 'pointer';
+    db.ref(MN_PATH + '/share-flags/' + key + '/' + uid).once('value').then(function(snap) {
+      chk.checked = !!snap.val();
+      sn.style.opacity = chk.checked ? '1' : '0';
+    });
+    var lbl2 = document.createElement('label');
+    lbl2.htmlFor = 'mnModalShareChk';
+    lbl2.style.cssText = 'cursor:pointer;flex:1;font-size:12px;color:var(--text-muted)';
+    lbl2.textContent = 'Share with ' + (m.ownerName || 'the owner') + ' for AI minutes';
+    var sn = document.createElement('span');
+    sn.className = 'mn-share-note';
+    sn.textContent = 'Owner will see these';
+    chk.onchange = function() {
+      sn.style.opacity = chk.checked ? '1' : '0';
+      NL.ensureAuth().then(function() {
+        db.ref(MN_PATH + '/share-flags/' + key + '/' + uid).set(chk.checked ? true : null);
+        if (chk.checked) NL.toast('Notes shared with ' + (m.ownerName || 'owner'), 'info');
+      });
     };
+    sb.appendChild(chk); sb.appendChild(lbl2); sb.appendChild(sn);
+    body.appendChild(sb);
+  }
+
+  setTimeout(function() { if (ta) ta.focus(); }, 80);
+}
+
+function mnRenderModalAgenda(key) {
+  var m    = mnMeetings[key];
+  var list = document.getElementById('mnModalAgendaList');
+  var foot = document.getElementById('mnModalAgendaFooter');
+  if (!list) return;
+  list.innerHTML = '';
+  foot.innerHTML = '';
+  var agenda = m.agenda || [];
+
+  agenda.forEach(function(a, i) {
+    var item = document.createElement('div');
+    item.className = 'mn-mrow' + (mnLiveIdx === i ? ' active' : '') + (mnLiveDone[i] ? ' done-item' : '');
+    var num = document.createElement('div'); num.className = 'mn-mrow__num';
+    num.textContent = mnLiveDone[i] ? '✓' : (i + 1);
+    var bd = document.createElement('div');
+    var title = document.createElement('div'); title.className = 'mn-mrow__title'; title.textContent = a.title || '';
+    var sub   = document.createElement('div'); sub.className = 'mn-mrow__sub'; sub.textContent = a.time || '';
+    bd.appendChild(title); bd.appendChild(sub);
+    item.appendChild(num); item.appendChild(bd);
+    item.onclick = (function(idx) { return function() { mnLiveIdx = idx; mnRenderModalAgenda(key); mnUpdateProgress(); }; })(i);
     list.appendChild(item);
   });
 
-  // Mark current item done button
-  var existing=document.getElementById('maDoneRow');if(existing)existing.remove();
-  if(liveIdx!==null){
-    var doneRow=document.createElement('div');doneRow.id='maDoneRow';doneRow.style.cssText='padding:10px 15px;border-top:1px solid var(--border);margin-top:auto';
-    var doneBtn=document.createElement('button');
-    doneBtn.className='btn btn-sm'+(liveDone[liveIdx]?' btn-p':' btn-g');doneBtn.style.width='100%';
-    doneBtn.textContent=liveDone[liveIdx]?'✓ Item done':'Mark item done';
-    doneBtn.onclick=function(){
-      liveDone[liveIdx]=!liveDone[liveIdx];
-      renderModalAgenda();updateProgress();
-      if(liveDone[liveIdx])toast('Item done','success');
+  // Mark done for current item
+  if (mnLiveIdx !== null && agenda[mnLiveIdx]) {
+    var doneBtn = document.createElement('button');
+    doneBtn.className = 'btn btn--sm' + (mnLiveDone[mnLiveIdx] ? ' btn--primary' : ' btn--ghost');
+    doneBtn.style.width = '100%';
+    doneBtn.textContent = mnLiveDone[mnLiveIdx] ? '✓ Item done' : 'Mark item done';
+    doneBtn.onclick = function() {
+      mnLiveDone[mnLiveIdx] = !mnLiveDone[mnLiveIdx];
+      mnRenderModalAgenda(key);
+      mnUpdateProgress();
+      if (mnLiveDone[mnLiveIdx]) NL.toast('Item done', 'success');
     };
-    doneRow.appendChild(doneBtn);
-    document.querySelector('.modal-agenda').appendChild(doneRow);
+    foot.appendChild(doneBtn);
   }
 }
 
-function updateProgress(){
-  if(!liveMtg)return;
-  var total=liveMtg.agenda.length;
-  var done=Object.keys(liveDone).filter(function(k){return liveDone[k];}).length;
-  document.getElementById('mProgTxt').textContent=done+' of '+total+' items';
-  document.getElementById('mProgFill').style.width=(total?Math.round(done/total*100):0)+'%';
+function mnUpdateProgress() {
+  var key = mnLiveMtg ? mnLiveMtg.key : null;
+  if (!key || !mnMeetings[key]) return;
+  var total = (mnMeetings[key].agenda || []).length;
+  var done  = Object.keys(mnLiveDone).filter(function(k) { return mnLiveDone[k]; }).length;
+  document.getElementById('mnProgText').textContent = done + ' of ' + total + ' items';
+  document.getElementById('mnProgFill').style.width = (total ? Math.round(done / total * 100) : 0) + '%';
 }
 
-function mNext(){if(!liveMtg)return;liveIdx=liveIdx===null?0:Math.min(liveIdx+1,liveMtg.agenda.length-1);renderModalAgenda();updateProgress();}
-function mPrev(){if(!liveMtg||liveIdx===null||liveIdx===0)return;liveIdx--;renderModalAgenda();updateProgress();}
-
-function endMeeting(){
-  var isOwner=liveMtg&&liveMtg.owner===ME;
-  document.getElementById('backdrop').classList.remove('open');
-  if(isOwner)toast('Meeting ended — open the meeting to generate minutes','success');
-  else toast('Left meeting','info');
-  liveMtg=null;updateBanner();
-  if(curMeeting){var pb=document.getElementById('pb');pb.innerHTML='';openDetail(curMeeting);}
+function mnModalNext() {
+  var key = mnLiveMtg ? mnLiveMtg.key : null;
+  if (!key) return;
+  var len = (mnMeetings[key].agenda || []).length;
+  mnLiveIdx = mnLiveIdx === null ? 0 : Math.min(mnLiveIdx + 1, len - 1);
+  mnRenderModalAgenda(key);
+  mnUpdateProgress();
 }
 
-document.getElementById('backdrop').addEventListener('click',function(e){if(e.target===this)document.getElementById('backdrop').classList.remove('open');});
+function mnModalPrev() {
+  var key = mnLiveMtg ? mnLiveMtg.key : null;
+  if (!key || mnLiveIdx === null || mnLiveIdx === 0) return;
+  mnLiveIdx--;
+  mnRenderModalAgenda(key);
+  mnUpdateProgress();
+}
 
-/* ── ACTIONS ── */
-function renderActions(c){
-  var fr=document.createElement('div');fr.className='frow';
-  ['all','open','waiting','done'].forEach(function(f){
-    var chip=document.createElement('div');chip.className='chip'+(afilt===f?' active':'');chip.textContent=f.charAt(0).toUpperCase()+f.slice(1);
-    chip.onclick=function(){afilt=f;c.innerHTML='';renderActions(c);};fr.appendChild(chip);
-  });c.appendChild(fr);
-  var st=document.createElement('div');st.className='stats';
-  var oc=actions.filter(function(a){return a.status==='open';}).length;
-  var wc=actions.filter(function(a){return a.status==='waiting';}).length;
-  var dc=actions.filter(function(a){return a.status==='done';}).length;
-  st.innerHTML='<div class="stat"><div class="stat__n">'+oc+'</div><div class="stat__l">Open</div></div>'+
-    '<div class="stat"><div class="stat__n" style="color:var(--amber)">'+wc+'</div><div class="stat__l">Waiting</div></div>'+
-    '<div class="stat"><div class="stat__n" style="color:var(--green)">'+dc+'</div><div class="stat__l">Done</div></div>';
-  c.appendChild(st);
-  var filtered=afilt==='all'?actions:actions.filter(function(a){return a.status===afilt;});
-  filtered.forEach(function(a){
-    var row=document.createElement('div');row.className='arow';
-    var chk=document.createElement('div');chk.className='acheck '+(a.status==='done'?'done':a.status==='waiting'?'waiting':'');chk.textContent=a.status==='done'?'✓':a.status==='waiting'?'~':'';
-    var b=document.createElement('div');b.className='arow__body';
-    var t=document.createElement('div');t.className='arow__title'+(a.status==='done'?' done':'');t.textContent=a.title;
-    var m=document.createElement('div');m.className='arow__meta';m.textContent=a.meeting+' · Due '+a.due+(a.assignee?' · '+a.assignee:'');
-    b.appendChild(t);b.appendChild(m);
-    var r=document.createElement('div');r.className='arow__right';
-    var pp=document.createElement('span');pp.className='pill p-'+a.status;pp.textContent=a.status;
-    var pj=document.createElement('span');pj.style.cssText='font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px';
-    var pd=document.createElement('span');pd.style.cssText='width:7px;height:7px;border-radius:50%;background:'+(PROJ[a.project]||'#888');
-    pj.appendChild(pd);pj.appendChild(document.createTextNode(a.project));
-    r.appendChild(pp);r.appendChild(pj);
-    row.appendChild(chk);row.appendChild(b);row.appendChild(r);c.appendChild(row);
+function mnEndMeeting() {
+  var key     = mnLiveMtg ? mnLiveMtg.key : null;
+  var m       = key ? mnMeetings[key] : null;
+  var isOwner = m && m.ownerUid === mnSession.uid;
+  document.getElementById('mnBackdrop').classList.remove('open');
+  if (isOwner) {
+    NL.toast('Meeting ended — open the meeting and generate minutes when ready', 'success');
+  } else {
+    NL.toast('Left meeting', 'info');
+  }
+  mnLiveMtg = null;
+  mnUpdateBanner();
+  if (mnCurMeeting) mnRenderDetail(mnCurMeeting);
+}
+
+function mnUpdateBanner() {
+  var b  = document.getElementById('mnLiveBanner');
+  var bt = document.getElementById('mnLiveBannerText');
+  if (mnLiveMtg && mnMeetings[mnLiveMtg.key]) {
+    b.classList.add('visible');
+    bt.textContent = '● ' + (mnMeetings[mnLiveMtg.key].title || 'Meeting') + ' is in progress';
+  } else {
+    b.classList.remove('visible');
+  }
+}
+
+function mnReopenModal() {
+  if (mnLiveMtg) mnOpenModal(mnLiveMtg.key, false);
+}
+
+document.getElementById('mnBackdrop').addEventListener('click', function(e) {
+  if (e.target === this) document.getElementById('mnBackdrop').classList.remove('open');
+});
+
+/* ── NEW MEETING ───────────────────────────────────────────────────── */
+function mnNewMeeting() {
+  // Modal form for creating a new meeting
+  var backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'mnNewMtgBackdrop';
+
+  var modal = document.createElement('div');
+  modal.className = 'modal';
+
+  var head = document.createElement('div'); head.className = 'modal__head';
+  var headTitle = document.createElement('h2'); headTitle.textContent = 'New meeting';
+  var closeBtn = document.createElement('button'); closeBtn.className = 'modal__close'; closeBtn.textContent = '×';
+  closeBtn.onclick = function() { backdrop.remove(); };
+  head.appendChild(headTitle); head.appendChild(closeBtn);
+
+  var body = document.createElement('div'); body.className = 'modal__body';
+
+  // Title
+  var tg = document.createElement('div'); tg.className = 'form-group';
+  var tl = document.createElement('label'); tl.textContent = 'Meeting title'; tl.htmlFor = 'mnNewTitle';
+  var ti = document.createElement('input'); ti.type = 'text'; ti.id = 'mnNewTitle'; ti.placeholder = 'e.g. Q2 Strategy Review';
+  tg.appendChild(tl); tg.appendChild(ti); body.appendChild(tg);
+
+  // Date
+  var dg = document.createElement('div'); dg.className = 'form-group';
+  var dl = document.createElement('label'); dl.textContent = 'Date'; dl.htmlFor = 'mnNewDate';
+  var di = document.createElement('input'); di.type = 'date'; di.id = 'mnNewDate';
+  var today = new Date(); di.value = today.toISOString().split('T')[0];
+  dg.appendChild(dl); dg.appendChild(di); body.appendChild(dg);
+
+  // Project
+  var pg = document.createElement('div'); pg.className = 'form-group';
+  var pl = document.createElement('label'); pl.textContent = 'Project'; pl.htmlFor = 'mnNewProj';
+  var ps = document.createElement('select'); ps.id = 'mnNewProj';
+  var noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '— No project —';
+  ps.appendChild(noneOpt);
+  Object.keys(mnProjects).forEach(function(k) {
+    var opt = document.createElement('option'); opt.value = k; opt.textContent = mnProjects[k].name || k;
+    ps.appendChild(opt);
+  });
+  var newProjOpt = document.createElement('option'); newProjOpt.value = '__new__'; newProjOpt.textContent = '+ New project…';
+  ps.appendChild(newProjOpt);
+  pg.appendChild(pl); pg.appendChild(ps); body.appendChild(pg);
+
+  // New project name (hidden unless __new__ selected)
+  var npg = document.createElement('div'); npg.className = 'form-group'; npg.style.display = 'none'; npg.id = 'mnNewProjWrap';
+  var npl = document.createElement('label'); npl.textContent = 'New project name'; npl.htmlFor = 'mnNewProjName';
+  var npi = document.createElement('input'); npi.type = 'text'; npi.id = 'mnNewProjName'; npi.placeholder = 'e.g. Two Circles';
+  npg.appendChild(npl); npg.appendChild(npi); body.appendChild(npg);
+  ps.onchange = function() {
+    npg.style.display = ps.value === '__new__' ? 'block' : 'none';
+  };
+
+  // Agenda items
+  var ag = document.createElement('div'); ag.className = 'form-group';
+  var al = document.createElement('label'); al.textContent = 'Agenda items (one per line, optional time after a dash)';
+  var ah = document.createElement('div'); ah.className = 'form-hint'; ah.textContent = 'e.g. Campaign review — 15 min';
+  var ata = document.createElement('textarea'); ata.style.cssText = 'width:100%;min-height:100px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;resize:vertical';
+  ata.placeholder = 'Campaign performance review — 15 min\nSeason 25/26 planning — 20 min\nAOB — 5 min';
+  ag.appendChild(al); ag.appendChild(ah); ag.appendChild(ata); body.appendChild(ag);
+
+  var foot = document.createElement('div'); foot.className = 'modal__footer';
+  var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn--ghost'; cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = function() { backdrop.remove(); };
+  var saveBtn = document.createElement('button'); saveBtn.className = 'btn btn--primary'; saveBtn.textContent = 'Create meeting';
+  saveBtn.onclick = function() {
+    var title = ti.value.trim();
+    if (!title) { NL.toast('Please add a meeting title', 'error'); return; }
+    var dateVal = di.value;
+    var dateDisp = dateVal ? NL.formatDate(dateVal) : '';
+
+    var projKey = ps.value;
+    var projPromise = Promise.resolve(projKey);
+
+    if (projKey === '__new__') {
+      var newProjName = npi.value.trim();
+      if (!newProjName) { NL.toast('Please enter a project name', 'error'); return; }
+      var colour = PROJ_COLOURS[Object.keys(mnProjects).length % PROJ_COLOURS.length];
+      var newProjRef = db.ref(MN_PATH + '/projects').push();
+      projPromise = newProjRef.set({ name: newProjName, colour: colour, createdAt: Date.now() }).then(function() {
+        return newProjRef.key;
+      });
+    }
+
+    // Parse agenda
+    var agendaLines = ata.value.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    var agenda = agendaLines.map(function(line) {
+      var parts = line.split(/\s*[-–]\s*(?=\d)/);
+      return { title: (parts[0] || line).trim(), time: (parts[1] || '').trim() };
+    });
+
+    projPromise.then(function(resolvedProjKey) {
+      NL.ensureAuth().then(function() {
+        var ref = db.ref(MN_PATH + '/meetings').push();
+        ref.set({
+          title:         title,
+          dateIso:       dateVal,
+          dateDisplay:   dateDisp,
+          projectKey:    resolvedProjKey || '',
+          ownerUid:      mnSession.uid,
+          ownerName:     mnSession.name || mnSession.email || '',
+          attendeeUids:  {},
+          attendeeNames: {},
+          phase:         'upcoming',
+          agenda:        agenda.length ? agenda : [],
+          generalNote:   '',
+          createdAt:     Date.now()
+        });
+        NL.writeAudit('meeting_created', 'Meeting created: ' + title);
+        NL.toast('Meeting created', 'success');
+        backdrop.remove();
+      });
+    });
+  };
+  foot.appendChild(cancelBtn); foot.appendChild(saveBtn);
+  modal.appendChild(head); modal.appendChild(body); modal.appendChild(foot);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  setTimeout(function() { ti.focus(); }, 50);
+}
+
+/* ── EDIT MEETING ──────────────────────────────────────────────────── */
+function mnEditMeeting(key) {
+  NL.toast('Full edit form — same pattern as new meeting, coming in next build', 'info');
+}
+
+/* ── ACTIONS VIEW ──────────────────────────────────────────────────── */
+function mnRenderActions(container) {
+  var fr = document.createElement('div'); fr.className = 'mn-frow';
+  ['all','open','waiting','done'].forEach(function(f) {
+    var chip = document.createElement('div');
+    chip.className = 'mn-chip' + (mnActionFilter === f ? ' active' : '');
+    chip.textContent = f.charAt(0).toUpperCase() + f.slice(1);
+    chip.onclick = function() { mnActionFilter = f; mnRefreshView(); };
+    fr.appendChild(chip);
+  });
+  container.appendChild(fr);
+
+  var keys = Object.keys(mnActions);
+  var filtered = mnActionFilter === 'all' ? keys : keys.filter(function(k) { return mnActions[k].status === mnActionFilter; });
+
+  var oc = keys.filter(function(k){return mnActions[k].status==='open';}).length;
+  var wc = keys.filter(function(k){return mnActions[k].status==='waiting';}).length;
+  var dc = keys.filter(function(k){return mnActions[k].status==='done';}).length;
+
+  var stats = document.createElement('div'); stats.className = 'stats';
+  stats.innerHTML = '<div class="stat"><div class="stat__num">'+oc+'</div><div class="stat__label">Open</div></div>'+
+    '<div class="stat stat--waiting"><div class="stat__num" style="color:var(--amber)">'+wc+'</div><div class="stat__label">Waiting</div></div>'+
+    '<div class="stat stat--done"><div class="stat__num" style="color:var(--green)">'+dc+'</div><div class="stat__label">Done</div></div>';
+  container.appendChild(stats);
+
+  if (!filtered.length) {
+    var e = document.createElement('div'); e.className = 'empty-row';
+    e.style.cssText = 'padding:32px;text-align:center;color:var(--text-muted);font-size:13px';
+    e.textContent = 'No actions here.';
+    container.appendChild(e); return;
+  }
+
+  filtered.forEach(function(k) {
+    var a = mnActions[k];
+    var row = document.createElement('div'); row.className = 'mn-arow';
+    var chk = document.createElement('div');
+    chk.className = 'mn-acheck ' + (a.status === 'done' ? 'done' : a.status === 'waiting' ? 'waiting' : '');
+    chk.textContent = a.status === 'done' ? '✓' : a.status === 'waiting' ? '~' : '';
+    chk.onclick = function() {
+      var next = a.status === 'open' ? 'waiting' : a.status === 'waiting' ? 'done' : 'open';
+      NL.ensureAuth().then(function() {
+        db.ref(MN_PATH + '/actions/' + k + '/status').set(next);
+        NL.toast('Status updated', 'success');
+      });
+    };
+    var b = document.createElement('div'); b.className = 'mn-arow__body';
+    var t = document.createElement('div');
+    t.className = 'mn-arow__title' + (a.status === 'done' ? ' done' : '');
+    t.textContent = a.title || '';
+    var mt = document.createElement('div'); mt.className = 'mn-arow__meta';
+    mt.textContent = (a.meetingTitle || '') + (a.due ? ' · Due ' + a.due : '') + (a.assignee ? ' · ' + a.assignee : '');
+    b.appendChild(t); b.appendChild(mt);
+    var r = document.createElement('div'); r.className = 'mn-arow__right';
+    var pp = document.createElement('span');
+    pp.className = 'mn-pill mn-pill--' + (a.status || 'open');
+    pp.textContent = a.status || 'open';
+    var projKey = a.projectKey;
+    var proj = mnProjects[projKey];
+    if (proj) {
+      var pj = document.createElement('span');
+      pj.style.cssText = 'font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px';
+      var pd = document.createElement('span');
+      pd.style.cssText = 'width:7px;height:7px;border-radius:50%;background:' + (proj.colour || '#888');
+      pj.appendChild(pd); pj.appendChild(document.createTextNode(proj.name));
+      r.appendChild(pp); r.appendChild(pj);
+    } else {
+      r.appendChild(pp);
+    }
+    row.appendChild(chk); row.appendChild(b); row.appendChild(r);
+    container.appendChild(row);
   });
 }
 
-/* ── CALENDAR ── */
-function renderCalendar(c){
-  var h=document.createElement('div');h.style.cssText='font-size:16px;font-variation-settings:"wght" 800;margin-bottom:12px';h.textContent='April 2026';c.appendChild(h);
-  var g=document.createElement('div');g.className='cal';
-  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d){var l=document.createElement('div');l.className='cal-lbl';l.textContent=d;g.appendChild(l);});
-  for(var b=0;b<2;b++)g.appendChild(document.createElement('div'));
-  var md=[18,22,23];
-  for(var d=1;d<=30;d++){var cell=document.createElement('div');cell.className='cal-cell'+(d===23?' today':'')+(md.indexOf(d)>-1?' has':'');cell.textContent=d;g.appendChild(cell);}
-  c.appendChild(g);
-  var leg=document.createElement('div');leg.style.cssText='margin-top:12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px';
-  leg.innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block"></span> Meeting scheduled';
-  c.appendChild(leg);
+/* ── CALENDAR VIEW ─────────────────────────────────────────────────── */
+function mnRenderCalendar(container) {
+  var now = new Date();
+  var yr = now.getFullYear(); var mo = now.getMonth();
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  var h = document.createElement('div');
+  h.style.cssText = 'font-size:16px;font-variation-settings:"wght" 800;margin-bottom:12px';
+  h.textContent = monthNames[mo] + ' ' + yr;
+  container.appendChild(h);
+
+  // Gather meeting dates this month
+  var mtgDays = {};
+  Object.keys(mnMeetings).forEach(function(k) {
+    var m = mnMeetings[k];
+    if (!m.dateIso) return;
+    var d = new Date(m.dateIso);
+    if (d.getFullYear() === yr && d.getMonth() === mo) {
+      mtgDays[d.getDate()] = true;
+    }
+  });
+
+  var grid = document.createElement('div'); grid.className = 'mn-cal';
+  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d) {
+    var l = document.createElement('div'); l.className = 'mn-cal-lbl'; l.textContent = d; grid.appendChild(l);
+  });
+  var firstDay = new Date(yr, mo, 1).getDay(); // 0=Sun
+  var blanks = firstDay === 0 ? 6 : firstDay - 1;
+  for (var b = 0; b < blanks; b++) grid.appendChild(document.createElement('div'));
+  var daysInMonth = new Date(yr, mo + 1, 0).getDate();
+  for (var d = 1; d <= daysInMonth; d++) {
+    var cell = document.createElement('div');
+    cell.className = 'mn-cal-cell' + (d === now.getDate() ? ' today' : '') + (mtgDays[d] ? ' has-mtg' : '');
+    cell.textContent = d; grid.appendChild(cell);
+  }
+  container.appendChild(grid);
+  var leg = document.createElement('div');
+  leg.style.cssText = 'margin-top:12px;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px';
+  leg.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block"></span> Meeting scheduled';
+  container.appendChild(leg);
 }
 
-/* ── CONTACTS ── */
-function renderContacts(c){
-  var fr=document.createElement('div');fr.className='frow';
-  ['All','Two Circles','EFL','National League'].forEach(function(o){
-    var key=o==='All'?'all':o;
-    var chip=document.createElement('div');chip.className='chip'+(ofilt===key?' active':'');chip.textContent=o;
-    chip.onclick=function(){ofilt=key;c.innerHTML='';renderContacts(c);};fr.appendChild(chip);
-  });c.appendChild(fr);
-  var g=document.createElement('div');g.className='cgrid';
-  var filtered=ofilt==='all'?contacts:contacts.filter(function(x){return x.org===ofilt;});
-  filtered.forEach(function(x){
-    var card=document.createElement('div');card.className='ccard';
-    var av=document.createElement('div');av.className='cav';av.textContent=x.initials;
-    var info=document.createElement('div');info.style.minWidth='0';
-    var n=document.createElement('div');n.className='cname';n.textContent=x.name;
-    var o=document.createElement('div');o.className='corg';o.textContent=x.org;
-    var e=document.createElement('div');e.className='cemail';e.textContent=x.email;
-    info.appendChild(n);info.appendChild(o);info.appendChild(e);
-    card.appendChild(av);card.appendChild(info);g.appendChild(card);
-  });c.appendChild(g);
+/* ── CONTACTS VIEW ─────────────────────────────────────────────────── */
+function mnRenderContacts(container) {
+  // Filter chips by org
+  var orgs = ['All'];
+  Object.values(mnContacts).forEach(function(c) { if (c.org && orgs.indexOf(c.org) === -1) orgs.push(c.org); });
+
+  var fr = document.createElement('div'); fr.className = 'mn-frow';
+  orgs.forEach(function(o) {
+    var key = o === 'All' ? 'all' : o;
+    var chip = document.createElement('div');
+    chip.className = 'mn-chip' + (mnOrgFilter === key ? ' active' : '');
+    chip.textContent = o;
+    chip.onclick = function() { mnOrgFilter = key; mnRefreshView(); };
+    fr.appendChild(chip);
+  });
+  container.appendChild(fr);
+
+  // Add contact button
+  var addRow = document.createElement('div');
+  addRow.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:14px';
+  var addBtn = document.createElement('button');
+  addBtn.className = 'btn btn--sm btn--primary';
+  addBtn.textContent = '+ Add contact';
+  addBtn.onclick = mnAddContact;
+  addRow.appendChild(addBtn);
+  container.appendChild(addRow);
+
+  var keys = Object.keys(mnContacts).filter(function(k) {
+    return mnOrgFilter === 'all' || mnContacts[k].org === mnOrgFilter;
+  });
+
+  if (!keys.length) {
+    var e = document.createElement('div');
+    e.style.cssText = 'text-align:center;padding:48px 20px;color:var(--text-muted);font-size:14px';
+    e.textContent = 'No contacts yet.';
+    container.appendChild(e); return;
+  }
+
+  var grid = document.createElement('div'); grid.className = 'mn-cgrid';
+  keys.forEach(function(k) {
+    var c = mnContacts[k];
+    var card = document.createElement('div'); card.className = 'mn-ccard';
+    var av = document.createElement('div'); av.className = 'mn-cav';
+    var initials = (c.name || '').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+    av.textContent = initials || '?';
+    var info = document.createElement('div'); info.style.minWidth = '0';
+    var n = document.createElement('div'); n.className = 'mn-cname'; n.textContent = c.name || '';
+    var o = document.createElement('div'); o.className = 'mn-corg';  o.textContent = c.org || '';
+    var em= document.createElement('div'); em.className = 'mn-cemail';em.textContent = c.email || '';
+    info.appendChild(n); info.appendChild(o); info.appendChild(em);
+    card.appendChild(av); card.appendChild(info);
+    grid.appendChild(card);
+  });
+  container.appendChild(grid);
 }
 
-(function(){renderList(document.getElementById('pb'));})();
+function mnAddContact() {
+  var backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  var modal = document.createElement('div'); modal.className = 'modal';
+  var head = document.createElement('div'); head.className = 'modal__head';
+  var ht = document.createElement('h2'); ht.textContent = 'Add contact';
+  var hc = document.createElement('button'); hc.className = 'modal__close'; hc.textContent = '×'; hc.onclick = function(){backdrop.remove();};
+  head.appendChild(ht); head.appendChild(hc);
+  var body = document.createElement('div'); body.className = 'modal__body';
+  var fields = [{id:'cName',label:'Name',ph:'Sarah Holt'},{id:'cOrg',label:'Organisation',ph:'Two Circles'},{id:'cEmail',label:'Email',ph:'sarah@twocircles.com'},{id:'cNotes',label:'Notes (optional)',ph:''}];
+  var inputs = {};
+  fields.forEach(function(f){
+    var g = document.createElement('div'); g.className = 'form-group';
+    var l = document.createElement('label'); l.textContent = f.label; l.htmlFor = f.id;
+    var i = document.createElement('input'); i.type = 'text'; i.id = f.id; i.placeholder = f.ph;
+    inputs[f.id] = i; g.appendChild(l); g.appendChild(i); body.appendChild(g);
+  });
+  var foot = document.createElement('div'); foot.className = 'modal__footer';
+  var cancel = document.createElement('button'); cancel.className = 'btn btn--ghost'; cancel.textContent = 'Cancel'; cancel.onclick = function(){backdrop.remove();};
+  var save = document.createElement('button'); save.className = 'btn btn--primary'; save.textContent = 'Save contact';
+  save.onclick = function() {
+    var name = inputs['cName'].value.trim();
+    if (!name) { NL.toast('Please enter a name', 'error'); return; }
+    NL.ensureAuth().then(function() {
+      var ref = db.ref(MN_PATH + '/contacts/' + mnSession.uid).push();
+      ref.set({ name: name, org: inputs['cOrg'].value.trim(), email: inputs['cEmail'].value.trim(), notes: inputs['cNotes'].value.trim(), createdAt: Date.now() });
+      NL.writeAudit('contact_added', 'Contact added: ' + name);
+      NL.toast('Contact saved', 'success');
+      backdrop.remove();
+    });
+  };
+  foot.appendChild(cancel); foot.appendChild(save);
+  modal.appendChild(head); modal.appendChild(body); modal.appendChild(foot);
+  backdrop.appendChild(modal); document.body.appendChild(backdrop);
+  setTimeout(function(){ inputs['cName'].focus(); }, 50);
+}
 </script>
+
+<script src="/tools/nl-topbar.js?v=6"></script>
 </body>
 </html>
