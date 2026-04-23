@@ -1,11 +1,25 @@
 <!DOCTYPE html>
 <!--
   NL Tools — Holiday & Lieu
-  Version: v2.0 (conversation turn 10)
-  Date: 02/04/2026
+  Version: v2.1 (20/04/2026)
+  Date: 20/04/2026
   File: /tools/holiday-lieu/index.html
 
   Changelog:
+  v2.1 (20/04/2026) — System file migration:
+    * Firebase SDK 10.7.1 → 10.12.0
+    * Migrated to /tools/system/ shared files (nl-brand.css, nl-utils.js,
+      nl-topbar.js, auth-guard.js)
+    * Replaced custom topbar markup with <div id="nlTopbar"></div>
+    * Removed local wireTopbar function (handled by nl-topbar.js)
+    * showToast() now delegates to NL.toast (63 callers unchanged)
+    * Local esc()/escJ() removed — now NL.escHtml / NL.escJ (51 callers)
+    * Removed first style block entirely (@font-face + duplicated topbar CSS)
+    * Stripped remaining duplicates from main style block: :root tokens,
+      * reset, body rule, .page hardcoded width (now inherits universal
+      container rule from nl-brand.css v2.2)
+    * Added NL_CHANGELOG public release notes
+
   v1.16 — Fixed timezone bug in addDays: was using local midnight + toISOString()
          which in UTC+1 (UK BST) returns the PREVIOUS day, causing the while
          loop to never advance and hit the 400-iteration safety cap — producing
@@ -178,138 +192,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Holiday &amp; Lieu — NL Tools</title>
-  <style>
-    @font-face {
-      font-family: "carbona-variable";
-      src: url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff2"),
-           url("https://use.typekit.net/af/184cf2/0000000000000000774c3175/31/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n4&v=3") format("woff");
-      font-display: swap; font-style: normal; font-weight: 200 900; font-stretch: normal;
-    }
-  
-/* ── Standard NL Tools Topbar (see nl-brand skill) ─────────────────────── */
-.topbar {
-  background: var(--primary);
-  color: var(--white);
-  padding: 0 20px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border-bottom: 7px solid var(--navy);
-  width: 100%;
-  box-sizing: border-box;
-}
-.topbar__logo {
-  height: 42px;
-  flex-shrink: 0;
-}
-.topbar__title-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-  gap: 3px;
-}
-.topbar__title {
-  font-weight: 900;
-  font-variation-settings: 'wght' 900;
-  font-size: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--white);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.topbar__kicker {
-  font-size: 9px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.6);
-  white-space: nowrap;
-}
-.topbar__user {
-  font-size: 13px;
-  color: rgba(255,255,255,0.8);
-  font-weight: 600;
-  font-variation-settings: 'wght' 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,0.3);
-  color: var(--white);
-  padding: 7px 14px;
-  border-radius: var(--radius);
-  font-size: 11px;
-  font-weight: 700;
-  font-variation-settings: 'wght' 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar__btn:hover { background: rgba(255,255,255,0.12); }
-.topbar__btn--icon {
-  padding: 7px 10px;
-  font-size: 14px;
-}
-/* Mobile: hide user name, icon-only Portal. Kicker stays visible. */
-@media (max-width: 700px) {
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar__user { display: none; }
-  .topbar__btn-text-portal { display: none; }
-  .topbar__btn--portal { padding: 7px 10px; }
-  .topbar__title { font-size: 17px; }
-}
-
-</style>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --primary:      #9e0000; --primary-dim: #7a0000;
-      --navy:         #223b7c; --navy-mid: #1a2f63; --navy-light: #2a4a8c;
-      --red:          #c0392b; --red-light: #fdf0ef;
-      --green:        #1e7e34; --green-light: #edf7ee;
-      --amber:        #e67e22; --amber-light: #fef6ec;
-      --blue:         #1565c0; --blue-light: #e8f0fe;
-      --purple:       #6a1b9a; --purple-light: #f3e5f5;
-      --white:        #ffffff; --off-white: #f4f6f9;
-      --text:         #1a2a44; --text-muted: #5a6a82;
-      --border:       #dde3ed; --radius: 6px;
-      --shadow:       0 2px 12px rgba(10,22,40,0.10);
-      --font:         'carbona-variable','carbona',sans-serif;
-    }
-    body { font-family: var(--font); font-size: 16px; line-height: 1.5; font-variation-settings: 'wght' 400; color: var(--text); background: var(--off-white); }
-
-    /* Topbar */
-    
-    
-    
-    .topbar__title .dim { color: rgba(255,255,255,0.55); }
-    
-    
-    
-
+  <link rel="stylesheet" href="/tools/system/nl-brand.css?v=10">
+  <!-- @font-face and topbar CSS now in /tools/system/nl-brand.css -->
+<style>
     /* Layout */
     #pageWrap { display: none; }
-    .page { max-width: 1200px; margin: 0 auto; padding: 28px 20px 80px; }
-
+    /* .page sizing inherited from nl-brand.css universal container */
     /* Tabs */
     .tabs { display: flex; gap: 4px; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; margin-bottom: 24px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .tabs::-webkit-scrollbar { display: none; }
@@ -368,20 +256,6 @@
     }
 
     /* ── Calendar colour tokens ── */
-    :root {
-      --cal-al:        #fde8e8; --cal-al-text:   #9e0000; /* annual leave pastel */
-      --cal-al-am:     #fde8e8; /* AM leave = top half */
-      --cal-al-pm:     #fde8e8; /* PM leave = bottom half */
-      --cal-bh:        #fffbf0; --cal-bh-text:   #b45309; /* bank holiday — warm cream */
-      --cal-wknd:      #f5f6f8; /* weekend / non-workday */
-      --cal-other:     #f0f0f5; --cal-other-text:#4a5568; /* other - slate */
-      --cal-strip-off: #b2dfbc; /* office day L-border */
-      --cal-strip-lt:  #d1a8e6; /* lieu taken bottom strip */
-      --cal-worked:    #e3f2fd; /* worked extra — sky blue */
-      --cal-worked-text: #0d47a1;
-      --cal-today-dot: #1565c0;
-    }
-
     /* Month grid */
     .cal-grid {
       display: grid;
@@ -777,21 +651,8 @@
 </head>
 <body>
 
-<header class="topbar">
-  <img class="topbar__logo"
-    src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose%20white.png"
-    alt="National League"
-    onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png'">
-  <div class="topbar__title-wrap">
-    <span class="topbar__title">Holiday & Lieu</span>
-    <span class="topbar__kicker">NL Tools</span>
-  </div>
-  <span class="topbar__user" id="topbarUser"></span>
-  <a href="/tools/portal/" class="topbar__btn topbar__btn--portal" aria-label="Back to portal">
-    <span>←</span><span class="topbar__btn-text-portal">Portal</span>
-  </a>
-  <button class="topbar__btn" id="signOutBtn">Sign out</button>
-</header><div id="pageWrap">
+<!-- Topbar — auto-rendered by /tools/system/nl-topbar.js from window.NL_TOOL -->
+<div id="nlTopbar"></div><div id="pageWrap">
   <div class="page">
 
     <div class="tabs">
@@ -1122,35 +983,54 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 
 <script>
-  var fbCfg = {
-    apiKey:"AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
-    authDomain:"nl-tools.firebaseapp.com",
-    databaseURL:"https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId:"nl-tools", storageBucket:"nl-tools.firebasestorage.app",
-    messagingSenderId:"801354670005",
-    appId:"1:801354670005:web:05d8ebad3e7e63610d03fc"
-  };
-  firebase.initializeApp(fbCfg);
+  firebase.initializeApp({
+    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+    authDomain:        "nl-tools.firebaseapp.com",
+    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:         "nl-tools",
+    storageBucket:     "nl-tools.firebasestorage.app",
+    messagingSenderId: "801354670005",
+    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+  });
   var db = firebase.database();
 
+  window.NL_TOOL = {
+    title: 'Holiday & Lieu',
+    toolKey: 'staff-holiday-lieu'
+  };
   var NL_TOOL_KEY = 'staff-holiday-lieu';
 
-/* Standard topbar wiring — set user name and bind sign out */
-function wireTopbar(session) {
-  var userEl = document.getElementById('topbarUser');
-  if (userEl) userEl.textContent = session && (session.name || session.email) || '';
-  var btn = document.getElementById('signOutBtn');
-  if (btn) {
-    btn.addEventListener('click', function() {
-      firebase.auth().signOut().then(function() { window.location.replace('/tools/'); });
-    });
-  }
-}
+  /* Public-facing "What's new" — shown when users click the version badge. */
+  window.NL_CHANGELOG = [
+    {
+      date: '20 April 2026',
+      version: 'v2.1',
+      items: [
+        'Refreshed design — cleaner layout consistent with other NL Tools.',
+        'Standardised profile menu matching other tools.',
+        'Layout now fills wide screens more comfortably.'
+      ]
+    },
+    {
+      date: '2 April 2026',
+      version: 'v2.0',
+      items: [
+        'Approver field now multi-checkbox — choose any combination of approvers.',
+        'Annual leave rollover now adds to quota (base + rollover = total).',
+        'Multi-day leave requests skip weekends and bank holidays automatically.',
+        'Past entries locked — request change from your approver instead of editing directly.',
+        'Worked Extra now routes through approval workflow.',
+        'Shared notes visible to your team on the calendar.'
+      ]
+    }
+  ];
+
+  /* Topbar wiring handled by nl-topbar.js; topbarUser/signOutBtn setup removed */
 
   window.nlAuthReady = function(userData) {
     S.userData = userData;
@@ -1158,15 +1038,13 @@ function wireTopbar(session) {
     S.isAdmin = userData.role === 'admin' || S.isSA;
 
     function startApp(uid) {
-      if (S._initDone) return; /* guard: init() must only run once */
+      if (S._initDone) return;
       S._initDone = true;
       S.uid = uid;
-      document.getElementById('topbarUser').textContent = userData.name || '';
       if (S.isSA) document.getElementById('adminTab').style.display = '';
       if (S.isAdmin || S.isSA) document.getElementById('approvalsTab').style.display = '';
       document.getElementById('pageWrap').style.display = 'block';
 
-      /* Force token refresh before RTDB reads, then init exactly once */
       var cu = firebase.auth().currentUser;
       if (cu) {
         cu.getIdToken(true)
@@ -1177,38 +1055,39 @@ function wireTopbar(session) {
       }
     }
 
-    /* If Firebase already has a live auth user, use it immediately */
     var cu = firebase.auth().currentUser;
     if (cu) {
       startApp(cu.uid);
       return;
     }
 
-    /* sessionStorage session was used by the guard but Firebase Auth hasn't
-       restored the token yet — wait for it (happens on direct/bookmark access) */
     var unsubscribe = firebase.auth().onAuthStateChanged(function(user) {
       unsubscribe();
       if (user) {
         startApp(user.uid);
       } else {
-        /* No live auth session at all — redirect to login */
         window.location.replace('/tools/');
       }
     });
   };
 </script>
-<script src="/tools/auth-guard.js"></script>
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=7"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <script>
   /* ── Helpers ── */
-  function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function escJ(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+  /* esc/escJ helpers provided by NL.escHtml / NL.escJ */
   function pad(n)  { return n < 10 ? '0'+n : ''+n; }
 
   function showToast(msg, type) {
+    if (window.NL && window.NL.toast) { NL.toast(msg, type); return; }
+    /* Fallback */
     var t = document.getElementById('toast');
-    t.textContent = msg; t.className = 'toast '+(type||'success')+' show';
-    setTimeout(function(){ t.classList.remove('show'); }, 3500);
+    if (!t) return;
+    t.textContent = msg;
+    t.className = 'toast ' + (type || 'success') + ' show';
+    setTimeout(function() { t.classList.remove('show'); }, 3500);
   }
 
   function fmtDate(iso) {
@@ -1578,8 +1457,8 @@ function wireTopbar(session) {
       var expTxt = r.expStatus==='pending' ? 'Pending approval' : (r.expDate ? (r.isExp ? 'Expired '+fmtDate(r.expDate) : 'Expires '+fmtDate(r.expDate)+(r.dToExp<=30?' ('+r.dToExp+' days)':'')) : 'No expiry');
       return '<div class="lieu-item">'
         +'<div class="lieu-item__dot '+r.status+'"></div>'
-        +'<div class="lieu-item__desc"><strong>'+r.days+' day'+(r.days!==1?'s':'')+'</strong> — '+esc(r.reason||'Lieu earned')+'<small>Worked '+fmtDate(r.dateWorked)+'</small></div>'
-        +'<div class="lieu-item__expiry '+r.status+'">'+esc(expTxt)+'</div>'
+        +'<div class="lieu-item__desc"><strong>'+r.days+' day'+(r.days!==1?'s':'')+'</strong> — '+NL.escHtml(r.reason||'Lieu earned')+'<small>Worked '+fmtDate(r.dateWorked)+'</small></div>'
+        +'<div class="lieu-item__expiry '+r.status+'">'+NL.escHtml(expTxt)+'</div>'
         +'</div>';
     }).join('');
   }
@@ -1775,11 +1654,11 @@ function wireTopbar(session) {
 
       /* Build inner content */
       var inner = '<span class="cal-date">'+day+'</span>';
-      if (isBH) inner += '<span class="bh-tag">'+esc((bh[iso].label||'Bank Holiday').substring(0,20))+'</span>';
-      if (hasOth && hasOth.note) inner += '<span class="cal-note">'+esc(hasOth.note.substring(0,22))+'</span>';
+      if (isBH) inner += '<span class="bh-tag">'+NL.escHtml((bh[iso].label||'Bank Holiday').substring(0,20))+'</span>';
+      if (hasOth && hasOth.note) inner += '<span class="cal-note">'+NL.escHtml(hasOth.note.substring(0,22))+'</span>';
       /* Shared admin note */
       var sNote = allSharedNotes()[iso];
-      if (sNote) inner += '<span class="cal-shared-note">'+esc((sNote.label||'').substring(0,20))+'</span>';
+      if (sNote) inner += '<span class="cal-shared-note">'+NL.escHtml((sNote.label||'').substring(0,20))+'</span>';
       /* Pending request pills */
       pendingReqs.forEach(function(p){
         var pLabel = p.kind === 'lieu-claim'
@@ -1788,13 +1667,13 @@ function wireTopbar(session) {
         var pCls = p.kind==='lieu-claim' ? 'pend-ot'
           : (p.r.type&&p.r.type.indexOf('annual-leave')!==-1) ? 'pend-al'
           : (p.r.type&&p.r.type.indexOf('lieu-taken')!==-1) ? 'pend-lieu' : 'pend-def';
-        inner += '<span class="cal-pending '+pCls+'" data-reqid="'+escJ(p.id)+'" onclick="openPendingRequest(event,this.dataset.reqid)">'+esc(pLabel.substring(0,28))+'</span>';
+        inner += '<span class="cal-pending '+pCls+'" data-reqid="'+NL.escJ(p.id)+'" onclick="openPendingRequest(event,this.dataset.reqid)">'+NL.escHtml(pLabel.substring(0,28))+'</span>';
       });
       inner += '<span class="cal-add-hint">+ add</span>';
 
       /* All cells are clickable — context determines modal content */
       var clickData = encodeURIComponent(JSON.stringify({iso:iso,isBH:isBH,isWD:isWD,bhLabel:(bh[iso]&&bh[iso].label)||''}));
-      h += '<div class="'+cls+'" onclick="openCellModal(this,event)" data-iso="'+esc(iso)+'" data-bh="'+(isBH?'1':'0')+'" data-wd="'+(isWD?'1':'0')+'" data-bhlabel="'+esc((bh[iso]&&bh[iso].label)||'')+'">'+inner+'</div>';
+      h += '<div class="'+cls+'" onclick="openCellModal(this,event)" data-iso="'+NL.escHtml(iso)+'" data-bh="'+(isBH?'1':'0')+'" data-wd="'+(isWD?'1':'0')+'" data-bhlabel="'+NL.escHtml((bh[iso]&&bh[iso].label)||'')+'">'+inner+'</div>';
     }
 
     /* Trailing padding */
@@ -1876,7 +1755,7 @@ function wireTopbar(session) {
       rows += '<tr>';
       var fullName = u.name||uid;
       var firstName = fullName.split(' ')[0];
-      rows += '<td class="name-cell'+(isYou?' is-you':'')+'"><span class="team-name-full">'+esc(fullName)+'</span><span class="team-name-short" style="display:none">'+esc(firstName)+'</span>'+(isYou?' <span class="team-you-tag">(you)</span>':'')+'</td>';
+      rows += '<td class="name-cell'+(isYou?' is-you':'')+'"><span class="team-name-full">'+NL.escHtml(fullName)+'</span><span class="team-name-short" style="display:none">'+NL.escHtml(firstName)+'</span>'+(isYou?' <span class="team-you-tag">(you)</span>':'')+'</td>';
 
       days.forEach(function(day) {
         var yr = parseInt(day.iso.split('-')[0]);
@@ -1924,7 +1803,7 @@ function wireTopbar(session) {
           ? typeLabel(de[0].type)+(de[0].note?' · '+de[0].note:'')
           : (day.isBH ? (bh[day.iso]?bh[day.iso].label:'Bank Holiday') : '');
 
-        rows += '<td class="'+tdC+tdStatus+'" title="'+esc(title2)+'"></td>';
+        rows += '<td class="'+tdC+tdStatus+'" title="'+NL.escHtml(title2)+'"></td>';
       });
 
       rows += '</tr>';
@@ -2048,22 +1927,22 @@ function wireTopbar(session) {
         +'<div class="appr-card__head">'
         +'<div class="appr-card__avatar">'+ini+'</div>'
         +'<div class="appr-card__info">'
-        +'<div class="appr-card__name">'+esc(u.name||item.uid)+'</div>'
+        +'<div class="appr-card__name">'+NL.escHtml(u.name||item.uid)+'</div>'
         +'<div class="appr-card__meta">'+meta+subAt+'</div>'
         +'</div>'
         +'<span class="appr-card__type '+typeCls+'">'+typeLabel2+'</span>'
         +'</div>'
-        +(r.note ? '<div class="appr-card__note">'+esc(r.note)+'</div>' : '')
+        +(r.note ? '<div class="appr-card__note">'+NL.escHtml(r.note)+'</div>' : '')
         +'<div class="appr-card__actions">'
         +(r.type==='amend-entry'||r.type==='remove-entry' ? (
-          '<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">'+(r.type==='remove-entry'?'Approve removal':'Approve change')+'</button>'
-          +'<button class="btn btn-ghost btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doKeepOriginal(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Keep original</button>'
-          +(r.type==='amend-entry'?'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doRemoveEntry(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Remove entry</button>':'')
+          '<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+NL.escJ(item.uid)+'" data-id="'+NL.escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">'+(r.type==='remove-entry'?'Approve removal':'Approve change')+'</button>'
+          +'<button class="btn btn-ghost btn-sm" data-kind="'+item.kind+'" data-uid="'+NL.escJ(item.uid)+'" data-id="'+NL.escJ(item.id)+'" onclick="doKeepOriginal(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Keep original</button>'
+          +(r.type==='amend-entry'?'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+NL.escJ(item.uid)+'" data-id="'+NL.escJ(item.id)+'" onclick="doRemoveEntry(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Remove entry</button>':'')
         ) : (
-          '<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Approve</button>'
-          +'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+escJ(item.uid)+'" data-id="'+escJ(item.id)+'" onclick="doReject(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Reject</button>'
+          '<button class="btn btn-primary btn-sm" data-kind="'+item.kind+'" data-uid="'+NL.escJ(item.uid)+'" data-id="'+NL.escJ(item.id)+'" onclick="doApprove(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Approve</button>'
+          +'<button class="btn btn-danger btn-sm" data-kind="'+item.kind+'" data-uid="'+NL.escJ(item.uid)+'" data-id="'+NL.escJ(item.id)+'" onclick="doReject(this.dataset.kind,this.dataset.uid,this.dataset.id,this)">Reject</button>'
         ))
-        +'<button class="btn btn-ghost btn-sm" data-id="'+escJ(item.id)+'" onclick="toggleApprComment(this.dataset.id)">+ Comment</button>'
+        +'<button class="btn btn-ghost btn-sm" data-id="'+NL.escJ(item.id)+'" onclick="toggleApprComment(this.dataset.id)">+ Comment</button>'
         +'</div>'
         +'<div class="appr-card__comment" id="comment-'+item.id+'" style="display:none">'
         +'<textarea class="fta" placeholder="Optional comment…" style="min-height:56px" id="commentText-'+item.id+'"></textarea>'
@@ -2216,8 +2095,8 @@ function wireTopbar(session) {
     if (!keys.length) { el.innerHTML='<div class="empty"><div class="empty__msg">No shared notes yet.</div></div>'; return; }
     el.innerHTML = keys.map(function(iso){
       var n = notes[iso];
-      return '<div class="bh-row"><span class="bh-date">'+fmtDate(iso)+'</span><span class="bh-name">'+esc(n.label||'')+'</span>'
-        +'<button class="bh-del" data-iso="'+escJ(iso)+'" onclick="deleteSharedNote(this.dataset.iso)" title="Delete">×</button></div>';
+      return '<div class="bh-row"><span class="bh-date">'+fmtDate(iso)+'</span><span class="bh-name">'+NL.escHtml(n.label||'')+'</span>'
+        +'<button class="bh-del" data-iso="'+NL.escJ(iso)+'" onclick="deleteSharedNote(this.dataset.iso)" title="Delete">×</button></div>';
     }).join('');
   }
 
@@ -2317,11 +2196,11 @@ function wireTopbar(session) {
       var boxCls = 'org-box'+(isRoot?' org-box-root':'')+(isMe?' org-box-you':'');
       var nameCls= 'org-name'+(isRoot?' org-name-root':'')+(isMe?' org-name-you':'');
       var ini    = initials(u.name);
-      var nameStr= esc(u.name||n.uid);
+      var nameStr= NL.escHtml(u.name||n.uid);
       var avX = n.x + 14, avY = n.y + BOX_H/2;
       var textX = n.x + 14 + AV_R*2 + 10;
       var clipId = 'clip'+n.uid.replace(/[^a-z0-9]/gi,'_');
-      var jobStr = esc(u.jobTitle||roleLabel(u.role));
+      var jobStr = NL.escHtml(u.jobTitle||roleLabel(u.role));
 
       parts.push('<g class="org-node-g">');
       parts.push('<rect class="'+boxCls+'" x="'+n.x+'" y="'+n.y+'" width="'+BOX_W+'" height="'+BOX_H+'" rx="8"/>');
@@ -2377,7 +2256,7 @@ function wireTopbar(session) {
         ? u.approverUids.map(function(aid){ return S.users[aid] ? S.users[aid].name : '?' ; }).join(', ')
         : (u.approverUid && S.users[u.approverUid] ? S.users[u.approverUid].name : 'Self');
       var appr = aprList;
-      h+='<tr><td class="nm">'+esc(u.name||uid)+'</td><td>'+esc(wdTxt)+'</td><td>'+(ws.alQuota||'—')+'</td><td>'+(ws.alRolloverDays||'—')+'</td><td>'+(ws.alRolloverExpiry?fmtDate(ws.alRolloverExpiry):'—')+'</td><td>'+(ws.lieuExpiryDays?ws.lieuExpiryDays+' days':'None')+'</td><td>'+esc(mgr)+'</td><td>'+esc(appr)+'</td><td><a class="a-lnk" onclick="openSettings(\''+escJ(uid)+'\')">Edit</a></td></tr>';
+      h+='<tr><td class="nm">'+NL.escHtml(u.name||uid)+'</td><td>'+NL.escHtml(wdTxt)+'</td><td>'+(ws.alQuota||'—')+'</td><td>'+(ws.alRolloverDays||'—')+'</td><td>'+(ws.alRolloverExpiry?fmtDate(ws.alRolloverExpiry):'—')+'</td><td>'+(ws.lieuExpiryDays?ws.lieuExpiryDays+' days':'None')+'</td><td>'+NL.escHtml(mgr)+'</td><td>'+NL.escHtml(appr)+'</td><td><a class="a-lnk" onclick="openSettings(\''+NL.escJ(uid)+'\')">Edit</a></td></tr>';
     });
     document.getElementById('settingsTbody').innerHTML = h||'<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No staff found.</td></tr>';
   }
@@ -2388,7 +2267,7 @@ function wireTopbar(session) {
     document.getElementById('bhList').innerHTML = sorted.map(function(iso){
       var b=bh[iso];
       var acc=b.accruesLieu===true||b.accruesLieu==='true';
-      return '<div class="bh-row"><span class="bh-date">'+fmtDate(iso)+'</span><span class="bh-name">'+esc(b.label||'')+'</span>'+(acc?'<span class="pill pill-amber">Accrues Lieu</span>':'<span class="pill pill-muted">Info only</span>')+'<button class="bh-del" onclick="deleteBH(\''+escJ(iso)+'\')" title="Delete">×</button></div>';
+      return '<div class="bh-row"><span class="bh-date">'+fmtDate(iso)+'</span><span class="bh-name">'+NL.escHtml(b.label||'')+'</span>'+(acc?'<span class="pill pill-amber">Accrues Lieu</span>':'<span class="pill pill-muted">Info only</span>')+'<button class="bh-del" onclick="deleteBH(\''+NL.escJ(iso)+'\')" title="Delete">×</button></div>';
     }).join('');
   }
 
@@ -2407,7 +2286,7 @@ function wireTopbar(session) {
       var u=S.users[item.uid]||{}, ws=u.workSettings||{};
       var expD=parseFloat(ws.lieuExpiryDays)||0;
       var expDate=expD>0?addDays(item.r.dateWorked,expD):null;
-      h+='<tr><td>'+esc(u.name||item.uid)+'</td><td>'+fmtDate(item.r.dateWorked)+'</td><td>'+item.r.days+'</td><td>'+esc(item.r.reason||'')+'</td><td>'+(expDate?fmtDate(expDate):'No expiry')+'</td><td><a class="a-lnk danger" onclick="delLieu(\''+escJ(item.uid)+'\',\''+escJ(item.id)+'\')">Delete</a></td></tr>';
+      h+='<tr><td>'+NL.escHtml(u.name||item.uid)+'</td><td>'+fmtDate(item.r.dateWorked)+'</td><td>'+item.r.days+'</td><td>'+NL.escHtml(item.r.reason||'')+'</td><td>'+(expDate?fmtDate(expDate):'No expiry')+'</td><td><a class="a-lnk danger" onclick="delLieu(\''+NL.escJ(item.uid)+'\',\''+NL.escJ(item.id)+'\')">Delete</a></td></tr>';
     });
     h+='</tbody></table></div>';
     document.getElementById('lieuAdminList').innerHTML = h;
@@ -2600,7 +2479,7 @@ function wireTopbar(session) {
     /* Build a choice modal — amend or remove */
     document.getElementById('entryModalTitle').textContent = 'Request Change';
     var body = document.getElementById('entryModalBody');
-    body.innerHTML = '<p style="font-size:13px;margin-bottom:16px;color:var(--text-muted)">'+fmtDate(e.date)+(e.endDate&&e.endDate!==e.date?' – '+fmtDate(e.endDate):'')+' &mdash; '+esc(typeLabel(e.type))+'</p>'
+    body.innerHTML = '<p style="font-size:13px;margin-bottom:16px;color:var(--text-muted)">'+fmtDate(e.date)+(e.endDate&&e.endDate!==e.date?' – '+fmtDate(e.endDate):'')+' &mdash; '+NL.escHtml(typeLabel(e.type))+'</p>'
       +'<div style="display:flex;flex-direction:column;gap:10px">'
       +'<button class="btn btn-navy" data-act="amend" onclick="doChangeRequest(this.dataset.act)">Amend dates</button>'
       +'<button class="btn btn-danger" data-act="remove" onclick="doChangeRequest(this.dataset.act)">Remove this entry</button>'
@@ -2872,7 +2751,7 @@ function wireTopbar(session) {
       +'<div style="background:var(--off-white);border-radius:6px;padding:14px 16px">'
       +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;font-size:10px;font-weight:700">Date</div>'
       +'<div style="font-size:15px;font-weight:600;color:var(--text)">'+dateStr+'</div>'
-      +(e.note?'<div style="font-size:12px;color:var(--text-muted);margin-top:8px;font-style:italic">'+esc(e.note)+'</div>':'')
+      +(e.note?'<div style="font-size:12px;color:var(--text-muted);margin-top:8px;font-style:italic">'+NL.escHtml(e.note)+'</div>':'')
       +'</div>'
       +'<div style="font-size:11px;color:var(--text-muted);margin-top:14px;padding:10px 12px;background:#f8f8fb;border-radius:6px;border-left:3px solid var(--border)">'
       +'Press <strong>Edit</strong> to change this entry, or <strong>Request removal</strong> to ask for it to be deleted.'
@@ -2997,7 +2876,7 @@ function wireTopbar(session) {
 
     /* Note textarea */
     h += '<div id="noteArea" style="margin-top:10px;'+((_eState.otNote||existingEntry)?'':'display:none')+'">';
-    h += '<textarea class="fta" id="eNote" placeholder="Add a note…">'+esc(editNote)+'</textarea>';
+    h += '<textarea class="fta" id="eNote" placeholder="Add a note…">'+NL.escHtml(editNote)+'</textarea>';
     h += '</div>';
 
     /* Date for overtime/special days */
@@ -3254,7 +3133,7 @@ function wireTopbar(session) {
     var uids=Object.keys(S.users).filter(function(u){ return S.users[u].role!=='club'; });
     uids.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
     var sel=document.getElementById('sUid');
-    sel.innerHTML=uids.map(function(u){ return '<option value="'+escJ(u)+'">'+esc(S.users[u].name||u)+'</option>'; }).join('');
+    sel.innerHTML=uids.map(function(u){ return '<option value="'+NL.escJ(u)+'">'+NL.escHtml(S.users[u].name||u)+'</option>'; }).join('');
     if(uid) sel.value=uid;
     loadSettingsForUid();
     document.getElementById('ovSettings').classList.add('open');
@@ -3277,7 +3156,7 @@ function wireTopbar(session) {
     var lmEl=document.getElementById('sLM');
     var others=Object.keys(S.users).filter(function(u){ return u!==uid&&S.users[u].role!=='club'; });
     others.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
-    lmEl.innerHTML='<option value="">— None —</option>'+others.map(function(u){ return '<option value="'+escJ(u)+'">'+esc(S.users[u].name||u)+'</option>'; }).join('');
+    lmEl.innerHTML='<option value="">— None —</option>'+others.map(function(u){ return '<option value="'+NL.escJ(u)+'">'+NL.escHtml(S.users[u].name||u)+'</option>'; }).join('');
     lmEl.value = u.lineManagerUid||'';
     var aprWrap = document.getElementById('sApprovers');
     if (aprWrap) {
@@ -3377,7 +3256,7 @@ function wireTopbar(session) {
   function openAddLieu() {
     var uids=Object.keys(S.users).filter(function(u){ return S.users[u].role!=='club'; });
     uids.sort(function(a,b){ return (S.users[a].name||'').localeCompare(S.users[b].name||''); });
-    document.getElementById('lieuUid').innerHTML=uids.map(function(u){ return '<option value="'+escJ(u)+'">'+esc(S.users[u].name||u)+'</option>'; }).join('');
+    document.getElementById('lieuUid').innerHTML=uids.map(function(u){ return '<option value="'+NL.escJ(u)+'">'+NL.escHtml(S.users[u].name||u)+'</option>'; }).join('');
     document.getElementById('lieuDt').value     = isoToday();
     document.getElementById('lieuReason').value = '';
     document.getElementById('lieuDays').value   = '1';
