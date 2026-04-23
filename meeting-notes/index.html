@@ -14,11 +14,9 @@
   v1.4  23/04/2026  Fixed .main layout conflict, mnDataReady guard, inline contact creation
   v1.5  23/04/2026  Fixed nlAuthReady token refresh pattern
   v1.6  23/04/2026  Fixed PERMISSION_DENIED — MN_PATH leading slash removed
-  v1.7  23/04/2026  Fixed new meeting modal not opening (missing .open class on backdrop),
-                    fixed calendar overflow (mn-main-area overflow removed),
-                    fixed projects sidebar text (textContent not createTextNode+escHtml),
-                    fixed mnAddContact same missing .open class issue,
-                    updated NL_CHANGELOG version badge to v1.7
+  v1.7  23/04/2026  Fixed modal open class, calendar overflow, projects sidebar text
+  v1.8  23/04/2026  Built real edit meeting form — pre-populated with title, date,
+                    project, general note, and agenda items
 -->
 <head>
 <meta charset="utf-8">
@@ -475,7 +473,7 @@ window.NL_TOOL = {
 window.NL_CHANGELOG = [
   {
     date: '23 April 2026',
-    version: 'v1.7',
+    version: 'v1.8',
     items: [
       'Meeting Notes launched — create and manage meetings end-to-end.',
       'Projects organise your meetings by relationship or workstream.',
@@ -1578,7 +1576,108 @@ function mnNewMeeting() {
 
 /* ── EDIT MEETING ──────────────────────────────────────────────────── */
 function mnEditMeeting(key) {
-  NL.toast('Full edit form — same pattern as new meeting, coming in next build', 'info');
+  var m = mnMeetings[key];
+  if (!m) return;
+
+  var backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+
+  var modal = document.createElement('div');
+  modal.className = 'modal';
+
+  var head = document.createElement('div'); head.className = 'modal__head';
+  var headTitle = document.createElement('h2'); headTitle.textContent = 'Edit meeting';
+  var closeBtn = document.createElement('button'); closeBtn.className = 'modal__close'; closeBtn.textContent = '×';
+  closeBtn.onclick = function() { backdrop.remove(); };
+  head.appendChild(headTitle); head.appendChild(closeBtn);
+
+  var body = document.createElement('div'); body.className = 'modal__body';
+
+  // Title
+  var tg = document.createElement('div'); tg.className = 'form-group';
+  var tl = document.createElement('label'); tl.textContent = 'Meeting title'; tl.htmlFor = 'mnEditTitle';
+  var ti = document.createElement('input'); ti.type = 'text'; ti.id = 'mnEditTitle';
+  ti.value = m.title || '';
+  tg.appendChild(tl); tg.appendChild(ti); body.appendChild(tg);
+
+  // Date
+  var dg = document.createElement('div'); dg.className = 'form-group';
+  var dl = document.createElement('label'); dl.textContent = 'Date'; dl.htmlFor = 'mnEditDate';
+  var di = document.createElement('input'); di.type = 'date'; di.id = 'mnEditDate';
+  di.value = m.dateIso || '';
+  dg.appendChild(dl); dg.appendChild(di); body.appendChild(dg);
+
+  // Project
+  var pg = document.createElement('div'); pg.className = 'form-group';
+  var pl = document.createElement('label'); pl.textContent = 'Project'; pl.htmlFor = 'mnEditProj';
+  var ps = document.createElement('select'); ps.id = 'mnEditProj';
+  var noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '— No project —';
+  ps.appendChild(noneOpt);
+  Object.keys(mnProjects).forEach(function(k) {
+    var opt = document.createElement('option'); opt.value = k;
+    opt.textContent = mnProjects[k].name || k;
+    if (k === m.projectKey) opt.selected = true;
+    ps.appendChild(opt);
+  });
+  pg.appendChild(pl); pg.appendChild(ps); body.appendChild(pg);
+
+  // General note
+  var gg = document.createElement('div'); gg.className = 'form-group';
+  var gl = document.createElement('label'); gl.textContent = 'General note';
+  var gh = document.createElement('div'); gh.className = 'form-hint'; gh.textContent = 'Context or standing notes shown to all attendees';
+  var gta = document.createElement('textarea');
+  gta.style.cssText = 'width:100%;min-height:70px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;resize:vertical';
+  gta.value = m.generalNote || '';
+  gg.appendChild(gl); gg.appendChild(gh); gg.appendChild(gta); body.appendChild(gg);
+
+  // Agenda items
+  var ag = document.createElement('div'); ag.className = 'form-group';
+  var al = document.createElement('label'); al.textContent = 'Agenda items (one per line, optional time after a dash)';
+  var ah = document.createElement('div'); ah.className = 'form-hint'; ah.textContent = 'e.g. Campaign review — 15 min';
+  var ata = document.createElement('textarea');
+  ata.style.cssText = 'width:100%;min-height:100px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;resize:vertical';
+  var currentAgenda = (m.agenda || []).map(function(a) {
+    return a.title + (a.time ? ' — ' + a.time : '');
+  }).join('\n');
+  ata.value = currentAgenda;
+  ag.appendChild(al); ag.appendChild(ah); ag.appendChild(ata); body.appendChild(ag);
+
+  var foot = document.createElement('div'); foot.className = 'modal__footer';
+  var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn--ghost'; cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = function() { backdrop.remove(); };
+  var saveBtn = document.createElement('button'); saveBtn.className = 'btn btn--primary'; saveBtn.textContent = 'Save changes';
+  saveBtn.onclick = function() {
+    var title = ti.value.trim();
+    if (!title) { NL.toast('Please add a meeting title', 'error'); return; }
+    var dateVal = di.value;
+    var dateDisp = dateVal ? NL.formatDate(dateVal) : '';
+
+    var agendaLines = ata.value.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    var agenda = agendaLines.map(function(line) {
+      var parts = line.split(/\s*[-–]\s*(?=\d)/);
+      return { title: (parts[0] || line).trim(), time: (parts[1] || '').trim() };
+    });
+
+    NL.ensureAuth().then(function() {
+      db.ref(MN_PATH + '/meetings/' + key).update({
+        title:       title,
+        dateIso:     dateVal,
+        dateDisplay: dateDisp,
+        projectKey:  ps.value || '',
+        generalNote: gta.value.trim(),
+        agenda:      agenda.length ? agenda : []
+      });
+      NL.writeAudit('meeting_edited', 'Meeting edited: ' + title);
+      NL.toast('Meeting saved', 'success');
+      backdrop.remove();
+    });
+  };
+  foot.appendChild(cancelBtn); foot.appendChild(saveBtn);
+  modal.appendChild(head); modal.appendChild(body); modal.appendChild(foot);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.classList.add('open');
+  setTimeout(function() { ti.focus(); }, 50);
 }
 
 /* ── ACTIONS VIEW ──────────────────────────────────────────────────── */
