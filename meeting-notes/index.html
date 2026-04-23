@@ -13,11 +13,12 @@
   v1.3  23/04/2026  Fixed system file paths, nlTopbar inside pageWrap, removed duplicate nl-topbar.js
   v1.4  23/04/2026  Fixed .main layout conflict, mnDataReady guard, inline contact creation
   v1.5  23/04/2026  Fixed nlAuthReady token refresh pattern
-  v1.6  23/04/2026  Fixed PERMISSION_DENIED root cause — MN_PATH had leading slash
-                    causing all db.ref() calls to use invalid paths. Removed leading
-                    slash: 'app-data/staff-meeting-notes' (no slash prefix).
-                    Moved var db to app script block per judgements pattern.
-                    Fixed NL_CHANGELOG version badge.
+  v1.6  23/04/2026  Fixed PERMISSION_DENIED — MN_PATH leading slash removed
+  v1.7  23/04/2026  Fixed new meeting modal not opening (missing .open class on backdrop),
+                    fixed calendar overflow (mn-main-area overflow removed),
+                    fixed projects sidebar text (textContent not createTextNode+escHtml),
+                    fixed mnAddContact same missing .open class issue,
+                    updated NL_CHANGELOG version badge to v1.7
 -->
 <head>
 <meta charset="utf-8">
@@ -41,14 +42,14 @@
   display: flex; flex-direction: column; overflow-y: auto;
   flex-shrink: 0;
 }
-.mn-main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.mn-main-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .mn-page-header {
   background: var(--white); border-bottom: 1px solid var(--border);
   padding: 13px 22px; display: flex; align-items: center;
   justify-content: space-between; flex-shrink: 0;
 }
 .mn-page-header h1 { font-size: 17px; font-variation-settings: 'wght' 800; margin: 0; }
-.mn-page-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+.mn-page-body { flex: 1; overflow-y: auto; padding: 18px 22px; min-height: 0; }
 
 /* Sidebar items */
 .mn-sb-label {
@@ -474,7 +475,7 @@ window.NL_TOOL = {
 window.NL_CHANGELOG = [
   {
     date: '23 April 2026',
-    version: 'v1.6',
+    version: 'v1.7',
     items: [
       'Meeting Notes launched — create and manage meetings end-to-end.',
       'Projects organise your meetings by relationship or workstream.',
@@ -611,8 +612,10 @@ function mnRenderProjSidebar() {
     var dot = document.createElement('span');
     dot.className = 'mn-proj-dot';
     dot.style.background = colour;
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = p.name || key;
     item.appendChild(dot);
-    item.appendChild(document.createTextNode(' ' + NL.escHtml(p.name)));
+    item.appendChild(nameSpan);
     item.onclick = (function(k) { return function() { mnFilterProj(k, item); }; })(key);
     list.appendChild(item);
   });
@@ -1569,6 +1572,7 @@ function mnNewMeeting() {
   modal.appendChild(head); modal.appendChild(body); modal.appendChild(foot);
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
+  backdrop.classList.add('open');
   setTimeout(function() { ti.focus(); }, 50);
 }
 
@@ -1782,6 +1786,7 @@ function mnAddContact() {
   foot.appendChild(cancel); foot.appendChild(save);
   modal.appendChild(head); modal.appendChild(body); modal.appendChild(foot);
   backdrop.appendChild(modal); document.body.appendChild(backdrop);
+  backdrop.classList.add('open');
   setTimeout(function(){ inputs['cName'].focus(); }, 50);
 }
 </script>
