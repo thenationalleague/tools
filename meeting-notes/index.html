@@ -10,9 +10,10 @@
                     robust nlAuthReady with getIdToken force refresh + _initDone guard,
                     RTDB listener error handlers that warn but don't wipe state
   v1.2  23/04/2026  Fixed script load order
-  v1.3  23/04/2026  Fixed system file paths (/tools/system/ not /tools/),
-                    nlTopbar div moved inside pageWrap (matches judgements pattern),
-                    removed duplicate nl-topbar.js at bottom of file
+  v1.3  23/04/2026  Fixed system file paths, nlTopbar inside pageWrap, removed duplicate nl-topbar.js
+  v1.4  23/04/2026  Fixed .main layout conflict with nl-brand.css, added mnDataReady guard
+                    to prevent premature renders, added attendees + inline contact creation
+                    to new meeting form
 -->
 <head>
 <meta charset="utf-8">
@@ -24,16 +25,19 @@
 <style>
 /* ── MEETING NOTES — tool-specific CSS ─────────────────────────────── */
 
-/* Sidebar layout */
-#pageWrap { display: flex; flex-direction: column; min-height: 100vh; }
-.mn-shell { display: flex; flex: 1; overflow: hidden; height: calc(100vh - 54px); }
+/* Override nl-brand .main padding for this tool — we handle layout ourselves */
+.main { padding: 0 !important; max-width: none !important; }
+
+/* App shell */
+.mn-shell { display: flex; height: calc(100vh - 54px); overflow: hidden; }
+
 .mn-sidebar {
   width: 220px; min-width: 220px;
   background: var(--white); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow-y: auto;
   flex-shrink: 0;
 }
-.mn-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.mn-main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .mn-page-header {
   background: var(--white); border-bottom: 1px solid var(--border);
   padding: 13px 22px; display: flex; align-items: center;
@@ -369,6 +373,7 @@
     <div class="mn-live-cta">Return to meeting →</div>
   </div>
 
+  <div class="main">
   <div class="mn-shell">
     <!-- Sidebar -->
     <nav class="mn-sidebar">
@@ -384,16 +389,17 @@
       <div id="mnProjList"></div>
     </nav>
 
-    <!-- Main -->
-    <div class="mn-main">
+    <!-- Main content -->
+    <div class="mn-main-area">
       <div class="mn-page-header">
         <h1 id="mnPageTitle">All meetings</h1>
         <button class="btn btn--primary btn--sm" onclick="mnNewMeeting()">+ New meeting</button>
       </div>
       <div class="mn-page-body" id="mnPageBody">
-        <div class="loading-row"><div class="spinner"></div></div>
+        <div style="padding:40px;text-align:center"><div class="spinner"></div></div>
       </div>
     </div>
+  </div>
   </div>
 
 </div>
@@ -506,6 +512,7 @@ var mnActionFilter = 'all';
 var mnOrgFilter    = 'all';
 
 var PROJ_COLOURS = ['#185FA5','#3B6D11','#9e0000','#854F0B','#5B2D8E','#0E7490'];
+var mnDataReady  = false; // guard against rendering before session is set
 
 /* ── AUTH READY ────────────────────────────────────────────────────── */
 window.nlAuthReady = function(userData) {
@@ -515,6 +522,7 @@ window.nlAuthReady = function(userData) {
     if (startApp._done) return; /* guard: init must only run once */
     startApp._done = true;
     mnSession.uid = uid;
+    mnDataReady = true;
     mnLoadData();
   }
 
@@ -621,6 +629,7 @@ function mnFilterProj(p, el) {
 }
 
 function mnRefreshView() {
+  if (!mnDataReady) return;
   if (mnCurMeeting) { mnRenderDetail(mnCurMeeting); return; }
   var body = document.getElementById('mnPageBody');
   body.innerHTML = '';
@@ -1390,6 +1399,102 @@ function mnNewMeeting() {
   ata.placeholder = 'Campaign performance review — 15 min\nSeason 25/26 planning — 20 min\nAOB — 5 min';
   ag.appendChild(al); ag.appendChild(ah); ag.appendChild(ata); body.appendChild(ag);
 
+  // Attendees
+  var atg = document.createElement('div'); atg.className = 'form-group';
+  var atl = document.createElement('label'); atl.textContent = 'Attendees';
+  var ath = document.createElement('div'); ath.className = 'form-hint'; ath.textContent = 'Select from your contacts or add someone new';
+  atg.appendChild(atl); atg.appendChild(ath);
+
+  // Selected attendees list
+  var selectedAttendees = []; // [{name, email, org, isNew}]
+  var atSelected = document.createElement('div');
+  atSelected.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:0';
+  atg.appendChild(atSelected);
+
+  function renderSelectedAttendees() {
+    atSelected.innerHTML = '';
+    selectedAttendees.forEach(function(a, i) {
+      var tag = document.createElement('div');
+      tag.style.cssText = 'display:flex;align-items:center;gap:5px;padding:3px 8px;background:var(--info-light);color:var(--info);border-radius:20px;font-size:12px;font-variation-settings:"wght" 600';
+      tag.innerHTML = NL.escHtml(a.name) + (a.isNew ? ' <span style="font-size:10px;opacity:.7">new</span>' : '');
+      var rm = document.createElement('span');
+      rm.style.cssText = 'cursor:pointer;margin-left:2px;font-size:14px;line-height:1;color:var(--info);opacity:.7';
+      rm.textContent = '×';
+      rm.onclick = function() { selectedAttendees.splice(i,1); renderSelectedAttendees(); };
+      tag.appendChild(rm);
+      atSelected.appendChild(tag);
+    });
+  }
+
+  // Contact picker row
+  var atRow = document.createElement('div');
+  atRow.style.cssText = 'display:flex;gap:6px';
+  var atSel = document.createElement('select');
+  atSel.style.cssText = 'flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px';
+  var atDefault = document.createElement('option'); atDefault.value = ''; atDefault.textContent = '— Add from contacts —';
+  atSel.appendChild(atDefault);
+  // Portal users
+  var atNewLabel = document.createElement('optgroup'); atNewLabel.label = 'NL Staff';
+  // We don't have users loaded here, so just show contacts
+  var atContactsLabel = document.createElement('optgroup'); atContactsLabel.label = 'Contacts';
+  Object.keys(mnContacts).forEach(function(k) {
+    var c = mnContacts[k];
+    var opt = document.createElement('option'); opt.value = 'contact:' + k; opt.textContent = c.name + (c.org ? ' (' + c.org + ')' : '');
+    atContactsLabel.appendChild(opt);
+  });
+  atSel.appendChild(atContactsLabel);
+  var addAtBtn = document.createElement('button'); addAtBtn.className = 'btn btn--sm'; addAtBtn.type = 'button'; addAtBtn.textContent = 'Add';
+  addAtBtn.onclick = function() {
+    if (!atSel.value) return;
+    var parts = atSel.value.split(':');
+    var c = mnContacts[parts[1]];
+    if (c && !selectedAttendees.find(function(a){return a.email===c.email;})) {
+      selectedAttendees.push({name:c.name, email:c.email, org:c.org||'', isNew:false});
+      renderSelectedAttendees();
+    }
+    atSel.value = '';
+  };
+  atRow.appendChild(atSel); atRow.appendChild(addAtBtn);
+  atg.appendChild(atRow);
+
+  // New contact inline
+  var newAtToggle = document.createElement('button');
+  newAtToggle.className = 'btn btn--ghost btn--sm'; newAtToggle.type = 'button';
+  newAtToggle.style.cssText = 'margin-top:6px;font-size:12px';
+  newAtToggle.textContent = '+ Add new contact';
+  var newAtForm = document.createElement('div');
+  newAtForm.style.cssText = 'display:none;margin-top:8px;padding:10px 12px;background:var(--off-white);border-radius:var(--radius);border:1px solid var(--border)';
+  newAtForm.innerHTML = '<div style="font-size:11px;font-variation-settings:\'wght\' 800;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">New contact</div>';
+  var nafGrid = document.createElement('div'); nafGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px';
+  var nafName = document.createElement('input'); nafName.type='text'; nafName.placeholder='Name'; nafName.style.cssText='padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px';
+  var nafOrg  = document.createElement('input'); nafOrg.type='text';  nafOrg.placeholder='Organisation'; nafOrg.style.cssText='padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px';
+  var nafEmail= document.createElement('input'); nafEmail.type='email'; nafEmail.placeholder='Email'; nafEmail.style.cssText='padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:13px;grid-column:1/-1';
+  nafGrid.appendChild(nafName); nafGrid.appendChild(nafOrg); nafGrid.appendChild(nafEmail);
+  newAtForm.appendChild(nafGrid);
+  var nafAdd = document.createElement('button'); nafAdd.className = 'btn btn--primary btn--sm'; nafAdd.type='button'; nafAdd.textContent = 'Add to meeting';
+  nafAdd.onclick = function() {
+    var n = nafName.value.trim(); var e = nafEmail.value.trim(); var o = nafOrg.value.trim();
+    if (!n) { NL.toast('Please enter a name', 'error'); return; }
+    selectedAttendees.push({name:n, email:e, org:o, isNew:true});
+    renderSelectedAttendees();
+    nafName.value=''; nafOrg.value=''; nafEmail.value='';
+    newAtForm.style.display='none'; newAtToggle.textContent='+ Add new contact';
+    // Also save to contacts
+    if (mnSession && mnSession.uid) {
+      NL.ensureAuth().then(function() {
+        db.ref(MN_PATH+'/contacts/'+mnSession.uid).push({name:n,org:o,email:e,createdAt:Date.now()});
+      });
+    }
+  };
+  newAtForm.appendChild(nafAdd);
+  newAtToggle.onclick = function() {
+    var open = newAtForm.style.display !== 'none';
+    newAtForm.style.display = open ? 'none' : 'block';
+    newAtToggle.textContent = open ? '+ Add new contact' : '− Cancel';
+  };
+  atg.appendChild(newAtToggle); atg.appendChild(newAtForm);
+  body.appendChild(atg);
+
   var foot = document.createElement('div'); foot.className = 'modal__footer';
   var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn--ghost'; cancelBtn.textContent = 'Cancel';
   cancelBtn.onclick = function() { backdrop.remove(); };
@@ -1423,6 +1528,10 @@ function mnNewMeeting() {
     projPromise.then(function(resolvedProjKey) {
       NL.ensureAuth().then(function() {
         var ref = db.ref(MN_PATH + '/meetings').push();
+        var attendeeUids = {}; var attendeeNames = {};
+        selectedAttendees.forEach(function(a) {
+          if (a.uid) { attendeeUids[a.uid]=true; attendeeNames[a.uid]=a.name; }
+        });
         ref.set({
           title:         title,
           dateIso:       dateVal,
@@ -1430,8 +1539,8 @@ function mnNewMeeting() {
           projectKey:    resolvedProjKey || '',
           ownerUid:      mnSession.uid,
           ownerName:     mnSession.name || mnSession.email || '',
-          attendeeUids:  {},
-          attendeeNames: {},
+          attendeeUids:  attendeeUids,
+          attendeeNames: attendeeNames,
           phase:         'upcoming',
           agenda:        agenda.length ? agenda : [],
           generalNote:   '',
