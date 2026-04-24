@@ -10,8 +10,39 @@
 
      TECHNICAL CHANGELOG
      -------------------
-     v1.0  (2026-04-24)  Full-data build. Aggregates across 72 clubs + 1,300+
-                         submissions at page load. Three view modes:
+     v1.2  (2026-04-24)  Four fixes from second review:
+                         - Removed All-ticket and Segregation checkboxes from
+                           submit modal (markup, saveSubmission, openSubmitModal,
+                           view modal table).
+                         - Modal number inputs restyled: 36px, weight 900,
+                           right-aligned, 2px border, focus highlight to red.
+                           Makes typed values clearly visible mid-entry.
+                         - Match-by-match sort flipped: (ka - kb) earliest
+                           first, was (kb - ka).
+                         - Totals card "Matches counted" was double-counting
+                           home submissions + away fixtures as if they were the
+                           same. Renamed to "Home matches" and tied to
+                           homeCount only. Travelling support already has its
+                           own denominator ("across N away games"), so no loss.
+     v1.1  (2026-04-24)  Four fixes based on first-look review:
+                         - Dropped division-count chips from league strip
+                           (inline subtitle text only).
+                         - Renamed divisions National/North/South throughout
+                           (had used 'NL Premier' in scope chips and rank
+                           subtitles; clubs-meta uses 'National').
+                         - Removed 'Submission rate %' view from staff rank
+                           chart; per-club rollup lives in Chase panel instead.
+                         - Rebuilt Chase panel as per-club rollup: one row per
+                           club with combined 'Remind (all)' that drafts a
+                           single email listing every outstanding match. Click
+                           a club row to expand individual match details.
+                         - Club scope chips refactored: stored as abstract
+                           'division'/'all_72' and resolved to concrete division
+                           at render time. Fixes bug where staff drilling into
+                           clubs across divisions lost the "scope = own
+                           division" semantic.
+     v1.0  (2026-04-24)  First full-data build. Aggregates across 72 clubs +
+                         1,300+ submissions at page load. Three view modes:
                          - Club user: own dashboard (hero cards, benchmark
                            chart, match-by-match, totals)
                          - Staff/admin aggregated: league overview + rankings
@@ -42,6 +73,26 @@
   var NL_TOOL_KEY = 'ops-attendance';
 
   window.NL_CHANGELOG = [
+    {
+      date: '24 April 2026',
+      version: 'v1.2',
+      items: [
+        'Submit modal cleaned up — removed All-ticket and Segregation checkboxes (not needed).',
+        'Attendance number entry is now big and bold — type "4,324" and it shows up properly readable.',
+        'Match-by-match breakdown now shown chronologically (earliest first, like the fixtures list in your planner).',
+        'Totals card: "Matches counted" changed to "Home matches" — was previously combining home + away fixtures which gave a misleading total.'
+      ]
+    },
+    {
+      date: '24 April 2026',
+      version: 'v1.1',
+      items: [
+        'Divisions now shown as National, North and South throughout (previously used "NL Premier" incorrectly).',
+        'League-wide rankings now use National / North / South scope chips.',
+        'Club view scope chips — "My division" re-anchors when staff drill into different clubs across divisions.',
+        'Chase tab restructured — one row per club with a combined "Remind (all)" button that drafts a single email covering every outstanding match. Expand a club to see individual matches.'
+      ]
+    },
     {
       date: '24 April 2026',
       version: 'v1.0',
@@ -642,18 +693,51 @@
   }
 
   /* Modal — submit / edit / view */
-  .att-form-group { margin-bottom: 14px; }
+  .att-form-group { margin-bottom: 18px; }
   .att-form-match-meta {
     background: var(--off-white);
     border-radius: var(--radius);
     padding: 12px 14px;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
     font-size: 13px;
   }
   .att-form-match-meta strong { font-variation-settings: 'wght' 900; }
   .att-form-away-group {
     border-top: 1px solid var(--border);
-    padding-top: 14px;
+    padding-top: 16px;
+  }
+  /* Big, inviting number inputs */
+  .att-form-group input[type="number"] {
+    font-family: var(--font);
+    font-variation-settings: 'wght' 900;
+    font-size: 36px;
+    line-height: 1;
+    letter-spacing: -0.015em;
+    padding: 12px 16px;
+    width: 100%;
+    max-width: 260px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: white;
+    color: var(--navy);
+    text-align: right;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .att-form-group input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: #fffafa;
+  }
+  .att-form-group input[type="number"]:disabled {
+    background: var(--off-white);
+    color: var(--text-muted);
+    border-color: var(--border);
+  }
+  .att-form-group label {
+    display: block;
+    font-size: 14px;
+    font-variation-settings: 'wght' 800;
+    margin-bottom: 8px;
   }
   .att-form-away-group input[type="number"][disabled] {
     background: var(--off-white);
@@ -661,9 +745,14 @@
   }
   .att-form-checkbox-row {
     display: flex; align-items: center; gap: 10px;
-    margin-top: 8px;
+    margin-top: 10px;
   }
-  .att-form-checkbox-row label { font-size: 13px; cursor: pointer; }
+  .att-form-checkbox-row label {
+    font-size: 13px;
+    font-variation-settings: 'wght' 700;
+    cursor: pointer;
+    margin: 0;
+  }
 
   /* Loading state */
   .att-loading {
@@ -724,8 +813,7 @@
           </div>
           <div class="league-strip-text">
             <div class="league-strip-title">The National League</div>
-            <div class="league-strip-sub">2025-26 season · 72 clubs across 3 divisions</div>
-            <div class="division-split" id="divisionSplit"></div>
+            <div class="league-strip-sub">2025-26 season · 72 clubs across National, North and South</div>
           </div>
         </div>
 
@@ -763,9 +851,9 @@
           <span class="filter-label">Scope</span>
           <div class="chip-group" id="staffScopeGroup">
             <button class="chip active" data-scope="all_72">All 72 clubs</button>
-            <button class="chip" data-scope="national">NL Premier</button>
-            <button class="chip" data-scope="north">NL North</button>
-            <button class="chip" data-scope="south">NL South</button>
+            <button class="chip" data-scope="national">National</button>
+            <button class="chip" data-scope="north">North</button>
+            <button class="chip" data-scope="south">South</button>
           </div>
           <span class="filter-label" style="margin-left:12px;">Matches</span>
           <div class="chip-group" id="staffTimingGroup">
@@ -796,12 +884,6 @@
               <div class="view-group-label">At away grounds</div>
               <div class="view-toggle" id="staffViewToggleAway">
                 <button class="view-tab" data-view="travelling">Travelling support</button>
-              </div>
-            </div>
-            <div class="view-group">
-              <div class="view-group-label">Compliance</div>
-              <div class="view-toggle" id="staffViewToggleComp">
-                <button class="view-tab" data-view="submission_rate">Submission rate %</button>
               </div>
             </div>
           </div>
@@ -966,8 +1048,8 @@
       <div class="chart-card">
         <div class="chart-header">
           <div class="chart-header-left">
-            <h2>Outstanding matches</h2>
-            <p class="section-subtitle">Click <strong>Remind</strong> to draft a chase email, or <strong>Submit</strong> to enter attendance on behalf.</p>
+            <h2>Outstanding by club</h2>
+            <p class="section-subtitle">Click a club to see individual matches. <strong>Remind (all)</strong> drafts one email covering every outstanding match for that club.</p>
           </div>
         </div>
         <div style="overflow-x:auto;">
@@ -975,10 +1057,10 @@
             <thead>
               <tr>
                 <th>Club (home)</th>
-                <th>Match</th>
+                <th>Outstanding</th>
                 <th>Date</th>
                 <th>Comp</th>
-                <th>Overdue</th>
+                <th>Oldest overdue</th>
                 <th style="text-align:right;">Actions</th>
               </tr>
             </thead>
@@ -1017,17 +1099,6 @@
             <label for="submitAwayNotRecorded">Not recorded separately</label>
           </div>
           <div class="form-hint">Tick this if the away figure wasn't counted at the turnstiles or tickets.</div>
-        </div>
-
-        <div class="att-form-group">
-          <div class="att-form-checkbox-row">
-            <input type="checkbox" id="submitAllTicket">
-            <label for="submitAllTicket">All-ticket match</label>
-          </div>
-          <div class="att-form-checkbox-row">
-            <input type="checkbox" id="submitSegregated">
-            <label for="submitSegregated">Segregation in place</label>
-          </div>
         </div>
       </form>
     </div>
@@ -1490,7 +1561,6 @@
 
   function renderStaffAggregate() {
     wireStaffControls();
-    renderDivisionSplit();
     renderStaffHeroCards();
     renderStaffRankChart();
   }
@@ -1512,12 +1582,12 @@
         renderStaffRankChart();
       });
     });
-    var toggles = ['#staffViewToggleHome', '#staffViewToggleAway', '#staffViewToggleComp'];
+    var toggles = ['#staffViewToggleHome', '#staffViewToggleAway'];
     toggles.forEach(function(sel) {
       document.querySelectorAll(sel + ' .view-tab').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
           S.staffView = e.currentTarget.getAttribute('data-view');
-          /* Clear active across all three view-toggle groups */
+          /* Clear active across both view-toggle groups */
           toggles.forEach(function(s) {
             document.querySelectorAll(s + ' .view-tab').forEach(function(b) { b.classList.remove('active'); });
           });
@@ -1526,27 +1596,6 @@
         });
       });
     });
-  }
-
-  function renderDivisionSplit() {
-    var split = document.getElementById('divisionSplit');
-    split.innerHTML = '';
-    var byDivision = { 'National': 0, 'North': 0, 'South': 0 };
-    for (var i = 0; i < S.clubs.length; i++) {
-      byDivision[S.clubs[i].division] = (byDivision[S.clubs[i].division] || 0) + 1;
-    }
-    var divs = [
-      { code: 'NAT', name: 'National League',       count: byDivision.National },
-      { code: 'NLN', name: 'National League North', count: byDivision.North },
-      { code: 'NLS', name: 'National League South', count: byDivision.South }
-    ];
-    for (var d = 0; d < divs.length; d++) {
-      var chip = document.createElement('div');
-      chip.className = 'div-chip';
-      chip.innerHTML = '<span class="div-chip-code">' + divs[d].code + '</span>' +
-                       '<span>' + divs[d].count + ' clubs</span>';
-      split.appendChild(chip);
-    }
   }
 
   function renderStaffHeroCards() {
@@ -1625,16 +1674,15 @@
       case 'home_fans':         return 'Home fans (avg per match)';
       case 'away_fans_brought': return 'Away fans brought (avg per match)';
       case 'travelling':        return 'Travelling support (at away grounds)';
-      case 'submission_rate':   return 'Submission rate';
       default: return metric;
     }
   }
 
   function rankSubtitle(scope, metric, timing) {
     var scopeLabel = scope === 'all_72' ? 'All 72 clubs' :
-                     scope === 'national' ? 'National League (Premier)' :
-                     scope === 'north'    ? 'National League North' :
-                     scope === 'south'    ? 'National League South' : scope;
+                     scope === 'national' ? 'National' :
+                     scope === 'north'    ? 'North' :
+                     scope === 'south'    ? 'South' : scope;
     var timingLabel = timing === 'weekend' ? 'weekend only' :
                       timing === 'midweek' ? 'midweek only' : 'all league matches';
     return scopeLabel + ' · ' + timingLabel;
@@ -1658,8 +1706,6 @@
       target.innerHTML = '<p style="color:var(--text-muted);padding:20px;text-align:center;">No data available for this view yet.</p>';
       return;
     }
-
-    var isRate = (metric === 'submission_rate');
 
     for (var j = 0; j < rows.length; j++) {
       var r = rows[j];
@@ -1693,8 +1739,6 @@
       if (r.value === null) {
         valueEl.textContent = '—';
         valueEl.style.color = 'var(--text-muted)';
-      } else if (isRate) {
-        valueEl.textContent = r.value + '%';
       } else {
         valueEl.textContent = fmt(r.value);
       }
@@ -1760,26 +1804,24 @@
 
   function renderClubScopeGroup() {
     var club = S.perClub[S.effectiveClub];
-    var divScope = DIV_TO_SCOPE[club.division] || 'all_72';
-    var divLabel = club.division === 'National' ? 'NL Premier' :
-                   club.division === 'North'    ? 'NL North' :
-                   club.division === 'South'    ? 'NL South' : 'Division';
     var group = document.getElementById('scopeGroup');
     group.innerHTML = '';
+
+    /* Two chips: "My division" (re-resolves per focused club) + "All 72". */
     var divBtn = document.createElement('button');
     divBtn.className = 'chip';
-    divBtn.setAttribute('data-scope', divScope);
-    divBtn.textContent = divLabel;
+    divBtn.setAttribute('data-scope', 'division');
+    divBtn.textContent = club.division;        /* "National" / "North" / "South" — from clubs-meta */
+
     var allBtn = document.createElement('button');
     allBtn.className = 'chip';
     allBtn.setAttribute('data-scope', 'all_72');
     allBtn.textContent = 'All 72 clubs';
 
-    /* Default: division */
-    if (!S.currentScope || (S.currentScope !== divScope && S.currentScope !== 'all_72')) {
-      S.currentScope = divScope;
-    }
-    (S.currentScope === divScope ? divBtn : allBtn).classList.add('active');
+    /* Default: division — persists the user's last choice ('division' or 'all_72')
+       but division re-resolves to the focused club's division each render. */
+    if (S.currentScope !== 'all_72') S.currentScope = 'division';
+    (S.currentScope === 'division' ? divBtn : allBtn).classList.add('active');
 
     [divBtn, allBtn].forEach(function(b) {
       b.addEventListener('click', function(e) {
@@ -1791,6 +1833,14 @@
       });
       group.appendChild(b);
     });
+  }
+
+  /* Resolve the abstract scope ('division'/'all_72') to the concrete key
+     used by getRanking (one of 'national', 'north', 'south', 'all_72'). */
+  function resolvedClubScope() {
+    if (S.currentScope === 'all_72') return 'all_72';
+    var club = S.perClub[S.effectiveClub];
+    return club ? (DIV_TO_SCOPE[club.division] || 'all_72') : 'all_72';
   }
 
   function wireClubControls() {
@@ -1850,8 +1900,8 @@
 
     for (var i = 0; i < heroMetrics.length; i++) {
       var hm = heroMetrics[i];
-      /* Rank within the current scope (division or all-72) */
-      var rows = getRanking(S.currentScope, hm.key, S.currentTiming);
+      /* Rank within the current scope (this club's division, or all-72) */
+      var rows = getRanking(resolvedClubScope(), hm.key, S.currentTiming);
       var mine = rows.find(function(r) { return r.club === clubName; });
       if (!mine) continue;
 
@@ -1889,11 +1939,12 @@
     var clubName = S.effectiveClub;
     var metric = S.currentView;
     var timing = S.currentTiming;
-    var rows = getRanking(S.currentScope, metric, timing);
+    var scope = resolvedClubScope();
+    var rows = getRanking(scope, metric, timing);
     var mine = rows.find(function(r) { return r.club === clubName; });
 
     document.getElementById('rankChartTitle').textContent = metricTitle(metric);
-    document.getElementById('rankChartSubtitle').textContent = rankSubtitle(S.currentScope, metric, timing);
+    document.getElementById('rankChartSubtitle').textContent = rankSubtitle(scope, metric, timing);
 
     var yv = document.getElementById('rankYourValue');
     var yl = document.getElementById('rankYourLabel');
@@ -1917,10 +1968,11 @@
     var narrativeText = document.getElementById('narrativeText');
 
     /* Find the metric where this club ranks best */
+    var scope = resolvedClubScope();
     var metrics = ['total_att', 'home_fans', 'away_fans_brought', 'travelling'];
     var best = null;
     for (var i = 0; i < metrics.length; i++) {
-      var rows = getRanking(S.currentScope, metrics[i], S.currentTiming);
+      var rows = getRanking(scope, metrics[i], S.currentTiming);
       var mine = rows.find(function(r) { return r.club === clubName; });
       if (!mine || mine.value === null) continue;
       var percentile = 1 - ((mine.rank - 1) / rows.length);
@@ -1935,9 +1987,9 @@
     }
 
     narrativeCard.style.display = '';
-    var scopeLabel = S.currentScope === 'all_72' ? 'across all 72 clubs' :
-                     'in ' + (S.currentScope === 'national' ? 'NL Premier' :
-                              S.currentScope === 'north'    ? 'NL North' : 'NL South');
+    var scopeLabel = scope === 'all_72' ? 'across all 72 clubs' :
+                     'in ' + (scope === 'national' ? 'National' :
+                              scope === 'north'    ? 'North' : 'South');
     var metricLabel = metricTitle(best.metric).toLowerCase();
     narrativeText.textContent = clubName + ' ranks #' + best.rank + ' of ' + best.total + ' for ' + metricLabel + ' ' + scopeLabel + ' — averaging ' + fmt(best.value) + ' per match.';
   }
@@ -2048,11 +2100,11 @@
       return S.cupToggles[m.fix.competitionKey] !== false;
     });
 
-    /* Sort chronologically (recent first) */
+    /* Sort chronologically (earliest first) */
     filtered.sort(function(a, b) {
       var ka = parseKickoff(a.fix.kickoffUTC);
       var kb = parseKickoff(b.fix.kickoffUTC);
-      return (kb ? kb.getTime() : 0) - (ka ? ka.getTime() : 0);
+      return (ka ? ka.getTime() : 0) - (kb ? kb.getTime() : 0);
     });
 
     var container = document.getElementById('matchChart');
@@ -2263,7 +2315,7 @@
     }
 
     var stats = [
-      { label: 'Matches counted', value: fmt(homeCount + awayFiltered.length) },
+      { label: 'Home matches',        value: fmt(homeCount), sub: homeCount ? 'with attendance data' : '' },
       { label: 'Home crowd total',    value: fmt(totalHomeCrowd) },
       { label: 'Home avg',            value: homeCount ? fmt(Math.round(totalHomeCrowd / homeCount)) : '—' },
       { label: 'Away fans brought',   value: awayBroughtCount ? fmt(totalAwayBrought) : '—', sub: awayBroughtCount ? 'across ' + awayBroughtCount + ' matches' : '' },
@@ -2347,53 +2399,67 @@
     var overdue14 = chase.filter(function(c) { return c.daysOverdue > 14; }).length;
     document.getElementById('chasePanel7d').textContent = fmt(overdue7);
     document.getElementById('chasePanel14d').textContent = fmt(overdue14);
-    var distinctClubs = {};
-    chase.forEach(function(c) { distinctClubs[c.fix.homeTeamName] = true; });
-    document.getElementById('chasePanelClubs').textContent = fmt(Object.keys(distinctClubs).length);
 
-    /* Table */
+    /* Group by club */
+    var byClub = {};   /* clubName → { matches: [...], oldest: n } */
+    for (var i = 0; i < chase.length; i++) {
+      var c = chase[i];
+      var cn = c.fix.homeTeamName;
+      if (!byClub[cn]) byClub[cn] = { matches: [], oldest: 0 };
+      byClub[cn].matches.push(c);
+      if (c.daysOverdue > byClub[cn].oldest) byClub[cn].oldest = c.daysOverdue;
+    }
+    var clubRows = Object.keys(byClub).map(function(name) {
+      return { club: name, matches: byClub[name].matches, oldest: byClub[name].oldest };
+    });
+    /* Sort by oldest outstanding desc (worst offenders top) */
+    clubRows.sort(function(a, b) { return b.oldest - a.oldest; });
+
+    document.getElementById('chasePanelClubs').textContent = fmt(clubRows.length);
+
+    /* Table body — one row per club with expandable match list */
     var tbody = document.getElementById('chaseBody');
     tbody.innerHTML = '';
-    if (chase.length === 0) {
-      var tr = document.createElement('tr');
-      var td = document.createElement('td');
-      td.colSpan = 6;
-      td.style.textAlign = 'center';
-      td.style.color = 'var(--text-muted)';
-      td.style.padding = '40px';
-      td.textContent = 'All submissions caught up.';
-      tr.appendChild(td);
-      tbody.appendChild(tr);
+    if (clubRows.length === 0) {
+      var tr0 = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.colSpan = 6;
+      td0.style.textAlign = 'center';
+      td0.style.color = 'var(--text-muted)';
+      td0.style.padding = '40px';
+      td0.textContent = 'All submissions caught up.';
+      tr0.appendChild(td0);
+      tbody.appendChild(tr0);
       return;
     }
 
-    for (var i = 0; i < chase.length; i++) {
-      var c = chase[i];
+    for (var ci = 0; ci < clubRows.length; ci++) {
+      var cr = clubRows[ci];
+      /* Club summary row — click to expand match list */
       var tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.setAttribute('data-expand-key', 'club-' + ci);
 
       var tdClub = document.createElement('td');
       tdClub.style.fontVariationSettings = '"wght" 800';
-      tdClub.textContent = c.fix.homeTeamName || '?';
+      tdClub.innerHTML = '<span style="display:inline-block;width:12px;color:var(--text-muted);" data-caret>▸</span> ' + NL.escHtml(cr.club);
       tr.appendChild(tdClub);
 
-      var tdMatch = document.createElement('td');
-      tdMatch.textContent = 'v ' + (c.fix.awayTeamName || '?');
-      tr.appendChild(tdMatch);
+      var tdCount = document.createElement('td');
+      tdCount.textContent = cr.matches.length + (cr.matches.length === 1 ? ' match' : ' matches');
+      tr.appendChild(tdCount);
 
       var tdDate = document.createElement('td');
-      tdDate.textContent = formatDateShort(c.fix.kickoffUTC);
+      tdDate.textContent = '—';
       tr.appendChild(tdDate);
 
       var tdComp = document.createElement('td');
-      var badge = document.createElement('span');
-      badge.className = 'comp-badge ' + (COMP_KEY_TO_BADGE[c.fix.competitionKey] || 'NAT');
-      badge.textContent = COMP_KEY_TO_BADGE[c.fix.competitionKey] || '';
-      tdComp.appendChild(badge);
+      tdComp.textContent = '';
       tr.appendChild(tdComp);
 
       var tdOver = document.createElement('td');
-      tdOver.className = 'chase-overdue' + (c.daysOverdue > 14 ? ' red' : c.daysOverdue > 7 ? ' amber' : '');
-      tdOver.textContent = c.daysOverdue + ' days';
+      tdOver.className = 'chase-overdue' + (cr.oldest > 14 ? ' red' : cr.oldest > 7 ? ' amber' : '');
+      tdOver.textContent = cr.oldest + ' days';
       tr.appendChild(tdOver);
 
       var tdActions = document.createElement('td');
@@ -2401,36 +2467,103 @@
       actionsDiv.className = 'chase-actions';
       var remindBtn = document.createElement('button');
       remindBtn.className = 'btn btn--ghost btn--sm';
-      remindBtn.textContent = 'Remind';
-      (function(fix) {
-        remindBtn.addEventListener('click', function(e) { e.stopPropagation(); openRemindDraft(fix); });
-      })(c.fix);
-      var submitBtn = document.createElement('button');
-      submitBtn.className = 'btn btn--primary btn--sm';
-      submitBtn.textContent = 'Submit';
-      (function(fix) {
-        submitBtn.addEventListener('click', function(e) { e.stopPropagation(); openSubmitModal(fix, null); });
-      })(c.fix);
+      remindBtn.textContent = 'Remind (all)';
+      (function(matches, clubName) {
+        remindBtn.addEventListener('click', function(e) { e.stopPropagation(); openRemindDraftForClub(clubName, matches); });
+      })(cr.matches, cr.club);
       actionsDiv.appendChild(remindBtn);
-      actionsDiv.appendChild(submitBtn);
       tdActions.appendChild(actionsDiv);
       tdActions.style.textAlign = 'right';
       tr.appendChild(tdActions);
 
+      /* Row click toggles the match-detail rows below */
+      (function(clubKey, matches) {
+        tr.addEventListener('click', function() { toggleChaseExpansion(clubKey, matches); });
+      })('club-' + ci, cr.matches);
+
       tbody.appendChild(tr);
+
+      /* Match detail container rows (hidden until expanded) */
+      for (var mi = 0; mi < cr.matches.length; mi++) {
+        var m = cr.matches[mi];
+        var mTr = document.createElement('tr');
+        mTr.className = 'chase-detail';
+        mTr.setAttribute('data-detail-of', 'club-' + ci);
+        mTr.style.display = 'none';
+        mTr.style.background = 'var(--off-white)';
+
+        var tdSpacer = document.createElement('td');
+        tdSpacer.innerHTML = '&nbsp;';
+        mTr.appendChild(tdSpacer);
+
+        var tdMatchName = document.createElement('td');
+        tdMatchName.textContent = 'v ' + (m.fix.awayTeamName || '?');
+        tdMatchName.style.fontSize = '12px';
+        mTr.appendChild(tdMatchName);
+
+        var tdMatchDate = document.createElement('td');
+        tdMatchDate.textContent = formatDateShort(m.fix.kickoffUTC);
+        tdMatchDate.style.fontSize = '12px';
+        mTr.appendChild(tdMatchDate);
+
+        var tdMatchComp = document.createElement('td');
+        var badgeEl = document.createElement('span');
+        badgeEl.className = 'comp-badge ' + (COMP_KEY_TO_BADGE[m.fix.competitionKey] || 'NAT');
+        badgeEl.textContent = COMP_KEY_TO_BADGE[m.fix.competitionKey] || '';
+        tdMatchComp.appendChild(badgeEl);
+        mTr.appendChild(tdMatchComp);
+
+        var tdMatchOver = document.createElement('td');
+        tdMatchOver.className = 'chase-overdue' + (m.daysOverdue > 14 ? ' red' : m.daysOverdue > 7 ? ' amber' : '');
+        tdMatchOver.textContent = m.daysOverdue + ' days';
+        tdMatchOver.style.fontSize = '12px';
+        mTr.appendChild(tdMatchOver);
+
+        var tdMatchActions = document.createElement('td');
+        tdMatchActions.style.textAlign = 'right';
+        var mActionsDiv = document.createElement('div');
+        mActionsDiv.className = 'chase-actions';
+        var submitBtn = document.createElement('button');
+        submitBtn.className = 'btn btn--primary btn--sm';
+        submitBtn.textContent = 'Submit';
+        (function(fix) {
+          submitBtn.addEventListener('click', function(e) { e.stopPropagation(); openSubmitModal(fix, null); });
+        })(m.fix);
+        mActionsDiv.appendChild(submitBtn);
+        tdMatchActions.appendChild(mActionsDiv);
+        mTr.appendChild(tdMatchActions);
+
+        tbody.appendChild(mTr);
+      }
     }
   }
 
-  function openRemindDraft(fix) {
-    var subject = 'Attendance submission required — ' + fix.homeTeamName + ' v ' + fix.awayTeamName;
+  function toggleChaseExpansion(clubKey, matches) {
+    var rows = document.querySelectorAll('[data-detail-of="' + clubKey + '"]');
+    var parentRow = document.querySelector('[data-expand-key="' + clubKey + '"]');
+    var caret = parentRow ? parentRow.querySelector('[data-caret]') : null;
+    var isExpanded = rows.length > 0 && rows[0].style.display !== 'none';
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].style.display = isExpanded ? 'none' : '';
+    }
+    if (caret) caret.textContent = isExpanded ? '▸' : '▾';
+  }
+
+  function openRemindDraftForClub(clubName, matches) {
+    var subject = 'Attendance submissions required — ' + clubName + ' (' + matches.length + ' outstanding)';
     var body = 'Hi,\n\n' +
-               'We are still waiting for the attendance submission for:\n\n' +
-               fix.homeTeamName + ' v ' + fix.awayTeamName + '\n' +
-               formatDateShort(fix.kickoffUTC) + '\n' +
-               (COMP_KEY_TO_LABEL[fix.competitionKey] || '') + '\n\n' +
-               'Please submit this at your earliest convenience via the NL Tools portal:\n' +
-               'https://thenationalleague.github.io/tools/attendance/\n\n' +
-               'Thanks,\nThe National League';
+               'We are still waiting for attendance submissions for the following ' +
+               clubName + ' home matches:\n\n';
+    for (var i = 0; i < matches.length; i++) {
+      var m = matches[i];
+      body += '  • ' + formatDateShort(m.fix.kickoffUTC) + ' — ' +
+              clubName + ' v ' + (m.fix.awayTeamName || '?') +
+              ' (' + (COMP_KEY_TO_LABEL[m.fix.competitionKey] || '') + ')' +
+              ' — ' + m.daysOverdue + ' days overdue\n';
+    }
+    body += '\nPlease submit these at your earliest convenience via the NL Tools portal:\n' +
+            'https://thenationalleague.github.io/tools/attendance/\n\n' +
+            'Thanks,\nThe National League';
     var mailto = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
     window.location.href = mailto;
   }
@@ -2479,8 +2612,6 @@
     document.getElementById('submitAway').value = (sub && sub.away != null) ? sub.away : '';
     document.getElementById('submitAwayNotRecorded').checked = sub ? (sub.awayRecorded === false) : false;
     document.getElementById('submitAway').disabled = sub ? (sub.awayRecorded === false) : false;
-    document.getElementById('submitAllTicket').checked = sub ? !!sub.allTicket : false;
-    document.getElementById('submitSegregated').checked = sub ? !!sub.segregated : false;
 
     document.getElementById('submitModal').style.display = 'flex';
     setTimeout(function() { document.getElementById('submitTotal').focus(); }, 50);
@@ -2528,8 +2659,6 @@
       total:           total,
       away:            awayNotRecorded ? null : away,
       awayRecorded:    !awayNotRecorded,
-      allTicket:       document.getElementById('submitAllTicket').checked,
-      segregated:      document.getElementById('submitSegregated').checked,
       submittedBy:     S.session.uid,
       submittedByName: S.session.name || S.session.email || '',
       submittedByRole: onBehalf ? 'admin-on-behalf' : (isAdmin ? 'admin' : 'club'),
@@ -2617,8 +2746,6 @@
         (sub.awayRecorded === false ? '<em style="color:var(--text-muted);">Not recorded separately</em>' :
           (sub.away != null ? fmt(sub.away) : '—')) +
       '</td></tr>' +
-      '<tr><td>All-ticket</td><td>' + (sub.allTicket ? 'Yes' : 'No') + '</td></tr>' +
-      '<tr><td>Segregation in place</td><td>' + (sub.segregated ? 'Yes' : 'No') + '</td></tr>' +
       '<tr><td>Submitted by</td><td>' + NL.escHtml(sub.submittedByName || sub.submittedBy || '?') + '</td></tr>' +
       '</tbody>';
     body.appendChild(tbl);
