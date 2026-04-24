@@ -10,6 +10,33 @@
 
      TECHNICAL CHANGELOG
      -------------------
+     v1.3  (2026-04-24)  Third-review fixes:
+                         - Added explicit font-family on .cup-toggle and
+                           .cup-toggle-light to prevent font inheritance
+                           glitches on the Breakdown section pills.
+                         - Added overflow-y:hidden to .att-tabs to prevent
+                           a phantom vertical scrollbar appearing next to the
+                           topbar on narrow viewports.
+                         - Chase tab renamed to "Outstanding" everywhere and
+                           shown to all roles (previously admin-only).
+                         - Content now role-aware:
+                             Club user → own outstanding home matches list
+                                          with Submit button per match
+                             Staff/admin + no focus → per-club rollup
+                             Staff/admin + focused club → focused club's
+                                          outstanding list (same shape as
+                                          club user view)
+                         - New renderOutstandingClubView() function for
+                           the single-club outstanding list.
+                         - outstandingScopeForUser() returns {mode,club}
+                           so the badge + panel both compute the same count.
+                         - updateChaseBadge removed, replaced with
+                           updateOutstandingBadge (correct ID, role-aware).
+                         - Fixed orphan updateChaseBadge() call left over from
+                           incomplete refactor in v1.2 (was causing silent
+                           parse failure in some branches).
+                         - Staff hero card "Chase list" relabelled to
+                           "Outstanding" for consistency.
      v1.2  (2026-04-24)  Four fixes from second review:
                          - Removed All-ticket and Segregation checkboxes from
                            submit modal (markup, saveSubmission, openSubmitModal,
@@ -73,6 +100,17 @@
   var NL_TOOL_KEY = 'ops-attendance';
 
   window.NL_CHANGELOG = [
+    {
+      date: '24 April 2026',
+      version: 'v1.3',
+      items: [
+        'New Outstanding tab — now visible to everyone (previously only NL staff saw it).',
+        'Your view shows your own outstanding home matches with a Submit button on each row — click through and enter in seconds.',
+        'NL staff viewing any club (via Focus on a club) see that club\'s outstanding list in the same format.',
+        'Fixed a phantom scrollbar appearing next to the top navigation on some screens.',
+        'Tightened up the fonts in the Breakdown section to match the rest of the page.'
+      ]
+    },
     {
       date: '24 April 2026',
       version: 'v1.2',
@@ -350,8 +388,23 @@
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 20px; margin-bottom: 16px; flex-wrap: wrap;
   }
-  .chart-header-left h2 { margin: 0; font-size: 18px; font-variation-settings: 'wght' 900; }
-  .chart-header-left .section-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+  .chart-header-left h2 {
+    margin: 0;
+    font-family: var(--font);
+    font-size: 18px;
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    letter-spacing: -0.005em;
+    color: var(--text);
+  }
+  .chart-header-left .section-subtitle {
+    margin: 4px 0 0;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 400;
+    font-variation-settings: 'wght' 400;
+    color: var(--text-muted);
+  }
   .chart-header-right {
     text-align: right;
     padding-right: 2px;
@@ -407,7 +460,7 @@
   .bars { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
   .bar-row {
     display: grid;
-    grid-template-columns: 28px minmax(120px, 220px) 1fr 60px;
+    grid-template-columns: 28px minmax(120px, 220px) 1fr 90px;
     align-items: center;
     gap: 10px;
     padding: 3px 0;
@@ -545,6 +598,7 @@
     background: var(--off-white);
     border: 1px solid var(--border);
     border-radius: 20px;
+    font-family: var(--font);
     font-size: 12px;
     font-variation-settings: 'wght' 700;
     color: var(--text-muted);
@@ -624,6 +678,7 @@
     background: rgba(255,255,255,0.1);
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 18px;
+    font-family: var(--font);
     font-size: 13px;
     font-variation-settings: 'wght' 700;
     color: white;
@@ -637,6 +692,7 @@
     border-bottom: 2px solid var(--border);
     margin-bottom: 22px;
     overflow-x: auto;
+    overflow-y: hidden;
   }
   .att-tab {
     padding: 10px 18px;
@@ -706,46 +762,58 @@
     border-top: 1px solid var(--border);
     padding-top: 16px;
   }
-  /* Big, inviting number inputs */
-  .att-form-group input[type="number"] {
+  /* Big, inviting number inputs — text inputs (not number) so we control display */
+  .att-form-group input.att-number {
     font-family: var(--font);
+    font-weight: 900;
     font-variation-settings: 'wght' 900;
-    font-size: 36px;
-    line-height: 1;
+    font-size: 52px;
+    line-height: 1.05;
     letter-spacing: -0.015em;
-    padding: 12px 16px;
+    padding: 18px 20px;
     width: 100%;
-    max-width: 260px;
+    max-width: 360px;
     border: 2px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     background: white;
     color: var(--navy);
-    text-align: right;
+    text-align: center;
     transition: border-color 0.15s, background 0.15s;
+    -moz-appearance: textfield;
   }
-  .att-form-group input[type="number"]:focus {
+  .att-form-group input.att-number::-webkit-outer-spin-button,
+  .att-form-group input.att-number::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .att-form-group input.att-number:focus {
     outline: none;
     border-color: var(--primary);
     background: #fffafa;
   }
-  .att-form-group input[type="number"]:disabled {
+  .att-form-group input.att-number:disabled {
     background: var(--off-white);
     color: var(--text-muted);
     border-color: var(--border);
+  }
+  .att-form-group input.att-number::placeholder {
+    color: #cbd3df;
+    font-weight: 400;
+    font-variation-settings: 'wght' 400;
   }
   .att-form-group label {
     display: block;
     font-size: 14px;
     font-variation-settings: 'wght' 800;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
-  .att-form-away-group input[type="number"][disabled] {
+  .att-form-away-group input.att-number[disabled] {
     background: var(--off-white);
     color: var(--text-muted);
   }
   .att-form-checkbox-row {
     display: flex; align-items: center; gap: 10px;
-    margin-top: 10px;
+    margin-top: 12px;
   }
   .att-form-checkbox-row label {
     font-size: 13px;
@@ -763,7 +831,7 @@
 
   /* Responsive tweaks */
   @media (max-width: 720px) {
-    .bar-row { grid-template-columns: 24px minmax(100px, 180px) 1fr 50px; }
+    .bar-row { grid-template-columns: 24px minmax(100px, 180px) 1fr 80px; }
     .match-row { grid-template-columns: 78px minmax(140px, 1fr) 1.8fr 60px; }
     .club-strip-name { font-size: 18px; }
   }
@@ -782,8 +850,8 @@
     <!-- Tabs (rendered dynamically based on role) -->
     <div class="att-tabs" id="attTabs">
       <button class="att-tab active" data-panel="insights">Crowd insights</button>
-      <button class="att-tab" data-panel="chase" id="chaseTab" style="display:none;">
-        Chase <span class="tab-badge red" id="chaseTabBadge" style="display:none;">—</span>
+      <button class="att-tab" data-panel="outstanding" id="outstandingTab">
+        Outstanding <span class="tab-badge red" id="outstandingTabBadge" style="display:none;">—</span>
       </button>
     </div>
 
@@ -825,7 +893,7 @@
             <div class="rank-delta" id="heroComplianceSub">—</div>
           </div>
           <div class="rank-card">
-            <div class="rank-label">Chase list</div>
+            <div class="rank-label">Outstanding</div>
             <div class="rank-value" id="heroChaseCount">—</div>
             <div class="rank-delta" id="heroChaseSub">—</div>
           </div>
@@ -935,12 +1003,8 @@
         <div class="chart-card">
           <div class="chart-header">
             <div class="chart-header-left">
-              <h2 id="rankChartTitle">Total home attendance</h2>
+              <h2 id="rankChartTitle">Total home attendance (avg per match)</h2>
               <p class="section-subtitle" id="rankChartSubtitle">—</p>
-            </div>
-            <div class="chart-header-right">
-              <div class="chart-your-value" id="rankYourValue">—</div>
-              <div class="chart-your-label" id="rankYourLabel">avg</div>
             </div>
           </div>
 
@@ -1016,60 +1080,116 @@
     <!-- END PANEL: insights -->
 
     <!-- ==================== PANEL: CHASE (admin only) ==================== -->
-    <div class="panel" data-panel="chase">
-      <div class="section-divider">
-        <h2>Chase list</h2>
-        <span class="section-scope controlled">Admin actions · all outstanding submissions</span>
-      </div>
+    <div class="panel" data-panel="outstanding">
 
-      <div class="rank-grid" style="grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
-        <div class="rank-card">
-          <div class="rank-label">Total outstanding</div>
-          <div class="rank-value" id="chasePanelCount">—</div>
-          <div class="rank-delta" id="chasePanelOldest">—</div>
+      <!-- CLUB USER / FOCUSED-CLUB VIEW: simple list of their own outstanding home matches -->
+      <div id="outstandingClubView" style="display:none;">
+        <div class="section-divider">
+          <h2 id="outstandingClubHeading">Your outstanding home matches</h2>
+          <span class="section-scope controlled">Click a match to submit attendance</span>
         </div>
-        <div class="rank-card">
-          <div class="rank-label">Overdue &gt; 7 days</div>
-          <div class="rank-value" id="chasePanel7d" style="color:var(--amber);">—</div>
-          <div class="rank-delta">needs chasing</div>
-        </div>
-        <div class="rank-card">
-          <div class="rank-label">Overdue &gt; 14 days</div>
-          <div class="rank-value" id="chasePanel14d" style="color:var(--red);">—</div>
-          <div class="rank-delta">chronic — consider override</div>
-        </div>
-        <div class="rank-card">
-          <div class="rank-label">Distinct clubs</div>
-          <div class="rank-value" id="chasePanelClubs">—</div>
-          <div class="rank-delta">with outstanding submissions</div>
-        </div>
-      </div>
 
-      <div class="chart-card">
-        <div class="chart-header">
-          <div class="chart-header-left">
-            <h2>Outstanding by club</h2>
-            <p class="section-subtitle">Click a club to see individual matches. <strong>Remind (all)</strong> drafts one email covering every outstanding match for that club.</p>
+        <div class="rank-grid" style="grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
+          <div class="rank-card">
+            <div class="rank-label">Outstanding</div>
+            <div class="rank-value" id="outstandingClubCount">—</div>
+            <div class="rank-delta" id="outstandingClubOldest">—</div>
+          </div>
+          <div class="rank-card">
+            <div class="rank-label">Home matches played</div>
+            <div class="rank-value" id="outstandingClubPlayed">—</div>
+            <div class="rank-delta">so far this season</div>
+          </div>
+          <div class="rank-card">
+            <div class="rank-label">Completion rate</div>
+            <div class="rank-value" id="outstandingClubRate">—</div>
+            <div class="rank-delta" id="outstandingClubRateLbl">—</div>
           </div>
         </div>
-        <div style="overflow-x:auto;">
-          <table class="chase-table">
-            <thead>
-              <tr>
-                <th>Club (home)</th>
-                <th>Outstanding</th>
-                <th>Date</th>
-                <th>Comp</th>
-                <th>Oldest overdue</th>
-                <th style="text-align:right;">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="chaseBody"></tbody>
-          </table>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-header-left">
+              <h2 id="outstandingClubTableTitle">Matches still waiting for attendance data</h2>
+              <p class="section-subtitle">Click any row to submit attendance for that match.</p>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="chase-table">
+              <thead>
+                <tr>
+                  <th>Opponent</th>
+                  <th>Date</th>
+                  <th>Comp</th>
+                  <th>Overdue</th>
+                  <th style="text-align:right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="outstandingClubBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
+      <!-- END outstandingClubView -->
+
+      <!-- ADMIN AGGREGATE VIEW: per-club rollup of all outstanding across the League -->
+      <div id="outstandingAdminView" style="display:none;">
+        <div class="section-divider">
+          <h2>Outstanding across the League</h2>
+          <span class="section-scope controlled">Admin actions · all outstanding submissions</span>
+        </div>
+
+        <div class="rank-grid" style="grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
+          <div class="rank-card">
+            <div class="rank-label">Total outstanding</div>
+            <div class="rank-value" id="chasePanelCount">—</div>
+            <div class="rank-delta" id="chasePanelOldest">—</div>
+          </div>
+          <div class="rank-card">
+            <div class="rank-label">Overdue &gt; 7 days</div>
+            <div class="rank-value" id="chasePanel7d" style="color:var(--amber);">—</div>
+            <div class="rank-delta">needs chasing</div>
+          </div>
+          <div class="rank-card">
+            <div class="rank-label">Overdue &gt; 14 days</div>
+            <div class="rank-value" id="chasePanel14d" style="color:var(--red);">—</div>
+            <div class="rank-delta">chronic — consider override</div>
+          </div>
+          <div class="rank-card">
+            <div class="rank-label">Distinct clubs</div>
+            <div class="rank-value" id="chasePanelClubs">—</div>
+            <div class="rank-delta">with outstanding submissions</div>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-header-left">
+              <h2>Outstanding by club</h2>
+              <p class="section-subtitle">Click a club to see individual matches. <strong>Remind (all)</strong> drafts one email covering every outstanding match for that club.</p>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="chase-table">
+              <thead>
+                <tr>
+                  <th>Club (home)</th>
+                  <th>Outstanding</th>
+                  <th>Date</th>
+                  <th>Comp</th>
+                  <th>Oldest overdue</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="chaseBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <!-- END outstandingAdminView -->
+
     </div>
-    <!-- END PANEL: chase -->
+    <!-- END PANEL: outstanding -->
 
   </div>
 </div>
@@ -1087,13 +1207,13 @@
       <form id="submitForm" onsubmit="return false;">
         <div class="att-form-group">
           <label for="submitTotal">Total attendance <span style="color:var(--primary);">*</span></label>
-          <input type="number" id="submitTotal" min="0" max="80000" required inputmode="numeric">
-          <div class="form-hint">Including both home and away supporters.</div>
+          <input type="text" inputmode="numeric" pattern="[0-9,]*" class="att-number" id="submitTotal" required placeholder="0">
+          <div class="form-hint" style="margin-top:10px;">Including both home and away supporters.</div>
         </div>
 
         <div class="att-form-group att-form-away-group">
           <label for="submitAway">Away attendance</label>
-          <input type="number" id="submitAway" min="0" max="20000" inputmode="numeric">
+          <input type="text" inputmode="numeric" pattern="[0-9,]*" class="att-number" id="submitAway" placeholder="0">
           <div class="att-form-checkbox-row">
             <input type="checkbox" id="submitAwayNotRecorded">
             <label for="submitAwayNotRecorded">Not recorded separately</label>
@@ -1353,12 +1473,13 @@
 
   /* Per-club metric computation — used by the ranked bar chart */
   function computeClubMetric(clubName, metric, scope, timing) {
-    /* Returns { value: number, n: number, submittedOf: number }
+    /* Returns { value: number|null, n: number, submittedOf: number, submittedCount: number,
+                 reason: 'no_submissions' | 'away_not_recorded' | null }
        metric: 'total_att' | 'home_fans' | 'away_fans_brought' | 'travelling' | 'submission_rate'
        scope: 'national' | 'north' | 'south' | 'all_72' (doesn't affect metric, only ranking context)
        timing: 'all' | 'weekend' | 'midweek' */
     var club = S.perClub[clubName];
-    if (!club) return { value: 0, n: 0, submittedOf: 0 };
+    if (!club) return { value: 0, n: 0, submittedOf: 0, submittedCount: 0, reason: 'no_submissions' };
 
     /* For 'travelling', look at away matches. Everything else looks at home matches. */
     var matches = (metric === 'travelling') ? club.awayMatches : club.homeMatches;
@@ -1367,21 +1488,23 @@
       timing:        timing,
       requirePlayed: true
     });
+    var submittedCount = filtered.filter(function(m) { return !!m.sub; }).length;
 
     if (metric === 'submission_rate') {
-      var submitted = filtered.filter(function(m) { return !!m.sub; }).length;
       var total = filtered.length;
       return {
-        value: total === 0 ? 0 : Math.round((submitted / total) * 1000) / 10,
-        n:     submitted,
-        submittedOf: total
+        value: total === 0 ? 0 : Math.round((submittedCount / total) * 1000) / 10,
+        n:     submittedCount,
+        submittedOf: total,
+        submittedCount: submittedCount,
+        reason: null
       };
     }
 
     var values = [];
     for (var i = 0; i < filtered.length; i++) {
       var m = filtered[i];
-      if (!m.sub) continue;   /* can't compute any of the other metrics without a submission */
+      if (!m.sub) continue;
       if (metric === 'total_att') {
         if (m.sub.total !== null && m.sub.total !== undefined) values.push(m.sub.total);
       } else if (metric === 'home_fans') {
@@ -1394,17 +1517,34 @@
           values.push(m.sub.away);
         }
       } else if (metric === 'travelling') {
-        /* This club's fans at an away ground. The away match's submission was written by the host;
-           its 'away' field is this club's travelling support. */
+        /* This club's fans at an away ground. The host's away field is this club's travelling support. */
         if (m.sub.awayRecorded && m.sub.away !== null && m.sub.away !== undefined) {
           values.push(m.sub.away);
         }
       }
     }
 
-    if (values.length === 0) return { value: null, n: 0, submittedOf: filtered.length };
+    if (values.length === 0) {
+      /* Reason differentiates "no submissions exist" vs "submissions exist but no away data" */
+      var reason;
+      if (submittedCount === 0) {
+        reason = 'no_submissions';
+      } else if (metric === 'home_fans' || metric === 'away_fans_brought' || metric === 'travelling') {
+        reason = 'away_not_recorded';
+      } else {
+        reason = 'no_submissions';
+      }
+      return { value: null, n: 0, submittedOf: filtered.length, submittedCount: submittedCount, reason: reason };
+    }
+
     var avg = values.reduce(function(a,b){return a+b;}, 0) / values.length;
-    return { value: Math.round(avg), n: values.length, submittedOf: filtered.length };
+    return {
+      value: Math.round(avg),
+      n: values.length,
+      submittedOf: filtered.length,
+      submittedCount: submittedCount,
+      reason: null
+    };
   }
 
   /* Get ranked list of clubs for a given scope + metric + timing */
@@ -1416,7 +1556,13 @@
 
     var rows = clubsInScope.map(function(c) {
       var m = computeClubMetric(c.name, metric, scope, timing);
-      return { club: c.name, division: c.division, value: m.value, n: m.n, submittedOf: m.submittedOf };
+      return {
+        club: c.name, division: c.division,
+        value: m.value, n: m.n,
+        submittedOf: m.submittedOf,
+        submittedCount: m.submittedCount,
+        reason: m.reason
+      };
     });
 
     /* Sort by value desc, nulls last */
@@ -1441,10 +1587,8 @@
     var role = S.session.role;
     var isStaffLike = (role === 'staff' || role === 'admin' || role === 'superadmin');
 
-    /* Show chase tab for admins/superadmin */
-    if (role === 'admin' || role === 'superadmin') {
-      document.getElementById('chaseTab').style.display = '';
-    }
+    /* Outstanding tab visible to everyone — content switches based on role/focus */
+    /* (no gating needed; the tab was already in the markup) */
 
     /* Focus control — only for staff-like roles */
     if (isStaffLike) {
@@ -1485,16 +1629,21 @@
 
   function updateSubtitle() {
     var sub = document.getElementById('pageSubtitle');
-    if (S.activePanel === 'chase') {
-      sub.textContent = 'Outstanding attendance submissions across the League.';
+    if (S.activePanel === 'outstanding') {
+      sub.textContent = S.session.role === 'club'
+        ? 'Home matches still waiting for attendance data.'
+        : 'Outstanding attendance submissions across the League.';
       return;
     }
     if (S.effectiveClub) {
       var club = S.perClub[S.effectiveClub];
       if (club) {
-        var subCount = club.homeMatches.filter(function(m) { return !!m.sub; }).length;
-        var playedCount = club.homeMatches.filter(function(m) { return isPlayed(m.fix); }).length;
-        sub.textContent = S.effectiveClub + ' · 2025-26 season · ' + subCount + ' of ' + playedCount + ' home matches submitted.';
+        var played = club.homeMatches.filter(function(m) { return isPlayed(m.fix); }).length;
+        var outstanding = club.homeMatches.filter(function(m) { return isPlayed(m.fix) && !m.sub; }).length;
+        sub.textContent = S.effectiveClub + ' · 2025-26 season · ' +
+          (outstanding === 0
+            ? 'all ' + played + ' home matches submitted.'
+            : outstanding + ' of ' + played + ' home matches still outstanding.');
         return;
       }
     }
@@ -1534,8 +1683,8 @@
   }
 
   function renderForCurrentView() {
-    if (S.activePanel === 'chase') {
-      renderChasePanel();
+    if (S.activePanel === 'outstanding') {
+      renderOutstandingPanel();
       return;
     }
 
@@ -1550,8 +1699,132 @@
       renderClubView();
     }
 
-    /* Chase tab badge — always reflect current outstanding count */
-    updateChaseBadge();
+    updateOutstandingBadge();
+  }
+
+  /* Outstanding panel dispatch:
+     - Club user, OR staff/admin with a focused club → per-club list view (their matches)
+     - Staff/admin without a focused club → League-wide per-club rollup */
+  function renderOutstandingPanel() {
+    var role = S.session.role;
+    var isStaffLike = (role === 'staff' || role === 'admin' || role === 'superadmin');
+    var showAdminAggregate = isStaffLike && !S.effectiveClub;
+
+    document.getElementById('outstandingClubView').style.display = showAdminAggregate ? 'none' : '';
+    document.getElementById('outstandingAdminView').style.display = showAdminAggregate ? '' : 'none';
+
+    if (showAdminAggregate) {
+      renderChasePanel();
+    } else {
+      renderOutstandingClubView();
+    }
+  }
+
+  /* Render the single-club outstanding view — used for club users AND for staff/admin
+     who have a focused club. Shows: summary cards + table of outstanding matches. */
+  function renderOutstandingClubView() {
+    var role = S.session.role;
+    var isStaffLike = (role === 'staff' || role === 'admin' || role === 'superadmin');
+    var clubName = S.effectiveClub;
+
+    /* If somehow no effective club (e.g. a club user with no club assigned), show a gentle empty state */
+    if (!clubName) {
+      var heading = document.getElementById('outstandingClubHeading');
+      if (heading) heading.textContent = 'No club associated with your account';
+      document.getElementById('outstandingClubBody').innerHTML =
+        '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);">' +
+        'Your account isn\'t linked to a club yet. Speak to the NL team if this is wrong.' +
+        '</td></tr>';
+      document.getElementById('outstandingClubCount').textContent = '—';
+      document.getElementById('outstandingClubPlayed').textContent = '—';
+      document.getElementById('outstandingClubRate').textContent = '—';
+      return;
+    }
+
+    /* Heading: differentiates "your" (club user) from focused-club text */
+    var heading = document.getElementById('outstandingClubHeading');
+    if (heading) {
+      heading.textContent = (role === 'club')
+        ? 'Your outstanding home matches'
+        : clubName + ' — outstanding home matches';
+    }
+
+    var outstanding = computeChaseList(clubName);
+
+    /* Summary cards */
+    document.getElementById('outstandingClubCount').textContent = fmt(outstanding.length);
+    document.getElementById('outstandingClubOldest').textContent =
+      outstanding.length ? 'oldest: ' + outstanding[0].daysOverdue + ' days' : 'all caught up';
+
+    /* Home matches played this season — across ALL comps (league + cups) */
+    var club = S.perClub[clubName];
+    var playedAll = club ? club.homeMatches.filter(function(m) { return isPlayed(m.fix); }) : [];
+    var submittedAll = playedAll.filter(function(m) { return !!m.sub; }).length;
+    document.getElementById('outstandingClubPlayed').textContent = fmt(playedAll.length);
+
+    var rate = playedAll.length === 0 ? 0 : Math.round((submittedAll / playedAll.length) * 100);
+    document.getElementById('outstandingClubRate').textContent = rate + '%';
+    document.getElementById('outstandingClubRateLbl').textContent =
+      submittedAll + ' of ' + playedAll.length + ' submitted';
+
+    /* Table body */
+    var tbody = document.getElementById('outstandingClubBody');
+    tbody.innerHTML = '';
+    if (outstanding.length === 0) {
+      var tr0 = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.colSpan = 5;
+      td0.style.textAlign = 'center';
+      td0.style.color = 'var(--text-muted)';
+      td0.style.padding = '40px';
+      td0.textContent = 'All home matches have attendance data submitted.';
+      tr0.appendChild(td0);
+      tbody.appendChild(tr0);
+      return;
+    }
+
+    for (var i = 0; i < outstanding.length; i++) {
+      var c = outstanding[i];
+      var tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      (function(fix) {
+        tr.addEventListener('click', function() { openSubmitModal(fix, null); });
+      })(c.fix);
+
+      var tdOpp = document.createElement('td');
+      tdOpp.style.fontVariationSettings = '"wght" 800';
+      tdOpp.textContent = 'v ' + (c.fix.awayTeamName || '?');
+      tr.appendChild(tdOpp);
+
+      var tdDate = document.createElement('td');
+      tdDate.textContent = formatDateShort(c.fix.kickoffUTC);
+      tr.appendChild(tdDate);
+
+      var tdComp = document.createElement('td');
+      var badge = document.createElement('span');
+      badge.className = 'comp-badge ' + (COMP_KEY_TO_BADGE[c.fix.competitionKey] || 'NAT');
+      badge.textContent = COMP_KEY_TO_BADGE[c.fix.competitionKey] || '';
+      tdComp.appendChild(badge);
+      tr.appendChild(tdComp);
+
+      var tdOver = document.createElement('td');
+      tdOver.className = 'chase-overdue' + (c.daysOverdue > 14 ? ' red' : c.daysOverdue > 7 ? ' amber' : '');
+      tdOver.textContent = c.daysOverdue + ' days';
+      tr.appendChild(tdOver);
+
+      var tdAction = document.createElement('td');
+      tdAction.style.textAlign = 'right';
+      var btn = document.createElement('button');
+      btn.className = 'btn btn--primary btn--sm';
+      btn.textContent = 'Submit';
+      (function(fix) {
+        btn.addEventListener('click', function(e) { e.stopPropagation(); openSubmitModal(fix, null); });
+      })(c.fix);
+      tdAction.appendChild(btn);
+      tr.appendChild(tdAction);
+
+      tbody.appendChild(tr);
+    }
   }
 
 
@@ -1670,10 +1943,10 @@
 
   function metricTitle(metric) {
     switch (metric) {
-      case 'total_att':         return 'Total home attendance';
+      case 'total_att':         return 'Total home attendance (avg per match)';
       case 'home_fans':         return 'Home fans (avg per match)';
       case 'away_fans_brought': return 'Away fans brought (avg per match)';
-      case 'travelling':        return 'Travelling support (at away grounds)';
+      case 'travelling':        return 'Travelling support (avg per away match)';
       default: return metric;
     }
   }
@@ -1732,6 +2005,10 @@
       fillEl.className = 'bar-fill';
       var pct = r.value === null ? 0 : (r.value / max) * 100;
       fillEl.style.width = pct + '%';
+      /* Partial-data clubs (n < submittedOf and n < 3) render faded */
+      if (r.value !== null && r.n > 0 && r.n < 3 && r.n < r.submittedOf) {
+        fillEl.style.opacity = '0.45';
+      }
       trackEl.appendChild(fillEl);
 
       var valueEl = document.createElement('div');
@@ -1739,6 +2016,14 @@
       if (r.value === null) {
         valueEl.textContent = '—';
         valueEl.style.color = 'var(--text-muted)';
+        /* Add a small reason hint next to the — for clubs with no away data */
+        if (r.reason === 'away_not_recorded' && (metric === 'home_fans' || metric === 'away_fans_brought' || metric === 'travelling')) {
+          valueEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted);font-variation-settings:\'wght\' 600;">not recorded</span>';
+        }
+      } else if (r.n < r.submittedOf && r.n > 0) {
+        /* Partial sample — annotate */
+        valueEl.innerHTML = fmt(r.value) +
+          '<div style="font-size:10px;color:var(--text-muted);font-variation-settings:\'wght\' 600;margin-top:1px;">from ' + r.n + '/' + r.submittedOf + '</div>';
       } else {
         valueEl.textContent = fmt(r.value);
       }
@@ -1769,13 +2054,23 @@
     document.getElementById('clubCrest').src = CREST_BASE + encodeURIComponent(crestName) + '.png';
     document.getElementById('clubCrest').alt = S.effectiveClub;
     document.getElementById('clubNameDisplay').textContent = S.effectiveClub;
-    var homePlayed = filterMatches(club.homeMatches, { league_only: true, requirePlayed: true });
-    var homeSub = homePlayed.filter(function(m) { return !!m.sub; }).length;
-    var awayPlayed = filterMatches(club.awayMatches, { league_only: true, requirePlayed: true });
-    var awayWithHostSub = awayPlayed.filter(function(m) { return !!m.sub; }).length;
+
+    /* Subline: natural sentence covering home submissions + travelling-support visibility.
+       Counts are across all competitions, not league-only. */
+    var homePlayedAll = club.homeMatches.filter(function(m) { return isPlayed(m.fix); });
+    var homeOutstanding = homePlayedAll.filter(function(m) { return !m.sub; }).length;
+    var awayPlayedAll = club.awayMatches.filter(function(m) { return isPlayed(m.fix); });
+    var awayMissing = awayPlayedAll.filter(function(m) { return !m.sub; }).length;
+
+    var homeSentence = homeOutstanding === 0
+      ? 'All home attendances submitted'
+      : homeOutstanding + ' home match' + (homeOutstanding === 1 ? '' : 'es') + ' outstanding';
+    var awaySentence = awayMissing === 0
+      ? 'all away hosts have submitted'
+      : awayMissing + ' away ' + (awayMissing === 1 ? 'game' : 'games') + ' awaiting host data';
+
     document.getElementById('clubSubline').textContent =
-      club.division + ' · home submissions: ' + homeSub + '/' + homePlayed.length +
-      ' · away fixtures with host data: ' + awayWithHostSub + '/' + awayPlayed.length;
+      club.division + ' · ' + homeSentence + ' · ' + awaySentence;
 
     /* Hero cards — ranks on 4 metrics, scoped to their division by default */
     renderClubHeroCards();
@@ -1914,18 +2209,25 @@
 
       var val = document.createElement('div');
       val.className = 'rank-value';
-      if (mine.value === null) {
-        val.textContent = '—';
-      } else {
-        val.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
-      }
 
       var delta = document.createElement('div');
       delta.className = 'rank-delta';
+
       if (mine.value === null) {
-        delta.textContent = 'no data yet';
+        val.textContent = '—';
+        if (mine.reason === 'away_not_recorded') {
+          delta.textContent = 'no away fan data recorded';
+        } else {
+          delta.textContent = 'no data yet';
+        }
       } else {
-        delta.textContent = 'avg ' + fmt(mine.value) + ' per match';
+        val.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
+        /* Sample-size caveat: n < submittedOf means partial data */
+        if (mine.n < mine.submittedOf && mine.n > 0) {
+          delta.textContent = 'avg ' + fmt(mine.value) + ' per match (from ' + mine.n + ' of ' + mine.submittedOf + ')';
+        } else {
+          delta.textContent = 'avg ' + fmt(mine.value) + ' per match';
+        }
       }
 
       card.appendChild(lbl);
@@ -1945,16 +2247,6 @@
 
     document.getElementById('rankChartTitle').textContent = metricTitle(metric);
     document.getElementById('rankChartSubtitle').textContent = rankSubtitle(scope, metric, timing);
-
-    var yv = document.getElementById('rankYourValue');
-    var yl = document.getElementById('rankYourLabel');
-    if (mine && mine.value !== null) {
-      yv.textContent = fmt(mine.value);
-      yl.textContent = '#' + mine.rank + ' · avg';
-    } else {
-      yv.textContent = '—';
-      yl.textContent = 'no data';
-    }
 
     drawBars('rankBars', rows, clubName, metric);
 
@@ -2013,49 +2305,44 @@
       }
     }
 
-    /* Ensure S.cupToggles reflects what's present (default ON if present, ignored if not) */
+    /* Keep S.cupToggles consistent */
     for (var k in COMP_KEY_TO_LABEL) {
       if (!(k in presentCups)) {
-        /* Not present — irrelevant, but keep toggle true for any code that reads it */
         S.cupToggles[k] = true;
       }
     }
 
-    /* Render match-chart cup toggles (only present cups) */
+    /* Match-chart cup toggles — per-comp toggles including league */
     var matchBox = document.getElementById('matchCupToggles');
     matchBox.innerHTML = '<span class="cup-toggles-light-label">Include:</span>';
     renderCupToggleButtons(matchBox, presentCups, 'light', function() {
       renderMatchChart();
     });
 
-    /* Totals card cup toggles — exclude league keys (league is always in totals),
-       only show actual cup toggles */
+    /* Totals card cup toggles — also per-comp, League included and togglable.
+       The club's own division is always labelled 'League' for simplicity. */
     var totalsBox = document.getElementById('totalsCupToggles');
     totalsBox.innerHTML = '<span class="cup-toggles-label">Include:</span>';
-    var cupsOnly = {};
-    if (presentCups['nl-cup']) cupsOnly['nl-cup'] = true;
-    if (presentCups['fa-cup']) cupsOnly['fa-cup'] = true;
-    if (presentCups['fa-trophy']) cupsOnly['fa-trophy'] = true;
 
-    /* League chip first (static, always on) */
-    var leagueChip = document.createElement('button');
-    leagueChip.className = 'cup-toggle active';
-    leagueChip.disabled = true;
-    leagueChip.style.opacity = '0.9';
-    leagueChip.style.cursor = 'default';
-    leagueChip.textContent = 'League';
-    totalsBox.appendChild(leagueChip);
+    /* Which league key is "their" league? — their division's comp key */
+    var leagueKey = DIV_TO_COMPKEY[club.division];
 
-    renderCupToggleButtons(totalsBox, cupsOnly, 'navy', function() {
+    var navyPresent = {};
+    if (leagueKey && presentCups[leagueKey]) navyPresent[leagueKey] = true;
+    if (presentCups['nl-cup'])    navyPresent['nl-cup'] = true;
+    if (presentCups['fa-cup'])    navyPresent['fa-cup'] = true;
+    if (presentCups['fa-trophy']) navyPresent['fa-trophy'] = true;
+
+    renderCupToggleButtons(totalsBox, navyPresent, 'navy', function() {
       renderTotals();
-    });
+    }, leagueKey);
   }
 
-  function renderCupToggleButtons(container, presentMap, style, onChange) {
-    /* Order: NL Cup, FA Cup, FA Trophy, then league in match chart */
+  function renderCupToggleButtons(container, presentMap, style, onChange, leagueKeyToLabel) {
+    /* Order: league first, then cups */
     var order = style === 'light'
       ? ['nl', 'north', 'south', 'nl-cup', 'fa-cup', 'fa-trophy']
-      : ['nl-cup', 'fa-cup', 'fa-trophy'];
+      : ['nl', 'north', 'south', 'nl-cup', 'fa-cup', 'fa-trophy'];
 
     for (var i = 0; i < order.length; i++) {
       var key = order[i];
@@ -2063,12 +2350,16 @@
       var btn = document.createElement('button');
       btn.className = (style === 'light' ? 'cup-toggle-light' : 'cup-toggle') + (S.cupToggles[key] ? ' active' : '');
       btn.setAttribute('data-comp', key);
-      btn.textContent = COMP_KEY_TO_LABEL[key];
+      /* In the totals card, relabel the club's own division comp as 'League' for clarity */
+      if (style === 'navy' && leagueKeyToLabel && key === leagueKeyToLabel) {
+        btn.textContent = 'League';
+      } else {
+        btn.textContent = COMP_KEY_TO_LABEL[key];
+      }
       btn.addEventListener('click', function(e) {
         var k = e.currentTarget.getAttribute('data-comp');
         S.cupToggles[k] = !S.cupToggles[k];
-        e.currentTarget.classList.toggle('active', S.cupToggles[k]);
-        /* Reflect across BOTH toggle groups so the two are in sync for that comp */
+        /* Reflect across BOTH toggle groups so the two stay in sync per comp */
         document.querySelectorAll('[data-comp="' + k + '"]').forEach(function(b) {
           b.classList.toggle('active', S.cupToggles[k]);
         });
@@ -2275,11 +2566,11 @@
     var grid = document.getElementById('totalsGrid');
     grid.innerHTML = '';
 
-    /* Apply cup toggles (league always included) */
-    var activeComps = { 'nl': true, 'north': true, 'south': true };
-    if (S.cupToggles['nl-cup'])    activeComps['nl-cup']    = true;
-    if (S.cupToggles['fa-cup'])    activeComps['fa-cup']    = true;
-    if (S.cupToggles['fa-trophy']) activeComps['fa-trophy'] = true;
+    /* Active comps = whatever user has toggled on */
+    var activeComps = {};
+    ['nl','north','south','nl-cup','fa-cup','fa-trophy'].forEach(function(k) {
+      if (S.cupToggles[k]) activeComps[k] = true;
+    });
 
     var homeFiltered = club.homeMatches.filter(function(m) {
       return isPlayed(m.fix) && activeComps[m.fix.competitionKey] && m.sub;
@@ -2318,8 +2609,16 @@
       { label: 'Home matches',        value: fmt(homeCount), sub: homeCount ? 'with attendance data' : '' },
       { label: 'Home crowd total',    value: fmt(totalHomeCrowd) },
       { label: 'Home avg',            value: homeCount ? fmt(Math.round(totalHomeCrowd / homeCount)) : '—' },
-      { label: 'Away fans brought',   value: awayBroughtCount ? fmt(totalAwayBrought) : '—', sub: awayBroughtCount ? 'across ' + awayBroughtCount + ' matches' : '' },
-      { label: 'Travelling support',  value: travellingCount ? fmt(totalTravelling) : '—', sub: travellingCount ? 'across ' + travellingCount + ' away games' : '' },
+      { label: 'Away fans brought',
+        value: awayBroughtCount ? fmt(totalAwayBrought) : '—',
+        sub: awayBroughtCount
+               ? 'across ' + awayBroughtCount + ' match' + (awayBroughtCount === 1 ? '' : 'es')
+               : (homeCount ? 'away fan data not recorded' : '') },
+      { label: 'Travelling support',
+        value: travellingCount ? fmt(totalTravelling) : '—',
+        sub: travellingCount
+               ? 'across ' + travellingCount + ' away game' + (travellingCount === 1 ? '' : 's')
+               : (awayFiltered.length ? 'no host has recorded our travelling support' : '') },
       { label: 'Biggest crowd',       value: biggestHome ? fmt(biggestHome.total) : '—', sub: biggestHome ? 'v ' + biggestHome.opp : '' }
     ];
     for (var k = 0; k < stats.length; k++) {
@@ -2350,10 +2649,11 @@
      CHASE PANEL
      ========================================================================= */
 
-  function computeChaseList() {
+  function computeChaseList(filterClub) {
     /* Every played home match across ALL comps where no submission exists.
        Club with non-NL home (homeClubNotInSystem) won't get chased since there's
-       no NL rep to chase. */
+       no NL rep to chase.
+       If filterClub is provided, only return matches where that club is the home side. */
     var out = [];
     for (var matchID in S.fixtures) {
       var fix = S.fixtures[matchID];
@@ -2361,6 +2661,7 @@
       if (S.submissions[matchID]) continue;
       /* Must have a known NL home club */
       if (!fix.homeTeamName || !S.perClub[fix.homeTeamName]) continue;
+      if (filterClub && fix.homeTeamName !== filterClub) continue;
       var ko = parseKickoff(fix.kickoffUTC);
       if (!ko) continue;
       var daysOverdue = Math.floor((Date.now() - ko.getTime()) / (24 * 60 * 60 * 1000));
@@ -2375,11 +2676,33 @@
     return out;
   }
 
-  function updateChaseBadge() {
+  function outstandingScopeForUser() {
+    /* What does 'Outstanding' mean for this user right now?
+       - Club user: their own club's outstanding home matches
+       - Staff with focused club: that focused club's outstanding home matches
+       - Staff with no focus: the whole league (per-club rollup)
+       Returns { mode: 'own'|'league', club: clubName|null } */
     var role = S.session.role;
-    if (role !== 'admin' && role !== 'superadmin') return;
-    var n = computeChaseList().length;
-    var badge = document.getElementById('chaseTabBadge');
+    if (role === 'club') {
+      return { mode: 'own', club: S.session.club || null };
+    }
+    /* staff/admin/superadmin */
+    if (S.focusedClub) {
+      return { mode: 'own', club: S.focusedClub };
+    }
+    return { mode: 'league', club: null };
+  }
+
+  function updateOutstandingBadge() {
+    var scope = outstandingScopeForUser();
+    var n;
+    if (scope.mode === 'own') {
+      n = scope.club ? computeChaseList(scope.club).length : 0;
+    } else {
+      n = computeChaseList().length;
+    }
+    var badge = document.getElementById('outstandingTabBadge');
+    if (!badge) return;
     if (n > 0) {
       badge.textContent = n;
       badge.style.display = '';
@@ -2579,17 +2902,48 @@
     document.getElementById('submitModalSave').addEventListener('click', saveSubmission);
     document.getElementById('viewModalClose').addEventListener('click', closeViewModal);
     document.getElementById('viewModalOk').addEventListener('click', closeViewModal);
-    document.getElementById('submitAwayNotRecorded').addEventListener('change', function(e) {
-      var aw = document.getElementById('submitAway');
-      aw.disabled = e.target.checked;
-      if (e.target.checked) aw.value = '';
+
+    /* Live thousand-separator on input — keep caret position sensible */
+    var totalEl = document.getElementById('submitTotal');
+    var awayEl  = document.getElementById('submitAway');
+    [totalEl, awayEl].forEach(function(el) {
+      el.addEventListener('input', function() {
+        var raw = stripNonDigits(el.value);
+        el.value = raw === '' ? '' : formatThousand(raw);
+      });
     });
+
+    /* Away checkbox: remember what was typed so re-ticking restores it */
+    var notRecEl = document.getElementById('submitAwayNotRecorded');
+    notRecEl.addEventListener('change', function(e) {
+      if (e.target.checked) {
+        /* Stash the current value, then blank + disable */
+        S._awayValueCache = awayEl.value;
+        awayEl.value = '';
+        awayEl.disabled = true;
+      } else {
+        /* Restore from stash (only populated if user had typed something) */
+        awayEl.disabled = false;
+        if (S._awayValueCache) awayEl.value = S._awayValueCache;
+      }
+    });
+  }
+
+  function stripNonDigits(s) {
+    return String(s || '').replace(/[^0-9]/g, '');
+  }
+  function formatThousand(digits) {
+    /* digits is pure-digit string — add comma separators */
+    var n = parseInt(digits, 10);
+    if (isNaN(n)) return '';
+    return n.toLocaleString('en-GB');
   }
 
   function openSubmitModal(fix, sub) {
     S.editingMatchID = fix.matchID;
     S.editingFixture = fix;
     S.editingSubmission = sub;
+    S._awayValueCache = '';
 
     var title = document.getElementById('submitModalTitle');
     title.textContent = sub ? 'Edit attendance' : 'Submit attendance';
@@ -2608,19 +2962,31 @@
     line2.textContent = formatDateShort(fix.kickoffUTC) + ' · ' + (COMP_KEY_TO_LABEL[fix.competitionKey] || '');
     meta.appendChild(line2);
 
-    document.getElementById('submitTotal').value = sub ? sub.total : '';
-    document.getElementById('submitAway').value = (sub && sub.away != null) ? sub.away : '';
-    document.getElementById('submitAwayNotRecorded').checked = sub ? (sub.awayRecorded === false) : false;
-    document.getElementById('submitAway').disabled = sub ? (sub.awayRecorded === false) : false;
+    /* Populate. Format with thousand sep. */
+    var totalEl = document.getElementById('submitTotal');
+    var awayEl  = document.getElementById('submitAway');
+    var notRecEl = document.getElementById('submitAwayNotRecorded');
+
+    totalEl.value = sub && sub.total != null ? formatThousand(String(sub.total)) : '';
+    var awayNotRec = sub ? (sub.awayRecorded === false) : false;
+    notRecEl.checked = awayNotRec;
+    if (awayNotRec) {
+      awayEl.value = '';
+      awayEl.disabled = true;
+    } else {
+      awayEl.value = (sub && sub.away != null) ? formatThousand(String(sub.away)) : '';
+      awayEl.disabled = false;
+    }
 
     document.getElementById('submitModal').style.display = 'flex';
-    setTimeout(function() { document.getElementById('submitTotal').focus(); }, 50);
+    setTimeout(function() { totalEl.focus(); totalEl.select && totalEl.select(); }, 50);
   }
 
   function closeSubmitModal() {
     S.editingMatchID = null;
     S.editingFixture = null;
     S.editingSubmission = null;
+    S._awayValueCache = '';
     document.getElementById('submitModal').style.display = 'none';
   }
 
@@ -2629,16 +2995,16 @@
     if (!fix) return;
     var matchID = fix.matchID;
 
-    var totalVal = document.getElementById('submitTotal').value.trim();
-    if (!totalVal) { NL.toast('Total attendance is required', 'error'); return; }
-    var total = parseInt(totalVal, 10);
+    var totalStripped = stripNonDigits(document.getElementById('submitTotal').value);
+    if (!totalStripped) { NL.toast('Total attendance is required', 'error'); return; }
+    var total = parseInt(totalStripped, 10);
     if (isNaN(total) || total < 0) { NL.toast('Total must be a positive number', 'error'); return; }
 
     var awayNotRecorded = document.getElementById('submitAwayNotRecorded').checked;
-    var awayVal = document.getElementById('submitAway').value.trim();
+    var awayStripped = stripNonDigits(document.getElementById('submitAway').value);
     var away = null;
-    if (!awayNotRecorded && awayVal !== '') {
-      away = parseInt(awayVal, 10);
+    if (!awayNotRecorded && awayStripped !== '') {
+      away = parseInt(awayStripped, 10);
       if (isNaN(away) || away < 0) { NL.toast('Away attendance must be a positive number', 'error'); return; }
       if (away > total) { NL.toast('Away attendance cannot exceed total', 'error'); return; }
     }
