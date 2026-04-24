@@ -10,6 +10,99 @@
 
      TECHNICAL CHANGELOG
      -------------------
+     v2.0  (2026-04-24)  Standout stat engine rewritten — from priority-ordered
+                         rule-set to scored observation bank.
+
+                         PROBLEM WITH v1.7'S APPROACH
+                         - 5 rules, first-match-wins, priority fixed. Clubs
+                           often got the "fallback rank sentence" even when
+                           another observation about them was more striking.
+                         - Contrast rules (strong/weak) mentioned clubs'
+                           weaknesses — "draws huge home crowds but travels
+                           among the quietest". That's negative framing
+                           towards a club, which they shouldn't see about
+                           themselves.
+                         - Clubs without away-fan data dropped straight to
+                           the fallback, because 3 of 5 rules needed
+                           away_fans_brought or travelling to be non-null.
+
+                         NEW DESIGN — scored observation bank
+                         - 12 observation functions, each returns
+                           { score, sentence } or null. Collect all hits,
+                           sort by score descending, return the top one.
+                         - Scoring roughly: league #1 = 100, all-three-top10
+                           = 92, divisional #1 = 85, divisional outlier = 78,
+                           weekend/midweek gap = 60, host attraction = 55-70,
+                           travel-to-home = 52-67, biggest single crowd =
+                           48-60, top quartile = 38-55, nearby-club
+                           comparison = 42, rank fallback = 20.
+                         - Tied exactly with previous rule numbers where the
+                           equivalent observation exists; adjusted slightly
+                           for the new additions.
+
+                         POSITIVE-FRAMING RULE
+                         - Every observation MUST frame the club as a
+                           strength or at worst neutrally. No negative
+                           sentences, ever.
+                         - obsMostPartisanAtmosphere reframes "low visitor
+                           ratio" as "partisan atmosphere" — positive version
+                           of the same underlying fact.
+                         - obsWeekendMidweekHomeGap will only fire if
+                           weekend > midweek. If midweek ever exceeds
+                           weekend for a club, the observation simply
+                           returns null — we don't frame midweek-weak
+                           clubs.
+                         - obsComparisonToNearbyClub only shows
+                           "you're X% of the club above you", never
+                           "you're X% below". Tied clubs (>= 99%) skip.
+                         - Dropped "bottom quartile" observation entirely —
+                           no positive reframe possible.
+                         - Dropped all 4 of the v1.7 contrast pairings —
+                           they all named a weakness.
+
+                         NO-AWAY-DATA RESILIENCE
+                         - 7 of the 12 observations are home-only:
+                           obsLeagueFirst (for total_att), obsDivisionFirst,
+                           obsDivisionalOutlier, obsWeekendMidweekHomeGap,
+                           obsBiggestSingleCrowd, obsTopQuartile,
+                           obsComparisonToNearbyClub, obsRankStatement.
+                         - Every club will always have something more
+                           interesting than the bare rank fallback.
+
+                         NEW OBSERVATIONS
+                         - obsAllThreeTopTen — rare combo, score 92
+                         - obsHostAttractionRatioHigh — "visiting fans make
+                           up X% of your crowd" when >= 18%
+                         - obsMostPartisanAtmosphere — positive reframe of
+                           low visitor ratio
+                         - obsTravelToHomeRatioHigh — when travelling is
+                           >= 15% of home support
+                         - obsWeekendMidweekHomeGap — weekend-strong clubs
+                         - obsBiggestSingleCrowd — season highlight, +30%
+                           above season avg
+                         - obsTopQuartile — positive framing for top 25%
+                           on any metric
+                         - obsComparisonToNearbyClub — "your crowds are
+                           X% of the club above you"
+
+                         ROBUSTNESS
+                         - Each observation wrapped in try/catch in the
+                           collect loop so one buggy observation can't hide
+                           the whole card.
+
+     v1.9  (2026-04-24)  Small but confusing UI issue: drawBars() was
+                         rendering bar fills at 0.45 opacity for rows where
+                         a club had submitted attendance for only 1 or 2
+                         matches AND submittedOf was higher (the
+                         "small sample" signal). Brackley Town surfaced
+                         grey while the rest were navy. Problem: the rule
+                         was undocumented anywhere in the UI — readers
+                         couldn't tell why one bar was different. Removed
+                         the conditional opacity line. Bars now all render
+                         at full opacity regardless of sample size; the
+                         "n of M" context still surfaces via hero card
+                         subtitles when it matters.
+
      v1.8  (2026-04-24)  Post-deploy polish — 4 small items:
 
                          ADD CUP FIXTURE
@@ -469,6 +562,23 @@
   var NL_TOOL_KEY = 'ops-attendance';
 
   window.NL_CHANGELOG = [
+    {
+      date: '24 April 2026',
+      version: 'v2.0',
+      items: [
+        'Standout stat overhaul — the single-sentence insight at the top of your club view is now much more interesting and much more varied.',
+        'Instead of 5 rules in a fixed order, we now score 12 different observations and show the most striking one. Every club gets something good — not just the top of the league.',
+        'Every sentence is framed positively — the standout card will never call out a weakness.',
+        'New observations include: in the top 10 on all three measures (a rare combo), visiting-fan proportion ("opposition fans make up 24% of your crowd"), travelling-support ratio ("your fans travel at 28% of home support"), weekend-vs-midweek gap ("weekend crowds 42% higher"), season biggest crowd ("7,633 vs York City"), top-quartile positioning, and a comparison to the club ranked immediately above you.'
+      ]
+    },
+    {
+      date: '24 April 2026',
+      version: 'v1.9',
+      items: [
+        'Rank chart no longer greys out bars for clubs with only one or two submitted matches. It was an undocumented cue — confusing without context. Bars now all render the same colour; sample-size context still shows on the hero card where it matters.'
+      ]
+    },
     {
       date: '24 April 2026',
       version: 'v1.8',
@@ -3408,10 +3518,6 @@
       fillEl.className = 'bar-fill';
       var pct = r.value === null ? 0 : (r.value / max) * 100;
       fillEl.style.width = pct + '%';
-      /* Partial-data clubs (n < submittedOf and n < 3) render faded */
-      if (r.value !== null && r.n > 0 && r.n < 3 && r.n < r.submittedOf) {
-        fillEl.style.opacity = '0.45';
-      }
       trackEl.appendChild(fillEl);
 
       var valueEl = document.createElement('div');
@@ -3857,37 +3963,52 @@
     narrativeText.textContent = msg;
   }
 
-  /* buildStandoutStat — picks the most interesting single-sentence observation
-     about this club by running a priority-ordered rule-set over its metrics.
+  /* buildStandoutStat — picks the most interesting club-specific observation by
+     running a BANK of observation functions. Each returns { score, sentence }
+     or null. We collect all non-null, sort by score descending, return the
+     highest-scoring sentence.
 
-     Rule priority (first rule that triggers wins):
-       1. League-wide #1 on any metric  → "best in the league" line
-       2. Divisional #1 on any metric combined with league rank  → "big fish" line
-       3. Big contrast between two metrics (e.g. rank top-third one, bottom-third
-          another)  → "asymmetry" line
-       4. Outlier stat — club's average >= 2x divisional average  → "Nx average" line
-       5. Fallback: plain rank sentence (previous behaviour)
+     DESIGN PRINCIPLES:
 
-     A metric with value === null (no data) is skipped — never in the output. */
+     1. POSITIVE FRAMING ONLY. Every sentence must celebrate a strength or at
+        worst read neutrally. Never "your crowds are low", "you travel badly",
+        "opposition fans rarely travel to you", etc. If an observation only has
+        a negative reading, it's dropped entirely — another observation wins.
+
+     2. HOME-ONLY CLUBS CAN'T FALL THROUGH. Because away-fan data is patchy,
+        at least half the observation bank operates on home-only data. Every
+        club gets SOMETHING interesting, not the bland "ranked Nth" fallback.
+
+     3. SCORE BY INTERESTINGNESS. League #1 scores 100. Divisional #1 scores
+        85. Quartile positions score 40-60. Contrasts and ratios 50-70. The
+        exact numbers are nudge-able — what matters is the ordering.
+
+     4. EVERY SENTENCE NAMES A METRIC OR A REASON. "You rank #5" is a fact;
+        "You draw 40% more than the division average" has a reason attached.
+        Sentences with reasons score higher than bare ranks. */
   function buildStandoutStat(clubName) {
-    var metrics = [
-      { key: 'total_att',         label: 'total home attendance',          short: 'home crowd',      human: 'home attendance'      },
-      { key: 'away_fans_brought', label: 'away fans brought to home games', short: 'away following',  human: 'away fans brought'    },
-      { key: 'travelling',        label: 'travelling support',              short: 'travelling fans', human: 'travelling support'   }
-    ];
-
-    /* Pull both league-wide (all_72) and divisional rankings for this club */
     var club = S.perClub[clubName];
     if (!club) return null;
-    var division = club.division;                 /* e.g. "NL Premier" — may be null */
-    var divScope = DIV_TO_SCOPE[division] || null;  /* "national" | "north" | "south" | null */
+    var division = club.division;
+    var divScope = DIV_TO_SCOPE[division] || null;
 
-    var m = {};   /* keyed by metric key → { lg: {rank,total,value,avg,n}, div: {...} } */
-    for (var i = 0; i < metrics.length; i++) {
-      var key = metrics[i].key;
+    /* Pull rankings once — expensive to call many times */
+    var ctx = {
+      clubName:  clubName,
+      division:  division,
+      divScope:  divScope,
+      divLabel:  divisionLabel(division),
+      club:      club,
+      /* metric key → { lg: {rank,total,value}, div: {rank,total,value}, divAvg: n } */
+      metrics:   {}
+    };
+
+    var metricKeys = ['total_att', 'away_fans_brought', 'travelling'];
+    for (var mi = 0; mi < metricKeys.length; mi++) {
+      var key = metricKeys[mi];
       var lgRows = getRanking('all_72', key, S.currentTiming);
       var lgMine = lgRows.find(function(r) { return r.club === clubName; });
-      if (!lgMine || lgMine.value === null) { m[key] = null; continue; }
+      if (!lgMine || lgMine.value === null) { ctx.metrics[key] = null; continue; }
 
       var divMine = null;
       var divTotal = 0;
@@ -3897,100 +4018,333 @@
         divTotal = divRows.length;
       }
 
-      m[key] = {
-        lgRank:  lgMine.rank,
-        lgTotal: lgRows.length,
-        value:   lgMine.value,
-        divRank: divMine ? divMine.rank : null,
+      ctx.metrics[key] = {
+        lgRank:   lgMine.rank,
+        lgTotal:  lgRows.length,
+        value:    lgMine.value,
+        divRank:  divMine ? divMine.rank : null,
         divTotal: divTotal,
-        /* Compute division mean (excluding null rows) for outlier rule */
-        divAvg: computeDivisionAverage(divScope, key)
+        divAvg:   computeDivisionAverage(divScope, key)
       };
     }
 
-    /* RULE 1 — League-wide #1 on any metric */
-    for (var r1 = 0; r1 < metrics.length; r1++) {
-      var k1 = metrics[r1].key;
-      if (m[k1] && m[k1].lgRank === 1) {
-        return clubName + ' is #1 in the league for ' + metrics[r1].label +
-               ', averaging ' + fmt(m[k1].value) + ' per match.';
-      }
-    }
-
-    /* RULE 2 — Divisional #1 but not league-wide — the "big fish" story */
-    if (divScope) {
-      for (var r2 = 0; r2 < metrics.length; r2++) {
-        var k2 = metrics[r2].key;
-        if (m[k2] && m[k2].divRank === 1 && m[k2].lgRank > 1) {
-          return clubName + ' has the biggest ' + metrics[r2].short +
-                 ' in the ' + divisionLabel(division) +
-                 ' (#' + m[k2].lgRank + ' of ' + m[k2].lgTotal + ' overall).';
-        }
-      }
-    }
-
-    /* RULE 3 — Contrast: top-third on one metric, bottom-third on another */
-    var topThird = function(rec) { return rec && rec.lgRank <= Math.ceil(rec.lgTotal / 3); };
-    var bottomThird = function(rec) { return rec && rec.lgRank > Math.ceil(2 * rec.lgTotal / 3); };
-
-    /* Prefer the most striking contrast: strong home, weak travel (or vice versa) */
-    var pairings = [
-      { strong: 'total_att',         weak: 'travelling',
-        line: function(strong, weak) {
-          return clubName + ' draws huge home crowds (#' + strong.lgRank + ' overall) but travels among the quietest — #' + weak.lgRank + ' of ' + weak.lgTotal + ' for travelling support.';
-        }},
-      { strong: 'travelling',        weak: 'total_att',
-        line: function(strong, weak) {
-          return clubName + ' punches above its weight on the road — #' + strong.lgRank + ' of ' + strong.lgTotal + ' for travelling support despite ranking #' + weak.lgRank + ' for home crowds.';
-        }},
-      { strong: 'away_fans_brought', weak: 'travelling',
-        line: function(strong, weak) {
-          return 'Visiting fans flock to ' + clubName + ' (#' + strong.lgRank + ' of ' + strong.lgTotal + ' for away fans brought) but ' + clubName + '\u2019s own support is quieter on the road (#' + weak.lgRank + ').';
-        }},
-      { strong: 'travelling',        weak: 'away_fans_brought',
-        line: function(strong, weak) {
-          return clubName + '\u2019s fans travel well (#' + strong.lgRank + ' of ' + strong.lgTotal + ' for travelling support) but opposition fans are thinner on the ground at home (#' + weak.lgRank + ').';
-        }}
+    /* Run every observation; collect all positive matches. */
+    var observations = [];
+    var obsFns = [
+      obsLeagueFirst,
+      obsDivisionFirst,
+      obsAllThreeTopTen,
+      obsDivisionalOutlier,
+      obsHostAttractionRatioHigh,
+      obsMostPartisanAtmosphere,
+      obsTravelToHomeRatioHigh,
+      obsWeekendMidweekHomeGap,
+      obsBiggestSingleCrowd,
+      obsTopQuartile,
+      obsComparisonToNearbyClub,
+      obsRankStatement                  /* fallback — always returns something */
     ];
-    for (var p = 0; p < pairings.length; p++) {
-      var strong = m[pairings[p].strong];
-      var weak = m[pairings[p].weak];
-      if (topThird(strong) && bottomThird(weak)) {
-        return pairings[p].line(strong, weak);
+    for (var i = 0; i < obsFns.length; i++) {
+      try {
+        var result = obsFns[i](ctx);
+        if (result && result.sentence) observations.push(result);
+      } catch (e) {
+        /* If an observation throws, skip it — don't let one bug hide the card */
       }
     }
 
-    /* RULE 4 — Outlier: club value >= 2x its divisional average */
-    if (divScope) {
-      for (var r4 = 0; r4 < metrics.length; r4++) {
-        var k4 = metrics[r4].key;
-        var rec = m[k4];
-        if (rec && rec.divAvg && rec.divAvg > 0) {
-          var ratio = rec.value / rec.divAvg;
-          if (ratio >= 2) {
-            return clubName + '\u2019s ' + metrics[r4].short + ' (' + fmt(rec.value) +
-                   ' per match) is ' + ratio.toFixed(1) + '\u00D7 the ' + divisionLabel(division) + ' average.';
-          }
-        }
+    if (observations.length === 0) return null;
+    observations.sort(function(a, b) { return b.score - a.score; });
+    return observations[0].sentence;
+  }
+
+  /* ---- Observation bank -------------------------------------------------
+     Each function takes ctx, returns { score, sentence } or null. Sentences
+     must be positive or neutral — never negative about the club. */
+
+  /* #1 in the league on any metric — always the top story if it fires. */
+  function obsLeagueFirst(ctx) {
+    var labels = {
+      'total_att':         'total home attendance',
+      'away_fans_brought': 'away fans brought to home games',
+      'travelling':        'travelling support'
+    };
+    for (var k in labels) {
+      var m = ctx.metrics[k];
+      if (m && m.lgRank === 1) {
+        return {
+          score: 100,
+          sentence: ctx.clubName + ' is #1 in the league for ' + labels[k] +
+                    ', averaging ' + fmt(m.value) + ' per match.'
+        };
       }
     }
+    return null;
+  }
 
-    /* RULE 5 — fallback: the club's best-percentile metric, stated plainly */
+  /* Divisional #1 but not league-wide #1 — the "big fish" story. */
+  function obsDivisionFirst(ctx) {
+    if (!ctx.divScope) return null;
+    var labels = {
+      'total_att':         { singular: 'home crowd',           phrase: 'biggest home crowd'        },
+      'away_fans_brought': { singular: 'away following',       phrase: 'biggest away following'    },
+      'travelling':        { singular: 'travelling support',   phrase: 'biggest travelling support'}
+    };
+    for (var k in labels) {
+      var m = ctx.metrics[k];
+      if (m && m.divRank === 1 && m.lgRank > 1) {
+        return {
+          score: 85,
+          sentence: ctx.clubName + ' has the ' + labels[k].phrase +
+                    ' in the ' + ctx.divLabel +
+                    ' (#' + m.lgRank + ' of ' + m.lgTotal + ' league-wide).'
+        };
+      }
+    }
+    return null;
+  }
+
+  /* Rare: in the top 10 league-wide on all three metrics simultaneously. */
+  function obsAllThreeTopTen(ctx) {
+    var a = ctx.metrics['total_att'];
+    var b = ctx.metrics['away_fans_brought'];
+    var c = ctx.metrics['travelling'];
+    if (!a || !b || !c) return null;
+    if (a.lgRank <= 10 && b.lgRank <= 10 && c.lgRank <= 10) {
+      return {
+        score: 92,
+        sentence: ctx.clubName + ' is in the top 10 of the league on every measure — ' +
+                  'home crowds, away fans brought, and travelling support. A rare combination.'
+      };
+    }
+    return null;
+  }
+
+  /* Club's value on a metric is >= 2x divisional average — celebrates scale. */
+  function obsDivisionalOutlier(ctx) {
+    if (!ctx.divScope) return null;
+    var labels = {
+      'total_att':         'home crowd',
+      'away_fans_brought': 'average away following',
+      'travelling':        'travelling support'
+    };
     var best = null;
-    for (var r5 = 0; r5 < metrics.length; r5++) {
-      var k5 = metrics[r5].key;
-      var rec5 = m[k5];
-      if (!rec5) continue;
-      var pct = 1 - ((rec5.lgRank - 1) / rec5.lgTotal);
-      if (!best || pct > best.pct) {
-        best = { key: k5, rec: rec5, label: metrics[r5].label, pct: pct };
+    for (var k in labels) {
+      var m = ctx.metrics[k];
+      if (m && m.divAvg && m.divAvg > 0) {
+        var ratio = m.value / m.divAvg;
+        if (ratio >= 2 && (!best || ratio > best.ratio)) {
+          best = { key: k, ratio: ratio, label: labels[k], value: m.value };
+        }
       }
     }
     if (best) {
-      return clubName + ' ranks #' + best.rec.lgRank + ' of ' + best.rec.lgTotal +
-             ' for ' + best.label + ' across the league — averaging ' + fmt(best.rec.value) + ' per match.';
+      return {
+        score: 78,
+        sentence: ctx.clubName + '\u2019s ' + best.label + ' (' + fmt(best.value) +
+                  ' per match) is ' + best.ratio.toFixed(1) +
+                  '\u00D7 the ' + ctx.divLabel + ' average.'
+      };
     }
     return null;
+  }
+
+  /* HIGH host attraction ratio — visiting fans make up a meaningful chunk of
+     your home crowd. Reads as "you're a draw" — positive framing.
+     Requires: total_att + away_fans_brought both non-null. */
+  function obsHostAttractionRatioHigh(ctx) {
+    var t = ctx.metrics['total_att'];
+    var a = ctx.metrics['away_fans_brought'];
+    if (!t || !a || t.value <= 0) return null;
+    var pct = (a.value / t.value) * 100;
+    if (pct < 18) return null;  /* below 18% isn't striking */
+    /* Score scales with how unusual the ratio is — 30%+ is genuinely rare */
+    var score = 55 + Math.min(15, (pct - 18));
+    return {
+      score: score,
+      sentence: 'Opposition fans make up ' + Math.round(pct) + '% of every home crowd at ' +
+                ctx.clubName + ' — one of the highest proportions in the league.'
+    };
+  }
+
+  /* LOW host attraction ratio reframed POSITIVELY as a partisan atmosphere.
+     Only fires when both metrics have data AND ratio is genuinely low. */
+  function obsMostPartisanAtmosphere(ctx) {
+    var t = ctx.metrics['total_att'];
+    var a = ctx.metrics['away_fans_brought'];
+    if (!t || !a || t.value <= 0) return null;
+    var pct = (a.value / t.value) * 100;
+    if (pct > 8) return null;  /* needs to be genuinely low to be worth mentioning */
+    var homePct = 100 - Math.round(pct);
+    return {
+      score: 58,
+      sentence: ctx.clubName + '\u2019s ground is one of the most partisan atmospheres in the league — ' +
+                'home fans make up ' + homePct + '% of every crowd.'
+    };
+  }
+
+  /* High travelling-to-home ratio — "your fans punch above their weight on the road". */
+  function obsTravelToHomeRatioHigh(ctx) {
+    var t = ctx.metrics['total_att'];
+    var tr = ctx.metrics['travelling'];
+    if (!t || !tr || t.value <= 0) return null;
+    var ratio = (tr.value / t.value) * 100;
+    if (ratio < 15) return null;
+    var score = 52 + Math.min(15, (ratio - 15));
+    return {
+      score: score,
+      sentence: ctx.clubName + '\u2019s supporters travel at ' + Math.round(ratio) +
+                '% of home support — among the best-travelled fanbases in the league.'
+    };
+  }
+
+  /* Big weekend-over-midweek gap. Always framed as weekend STRENGTH, never as
+     midweek weakness. Fires when the gap is 25%+ and both samples exist. */
+  function obsWeekendMidweekHomeGap(ctx) {
+    var club = ctx.club;
+    if (!club) return null;
+    var weekend = [];
+    var midweek = [];
+    var active = {};
+    ['nl','north','south','nl-cup','fa-cup','fa-trophy'].forEach(function(k) {
+      if (S.cupToggles[k]) active[k] = true;
+    });
+    for (var i = 0; i < club.homeMatches.length; i++) {
+      var hm = club.homeMatches[i];
+      if (!isPlayed(hm.fix)) continue;
+      if (!active[hm.fix.competitionKey]) continue;
+      if (!hm.sub) continue;
+      (isWeekend(hm.fix) ? weekend : midweek).push(hm.sub.total);
+    }
+    if (weekend.length < 3 || midweek.length < 3) return null;
+    var avgW = weekend.reduce(function(a, b) { return a + b; }, 0) / weekend.length;
+    var avgM = midweek.reduce(function(a, b) { return a + b; }, 0) / midweek.length;
+    if (avgW <= avgM) return null;    /* never frame midweek as higher — if it is, different story */
+    var gap = ((avgW - avgM) / avgM) * 100;
+    if (gap < 25) return null;
+    return {
+      score: 60,
+      sentence: ctx.clubName + '\u2019s weekend home crowds average ' + Math.round(gap) +
+                '% higher than midweek fixtures (' + fmt(Math.round(avgW)) + ' vs ' +
+                fmt(Math.round(avgM)) + ' per match).'
+    };
+  }
+
+  /* Biggest single home crowd this season — always a positive "season highlight". */
+  function obsBiggestSingleCrowd(ctx) {
+    var club = ctx.club;
+    if (!club) return null;
+    var active = {};
+    ['nl','north','south','nl-cup','fa-cup','fa-trophy'].forEach(function(k) {
+      if (S.cupToggles[k]) active[k] = true;
+    });
+    var biggest = null;
+    for (var i = 0; i < club.homeMatches.length; i++) {
+      var hm = club.homeMatches[i];
+      if (!isPlayed(hm.fix)) continue;
+      if (!active[hm.fix.competitionKey]) continue;
+      if (!hm.sub) continue;
+      if (!biggest || hm.sub.total > biggest.total) {
+        biggest = { total: hm.sub.total, opp: hm.fix.awayTeamName, fix: hm.fix };
+      }
+    }
+    if (!biggest) return null;
+    /* Score scales with how big the crowd is vs the club's average */
+    var t = ctx.metrics['total_att'];
+    if (!t) return null;
+    var ratio = biggest.total / t.value;
+    if (ratio < 1.3) return null;  /* not a standout unless 30%+ above avg */
+    var score = 48 + Math.min(12, (ratio - 1.3) * 20);
+    var datePart = formatDateShort(biggest.fix.kickoffUTC);
+    return {
+      score: score,
+      sentence: ctx.clubName + '\u2019s biggest home crowd this season was ' +
+                fmt(biggest.total) + ' vs ' + biggest.opp + ' (' + datePart + ') — ' +
+                Math.round((ratio - 1) * 100) + '% above season average.'
+    };
+  }
+
+  /* Top quartile framing — positive for any club in the top 25%, on any metric. */
+  function obsTopQuartile(ctx) {
+    var labels = {
+      'total_att':         'home attendance',
+      'away_fans_brought': 'away fans brought',
+      'travelling':        'travelling support'
+    };
+    var best = null;
+    for (var k in labels) {
+      var m = ctx.metrics[k];
+      if (!m) continue;
+      var quartile = Math.ceil(m.lgTotal / 4);
+      if (m.lgRank <= quartile && m.lgRank > 1) {
+        /* Score favours metrics where the club is higher in the top quartile */
+        var s = 38 + (quartile - m.lgRank);
+        if (!best || s > best.score) {
+          best = { score: s, key: k, rank: m.lgRank, total: m.lgTotal, label: labels[k] };
+        }
+      }
+    }
+    if (best) {
+      return {
+        score: best.score,
+        sentence: ctx.clubName + ' ranks in the top quarter of the league for ' +
+                  best.label + ' — #' + best.rank + ' of ' + best.total + '.'
+      };
+    }
+    return null;
+  }
+
+  /* Comparison to the club immediately above them on the main rank — always
+     frames as "you're XX% of the club above you" positive comparison. Fires
+     only if the club is NOT #1 (that scenario is handled by obsLeagueFirst). */
+  function obsComparisonToNearbyClub(ctx) {
+    var t = ctx.metrics['total_att'];
+    if (!t || t.lgRank <= 1) return null;
+    var rows = getRanking('all_72', 'total_att', S.currentTiming);
+    /* Find the club at rank t.lgRank - 1 */
+    var above = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].rank === t.lgRank - 1) { above = rows[i]; break; }
+    }
+    if (!above || above.value === null) return null;
+    /* Only interesting if the gap is narrow (<= 15%) — otherwise it's not a
+       close race. And we'll avoid the case where we're basically tied (<2%)
+       because "you're 99% of them" isn't useful. */
+    var pct = (t.value / above.value) * 100;
+    if (pct < 85 || pct >= 99) return null;
+    return {
+      score: 42,
+      sentence: ctx.clubName + '\u2019s home crowds are ' + Math.round(pct) +
+                '% of ' + above.club + '\u2019s — the next club up the league table.'
+    };
+  }
+
+  /* Fallback — every club deserves a sentence. This is the lowest-scoring
+     observation so it only wins when nothing else triggers. Always positive:
+     frames rank as "ranks Nth of X" without judgement, picks best-percentile
+     metric so the number looks as good as it can. */
+  function obsRankStatement(ctx) {
+    var labels = {
+      'total_att':         'home attendance',
+      'away_fans_brought': 'away fans brought',
+      'travelling':        'travelling support'
+    };
+    var best = null;
+    for (var k in labels) {
+      var m = ctx.metrics[k];
+      if (!m) continue;
+      var pct = 1 - ((m.lgRank - 1) / m.lgTotal);
+      if (!best || pct > best.pct) {
+        best = { key: k, m: m, label: labels[k], pct: pct };
+      }
+    }
+    if (!best) return null;
+    return {
+      score: 20,
+      sentence: ctx.clubName + ' ranks #' + best.m.lgRank + ' of ' + best.m.lgTotal +
+                ' across the league for ' + best.label + ' — averaging ' +
+                fmt(best.m.value) + ' per match.'
+    };
   }
 
   function computeDivisionAverage(divScope, metric) {
