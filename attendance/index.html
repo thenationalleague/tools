@@ -10,6 +10,53 @@
 
      TECHNICAL CHANGELOG
      -------------------
+     v1.8  (2026-04-24)  Post-deploy polish — 4 small items:
+
+                         ADD CUP FIXTURE
+                         - Form heading "Add cup fixture" moved INSIDE the
+                           card (was on a separate .section-divider above).
+                           Card is now self-contained — heading + subtitle
+                           sit in a chart-header at the top, followed by
+                           the form. Consistent with the Existing cup
+                           fixtures card below.
+                         - Both team pickers now show the NL rose as a
+                           placeholder crest instead of an empty gap when
+                           no team is committed. Reverts to rose on clear
+                           and on typing-invalidation.
+                         - Free-text commits now OPTIMISTICALLY try to load
+                           a crest matching the typed filename. If
+                           /assets/crests/{Typed Name}.png exists it loads
+                           for real; onerror falls back to the rose. Means
+                           adding a crest file later (e.g. for an FA Cup
+                           opponent) makes it just work with no code
+                           change. Non-NL commits that 404 still fall
+                           back gracefully to the rose placeholder.
+
+                         MATCH CHART LEGEND
+                         - Removed the "Upcoming fixture" legend item.
+                           Greyed-out rows with empty tracks are
+                           self-explanatory; the legend item was noise.
+                           renderMatchChartLegend still tracks
+                           states.upcoming internally in case anything
+                           else downstream needs it.
+
+                         RANK CHART (club view) — float-label threshold
+                         - Threshold lowered from 30% to 15%. The old
+                           threshold was too unforgiving: clubs like FGR
+                           at ~20% width got pushed to float-label even
+                           though the name clearly fitted inside.
+                         - Bar-fill now has text-overflow: ellipsis for
+                           cases where a long name still doesn't quite
+                           fit inside a 16%+ wide bar. To make ellipsis
+                           work reliably inside a flex container, the
+                           name is now wrapped in a span with explicit
+                           overflow/text-overflow/white-space — flex
+                           anonymous text items don't get ellipsis
+                           consistently across browsers.
+                         - .bar-fill padding now 0 8px 0 12px (was
+                           padding-left: 12px) so the ellipsis has
+                           breathing room on the right edge.
+
      v1.7  (2026-04-24)  UI polish pass — 4 themes:
 
                          HERO CARDS (club view) — reverted to 4 equal cards
@@ -422,6 +469,16 @@
   var NL_TOOL_KEY = 'ops-attendance';
 
   window.NL_CHANGELOG = [
+    {
+      date: '24 April 2026',
+      version: 'v1.8',
+      items: [
+        'Add cup fixture: heading is now inside the card, matching the rest of the tool.',
+        'Add cup fixture: team pickers now show the NL rose as a placeholder crest until you pick a club. Typing a non-NL team will optimistically try to find a matching crest in the assets (e.g. "Manchester United") and fall back to the rose if none exists.',
+        'Match chart legend: dropped the "Upcoming fixture" row — the greyed-out upcoming rows are self-explanatory.',
+        'Rank chart (your view): made the cut-off for showing your club name inside the red bar more generous. Names like "Forest Green Rovers" now fit inside the bar at mid-table ranks; only very short bars push the name outside as a red label.'
+      ]
+    },
     {
       date: '24 April 2026',
       version: 'v1.7',
@@ -954,12 +1011,13 @@
     border-radius: 4px;
     display: flex;
     align-items: center;
-    padding-left: 12px;
+    padding: 0 8px 0 12px;
     color: var(--white);
     font-size: 12px;
     font-variation-settings: 'wght' 800;
     white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     min-width: 2px;
   }
   .bar-row--club.is-self .bar-fill {
@@ -1790,12 +1848,14 @@
 
     <!-- ==================== PANEL: ADD CUP FIXTURE (admin only) ==================== -->
     <div class="panel" data-panel="addcupfixture">
-      <div class="section-divider">
-        <h2 id="acfFormHeading">Add cup fixture</h2>
-        <span class="section-scope controlled">Admin only · FA Cup and FA Trophy</span>
-      </div>
-
       <div class="chart-card" style="max-width:720px;">
+        <div class="chart-header" style="margin-bottom:18px;">
+          <div class="chart-header-left">
+            <h2 id="acfFormHeading" style="margin:0;">Add cup fixture</h2>
+            <p class="section-subtitle" style="margin-top:4px;">Admin only · FA Cup and FA Trophy</p>
+          </div>
+        </div>
+
         <form id="addCupFixtureForm" onsubmit="return false;" style="display:grid;gap:18px;">
           <div class="form-group">
             <label>Competition <span style="color:var(--primary);">*</span></label>
@@ -1820,7 +1880,7 @@
             <label for="acfHomeInput">Home team <span style="color:var(--primary);">*</span></label>
             <div class="acf-picker" id="acfHomePicker">
               <div class="acf-picker__wrap">
-                <img class="acf-picker__crest" id="acfHomeCrest" src="" alt="" onerror="this.onerror=null;this.style.visibility='hidden';" style="visibility:hidden;">
+                <img class="acf-picker__crest" id="acfHomeCrest" src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="" onerror="this.onerror=null;this.style.visibility='hidden';">
                 <input class="acf-picker__input" id="acfHomeInput" type="text" autocomplete="off" placeholder="Start typing — NL clubs auto-suggest">
               </div>
               <div class="acf-picker__dropdown" id="acfHomeDropdown"></div>
@@ -1834,7 +1894,7 @@
             <label for="acfAwayInput">Away team <span style="color:var(--primary);">*</span></label>
             <div class="acf-picker" id="acfAwayPicker">
               <div class="acf-picker__wrap">
-                <img class="acf-picker__crest" id="acfAwayCrest" src="" alt="" onerror="this.onerror=null;this.style.visibility='hidden';" style="visibility:hidden;">
+                <img class="acf-picker__crest" id="acfAwayCrest" src="https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/National%20League%20rose.png" alt="" onerror="this.onerror=null;this.style.visibility='hidden';">
                 <input class="acf-picker__input" id="acfAwayInput" type="text" autocomplete="off" placeholder="Start typing — NL clubs auto-suggest">
               </div>
               <div class="acf-picker__dropdown" id="acfAwayDropdown"></div>
@@ -2488,14 +2548,20 @@
     hiddenName.value = name;
     hiddenIsNL.value = isNL ? '1' : '0';
 
-    if (isNL) {
-      crest.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
-      crest.src = CREST_BASE + encodeURIComponent(name) + '.png';
-      crest.style.visibility = 'visible';
-    } else {
-      crest.style.visibility = 'hidden';
-      crest.src = '';
-    }
+    /* Crest resolution:
+       - NL club → we know there's a crest by the same filename as the club name
+       - Free text → OPTIMISTICALLY try to load a crest with the typed name;
+         if it 404s, onerror falls back to the NL rose. This means adding a
+         crest file like "Manchester United.png" to /assets/crests/ later
+         makes it work with no code change.
+       Both paths end up visible (no hidden crest) so the space next to the
+       input is never empty. */
+    crest.style.visibility = 'visible';
+    crest.onerror = function() {
+      this.onerror = null;
+      this.src = FALLBACK_CREST;
+    };
+    crest.src = CREST_BASE + encodeURIComponent(name) + '.png';
 
     dd.classList.remove('open');
   }
@@ -2505,8 +2571,11 @@
     document.getElementById('acf' + pickerName + 'Committed').value = '';
     document.getElementById('acf' + pickerName + 'IsNL').value = '';
     var crest = document.getElementById('acf' + pickerName + 'Crest');
-    crest.style.visibility = 'hidden';
-    crest.src = '';
+    /* Reset to NL rose placeholder — keeps layout consistent instead of
+       collapsing the crest slot when the field is empty. */
+    crest.onerror = function() { this.onerror = null; this.style.visibility = 'hidden'; };
+    crest.src = FALLBACK_CREST;
+    crest.style.visibility = 'visible';
     var dd = document.getElementById('acf' + pickerName + 'Dropdown');
     if (dd) dd.classList.remove('open');
   }
@@ -2520,8 +2589,11 @@
       /* Any typing invalidates previous commit until they pick again. */
       document.getElementById('acf' + pickerName + 'Committed').value = '';
       document.getElementById('acf' + pickerName + 'IsNL').value = '';
+      /* Crest reverts to NL rose placeholder while user is typing. */
       var crest = document.getElementById('acf' + pickerName + 'Crest');
-      crest.style.visibility = 'hidden';
+      crest.onerror = function() { this.onerror = null; this.style.visibility = 'hidden'; };
+      crest.src = FALLBACK_CREST;
+      crest.style.visibility = 'visible';
       renderAcfPickerDropdown(pickerName, input.value);
     });
     input.addEventListener('focus', function() {
@@ -3383,7 +3455,7 @@
 
      Non-self rows: just rank + pill + plain navy bar + value. No name ever. */
   function drawBarsClubStyle(targetID, rows, selfClubName, metric, scope) {
-    var FLOAT_LABEL_THRESHOLD = 0.30;  /* bars narrower than 30% get name outside */
+    var FLOAT_LABEL_THRESHOLD = 0.15;  /* bars narrower than 15% get name outside */
     var target = document.getElementById(targetID);
     target.innerHTML = '';
     target.classList.add('bars--club');
@@ -3434,11 +3506,17 @@
       fillEl.style.width = pct + '%';
 
       /* Self-row only: decide whether own name fits inside the fill or
-         renders as a float-label to the right. */
+         renders as a float-label to the right. Wrap in a span so
+         text-overflow: ellipsis works reliably inside the flex fill. */
       if (isSelf) {
         var isTiny = pct < (FLOAT_LABEL_THRESHOLD * 100);
         if (!isTiny) {
-          fillEl.appendChild(document.createTextNode(r.club));
+          var nameSpan = document.createElement('span');
+          nameSpan.style.overflow = 'hidden';
+          nameSpan.style.textOverflow = 'ellipsis';
+          nameSpan.style.whiteSpace = 'nowrap';
+          nameSpan.textContent = r.club;
+          fillEl.appendChild(nameSpan);
         } else {
           var floatLbl = document.createElement('div');
           floatLbl.className = 'bar-float-label';
@@ -4314,23 +4392,8 @@
       legend.appendChild(item4);
     }
 
-    /* Upcoming — non-interactive placeholder description. Shown only if any upcoming present. */
-    if (states.upcoming) {
-      var item5 = document.createElement('div');
-      item5.className = 'legend-item';
-      var dot = document.createElement('span');
-      dot.textContent = '·';
-      dot.style.color = 'var(--text-muted)';
-      dot.style.fontSize = '18px';
-      dot.style.lineHeight = '1';
-      dot.style.marginRight = '2px';
-      item5.appendChild(dot);
-      var lbl5 = document.createElement('span');
-      lbl5.style.color = 'var(--text-muted)';
-      lbl5.textContent = 'Upcoming fixture';
-      item5.appendChild(lbl5);
-      legend.appendChild(item5);
-    }
+    /* "Upcoming fixture" legend item removed in v1.8 — the greyed-out row
+       is self-explanatory and the legend item was noise. */
   }
 
   function handleMatchRowClick(match) {
