@@ -10,6 +10,111 @@
 
      TECHNICAL CHANGELOG
      -------------------
+     v1.7  (2026-04-24)  UI polish pass — 4 themes:
+
+                         HERO CARDS (club view) — reverted to 4 equal cards
+                         - Dropped the combined "Rank + Total" wide hero card
+                           introduced in v1.4. It was visually too loud (red
+                           on 2fr width dominated the page).
+                         - New layout: 4 cards at equal width.
+                             1. RANK — red hero card. Shows rank in
+                                "total home crowd" metric within current
+                                scope. Single red card restores colour
+                                hierarchy: red appears here AND on the
+                                user's own bar in charts, consistent
+                                semantics for "this is your club".
+                             2-4. Total home crowd · Away fans brought ·
+                                  Travelling support — plain white cards.
+                                  Each shows avg value as headline, rank
+                                  as delta ("#5 of 24").
+                         - CSS: #clubHeroCards grid → repeat(4, 1fr),
+                           responsive breakpoints at 1100px (2 cols) +
+                           620px (1 col). .rank-card--wide /
+                           .rank-card-wide-inner / .rank-card-wide-side
+                           rules removed (dead code).
+                         - JS: renderClubHeroCards rewritten. Pulls all 3
+                           metric rankings up-front then emits 4 cards.
+
+                         STANDOUT STAT — rule-set upgrade
+                         - Was: "{Club} ranks #N of X for {metric} across all
+                           72 clubs — averaging Y per match." Same sentence
+                           pattern for every club regardless of what was
+                           interesting.
+                         - Now: buildStandoutStat() runs a priority-ordered
+                           rule-set and emits the first rule that triggers:
+                             1. League-wide #1 on any metric
+                             2. Divisional #1 but not league-wide ("big fish")
+                             3. Big contrast — top-third on one metric AND
+                                bottom-third on another (4 specific
+                                strong/weak pairings with tailored phrasing)
+                             4. Outlier — club value >= 2x divisional avg
+                             5. Fallback — best-percentile metric stated plainly
+                         - Division context via DIV_TO_SCOPE mapping;
+                           divisional avg computed on the fly per metric.
+
+                         FILTER BAR — stacked rows with explicit labels
+                         - "VIEW" / "MATCHES" labels replaced with "SCOPE"
+                           (geography) / "FIXTURES" (time filter). More
+                           accurate wording.
+                         - Filters now stacked: one row per filter group, with
+                           a 72px-minwidth label column on the left. Reads as
+                           a clean form-like layout instead of everything
+                           crammed horizontally.
+                         - CSS: new .filter-bar--stacked modifier + .filter-row
+                           helper. .filter-label gets a min-width inside rows.
+
+                         ADD / EDIT / DELETE CUP FIXTURES — major rework
+                         - Removed the explanatory paragraph at the top of
+                           the form (3 sentences). Form is self-explanatory
+                           via labels alone.
+                         - Team input replaced: previously a browser-native
+                           <datalist> + <input type="text">. Now uses a
+                           custom .acf-picker combobox adapted from the
+                           portal's .inv-club-picker pattern:
+                             · Crest + name + division-tag per option
+                             · Typed filter matches on full name AND short
+                               name ("hem" matches "Chesham United")
+                             · "Use '{typed}' as entered" freetext-commit
+                               row appears at the bottom of the dropdown
+                               when typed text has no exact NL match —
+                               dashed top border, muted background,
+                               italic tag "Use as entered — non-NL" in red
+                             · Commits via mousedown (preventDefault) to
+                               avoid blur-closing before click
+                         - Hidden fields acfHome/AwayCommitted +
+                           acfHome/AwayIsNL hold the resolved values for
+                           submission. Typing invalidates a prior commit.
+                           If user types but never commits, raw input is
+                           used with isNL=false (graceful fallthrough).
+                         - EDIT mode: clicking Edit on a list row
+                           repopulates the form. Form heading → "Edit cup
+                           fixture", submit → "Save changes", reset →
+                           "Cancel edit", and an "Editing existing
+                           fixture" badge appears. Smooth-scrolls to form.
+                         - If the edit changes date or teams, the matchID
+                           changes. Submit detects this and DELETES the
+                           old fixture + moves any attached submission to
+                           the new matchID (preserving data). Keeps RTDB
+                           tidy and avoids orphans.
+                         - EXISTING FIXTURES LIST below the form: table
+                           of every fa-cup + fa-trophy fixture in
+                           S.fixtures, sorted newest-first. Filters:
+                           competition pills (All / FA Cup / FA Trophy) +
+                           freetext search on team names. Each row has
+                           Edit + Delete buttons plus a pill showing
+                           whether a submission is attached.
+                         - DELETE flow: modal confirmation mentioning the
+                           team names + attendance total if a submission
+                           is attached. Removes both fixture + submission
+                           from RTDB, updates local cache, audits,
+                           refreshes list. Audit action:
+                           'delete_cup_fixture'. No undo (audit trail is
+                           the forensic record).
+                         - Audit actions: 'add_cup_fixture',
+                           'edit_cup_fixture', 'delete_cup_fixture'.
+                         - Non-NL team rows in the list show "(non-NL)"
+                           tag in muted text next to the name.
+
      v1.6  (2026-04-24)  Rank bar chart layout fix — v1.5's club-view rebuild
                          incorrectly applied the mockup layout to staff-focused
                          mode too. Split cleanly now:
@@ -319,6 +424,21 @@
   window.NL_CHANGELOG = [
     {
       date: '24 April 2026',
+      version: 'v1.7',
+      items: [
+        'Benchmarking hero cards redesigned — back to 4 equal cards. Rank sits in a red headline card; the three metric values (total home crowd, away fans brought, travelling support) now each get their own plain card with rank noted underneath. Restores a calmer, more readable layout.',
+        'Standout stat is smarter: instead of a generic rank sentence for every club, it now highlights the most interesting thing about your numbers — a league-wide #1, a division standout, a strong-at-home/quiet-on-the-road contrast, or an outlier multiplying the division average. Falls back to a plain rank statement if nothing stands out.',
+        'Filter controls for the benchmarking chart are now stacked into two clearly-labelled rows: SCOPE (division or all 72) and FIXTURES (all league / weekend / midweek).',
+        'Add cup fixture tab (admin only) — major upgrade:',
+        '  • Team inputs are now a proper club picker with crests and division tags, matching the style used elsewhere in the portal. Type to filter, click to pick. Non-NL teams still accepted via a clear "Use as entered" commit option at the bottom of the dropdown.',
+        '  • New "Existing cup fixtures" list below the form. Filter by competition or search by team. Each fixture has Edit and Delete buttons.',
+        '  • Edit repopulates the form — change date, kickoff or teams; if the matchID changes (teams or date moved), the old record is cleanly migrated so no orphans and any submitted attendance comes with it.',
+        '  • Delete prompts a confirmation that calls out if attendance has been submitted against the fixture. Hard delete with an audit entry — no undo, but every action is logged.',
+        '  • Dropped the explanatory paragraph at the top of the form — the labels say enough.'
+      ]
+    },
+    {
+      date: '24 April 2026',
       version: 'v1.6',
       items: [
         'Rank chart layout fix. When staff focus on a club, all club names are now visible (as a staff member viewing the league) with just the focused club\'s row highlighted in red — same layout as the aggregate staff view.',
@@ -542,11 +662,16 @@
     gap: 14px;
     margin-bottom: 24px;
   }
-  /* Club hero grid: Total hero spans 2 cols, Away + Travelling 1 col each */
+  /* Club hero grid: 4 equal cards (Rank · Total home · Away brought · Travelling).
+     The Rank card uses .rank-card.hero (red) to anchor the visual hierarchy
+     without the combined-card layout that v1.4 tried. */
   #clubHeroCards {
-    grid-template-columns: 2fr 1fr 1fr;
+    grid-template-columns: repeat(4, 1fr);
   }
-  @media (max-width: 860px) {
+  @media (max-width: 1100px) {
+    #clubHeroCards { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 620px) {
     #clubHeroCards { grid-template-columns: 1fr; }
   }
   .rank-card {
@@ -565,24 +690,6 @@
   .rank-card.hero .rank-value,
   .rank-card.hero .rank-delta { color: white; }
   .rank-card.hero .rank-value .rank-total { color: rgba(255,255,255,0.7); }
-  .rank-card--wide { padding: 20px 24px; }
-  .rank-card-wide-inner {
-    display: flex;
-    align-items: flex-end;
-    gap: 28px;
-    margin-top: 4px;
-  }
-  .rank-card-wide-side {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-  .rank-card-wide-side + .rank-card-wide-side {
-    border-left: 1px solid rgba(255,255,255,0.22);
-    padding-left: 28px;
-  }
-  .rank-card--wide .rank-value {
-    font-size: 40px;
-  }
   .rank-label {
     font-size: 11px;
     font-variation-settings: 'wght' 800;
@@ -633,6 +740,21 @@
     display: flex; align-items: center; gap: 10px;
     flex-wrap: wrap;
     margin-bottom: 18px;
+  }
+  /* Stacked variant — one filter group per row, left-aligned label. */
+  .filter-bar--stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .filter-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .filter-row .filter-label {
+    min-width: 72px;
   }
   .filter-label {
     font-size: 12px;
@@ -1079,6 +1201,106 @@
     color: var(--navy);
     border-bottom-color: var(--navy);
   }
+
+  /* Add Cup Fixture — club picker (NL-club-aware combobox)
+     Shows a crest on the left, type-to-filter input, dropdown with NL club
+     matches. A "Use '{typed}' as entered" option appears at the bottom of
+     the dropdown so non-NL teams can be committed explicitly. */
+  .acf-picker { position: relative; }
+  .acf-picker__wrap {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 12px; background: var(--white);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .acf-picker__wrap:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(158, 0, 0, 0.08);
+  }
+  .acf-picker__crest {
+    width: 28px; height: 28px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .acf-picker__input {
+    flex: 1;
+    border: none !important;
+    padding: 0 !important;
+    font-size: 14px;
+    outline: none;
+    background: transparent;
+    font-family: var(--font);
+    font-variation-settings: 'wght' 400;
+    color: var(--text);
+  }
+  .acf-picker__input::placeholder { color: #aab4c4; }
+  .acf-picker__dropdown {
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    z-index: 200;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    max-height: 280px;
+    overflow-y: auto;
+    display: none;
+    margin-top: 3px;
+  }
+  .acf-picker__dropdown.open { display: block; }
+  .acf-picker__option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .acf-picker__option:last-child { border-bottom: none; }
+  .acf-picker__option:hover,
+  .acf-picker__option.is-keyboard-active { background: var(--off-white); }
+  .acf-picker__option img {
+    width: 24px; height: 24px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .acf-picker__option-name {
+    flex: 1;
+    font-variation-settings: 'wght' 700;
+  }
+  .acf-picker__option-tag {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-variation-settings: 'wght' 700;
+  }
+  /* "Use '{typed}' as entered" option — visually distinct non-NL commit */
+  .acf-picker__option--freetext {
+    border-top: 2px dashed var(--border);
+    background: #fafbfc;
+    font-style: italic;
+    color: var(--text-muted);
+  }
+  .acf-picker__option--freetext:hover { background: #f3f5f8; }
+  .acf-picker__option--freetext .acf-picker__option-name {
+    color: var(--text);
+    font-style: normal;
+  }
+  .acf-picker__option--freetext .acf-picker__option-tag {
+    color: var(--primary);
+  }
+  .acf-picker__option--empty {
+    padding: 10px 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-style: italic;
+    cursor: default;
+  }
+  .acf-picker__option--empty:hover { background: transparent; }
+
   .tab-badge {
     display: inline-block;
     background: var(--amber);
@@ -1362,14 +1584,18 @@
 
         <div class="rank-grid" id="clubHeroCards"></div>
 
-        <div class="filter-bar">
-          <span class="filter-label">View</span>
-          <div class="chip-group" id="scopeGroup"></div>
-          <span class="filter-label" style="margin-left:12px;">Matches</span>
-          <div class="chip-group" id="timingGroup">
-            <button class="chip active" data-timing="all">All league</button>
-            <button class="chip" data-timing="weekend">Weekend only</button>
-            <button class="chip" data-timing="midweek">Midweek only</button>
+        <div class="filter-bar filter-bar--stacked">
+          <div class="filter-row">
+            <span class="filter-label">SCOPE</span>
+            <div class="chip-group" id="scopeGroup"></div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">FIXTURES</span>
+            <div class="chip-group" id="timingGroup">
+              <button class="chip active" data-timing="all">All league</button>
+              <button class="chip" data-timing="weekend">Weekend only</button>
+              <button class="chip" data-timing="midweek">Midweek only</button>
+            </div>
           </div>
         </div>
 
@@ -1565,24 +1791,12 @@
     <!-- ==================== PANEL: ADD CUP FIXTURE (admin only) ==================== -->
     <div class="panel" data-panel="addcupfixture">
       <div class="section-divider">
-        <h2>Add cup fixture</h2>
+        <h2 id="acfFormHeading">Add cup fixture</h2>
         <span class="section-scope controlled">Admin only · FA Cup and FA Trophy</span>
       </div>
 
       <div class="chart-card" style="max-width:720px;">
-        <div class="chart-header">
-          <div class="chart-header-left">
-            <h2>New fixture</h2>
-            <p class="section-subtitle">
-              Creates an FA Cup or FA Trophy fixture for a selected date + kickoff.
-              Attendance is NOT entered here — submit it normally through the match row
-              once data is available. Both team fields accept any text; NL clubs
-              auto-suggest. Home-team NL clubs will see this fixture on their dashboard.
-            </p>
-          </div>
-        </div>
-
-        <form id="addCupFixtureForm" onsubmit="return false;" style="display:grid;gap:18px;margin-top:10px;">
+        <form id="addCupFixtureForm" onsubmit="return false;" style="display:grid;gap:18px;">
           <div class="form-group">
             <label>Competition <span style="color:var(--primary);">*</span></label>
             <div class="filter-pill-row" role="radiogroup" aria-label="Competition" style="margin-bottom:0;">
@@ -1603,28 +1817,104 @@
           </div>
 
           <div class="form-group">
-            <label for="acfHome">Home team <span style="color:var(--primary);">*</span></label>
-            <input type="text" id="acfHome" required list="acfClubsList" autocomplete="off" placeholder="Start typing — NL clubs auto-suggest; free text allowed" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:14px;">
+            <label for="acfHomeInput">Home team <span style="color:var(--primary);">*</span></label>
+            <div class="acf-picker" id="acfHomePicker">
+              <div class="acf-picker__wrap">
+                <img class="acf-picker__crest" id="acfHomeCrest" src="" alt="" onerror="this.onerror=null;this.style.visibility='hidden';" style="visibility:hidden;">
+                <input class="acf-picker__input" id="acfHomeInput" type="text" autocomplete="off" placeholder="Start typing — NL clubs auto-suggest">
+              </div>
+              <div class="acf-picker__dropdown" id="acfHomeDropdown"></div>
+            </div>
+            <!-- Hidden fields resolved by picker: committed name + whether NL club -->
+            <input type="hidden" id="acfHomeCommitted" value="">
+            <input type="hidden" id="acfHomeIsNL" value="">
           </div>
 
           <div class="form-group">
-            <label for="acfAway">Away team <span style="color:var(--primary);">*</span></label>
-            <input type="text" id="acfAway" required list="acfClubsList" autocomplete="off" placeholder="Start typing — NL clubs auto-suggest; free text allowed" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:14px;">
+            <label for="acfAwayInput">Away team <span style="color:var(--primary);">*</span></label>
+            <div class="acf-picker" id="acfAwayPicker">
+              <div class="acf-picker__wrap">
+                <img class="acf-picker__crest" id="acfAwayCrest" src="" alt="" onerror="this.onerror=null;this.style.visibility='hidden';" style="visibility:hidden;">
+                <input class="acf-picker__input" id="acfAwayInput" type="text" autocomplete="off" placeholder="Start typing — NL clubs auto-suggest">
+              </div>
+              <div class="acf-picker__dropdown" id="acfAwayDropdown"></div>
+            </div>
+            <input type="hidden" id="acfAwayCommitted" value="">
+            <input type="hidden" id="acfAwayIsNL" value="">
           </div>
-
-          <!-- Shared datalist for both home + away fields. Populated at auth-ready. -->
-          <datalist id="acfClubsList"></datalist>
 
           <div id="acfError" style="display:none;color:var(--red);font-size:13px;font-variation-settings:'wght' 700;"></div>
 
-          <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
+            <span id="acfEditingBadge" style="display:none;font-size:12px;color:var(--text-muted);font-variation-settings:'wght' 700;margin-right:auto;">Editing existing fixture</span>
             <button type="button" class="btn btn--ghost" id="acfReset">Reset</button>
             <button type="button" class="btn btn--primary" id="acfSubmit">Create fixture</button>
           </div>
         </form>
       </div>
+
+      <!-- ==== Existing cup fixtures — list with edit + delete ==== -->
+      <div class="chart-card" style="margin-top:20px;">
+        <div class="chart-header">
+          <div class="chart-header-left">
+            <h2>Existing cup fixtures</h2>
+            <p class="section-subtitle">Edit a fixture to change its date, kickoff or teams. Delete removes the fixture <strong>and any attendance submitted against it</strong>.</p>
+          </div>
+        </div>
+
+        <div class="filter-bar filter-bar--stacked" style="margin-top:8px;margin-bottom:14px;">
+          <div class="filter-row">
+            <span class="filter-label">COMPETITION</span>
+            <div class="filter-pill-row" style="margin-bottom:0;">
+              <button class="filter-pill active" data-filter-comp="all" type="button">All</button>
+              <button class="filter-pill" data-filter-comp="fa-cup" type="button">FA Cup</button>
+              <button class="filter-pill" data-filter-comp="fa-trophy" type="button">FA Trophy</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">SEARCH</span>
+            <input type="text" id="acfListSearch" placeholder="Filter by team name…" style="flex:1;min-width:220px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:13px;">
+          </div>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="table" id="acfListTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Comp</th>
+                <th>Home</th>
+                <th>Away</th>
+                <th>Source</th>
+                <th>Has submission</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="acfListBody"></tbody>
+          </table>
+        </div>
+        <div id="acfListEmpty" style="display:none;padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No cup fixtures match your filters.</div>
+      </div>
     </div>
     <!-- END PANEL: addcupfixture -->
+
+    <!-- Delete confirmation modal -->
+    <div class="modal-backdrop" id="acfDeleteModal" style="display:none;">
+      <div class="modal">
+        <div class="modal__head">
+          <h3 style="margin:0;font-size:17px;font-variation-settings:'wght' 900;">Delete fixture?</h3>
+          <button class="modal__close" id="acfDeleteClose" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="modal__body">
+          <p id="acfDeleteMessage" style="margin:0 0 14px;font-size:14px;line-height:1.5;"></p>
+          <p style="margin:0;font-size:13px;color:var(--text-muted);">This cannot be undone. An audit entry will be written.</p>
+        </div>
+        <div class="modal__footer">
+          <button type="button" class="btn btn--ghost" id="acfDeleteCancel">Cancel</button>
+          <button type="button" class="btn btn--danger" id="acfDeleteConfirm">Delete fixture</button>
+        </div>
+      </div>
+    </div>
 
   </div>
 </div>
@@ -2030,7 +2320,6 @@
     /* Add cup fixture tab — admin + superadmin only */
     if (isAdmin) {
       document.getElementById('addCupFixtureTab').style.display = '';
-      populateAddCupFixtureClubList();
       wireAddCupFixtureForm();
     }
 
@@ -2071,111 +2360,345 @@
 
 
   /* =========================================================================
-     ADD CUP FIXTURE (admin only) — form to create FA Cup / FA Trophy fixtures
-     outside the NLS sync. Uses same synthetic matchID convention as the
-     historical import so duplicates are caught cleanly.
+     ADD / EDIT / DELETE CUP FIXTURES (admin only)
+
+     Creates and maintains FA Cup / FA Trophy fixtures outside the NLS sync.
+     Uses the same synthetic matchID convention as the historical import:
+         manual_{comp}_{YYYYMMDD}_{homeSlug}_v_{awaySlug}
+     so dup-detection works across both paths.
+
+     UI layers:
+       - Form (top): create new fixture OR edit an existing one when the user
+         clicks "Edit" from the list below. Form is mode-aware — changes
+         heading + primary button label in edit mode.
+       - Club pickers: type-to-filter NL clubs with crest + division tag, or
+         commit free text via a dedicated "Use '{typed}' as entered" option at
+         the bottom of the dropdown. Replaces the earlier browser-native
+         datalist, which was visually inconsistent and accepted silent
+         free-text without clear commit affordance.
+       - List (bottom): every existing fa-cup / fa-trophy fixture, filterable
+         by competition + team name. Edit repopulates the form. Delete shows a
+         confirmation modal — destructive and removes any submission too.
      ========================================================================= */
 
-  /* Seed the shared <datalist> with the 72 NL clubs so admins get auto-suggest.
-     Free-text is still accepted — the datalist is additive, not restrictive. */
-  function populateAddCupFixtureClubList() {
-    var list = document.getElementById('acfClubsList');
-    if (!list || !S.clubs) return;
-    list.innerHTML = '';
-    var sorted = S.clubs.slice().sort(function(a, b) { return a.name.localeCompare(b.name); });
-    for (var i = 0; i < sorted.length; i++) {
-      var opt = document.createElement('option');
-      opt.value = sorted[i].name;
-      list.appendChild(opt);
-    }
+  var CREST_BASE    = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+  var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
+
+  /* ---- Picker wiring -------------------------------------------------- */
+
+  /* Committed club state per picker field. When the user picks an NL club
+     OR clicks the free-text commit option, we store the resolved name + an
+     isNL flag. This lets submission use a fully-resolved, unambiguous value
+     rather than trying to infer from the input's raw text. */
+  function clubMatchesQuery(club, q) {
+    if (!q) return true;
+    var n = club.name.toLowerCase();
+    var s = (club.short || '').toLowerCase();
+    return n.indexOf(q) !== -1 || s.indexOf(q) !== -1;
   }
+
+  function renderAcfPickerDropdown(pickerName, filterStr) {
+    var dd = document.getElementById('acf' + pickerName + 'Dropdown');
+    if (!dd) return;
+    dd.innerHTML = '';
+
+    var q = (filterStr || '').toLowerCase().trim();
+    var clubs = (S.clubs || []).slice().sort(function(a, b) { return a.name.localeCompare(b.name); });
+    var matches = clubs.filter(function(c) { return clubMatchesQuery(c, q); });
+    var rawTyped = filterStr == null ? '' : filterStr.trim();
+
+    if (matches.length === 0 && !rawTyped) {
+      /* Fresh focus with no typing — show hint row */
+      var empty = document.createElement('div');
+      empty.className = 'acf-picker__option acf-picker__option--empty';
+      empty.textContent = 'Start typing to search National League clubs';
+      dd.appendChild(empty);
+      dd.classList.add('open');
+      return;
+    }
+
+    /* NL club matches */
+    matches.forEach(function(c) {
+      var opt = document.createElement('div');
+      opt.className = 'acf-picker__option';
+      opt.setAttribute('data-name', c.name);
+      opt.setAttribute('data-is-nl', '1');
+
+      var img = document.createElement('img');
+      img.src = CREST_BASE + encodeURIComponent(c.name) + '.png';
+      img.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+      opt.appendChild(img);
+
+      var name = document.createElement('span');
+      name.className = 'acf-picker__option-name';
+      name.textContent = c.name;
+      opt.appendChild(name);
+
+      var tag = document.createElement('span');
+      tag.className = 'acf-picker__option-tag';
+      tag.textContent = c.division || '';
+      opt.appendChild(tag);
+
+      opt.addEventListener('mousedown', function(e) {
+        e.preventDefault();  /* keep focus so blur doesn't close before click */
+        commitAcfPicker(pickerName, c.name, true);
+      });
+      dd.appendChild(opt);
+    });
+
+    /* Free-text commit row — only when something has been typed AND the typed
+       text isn't already an exact match for an NL club. */
+    var exactMatch = matches.some(function(c) {
+      return c.name.toLowerCase() === q;
+    });
+    if (rawTyped && !exactMatch) {
+      var freetext = document.createElement('div');
+      freetext.className = 'acf-picker__option acf-picker__option--freetext';
+      freetext.setAttribute('data-name', rawTyped);
+      freetext.setAttribute('data-is-nl', '0');
+
+      var nameFt = document.createElement('span');
+      nameFt.className = 'acf-picker__option-name';
+      nameFt.textContent = '\u201C' + rawTyped + '\u201D';
+      freetext.appendChild(nameFt);
+
+      var tagFt = document.createElement('span');
+      tagFt.className = 'acf-picker__option-tag';
+      tagFt.textContent = 'Use as entered — non-NL';
+      freetext.appendChild(tagFt);
+
+      freetext.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        commitAcfPicker(pickerName, rawTyped, false);
+      });
+      dd.appendChild(freetext);
+    }
+
+    dd.classList.add('open');
+  }
+
+  function commitAcfPicker(pickerName, name, isNL) {
+    var input = document.getElementById('acf' + pickerName + 'Input');
+    var crest = document.getElementById('acf' + pickerName + 'Crest');
+    var hiddenName = document.getElementById('acf' + pickerName + 'Committed');
+    var hiddenIsNL = document.getElementById('acf' + pickerName + 'IsNL');
+    var dd = document.getElementById('acf' + pickerName + 'Dropdown');
+
+    input.value = name;
+    hiddenName.value = name;
+    hiddenIsNL.value = isNL ? '1' : '0';
+
+    if (isNL) {
+      crest.onerror = function() { this.onerror = null; this.src = FALLBACK_CREST; };
+      crest.src = CREST_BASE + encodeURIComponent(name) + '.png';
+      crest.style.visibility = 'visible';
+    } else {
+      crest.style.visibility = 'hidden';
+      crest.src = '';
+    }
+
+    dd.classList.remove('open');
+  }
+
+  function clearAcfPicker(pickerName) {
+    document.getElementById('acf' + pickerName + 'Input').value = '';
+    document.getElementById('acf' + pickerName + 'Committed').value = '';
+    document.getElementById('acf' + pickerName + 'IsNL').value = '';
+    var crest = document.getElementById('acf' + pickerName + 'Crest');
+    crest.style.visibility = 'hidden';
+    crest.src = '';
+    var dd = document.getElementById('acf' + pickerName + 'Dropdown');
+    if (dd) dd.classList.remove('open');
+  }
+
+  function wireAcfPicker(pickerName) {
+    var input = document.getElementById('acf' + pickerName + 'Input');
+    var dd    = document.getElementById('acf' + pickerName + 'Dropdown');
+    if (!input || !dd) return;
+
+    input.addEventListener('input', function() {
+      /* Any typing invalidates previous commit until they pick again. */
+      document.getElementById('acf' + pickerName + 'Committed').value = '';
+      document.getElementById('acf' + pickerName + 'IsNL').value = '';
+      var crest = document.getElementById('acf' + pickerName + 'Crest');
+      crest.style.visibility = 'hidden';
+      renderAcfPickerDropdown(pickerName, input.value);
+    });
+    input.addEventListener('focus', function() {
+      renderAcfPickerDropdown(pickerName, input.value);
+    });
+    /* Close on outside click */
+    document.addEventListener('click', function(e) {
+      var wrap = document.getElementById('acf' + pickerName + 'Picker');
+      if (wrap && !wrap.contains(e.target)) dd.classList.remove('open');
+    });
+  }
+
+
+  /* ---- Add / Edit form ----------------------------------------------- */
 
   function wireAddCupFixtureForm() {
     if (S._acfWired) return;
     S._acfWired = true;
 
-    /* Competition pill toggle — mutually exclusive, track selection on state */
+    /* Competition pill toggle */
     S._acfComp = 'fa-cup';
+    S._acfEditing = null;   /* when editing, holds the matchID being edited */
     var compPills = document.querySelectorAll('#addCupFixtureForm .filter-pill[data-comp]');
     compPills.forEach(function(p) {
       p.addEventListener('click', function(e) {
-        var k = e.currentTarget.getAttribute('data-comp');
-        S._acfComp = k;
+        S._acfComp = e.currentTarget.getAttribute('data-comp');
         compPills.forEach(function(x) { x.classList.toggle('active', x === e.currentTarget); });
       });
     });
 
+    wireAcfPicker('Home');
+    wireAcfPicker('Away');
+
     document.getElementById('acfReset').addEventListener('click', resetAddCupFixtureForm);
     document.getElementById('acfSubmit').addEventListener('click', submitAddCupFixtureForm);
+
+    /* Existing-fixtures list filters */
+    S._acfListCompFilter = 'all';
+    S._acfListSearch = '';
+    var listPills = document.querySelectorAll('.panel[data-panel="addcupfixture"] .filter-pill[data-filter-comp]');
+    listPills.forEach(function(p) {
+      p.addEventListener('click', function(e) {
+        S._acfListCompFilter = e.currentTarget.getAttribute('data-filter-comp');
+        listPills.forEach(function(x) { x.classList.toggle('active', x === e.currentTarget); });
+        renderAcfList();
+      });
+    });
+    var searchInput = document.getElementById('acfListSearch');
+    if (searchInput) {
+      searchInput.addEventListener('input', function() {
+        S._acfListSearch = searchInput.value.toLowerCase().trim();
+        renderAcfList();
+      });
+    }
+
+    /* Delete-confirm modal wiring */
+    document.getElementById('acfDeleteClose').addEventListener('click', closeAcfDeleteModal);
+    document.getElementById('acfDeleteCancel').addEventListener('click', closeAcfDeleteModal);
+    document.getElementById('acfDeleteConfirm').addEventListener('click', confirmAcfDelete);
+
+    renderAcfList();
   }
 
   function resetAddCupFixtureForm() {
     document.getElementById('acfDate').value = '';
     document.getElementById('acfTime').value = '15:00';
-    document.getElementById('acfHome').value = '';
-    document.getElementById('acfAway').value = '';
+    clearAcfPicker('Home');
+    clearAcfPicker('Away');
     setAddCupFixtureError('');
-    /* Reset comp to FA Cup default */
     S._acfComp = 'fa-cup';
+    S._acfEditing = null;
     document.querySelectorAll('#addCupFixtureForm .filter-pill[data-comp]').forEach(function(p) {
       p.classList.toggle('active', p.getAttribute('data-comp') === 'fa-cup');
     });
+    /* Revert form chrome to create-mode */
+    document.getElementById('acfFormHeading').textContent = 'Add cup fixture';
+    document.getElementById('acfSubmit').textContent = 'Create fixture';
+    document.getElementById('acfReset').textContent = 'Reset';
+    document.getElementById('acfEditingBadge').style.display = 'none';
   }
 
   function setAddCupFixtureError(msg) {
     var el = document.getElementById('acfError');
     if (!el) return;
-    if (msg) {
-      el.textContent = msg;
-      el.style.display = '';
-    } else {
-      el.textContent = '';
-      el.style.display = 'none';
-    }
+    if (msg) { el.textContent = msg; el.style.display = ''; }
+    else     { el.textContent = '';  el.style.display = 'none'; }
+  }
+
+  /* Populate the form from an existing fixture, entering "edit mode". */
+  function loadAcfFormForEdit(matchID) {
+    var fix = S.fixtures[matchID];
+    if (!fix) return;
+    S._acfEditing = matchID;
+
+    /* Set comp pill */
+    S._acfComp = fix.competitionKey;
+    document.querySelectorAll('#addCupFixtureForm .filter-pill[data-comp]').forEach(function(p) {
+      p.classList.toggle('active', p.getAttribute('data-comp') === fix.competitionKey);
+    });
+
+    /* Parse kickoffUTC "YYYY-MM-DDTHH:MM[:SS]" back into separate inputs */
+    var ko = fix.kickoffUTC || '';
+    var parts = ko.split('T');
+    var dayPart = parts[0] || '';
+    var timePart = (parts[1] || '').substring(0, 5);
+    document.getElementById('acfDate').value = dayPart;
+    document.getElementById('acfTime').value = timePart || '15:00';
+
+    /* Pre-commit team names on pickers */
+    commitAcfPicker('Home', fix.homeTeamName, !!fix.homeTeamID);
+    commitAcfPicker('Away', fix.awayTeamName, !!fix.awayTeamID);
+
+    /* Update chrome to reflect edit mode */
+    document.getElementById('acfFormHeading').textContent = 'Edit cup fixture';
+    document.getElementById('acfSubmit').textContent = 'Save changes';
+    document.getElementById('acfReset').textContent = 'Cancel edit';
+    document.getElementById('acfEditingBadge').style.display = '';
+    setAddCupFixtureError('');
+
+    /* Scroll to the form */
+    var panel = document.querySelector('.panel[data-panel="addcupfixture"]');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function submitAddCupFixtureForm() {
     setAddCupFixtureError('');
 
     var comp    = S._acfComp;
-    var dateStr = document.getElementById('acfDate').value.trim();    /* "YYYY-MM-DD" */
-    var timeStr = document.getElementById('acfTime').value.trim();    /* "HH:MM" */
-    var home    = document.getElementById('acfHome').value.trim();
-    var away    = document.getElementById('acfAway').value.trim();
+    var dateStr = document.getElementById('acfDate').value.trim();
+    var timeStr = document.getElementById('acfTime').value.trim();
+    var home    = document.getElementById('acfHomeCommitted').value.trim();
+    var homeIsNL = document.getElementById('acfHomeIsNL').value === '1';
+    var away    = document.getElementById('acfAwayCommitted').value.trim();
+    var awayIsNL = document.getElementById('acfAwayIsNL').value === '1';
 
-    /* --- validation --- */
-    if (!comp) { setAddCupFixtureError('Select a competition.'); return; }
+    /* If the user typed but never committed (never picked an NL option and
+       never clicked the "Use as entered" row), we pull the raw input and
+       treat as free text — safer than blocking the submit. */
+    if (!home) {
+      var rawHome = document.getElementById('acfHomeInput').value.trim();
+      if (rawHome) { home = rawHome; homeIsNL = false; }
+    }
+    if (!away) {
+      var rawAway = document.getElementById('acfAwayInput').value.trim();
+      if (rawAway) { away = rawAway; awayIsNL = false; }
+    }
+
+    /* Validation */
+    if (!comp)    { setAddCupFixtureError('Select a competition.'); return; }
     if (!dateStr) { setAddCupFixtureError('Pick a date.'); return; }
     if (!timeStr) { setAddCupFixtureError('Pick a kickoff time.'); return; }
-    if (!home) { setAddCupFixtureError('Enter a home team.'); return; }
-    if (!away) { setAddCupFixtureError('Enter an away team.'); return; }
+    if (!home)    { setAddCupFixtureError('Enter a home team.'); return; }
+    if (!away)    { setAddCupFixtureError('Enter an away team.'); return; }
     if (home.toLowerCase() === away.toLowerCase()) {
       setAddCupFixtureError('Home and away teams must be different.');
       return;
     }
 
-    /* Build kickoff + matchID using the same slug function as the historical import */
     var kickoffUTC = dateStr + 'T' + timeStr + ':00';
     var matchID = buildSyntheticCupMatchID(comp, dateStr, home, away);
+    var editingID = S._acfEditing;
 
-    /* Duplicate guard — refuse write if fixture already exists */
-    if (S.fixtures[matchID]) {
-      setAddCupFixtureError('That fixture already exists (' + home + ' v ' + away + ' on ' + dateStr + ').');
+    /* Duplicate guard — skip when editing an unchanged matchID */
+    if (S.fixtures[matchID] && matchID !== editingID) {
+      setAddCupFixtureError('A fixture already exists for ' + home + ' v ' + away + ' on ' + dateStr + '.');
       return;
     }
 
-    /* Look up optaIDs so NL home clubs get tied into their dashboard */
-    var homeOptaID = resolveClubOptaID(home);
-    var awayOptaID = resolveClubOptaID(away);
-
     var compLabel = comp === 'fa-cup' ? 'FA Cup' : 'FA Trophy';
+    var homeOptaID = homeIsNL ? resolveClubOptaID(home) : null;
+    var awayOptaID = awayIsNL ? resolveClubOptaID(away) : null;
 
     var fixture = {
       matchID:        matchID,
       competitionKey: comp,
       competitionLbl: compLabel,
       kickoffUTC:     kickoffUTC,
-      matchPeriod:    null,
       homeTeamID:     homeOptaID,
       homeTeamName:   home,
       homeScore:      null,
@@ -2183,49 +2706,254 @@
       awayTeamName:   away,
       awayScore:      null,
       lastSyncedAt:   Date.now(),
-      source:         'manual-admin-add'
+      source:         editingID ? 'manual-admin-edit' : 'manual-admin-add'
     };
-
-    /* Strip null fields before write so the RTDB record stays tidy. */
-    var clean = {};
-    for (var k in fixture) {
-      if (fixture[k] !== null && fixture[k] !== undefined) clean[k] = fixture[k];
-    }
+    var clean = stripNullKeys(fixture);
 
     var btn = document.getElementById('acfSubmit');
     btn.disabled = true;
-    btn.textContent = 'Creating…';
+    btn.textContent = editingID ? 'Saving\u2026' : 'Creating\u2026';
+
+    var chain = NL.ensureAuth();
+
+    /* If the matchID changed in edit mode (because date/teams changed), we
+       must DELETE the old record + any submission attached to it, then
+       write the new one. This keeps RTDB tidy and avoids orphans. */
+    if (editingID && editingID !== matchID) {
+      chain = chain.then(function() {
+        return firebase.database().ref('app-data/ops-attendance/fixtures/' + editingID).remove();
+      }).then(function() {
+        delete S.fixtures[editingID];
+        /* Move any submission under the old matchID to the new one */
+        var oldSub = S.submissions[editingID];
+        if (oldSub) {
+          delete S.submissions[editingID];
+          return firebase.database().ref('app-data/ops-attendance/submissions/' + editingID).remove()
+            .then(function() {
+              var movedSub = Object.assign({}, oldSub, { matchID: matchID });
+              return firebase.database().ref('app-data/ops-attendance/submissions/' + matchID).set(movedSub)
+                .then(function() {
+                  S.submissions[matchID] = movedSub;
+                });
+            });
+        }
+      });
+    }
+
+    chain = chain.then(function() {
+      return firebase.database().ref('app-data/ops-attendance/fixtures/' + matchID).set(clean);
+    }).then(function() {
+      S.fixtures[matchID] = clean;
+      if (NL.writeAudit) {
+        var act = editingID ? 'edit_cup_fixture' : 'add_cup_fixture';
+        NL.writeAudit(act, matchID + ' \u00B7 ' + home + ' v ' + away + ' \u00B7 ' + compLabel + ' \u00B7 ' + dateStr + ' ' + timeStr);
+      }
+      NL.toast(editingID ? 'Fixture updated' : 'Fixture added: ' + home + ' v ' + away, 'success');
+      resetAddCupFixtureForm();
+      if (typeof computeAggregates === 'function') computeAggregates();
+      renderAcfList();
+    }).catch(function(err) {
+      setAddCupFixtureError('Write failed: ' + (err && err.message ? err.message : err));
+    }).then(function() {
+      btn.disabled = false;
+      btn.textContent = S._acfEditing ? 'Save changes' : 'Create fixture';
+    });
+  }
+
+  function stripNullKeys(o) {
+    var out = {};
+    for (var k in o) if (o[k] !== null && o[k] !== undefined) out[k] = o[k];
+    return out;
+  }
+
+
+  /* ---- Existing-fixtures list ---------------------------------------- */
+
+  function renderAcfList() {
+    var body = document.getElementById('acfListBody');
+    var empty = document.getElementById('acfListEmpty');
+    if (!body) return;
+
+    var compFilter = S._acfListCompFilter || 'all';
+    var q = S._acfListSearch || '';
+
+    var rows = [];
+    for (var mid in S.fixtures) {
+      var f = S.fixtures[mid];
+      if (!f) continue;
+      if (f.competitionKey !== 'fa-cup' && f.competitionKey !== 'fa-trophy') continue;
+      if (compFilter !== 'all' && f.competitionKey !== compFilter) continue;
+      if (q) {
+        var h = (f.homeTeamName || '').toLowerCase();
+        var a = (f.awayTeamName || '').toLowerCase();
+        if (h.indexOf(q) === -1 && a.indexOf(q) === -1) continue;
+      }
+      rows.push(f);
+    }
+    rows.sort(function(a, b) {
+      var ka = parseKickoff(a.kickoffUTC);
+      var kb = parseKickoff(b.kickoffUTC);
+      return (kb ? kb.getTime() : 0) - (ka ? ka.getTime() : 0);   /* newest first */
+    });
+
+    body.innerHTML = '';
+    if (rows.length === 0) {
+      empty.style.display = '';
+      return;
+    }
+    empty.style.display = 'none';
+
+    rows.forEach(function(f) {
+      var tr = document.createElement('tr');
+      var hasSub = !!S.submissions[f.matchID];
+
+      /* Date */
+      var tdDate = document.createElement('td');
+      tdDate.textContent = formatDateShort(f.kickoffUTC);
+      tr.appendChild(tdDate);
+
+      /* Comp */
+      var tdComp = document.createElement('td');
+      tdComp.textContent = f.competitionKey === 'fa-cup' ? 'FA Cup' : 'FA Trophy';
+      tr.appendChild(tdComp);
+
+      /* Home */
+      var tdHome = document.createElement('td');
+      tdHome.textContent = f.homeTeamName;
+      if (!f.homeTeamID) {
+        var ftag = document.createElement('span');
+        ftag.textContent = ' (non-NL)';
+        ftag.style.color = 'var(--text-muted)';
+        ftag.style.fontSize = '11px';
+        tdHome.appendChild(ftag);
+      }
+      tr.appendChild(tdHome);
+
+      /* Away */
+      var tdAway = document.createElement('td');
+      tdAway.textContent = f.awayTeamName;
+      if (!f.awayTeamID) {
+        var ftagA = document.createElement('span');
+        ftagA.textContent = ' (non-NL)';
+        ftagA.style.color = 'var(--text-muted)';
+        ftagA.style.fontSize = '11px';
+        tdAway.appendChild(ftagA);
+      }
+      tr.appendChild(tdAway);
+
+      /* Source */
+      var tdSrc = document.createElement('td');
+      var src = f.source || '';
+      var srcLabel = src.indexOf('admin') !== -1 ? 'Admin-added' :
+                     src.indexOf('historical') !== -1 ? 'Historical import' :
+                     src.indexOf('nls') !== -1 ? 'NLS sync' : src;
+      tdSrc.textContent = srcLabel;
+      tdSrc.style.fontSize = '12px';
+      tdSrc.style.color = 'var(--text-muted)';
+      tr.appendChild(tdSrc);
+
+      /* Has submission */
+      var tdSub = document.createElement('td');
+      var pill = document.createElement('span');
+      pill.className = 'pill ' + (hasSub ? 'pill--approved' : 'pill--pending');
+      pill.textContent = hasSub ? 'yes' : 'no';
+      tdSub.appendChild(pill);
+      tr.appendChild(tdSub);
+
+      /* Actions */
+      var tdAct = document.createElement('td');
+      tdAct.style.textAlign = 'right';
+      tdAct.style.whiteSpace = 'nowrap';
+      var editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'btn btn--ghost btn--sm';
+      editBtn.textContent = 'Edit';
+      editBtn.style.marginRight = '6px';
+      editBtn.addEventListener('click', function() { loadAcfFormForEdit(f.matchID); });
+      tdAct.appendChild(editBtn);
+      var delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn btn--danger btn--sm';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', function() { openAcfDeleteModal(f.matchID); });
+      tdAct.appendChild(delBtn);
+      tr.appendChild(tdAct);
+
+      body.appendChild(tr);
+    });
+  }
+
+
+  /* ---- Delete flow ---------------------------------------------------- */
+
+  function openAcfDeleteModal(matchID) {
+    var f = S.fixtures[matchID];
+    if (!f) return;
+    S._acfPendingDelete = matchID;
+    var hasSub = !!S.submissions[matchID];
+    var msg = 'Delete ' + f.homeTeamName + ' v ' + f.awayTeamName +
+              ' (' + (f.competitionKey === 'fa-cup' ? 'FA Cup' : 'FA Trophy') + ')?';
+    if (hasSub) {
+      var sub = S.submissions[matchID];
+      msg += ' This fixture has a submitted attendance of ' + fmt(sub.total) + ' — deleting will remove that too.';
+    }
+    document.getElementById('acfDeleteMessage').textContent = msg;
+    document.getElementById('acfDeleteModal').style.display = 'flex';
+  }
+
+  function closeAcfDeleteModal() {
+    document.getElementById('acfDeleteModal').style.display = 'none';
+    S._acfPendingDelete = null;
+  }
+
+  function confirmAcfDelete() {
+    var matchID = S._acfPendingDelete;
+    if (!matchID) { closeAcfDeleteModal(); return; }
+    var f = S.fixtures[matchID];
+    if (!f) { closeAcfDeleteModal(); return; }
+    var hadSub = !!S.submissions[matchID];
+
+    var confirmBtn = document.getElementById('acfDeleteConfirm');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Deleting\u2026';
 
     NL.ensureAuth()
       .then(function() {
-        return firebase.database()
-          .ref('app-data/ops-attendance/fixtures/' + matchID)
-          .set(clean);
+        var tasks = [
+          firebase.database().ref('app-data/ops-attendance/fixtures/' + matchID).remove()
+        ];
+        if (hadSub) {
+          tasks.push(firebase.database().ref('app-data/ops-attendance/submissions/' + matchID).remove());
+        }
+        return Promise.all(tasks);
       })
       .then(function() {
-        /* Update local cache so any view refresh sees the new fixture */
-        S.fixtures[matchID] = clean;
-        /* Audit */
+        delete S.fixtures[matchID];
+        if (hadSub) delete S.submissions[matchID];
         if (NL.writeAudit) {
-          NL.writeAudit('add_cup_fixture',
-            matchID + ' · ' + home + ' v ' + away + ' · ' + compLabel + ' · ' + dateStr + ' ' + timeStr);
+          NL.writeAudit('delete_cup_fixture',
+            matchID + ' \u00B7 ' + f.homeTeamName + ' v ' + f.awayTeamName +
+            ' \u00B7 submission removed: ' + hadSub);
         }
-        NL.toast('Fixture added: ' + home + ' v ' + away, 'success');
-        resetAddCupFixtureForm();
-        /* Re-compute aggregates so the new fixture shows up in views */
+        NL.toast('Fixture deleted', 'success');
+        closeAcfDeleteModal();
         if (typeof computeAggregates === 'function') computeAggregates();
+        renderAcfList();
+        /* If we were editing this one, clear the form */
+        if (S._acfEditing === matchID) resetAddCupFixtureForm();
       })
       .catch(function(err) {
-        setAddCupFixtureError('Write failed: ' + (err && err.message ? err.message : err));
+        NL.toast('Delete failed: ' + (err && err.message ? err.message : err), 'error');
       })
       .then(function() {
-        btn.disabled = false;
-        btn.textContent = 'Create fixture';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete fixture';
       });
   }
 
-  /* Mirrors haSyntheticMatchID_ from HistoricalAttendanceImport.gs so IDs
-     collide-check against historical-import rows correctly. */
+
+  /* ---- matchID + utility helpers (shared with historical import) ----- */
+
   function buildSyntheticCupMatchID(compKey, dateStr, home, away) {
     var dayPart = dateStr.replace(/-/g, '');
     return 'manual_' + compKey + '_' + dayPart + '_' + acfSlug(home) + '_v_' + acfSlug(away);
@@ -2238,8 +2966,6 @@
       .substring(0, 20);
   }
 
-  /* Look up the optaID for a typed club name. Exact-match against clubs-meta only —
-     no fuzzy matching, per spec ("accept as typed"). Returns null for non-NL clubs. */
   function resolveClubOptaID(name) {
     if (!S.clubs) return null;
     for (var i = 0; i < S.clubs.length; i++) {
@@ -2910,103 +3636,96 @@
     heroGrid.innerHTML = '';
 
     var scope = resolvedClubScope();
-    var scopeLabel = scope === 'all_72' ? 'all 72 clubs' :
-                     scope === 'national' ? 'National' :
-                     scope === 'north'    ? 'North' :
-                     scope === 'south'    ? 'South' : scope;
+    var scopeLabel = scope === 'all_72'   ? 'all 72 clubs' :
+                     scope === 'national' ? 'National'     :
+                     scope === 'north'    ? 'North'        :
+                     scope === 'south'    ? 'South'        : scope;
 
-    /* Three cards: Total (wide hero, merged rank+avg), Away fans brought, Travelling support */
-    var heroMetrics = [
-      { key: 'total_att',         label: 'Total home crowd',    hero: true,  wide: true  },
-      { key: 'away_fans_brought', label: 'Away fans brought',   hero: false, wide: false },
-      { key: 'travelling',        label: 'Travelling support',  hero: false, wide: false }
+    /* Pull the three metric rankings once. The Rank card uses the primary
+       metric (total_att) as the headline rank to surface. The three
+       supporting cards show each metric's avg value with its own rank
+       sub-line. */
+    var metricKeys = ['total_att', 'away_fans_brought', 'travelling'];
+    var rankingByMetric = {};
+    var mineByMetric = {};
+    for (var mi = 0; mi < metricKeys.length; mi++) {
+      var k = metricKeys[mi];
+      rankingByMetric[k] = getRanking(scope, k, S.currentTiming);
+      mineByMetric[k]    = rankingByMetric[k].find(function(r) { return r.club === clubName; });
+    }
+
+    var primary = mineByMetric['total_att'];
+    var primaryRows = rankingByMetric['total_att'];
+
+    /* Card 1 — RANK (red hero card) */
+    var rankCard = document.createElement('div');
+    rankCard.className = 'rank-card hero';
+
+    var rcLbl = document.createElement('div');
+    rcLbl.className = 'rank-label';
+    rcLbl.textContent = 'Rank · total home crowd';
+    rankCard.appendChild(rcLbl);
+
+    var rcVal = document.createElement('div');
+    rcVal.className = 'rank-value';
+    if (primary && primary.value !== null) {
+      rcVal.innerHTML = '#' + primary.rank + '<span class="rank-total">/' + primaryRows.length + '</span>';
+    } else {
+      rcVal.textContent = '—';
+    }
+    rankCard.appendChild(rcVal);
+
+    var rcDelta = document.createElement('div');
+    rcDelta.className = 'rank-delta';
+    rcDelta.textContent = 'across ' + scopeLabel;
+    rankCard.appendChild(rcDelta);
+
+    heroGrid.appendChild(rankCard);
+
+    /* Cards 2–4 — the three metric values (plain white cards) */
+    var metricCards = [
+      { key: 'total_att',         label: 'Total home crowd' },
+      { key: 'away_fans_brought', label: 'Away fans brought' },
+      { key: 'travelling',        label: 'Travelling support' }
     ];
 
-    for (var i = 0; i < heroMetrics.length; i++) {
-      var hm = heroMetrics[i];
-      var rows = getRanking(scope, hm.key, S.currentTiming);
-      var mine = rows.find(function(r) { return r.club === clubName; });
-      if (!mine) continue;
-
+    for (var ci = 0; ci < metricCards.length; ci++) {
+      var mc = metricCards[ci];
+      var mine = mineByMetric[mc.key];
+      var rows = rankingByMetric[mc.key];
       var card = document.createElement('div');
-      card.className = 'rank-card' +
-        (hm.hero ? ' hero' : '') +
-        (hm.wide ? ' rank-card--wide' : '');
+      card.className = 'rank-card';
 
-      if (hm.wide) {
-        /* Hero card combines rank + big avg number on a double-width card. */
-        var lbl = document.createElement('div');
-        lbl.className = 'rank-label';
-        lbl.textContent = hm.label;
+      var lbl = document.createElement('div');
+      lbl.className = 'rank-label';
+      lbl.textContent = mc.label;
 
-        var inner = document.createElement('div');
-        inner.className = 'rank-card-wide-inner';
+      var val = document.createElement('div');
+      val.className = 'rank-value';
 
-        var rankSide = document.createElement('div');
-        rankSide.className = 'rank-card-wide-side';
-        var rankNum = document.createElement('div');
-        rankNum.className = 'rank-value';
-        if (mine.value === null) {
-          rankNum.textContent = '—';
-        } else {
-          rankNum.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
-        }
-        var rankLbl = document.createElement('div');
-        rankLbl.className = 'rank-delta';
-        rankLbl.textContent = 'rank in ' + scopeLabel;
-        rankSide.appendChild(rankNum);
-        rankSide.appendChild(rankLbl);
+      var delta = document.createElement('div');
+      delta.className = 'rank-delta';
 
-        var valSide = document.createElement('div');
-        valSide.className = 'rank-card-wide-side';
-        var avgNum = document.createElement('div');
-        avgNum.className = 'rank-value';
-        if (mine.value === null) {
-          avgNum.textContent = '—';
-        } else {
-          avgNum.textContent = fmt(mine.value);
-        }
-        var avgLbl = document.createElement('div');
-        avgLbl.className = 'rank-delta';
-        avgLbl.textContent = 'avg per match';
-        valSide.appendChild(avgNum);
-        valSide.appendChild(avgLbl);
-
-        inner.appendChild(rankSide);
-        inner.appendChild(valSide);
-
-        card.appendChild(lbl);
-        card.appendChild(inner);
+      if (!mine || mine.value === null) {
+        val.textContent = '—';
+        delta.textContent = (mine && mine.reason === 'away_not_recorded')
+          ? 'away fan data not recorded'
+          : 'no data yet';
       } else {
-        /* Standard narrow card — rank as headline, avg in delta */
-        var lbl2 = document.createElement('div');
-        lbl2.className = 'rank-label';
-        lbl2.textContent = hm.label + ' · rank';
-
-        var val = document.createElement('div');
-        val.className = 'rank-value';
-
-        var delta = document.createElement('div');
-        delta.className = 'rank-delta';
-
-        if (mine.value === null) {
-          val.textContent = '—';
-          delta.textContent = (mine.reason === 'away_not_recorded')
-            ? 'away fan data not recorded'
-            : 'no data yet';
+        val.textContent = fmt(mine.value);
+        /* Delta: "avg per match · #N of X" — shows value context + rank.
+           Sample-size annotation only when partial. */
+        var rankBit = '#' + mine.rank + ' of ' + rows.length;
+        if (mine.n < mine.submittedOf && mine.n > 0) {
+          delta.textContent = 'avg per match · ' + rankBit + ' · ' + mine.n + '/' + mine.submittedOf + ' recorded';
         } else {
-          val.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
-          /* Only annotate sample size when partial (not full set). */
-          if (mine.n < mine.submittedOf && mine.n > 0) {
-            delta.textContent = 'avg ' + fmt(mine.value) + ' per match · ' + mine.n + ' of ' + mine.submittedOf;
-          } else {
-            delta.textContent = 'avg ' + fmt(mine.value) + ' per match';
-          }
+          delta.textContent = 'avg per match · ' + rankBit;
         }
-        card.appendChild(lbl2);
-        card.appendChild(val);
-        card.appendChild(delta);
       }
+
+      card.appendChild(lbl);
+      card.appendChild(val);
+      card.appendChild(delta);
 
       heroGrid.appendChild(card);
     }
@@ -3051,31 +3770,167 @@
     var narrativeCard = document.getElementById('narrativeCard');
     var narrativeText = document.getElementById('narrativeText');
 
-    /* Find the metric where this club ranks best */
-    var scope = resolvedClubScope();
-    var metrics = ['total_att', 'away_fans_brought', 'travelling'];
-    var best = null;
-    for (var i = 0; i < metrics.length; i++) {
-      var rows = getRanking(scope, metrics[i], S.currentTiming);
-      var mine = rows.find(function(r) { return r.club === clubName; });
-      if (!mine || mine.value === null) continue;
-      var percentile = 1 - ((mine.rank - 1) / rows.length);
-      if (!best || percentile > best.percentile) {
-        best = { metric: metrics[i], rank: mine.rank, total: rows.length, value: mine.value, percentile: percentile };
-      }
-    }
-
-    if (!best) {
+    var msg = buildStandoutStat(clubName);
+    if (!msg) {
       narrativeCard.style.display = 'none';
       return;
     }
-
     narrativeCard.style.display = '';
-    var scopeLabel = scope === 'all_72' ? 'across all 72 clubs' :
-                     'in ' + (scope === 'national' ? 'National' :
-                              scope === 'north'    ? 'North' : 'South');
-    var metricLabel = metricTitle(best.metric).toLowerCase();
-    narrativeText.textContent = clubName + ' ranks #' + best.rank + ' of ' + best.total + ' for ' + metricLabel + ' ' + scopeLabel + ' — averaging ' + fmt(best.value) + ' per match.';
+    narrativeText.textContent = msg;
+  }
+
+  /* buildStandoutStat — picks the most interesting single-sentence observation
+     about this club by running a priority-ordered rule-set over its metrics.
+
+     Rule priority (first rule that triggers wins):
+       1. League-wide #1 on any metric  → "best in the league" line
+       2. Divisional #1 on any metric combined with league rank  → "big fish" line
+       3. Big contrast between two metrics (e.g. rank top-third one, bottom-third
+          another)  → "asymmetry" line
+       4. Outlier stat — club's average >= 2x divisional average  → "Nx average" line
+       5. Fallback: plain rank sentence (previous behaviour)
+
+     A metric with value === null (no data) is skipped — never in the output. */
+  function buildStandoutStat(clubName) {
+    var metrics = [
+      { key: 'total_att',         label: 'total home attendance',          short: 'home crowd',      human: 'home attendance'      },
+      { key: 'away_fans_brought', label: 'away fans brought to home games', short: 'away following',  human: 'away fans brought'    },
+      { key: 'travelling',        label: 'travelling support',              short: 'travelling fans', human: 'travelling support'   }
+    ];
+
+    /* Pull both league-wide (all_72) and divisional rankings for this club */
+    var club = S.perClub[clubName];
+    if (!club) return null;
+    var division = club.division;                 /* e.g. "NL Premier" — may be null */
+    var divScope = DIV_TO_SCOPE[division] || null;  /* "national" | "north" | "south" | null */
+
+    var m = {};   /* keyed by metric key → { lg: {rank,total,value,avg,n}, div: {...} } */
+    for (var i = 0; i < metrics.length; i++) {
+      var key = metrics[i].key;
+      var lgRows = getRanking('all_72', key, S.currentTiming);
+      var lgMine = lgRows.find(function(r) { return r.club === clubName; });
+      if (!lgMine || lgMine.value === null) { m[key] = null; continue; }
+
+      var divMine = null;
+      var divTotal = 0;
+      if (divScope) {
+        var divRows = getRanking(divScope, key, S.currentTiming);
+        divMine = divRows.find(function(r) { return r.club === clubName; });
+        divTotal = divRows.length;
+      }
+
+      m[key] = {
+        lgRank:  lgMine.rank,
+        lgTotal: lgRows.length,
+        value:   lgMine.value,
+        divRank: divMine ? divMine.rank : null,
+        divTotal: divTotal,
+        /* Compute division mean (excluding null rows) for outlier rule */
+        divAvg: computeDivisionAverage(divScope, key)
+      };
+    }
+
+    /* RULE 1 — League-wide #1 on any metric */
+    for (var r1 = 0; r1 < metrics.length; r1++) {
+      var k1 = metrics[r1].key;
+      if (m[k1] && m[k1].lgRank === 1) {
+        return clubName + ' is #1 in the league for ' + metrics[r1].label +
+               ', averaging ' + fmt(m[k1].value) + ' per match.';
+      }
+    }
+
+    /* RULE 2 — Divisional #1 but not league-wide — the "big fish" story */
+    if (divScope) {
+      for (var r2 = 0; r2 < metrics.length; r2++) {
+        var k2 = metrics[r2].key;
+        if (m[k2] && m[k2].divRank === 1 && m[k2].lgRank > 1) {
+          return clubName + ' has the biggest ' + metrics[r2].short +
+                 ' in the ' + divisionLabel(division) +
+                 ' (#' + m[k2].lgRank + ' of ' + m[k2].lgTotal + ' overall).';
+        }
+      }
+    }
+
+    /* RULE 3 — Contrast: top-third on one metric, bottom-third on another */
+    var topThird = function(rec) { return rec && rec.lgRank <= Math.ceil(rec.lgTotal / 3); };
+    var bottomThird = function(rec) { return rec && rec.lgRank > Math.ceil(2 * rec.lgTotal / 3); };
+
+    /* Prefer the most striking contrast: strong home, weak travel (or vice versa) */
+    var pairings = [
+      { strong: 'total_att',         weak: 'travelling',
+        line: function(strong, weak) {
+          return clubName + ' draws huge home crowds (#' + strong.lgRank + ' overall) but travels among the quietest — #' + weak.lgRank + ' of ' + weak.lgTotal + ' for travelling support.';
+        }},
+      { strong: 'travelling',        weak: 'total_att',
+        line: function(strong, weak) {
+          return clubName + ' punches above its weight on the road — #' + strong.lgRank + ' of ' + strong.lgTotal + ' for travelling support despite ranking #' + weak.lgRank + ' for home crowds.';
+        }},
+      { strong: 'away_fans_brought', weak: 'travelling',
+        line: function(strong, weak) {
+          return 'Visiting fans flock to ' + clubName + ' (#' + strong.lgRank + ' of ' + strong.lgTotal + ' for away fans brought) but ' + clubName + '\u2019s own support is quieter on the road (#' + weak.lgRank + ').';
+        }},
+      { strong: 'travelling',        weak: 'away_fans_brought',
+        line: function(strong, weak) {
+          return clubName + '\u2019s fans travel well (#' + strong.lgRank + ' of ' + strong.lgTotal + ' for travelling support) but opposition fans are thinner on the ground at home (#' + weak.lgRank + ').';
+        }}
+    ];
+    for (var p = 0; p < pairings.length; p++) {
+      var strong = m[pairings[p].strong];
+      var weak = m[pairings[p].weak];
+      if (topThird(strong) && bottomThird(weak)) {
+        return pairings[p].line(strong, weak);
+      }
+    }
+
+    /* RULE 4 — Outlier: club value >= 2x its divisional average */
+    if (divScope) {
+      for (var r4 = 0; r4 < metrics.length; r4++) {
+        var k4 = metrics[r4].key;
+        var rec = m[k4];
+        if (rec && rec.divAvg && rec.divAvg > 0) {
+          var ratio = rec.value / rec.divAvg;
+          if (ratio >= 2) {
+            return clubName + '\u2019s ' + metrics[r4].short + ' (' + fmt(rec.value) +
+                   ' per match) is ' + ratio.toFixed(1) + '\u00D7 the ' + divisionLabel(division) + ' average.';
+          }
+        }
+      }
+    }
+
+    /* RULE 5 — fallback: the club's best-percentile metric, stated plainly */
+    var best = null;
+    for (var r5 = 0; r5 < metrics.length; r5++) {
+      var k5 = metrics[r5].key;
+      var rec5 = m[k5];
+      if (!rec5) continue;
+      var pct = 1 - ((rec5.lgRank - 1) / rec5.lgTotal);
+      if (!best || pct > best.pct) {
+        best = { key: k5, rec: rec5, label: metrics[r5].label, pct: pct };
+      }
+    }
+    if (best) {
+      return clubName + ' ranks #' + best.rec.lgRank + ' of ' + best.rec.lgTotal +
+             ' for ' + best.label + ' across the league — averaging ' + fmt(best.rec.value) + ' per match.';
+    }
+    return null;
+  }
+
+  function computeDivisionAverage(divScope, metric) {
+    if (!divScope) return null;
+    var rows = getRanking(divScope, metric, S.currentTiming);
+    var sum = 0, n = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].value !== null) { sum += rows[i].value; n++; }
+    }
+    return n ? (sum / n) : null;
+  }
+
+  function divisionLabel(div) {
+    if (!div) return 'division';
+    if (div === 'NL Premier' || div === 'National') return 'National';
+    if (div === 'NL North'   || div === 'North')    return 'North';
+    if (div === 'NL South'   || div === 'South')    return 'South';
+    return div;
   }
 
 
