@@ -10,6 +10,113 @@
 
      TECHNICAL CHANGELOG
      -------------------
+     v1.4  (2026-04-24)  Fourth-review fixes — large pass covering 15 items:
+
+                         LAYOUT + LABELS
+                         - Removed duplicate page H1 "Crowd insights" + subtitle.
+                           Club strip + tabs now carry top-of-page identity.
+                           updateSubtitle() neutered to no-op (safe for callers).
+                         - Club strip subline now uses FULL league names
+                           ("National League" / "... North" / "... South").
+                           Scope chips + rank subtitles keep short form.
+                         - "Home fans" metric dropped entirely across the app
+                           (rank chart toggles, hero cards, computeClubMetric
+                           dead branch, narrative metrics, drawBars reason hint).
+                           It was misleading for clubs with partial away-split
+                           recording — implied denominator parity where none
+                           existed. Total, Away fans brought, Travelling
+                           support remain.
+                         - Removed "from X/Y" sample-size caveat from
+                           individual bar values in ranked chart. Chart stays
+                           clean; hero cards still surface sample size for the
+                           focused club where it matters.
+
+                         HERO CARDS (CLUB VIEW)
+                         - Reworked to 3 cards from 4. First card is now a
+                           wide hero spanning 2 columns, combining the rank
+                           and the big avg number side-by-side with a subtle
+                           divider. New CSS: .rank-card--wide,
+                           .rank-card-wide-inner, .rank-card-wide-side.
+                           #clubHeroCards grid is 2fr 1fr 1fr (stacks 1fr on
+                           narrow viewports < 860px).
+
+                         RANKED BAR CHART
+                         - Anonymised for club-view users (session.role ===
+                           'club'). Non-self rows render with empty name cell
+                           (no name, no tier badge). Own row stays fully
+                           labelled with name + badge. Staff in aggregate mode
+                           continue to see all names. drawBars() now takes a
+                           new anonymiseOthers flag.
+
+                         MATCH-BY-MATCH CHART — major rewrite
+                         - Tiny-slice float labels fixed. CSS rewritten as
+                           inline flex child with padding-left: 6px (removed
+                           broken absolute positioning). New modifier classes
+                           .match-bar-float-label--home (red) and --away
+                           (navy). renderMatchChart now appends a float label
+                           after any bar flagged .tiny, mirroring the mockup.
+                         - Empty-bar wording is view-aware (item 10):
+                             Home view: "Tap to submit attendance data"
+                             Away view: "Awaiting submission from home club"
+                           .match-bar-missing width changed from fixed 18% to
+                           auto + min-width 18% + horizontal padding so
+                           longer wording fits.
+                         - Upcoming fixtures now shown. Rendered as
+                           .match-row--upcoming: opacity 0.72, empty track,
+                           grey opponent name, non-interactive (no cursor, no
+                           click handler, no submit action, excluded from
+                           totals + Outstanding). Appear chronologically
+                           at the bottom of the list.
+                         - Dynamic legend. renderMatchChartLegend() inspects
+                           a statesPresent object built during chart render
+                           and only emits swatches for states actually visible.
+                           States tracked: splitKnown, awaiting, splitUnknown,
+                           upcoming. Static legend markup replaced by a single
+                           container #matchChartLegend that JS fills.
+                         - Legend labels are view-aware (item 12):
+                             Home:   red=[Club] fans (home),
+                                     navy=Visiting fans,
+                                     star=Visiting fan count not supplied
+                             Away:   red=[Club] fans (travelling),
+                                     navy=Home crowd (NOT "Visiting fans" —
+                                       previous label was factually wrong),
+                                     star=Travelling support not counted
+
+                         CUP TOGGLES
+                         - Inline .cup-toggle-light and .cup-toggle CSS
+                           removed. Now use shared .filter-pill +
+                           .filter-pill--on-dark from nl-brand.css v2.4.
+                           HTML containers now use .filter-pill-row +
+                           .filter-pill-row__label. renderCupToggleButtons()
+                           adds the --on-dark variant for the navy totals card.
+                         - nl-brand.css cache reference bumped ?v=11 → ?v=12.
+                         - League toggle now correctly defaults to ON for
+                           every club (previous init loop missed league keys
+                           if they weren't already present in S.cupToggles).
+
+                         ATTENDANCE TO DATE (totals card)
+                         - Redesigned as two-tier layout with a divider:
+                             Top tier (confident / own data): Home matches,
+                               Home crowd total, Home avg, Biggest crowd.
+                               Clean numbers, no denominators.
+                             Bottom tier (depends on split recording): Away
+                               fans brought, Travelling support. Denominator
+                               shown ONLY when partial; zero-recorded clubs
+                               get a human sentence instead of a misleading
+                               "0". Secondary cells are slightly smaller.
+                         - New CSS: .totals-tier, .totals-tier--top,
+                           .totals-tier--bottom, .totals-tier-divider,
+                           .total-stat--secondary, .total-stat-sub.
+
+                         SUBMIT MODAL
+                         - Placeholder changed from "0" to "#" on both inputs.
+                         - ::placeholder CSS now explicitly sets font-family:
+                           var(--font) so the placeholder inherits carbona
+                           (previously fell back to system fonts on some
+                           engines) and matches the typed-value weight (900).
+                           opacity: 1 added for Firefox which dims
+                           placeholders by default.
+
      v1.3  (2026-04-24)  Third-review fixes:
                          - Added explicit font-family on .cup-toggle and
                            .cup-toggle-light to prevent font inheritance
@@ -78,7 +185,7 @@
                          Based on benchmarks-v3.1 mockup, wired to RTDB.
      ============================================================================= -->
 
-<link rel="stylesheet" href="/tools/system/nl-brand.css?v=11">
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=12">
 
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -100,6 +207,27 @@
   var NL_TOOL_KEY = 'ops-attendance';
 
   window.NL_CHANGELOG = [
+    {
+      date: '24 April 2026',
+      version: 'v1.4',
+      items: [
+        'Cleaner dashboard: removed the duplicate page title, use the club strip + tabs for context instead.',
+        'Full league names ("National League", "National League North", "National League South") now shown on the club strip.',
+        '"Home fans" metric dropped — it relied on away-fans data being recorded at every match, which varies by club and was misleading. Total, Away fans brought and Travelling support remain.',
+        'Benchmarking hero cards reworked: first card now combines your rank AND your average crowd in one bigger headline card, with Away fans brought and Travelling support alongside.',
+        'Ranked bar chart now anonymises other clubs when you\'re looking at your club view. You still see your own name and position, but other clubs are just rank + bar + value.',
+        'Cleaned up the bar chart: dropped the "from X/Y" caveats on each row — the story on each club is summarised in the hero card where it matters.',
+        'Match-by-match chart improvements:',
+        '  • Tiny bars now show their number beside the bar in matching colour (not squashed inside).',
+        '  • Empty rows on your home view read "Tap to submit attendance data" (a clear prompt); on your away view they read "Awaiting submission from home club" (explains the delay).',
+        '  • Upcoming fixtures are now shown too — empty track, greyed opponent, non-interactive. Gives full context of the season.',
+        '  • Legend only shows icons relevant to what\'s currently on screen — no more visual clutter from states that don\'t apply.',
+        '  • Fixed the legend on away view (used to incorrectly say "Visiting fans" for the navy bars — they\'re actually the host club\'s home fans).',
+        'Attendance to date card redesigned: top row is confident headline numbers (home matches, total crowd, average, biggest crowd); bottom row is fan-movement metrics with a denominator ONLY when partial, and a human sentence instead of a "0" for clubs that don\'t record away splits.',
+        'Cup toggles are now a shared component used across the NL tools platform — consistent styling, proper hover states, correctly aligned.',
+        'Submit modal tidy: input placeholders changed from "0" to "#", and the placeholder now uses the correct font.'
+      ]
+    },
     {
       date: '24 April 2026',
       version: 'v1.3',
@@ -287,6 +415,13 @@
     gap: 14px;
     margin-bottom: 24px;
   }
+  /* Club hero grid: Total hero spans 2 cols, Away + Travelling 1 col each */
+  #clubHeroCards {
+    grid-template-columns: 2fr 1fr 1fr;
+  }
+  @media (max-width: 860px) {
+    #clubHeroCards { grid-template-columns: 1fr; }
+  }
   .rank-card {
     background: white;
     border: 1px solid var(--border);
@@ -303,6 +438,24 @@
   .rank-card.hero .rank-value,
   .rank-card.hero .rank-delta { color: white; }
   .rank-card.hero .rank-value .rank-total { color: rgba(255,255,255,0.7); }
+  .rank-card--wide { padding: 20px 24px; }
+  .rank-card-wide-inner {
+    display: flex;
+    align-items: flex-end;
+    gap: 28px;
+    margin-top: 4px;
+  }
+  .rank-card-wide-side {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .rank-card-wide-side + .rank-card-wide-side {
+    border-left: 1px solid rgba(255,255,255,0.22);
+    padding-left: 28px;
+  }
+  .rank-card--wide .rank-value {
+    font-size: 40px;
+  }
   .rank-label {
     font-size: 11px;
     font-variation-settings: 'wght' 800;
@@ -553,17 +706,32 @@
     color: var(--text-muted);
     font-variation-settings: 'wght' 700;
     font-style: italic;
-    width: 18%;
+    padding: 0 12px;
     border-radius: 2px;
+    min-width: 18%;
   }
+  /* Upcoming fixture rows — empty track, grey opponent. Non-interactive. */
+  .match-row--upcoming { opacity: 0.72; }
+  .match-row--upcoming .match-bar-track {
+    background: transparent;
+  }
+  /* Tiny slices: hide the in-bar label so it doesn't overflow.
+     A separate .match-bar-float-label is rendered after the slice (inline flex child)
+     to show the number next to the bar end. */
   .match-bar-home.tiny, .match-bar-away.tiny { color: transparent; padding: 0; }
   .match-bar-float-label {
-    position: absolute;
     font-size: 11px;
     font-variation-settings: 'wght' 800;
     color: var(--navy);
+    padding-left: 6px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
     pointer-events: none;
+    flex-shrink: 0;
   }
+  .match-bar-float-label--home { color: var(--primary); }
+  .match-bar-float-label--away { color: var(--navy); }
   .match-total {
     font-size: 13px;
     font-variation-settings: 'wght' 800;
@@ -581,34 +749,7 @@
   .legend-item { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
   .legend-swatch { width: 16px; height: 10px; border-radius: 2px; }
 
-  /* Cup toggles (on white card — light version) */
-  .cup-toggles-light {
-    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
-    align-items: center;
-  }
-  .cup-toggles-light-label {
-    font-size: 11px;
-    font-variation-settings: 'wght' 800;
-    text-transform: uppercase; letter-spacing: 0.05em;
-    color: var(--text-muted); margin-right: 4px;
-  }
-  .cup-toggle-light {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 5px 11px;
-    background: var(--off-white);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    font-family: var(--font);
-    font-size: 12px;
-    font-variation-settings: 'wght' 700;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .cup-toggle-light.active {
-    background: var(--navy);
-    color: white;
-    border-color: var(--navy);
-  }
+  /* Cup toggles now use .filter-pill from nl-brand.css v2.4+ */
 
   /* Home/Away switch */
   .home-away-switch {
@@ -642,10 +783,27 @@
   }
   .totals-card h2 { color: white; margin: 0 0 4px; font-size: 20px; font-variation-settings: 'wght' 900; }
   .totals-card .section-subtitle { color: rgba(255,255,255,0.8); margin: 0 0 16px; font-size: 13px; }
+  /* Totals: two-tier layout. Top = confident headline metrics. Bottom = fan-movement
+     metrics (dependent on split recording). Divider between makes the distinction visible. */
   .totals-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 18px;
+  }
+  .totals-tier {
+    display: grid;
+    gap: 18px;
+  }
+  .totals-tier--top {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  .totals-tier--bottom {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+  .totals-tier-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.15);
+    margin: 4px 0;
   }
   .total-stat-label {
     font-size: 11px;
@@ -660,31 +818,21 @@
     line-height: 1;
     letter-spacing: -0.015em;
   }
-  .cup-toggles {
-    display: flex; flex-wrap: wrap; gap: 8px;
-    margin-top: 18px; padding-top: 18px;
-    border-top: 1px solid rgba(255,255,255,0.15);
-    align-items: center;
-  }
-  .cup-toggles-label {
+  .total-stat-sub {
     font-size: 12px;
-    font-variation-settings: 'wght' 800;
-    margin-right: 6px;
-    opacity: 0.85;
+    opacity: 0.8;
+    margin-top: 4px;
   }
-  .cup-toggle {
-    display: inline-flex; align-items: center; gap: 7px;
-    padding: 5px 11px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 18px;
-    font-family: var(--font);
-    font-size: 13px;
-    font-variation-settings: 'wght' 700;
-    color: white;
-    cursor: pointer;
+  /* Secondary-tier cells are slightly smaller to visually de-emphasise — reader sees
+     confidence hierarchy at a glance without reading any caveat. */
+  .total-stat--secondary .total-stat-value { font-size: 24px; }
+  /* Dark-surface cup toggles now use .filter-pill.filter-pill--on-dark from nl-brand.css.
+     Only the container's margin-top + border separator is tool-specific. */
+  .totals-cup-toggles-row {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,0.15);
   }
-  .cup-toggle.active { background: white; color: var(--navy); border-color: white; }
 
   /* Tabs */
   .att-tabs {
@@ -797,9 +945,11 @@
     border-color: var(--border);
   }
   .att-form-group input.att-number::placeholder {
+    font-family: var(--font);
     color: #cbd3df;
-    font-weight: 400;
-    font-variation-settings: 'wght' 400;
+    font-weight: 900;
+    font-variation-settings: 'wght' 900;
+    opacity: 1; /* Firefox dims placeholders by default */
   }
   .att-form-group label {
     display: block;
@@ -843,9 +993,6 @@
   <div id="nlTopbar"></div>
 
   <div class="main" id="mainContent">
-
-    <h1 style="margin:0;font-size:28px;font-variation-settings:'wght' 900;letter-spacing:-0.01em;">Crowd insights</h1>
-    <p class="page-subtitle" id="pageSubtitle">—</p>
 
     <!-- Tabs (rendered dynamically based on role) -->
     <div class="att-tabs" id="attTabs">
@@ -944,7 +1091,7 @@
               <div class="view-group-label">At their home ground</div>
               <div class="view-toggle" id="staffViewToggleHome">
                 <button class="view-tab active" data-view="total_att">Total</button>
-                <button class="view-tab" data-view="home_fans">Home fans</button>
+                
                 <button class="view-tab" data-view="away_fans_brought">Away fans brought</button>
               </div>
             </div>
@@ -1013,7 +1160,7 @@
               <div class="view-group-label">At our ground</div>
               <div class="view-toggle" id="viewToggleHome">
                 <button class="view-tab active" data-view="total_att">Total</button>
-                <button class="view-tab" data-view="home_fans">Home fans</button>
+                
                 <button class="view-tab" data-view="away_fans_brought">Away fans brought</button>
               </div>
             </div>
@@ -1049,17 +1196,15 @@
             </div>
           </div>
 
-          <div class="cup-toggles-light" id="matchCupToggles">
-            <span class="cup-toggles-light-label">Include:</span>
+          <div class="filter-pill-row" id="matchCupToggles">
+            <span class="filter-pill-row__label">Include:</span>
           </div>
 
           <div class="match-chart" id="matchChart"></div>
 
-          <div class="match-chart-legend">
-            <div class="legend-item"><span class="legend-swatch" style="background:linear-gradient(90deg, #c81010, #9e0000);"></span><span id="legendHome">Club fans</span></div>
-            <div class="legend-item"><span class="legend-swatch" style="background:linear-gradient(90deg, var(--navy), var(--navy-light));"></span>Visiting fans</div>
-            <div class="legend-item"><span class="legend-swatch" style="background:repeating-linear-gradient(45deg, #e8ebf0, #e8ebf0 3px, #dde1e8 3px, #dde1e8 6px);"></span>Awaiting submission</div>
-            <div class="legend-item"><span style="color:var(--navy);font-size:14px;line-height:1;">★</span>Visiting fan count not supplied</div>
+          <div class="match-chart-legend" id="matchChartLegend">
+            <!-- Dynamically populated by renderMatchChartLegend() —
+                 only the states actually present in the current filter are shown. -->
           </div>
         </div>
 
@@ -1068,8 +1213,8 @@
           <h2>Attendance to date</h2>
           <p class="section-subtitle">Total crowds and travelling support across all competitions. Toggle below to include or exclude specific cup runs.</p>
           <div class="totals-grid" id="totalsGrid"></div>
-          <div class="cup-toggles" id="totalsCupToggles">
-            <span class="cup-toggles-label">Include:</span>
+          <div class="filter-pill-row totals-cup-toggles-row" id="totalsCupToggles">
+            <span class="filter-pill-row__label" style="color:rgba(255,255,255,0.85);">Include:</span>
           </div>
         </div>
 
@@ -1207,13 +1352,13 @@
       <form id="submitForm" onsubmit="return false;">
         <div class="att-form-group">
           <label for="submitTotal">Total attendance <span style="color:var(--primary);">*</span></label>
-          <input type="text" inputmode="numeric" pattern="[0-9,]*" class="att-number" id="submitTotal" required placeholder="0">
+          <input type="text" inputmode="numeric" pattern="[0-9,]*" class="att-number" id="submitTotal" required placeholder="#">
           <div class="form-hint" style="margin-top:10px;">Including both home and away supporters.</div>
         </div>
 
         <div class="att-form-group att-form-away-group">
           <label for="submitAway">Away attendance</label>
-          <input type="text" inputmode="numeric" pattern="[0-9,]*" class="att-number" id="submitAway" placeholder="0">
+          <input type="text" inputmode="numeric" pattern="[0-9,]*" class="att-number" id="submitAway" placeholder="#">
           <div class="att-form-checkbox-row">
             <input type="checkbox" id="submitAwayNotRecorded">
             <label for="submitAwayNotRecorded">Not recorded separately</label>
@@ -1507,10 +1652,6 @@
       if (!m.sub) continue;
       if (metric === 'total_att') {
         if (m.sub.total !== null && m.sub.total !== undefined) values.push(m.sub.total);
-      } else if (metric === 'home_fans') {
-        if (m.sub.total !== null && m.sub.awayRecorded && m.sub.away !== null && m.sub.away !== undefined) {
-          values.push(m.sub.total - m.sub.away);
-        }
       } else if (metric === 'away_fans_brought') {
         /* Visiting fans AT this club's ground — i.e. the 'away' field of their HOME submissions */
         if (m.sub.awayRecorded && m.sub.away !== null && m.sub.away !== undefined) {
@@ -1529,7 +1670,7 @@
       var reason;
       if (submittedCount === 0) {
         reason = 'no_submissions';
-      } else if (metric === 'home_fans' || metric === 'away_fans_brought' || metric === 'travelling') {
+      } else if (metric === 'away_fans_brought' || metric === 'travelling') {
         reason = 'away_not_recorded';
       } else {
         reason = 'no_submissions';
@@ -1627,32 +1768,9 @@
     });
   }
 
-  function updateSubtitle() {
-    var sub = document.getElementById('pageSubtitle');
-    if (S.activePanel === 'outstanding') {
-      sub.textContent = S.session.role === 'club'
-        ? 'Home matches still waiting for attendance data.'
-        : 'Outstanding attendance submissions across the League.';
-      return;
-    }
-    if (S.effectiveClub) {
-      var club = S.perClub[S.effectiveClub];
-      if (club) {
-        var played = club.homeMatches.filter(function(m) { return isPlayed(m.fix); }).length;
-        var outstanding = club.homeMatches.filter(function(m) { return isPlayed(m.fix) && !m.sub; }).length;
-        sub.textContent = S.effectiveClub + ' · 2025-26 season · ' +
-          (outstanding === 0
-            ? 'all ' + played + ' home matches submitted.'
-            : outstanding + ' of ' + played + ' home matches still outstanding.');
-        return;
-      }
-    }
-    if (S.session.role === 'club') {
-      sub.textContent = 'Your club dashboard.';
-    } else {
-      sub.textContent = 'League-wide attendance across the 2025-26 season.';
-    }
-  }
+  /* pageSubtitle H1+P removed in v1.4 — this is now a no-op kept to avoid
+     touching every caller. The club strip now carries the "club · state" line. */
+  function updateSubtitle() { /* intentionally empty */ }
 
 
   /* =========================================================================
@@ -1944,7 +2062,6 @@
   function metricTitle(metric) {
     switch (metric) {
       case 'total_att':         return 'Total home attendance (avg per match)';
-      case 'home_fans':         return 'Home fans (avg per match)';
       case 'away_fans_brought': return 'Away fans brought (avg per match)';
       case 'travelling':        return 'Travelling support (avg per away match)';
       default: return metric;
@@ -1966,7 +2083,15 @@
      BAR CHART DRAWING — used for both staff and club rank charts
      ========================================================================= */
 
-  function drawBars(targetID, rows, selfClubName, metric) {
+  /* drawBars
+     - targetID           DOM id to render into
+     - rows               ranking rows (output of getRanking)
+     - selfClubName       club name to highlight as "you" (or null)
+     - metric             metric key (for the null-reason hint)
+     - anonymiseOthers    if true, non-self rows render with no club name
+                          (just rank + bar + value). Used for club-view users.
+  */
+  function drawBars(targetID, rows, selfClubName, metric, anonymiseOthers) {
     var target = document.getElementById(targetID);
     target.innerHTML = '';
 
@@ -1982,22 +2107,26 @@
 
     for (var j = 0; j < rows.length; j++) {
       var r = rows[j];
+      var isSelf = (r.club === selfClubName);
       var row = document.createElement('div');
-      row.className = 'bar-row' + (r.club === selfClubName ? ' is-self' : '');
+      row.className = 'bar-row' + (isSelf ? ' is-self' : '');
 
       var rankEl = document.createElement('div');
       rankEl.className = 'bar-rank';
       rankEl.textContent = r.rank + '.';
 
       var nameEl = document.createElement('div');
-      nameEl.className = 'bar-name' + (r.club === selfClubName ? ' is-self' : '');
-      var tierBadge = document.createElement('span');
-      tierBadge.className = 'bar-tier-badge ' + (DIV_TO_SCOPE[r.division] === 'national' ? 'NAT' :
-                                                  DIV_TO_SCOPE[r.division] === 'north'    ? 'NLN' : 'NLS');
-      tierBadge.textContent = DIV_TO_SCOPE[r.division] === 'national' ? 'NAT' :
-                              DIV_TO_SCOPE[r.division] === 'north'    ? 'NLN' : 'NLS';
-      nameEl.appendChild(tierBadge);
-      nameEl.appendChild(document.createTextNode(' ' + r.club));
+      nameEl.className = 'bar-name' + (isSelf ? ' is-self' : '');
+      /* Anonymised mode: non-self rows get an empty bar-name cell (no name, no badge). */
+      if (!anonymiseOthers || isSelf) {
+        var tierBadge = document.createElement('span');
+        var tierCode = DIV_TO_SCOPE[r.division] === 'national' ? 'NAT' :
+                       DIV_TO_SCOPE[r.division] === 'north'    ? 'NLN' : 'NLS';
+        tierBadge.className = 'bar-tier-badge ' + tierCode;
+        tierBadge.textContent = tierCode;
+        nameEl.appendChild(tierBadge);
+        nameEl.appendChild(document.createTextNode(' ' + r.club));
+      }
 
       var trackEl = document.createElement('div');
       trackEl.className = 'bar-track';
@@ -2017,14 +2146,13 @@
         valueEl.textContent = '—';
         valueEl.style.color = 'var(--text-muted)';
         /* Add a small reason hint next to the — for clubs with no away data */
-        if (r.reason === 'away_not_recorded' && (metric === 'home_fans' || metric === 'away_fans_brought' || metric === 'travelling')) {
+        if (r.reason === 'away_not_recorded' && (metric === 'away_fans_brought' || metric === 'travelling')) {
           valueEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted);font-variation-settings:\'wght\' 600;">not recorded</span>';
         }
-      } else if (r.n < r.submittedOf && r.n > 0) {
-        /* Partial sample — annotate */
-        valueEl.innerHTML = fmt(r.value) +
-          '<div style="font-size:10px;color:var(--text-muted);font-variation-settings:\'wght\' 600;margin-top:1px;">from ' + r.n + '/' + r.submittedOf + '</div>';
       } else {
+        /* Value is the avg from whatever data exists. Sample-size caveat removed
+           per Richard — keeping the bar clean. Hero cards still surface the
+           "avg from N of M" note where it matters for the focused club. */
         valueEl.textContent = fmt(r.value);
       }
 
@@ -2069,8 +2197,14 @@
       ? 'all away hosts have submitted'
       : awayMissing + ' away ' + (awayMissing === 1 ? 'game' : 'games') + ' awaiting host data';
 
+    /* Division display name — full "National League" / "National League North" etc.
+       Only used in the club strip subline; scope chips + rank subtitles keep short form. */
+    var fullDivisionName = club.division === 'National' ? 'National League' :
+                           club.division === 'North'    ? 'National League North' :
+                           club.division === 'South'    ? 'National League South' :
+                           club.division;
     document.getElementById('clubSubline').textContent =
-      club.division + ' · ' + homeSentence + ' · ' + awaySentence;
+      fullDivisionName + ' · ' + homeSentence + ' · ' + awaySentence;
 
     /* Hero cards — ranks on 4 metrics, scoped to their division by default */
     renderClubHeroCards();
@@ -2182,57 +2316,105 @@
     var heroGrid = document.getElementById('clubHeroCards');
     heroGrid.innerHTML = '';
 
-    /* For hero cards, always use the club's division as scope */
-    var club = S.perClub[clubName];
-    var divScope = DIV_TO_SCOPE[club.division] || 'all_72';
+    var scope = resolvedClubScope();
+    var scopeLabel = scope === 'all_72' ? 'all 72 clubs' :
+                     scope === 'national' ? 'National' :
+                     scope === 'north'    ? 'North' :
+                     scope === 'south'    ? 'South' : scope;
 
+    /* Three cards: Total (wide hero, merged rank+avg), Away fans brought, Travelling support */
     var heroMetrics = [
-      { key: 'total_att',         label: 'Total home crowd',    hero: true  },
-      { key: 'home_fans',         label: 'Home fans',           hero: false },
-      { key: 'away_fans_brought', label: 'Away fans brought',   hero: false },
-      { key: 'travelling',        label: 'Travelling support',  hero: false }
+      { key: 'total_att',         label: 'Total home crowd',    hero: true,  wide: true  },
+      { key: 'away_fans_brought', label: 'Away fans brought',   hero: false, wide: false },
+      { key: 'travelling',        label: 'Travelling support',  hero: false, wide: false }
     ];
 
     for (var i = 0; i < heroMetrics.length; i++) {
       var hm = heroMetrics[i];
-      /* Rank within the current scope (this club's division, or all-72) */
-      var rows = getRanking(resolvedClubScope(), hm.key, S.currentTiming);
+      var rows = getRanking(scope, hm.key, S.currentTiming);
       var mine = rows.find(function(r) { return r.club === clubName; });
       if (!mine) continue;
 
       var card = document.createElement('div');
-      card.className = 'rank-card' + (hm.hero ? ' hero' : '');
+      card.className = 'rank-card' +
+        (hm.hero ? ' hero' : '') +
+        (hm.wide ? ' rank-card--wide' : '');
 
-      var lbl = document.createElement('div');
-      lbl.className = 'rank-label';
-      lbl.textContent = hm.label + ' · rank';
+      if (hm.wide) {
+        /* Hero card combines rank + big avg number on a double-width card. */
+        var lbl = document.createElement('div');
+        lbl.className = 'rank-label';
+        lbl.textContent = hm.label;
 
-      var val = document.createElement('div');
-      val.className = 'rank-value';
+        var inner = document.createElement('div');
+        inner.className = 'rank-card-wide-inner';
 
-      var delta = document.createElement('div');
-      delta.className = 'rank-delta';
-
-      if (mine.value === null) {
-        val.textContent = '—';
-        if (mine.reason === 'away_not_recorded') {
-          delta.textContent = 'no away fan data recorded';
+        var rankSide = document.createElement('div');
+        rankSide.className = 'rank-card-wide-side';
+        var rankNum = document.createElement('div');
+        rankNum.className = 'rank-value';
+        if (mine.value === null) {
+          rankNum.textContent = '—';
         } else {
-          delta.textContent = 'no data yet';
+          rankNum.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
         }
+        var rankLbl = document.createElement('div');
+        rankLbl.className = 'rank-delta';
+        rankLbl.textContent = 'rank in ' + scopeLabel;
+        rankSide.appendChild(rankNum);
+        rankSide.appendChild(rankLbl);
+
+        var valSide = document.createElement('div');
+        valSide.className = 'rank-card-wide-side';
+        var avgNum = document.createElement('div');
+        avgNum.className = 'rank-value';
+        if (mine.value === null) {
+          avgNum.textContent = '—';
+        } else {
+          avgNum.textContent = fmt(mine.value);
+        }
+        var avgLbl = document.createElement('div');
+        avgLbl.className = 'rank-delta';
+        avgLbl.textContent = 'avg per match';
+        valSide.appendChild(avgNum);
+        valSide.appendChild(avgLbl);
+
+        inner.appendChild(rankSide);
+        inner.appendChild(valSide);
+
+        card.appendChild(lbl);
+        card.appendChild(inner);
       } else {
-        val.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
-        /* Sample-size caveat: n < submittedOf means partial data */
-        if (mine.n < mine.submittedOf && mine.n > 0) {
-          delta.textContent = 'avg ' + fmt(mine.value) + ' per match (from ' + mine.n + ' of ' + mine.submittedOf + ')';
+        /* Standard narrow card — rank as headline, avg in delta */
+        var lbl2 = document.createElement('div');
+        lbl2.className = 'rank-label';
+        lbl2.textContent = hm.label + ' · rank';
+
+        var val = document.createElement('div');
+        val.className = 'rank-value';
+
+        var delta = document.createElement('div');
+        delta.className = 'rank-delta';
+
+        if (mine.value === null) {
+          val.textContent = '—';
+          delta.textContent = (mine.reason === 'away_not_recorded')
+            ? 'away fan data not recorded'
+            : 'no data yet';
         } else {
-          delta.textContent = 'avg ' + fmt(mine.value) + ' per match';
+          val.innerHTML = '#' + mine.rank + '<span class="rank-total">/' + rows.length + '</span>';
+          /* Only annotate sample size when partial (not full set). */
+          if (mine.n < mine.submittedOf && mine.n > 0) {
+            delta.textContent = 'avg ' + fmt(mine.value) + ' per match · ' + mine.n + ' of ' + mine.submittedOf;
+          } else {
+            delta.textContent = 'avg ' + fmt(mine.value) + ' per match';
+          }
         }
+        card.appendChild(lbl2);
+        card.appendChild(val);
+        card.appendChild(delta);
       }
 
-      card.appendChild(lbl);
-      card.appendChild(val);
-      card.appendChild(delta);
       heroGrid.appendChild(card);
     }
   }
@@ -2248,7 +2430,7 @@
     document.getElementById('rankChartTitle').textContent = metricTitle(metric);
     document.getElementById('rankChartSubtitle').textContent = rankSubtitle(scope, metric, timing);
 
-    drawBars('rankBars', rows, clubName, metric);
+    drawBars('rankBars', rows, clubName, metric, S.session.role === 'club');
 
     var noted = document.getElementById('rankListingNote');
     noted.textContent = 'Showing ' + rows.length + ' clubs · your position: ' + (mine ? '#' + mine.rank : '—');
@@ -2261,7 +2443,7 @@
 
     /* Find the metric where this club ranks best */
     var scope = resolvedClubScope();
-    var metrics = ['total_att', 'home_fans', 'away_fans_brought', 'travelling'];
+    var metrics = ['total_att', 'away_fans_brought', 'travelling'];
     var best = null;
     for (var i = 0; i < metrics.length; i++) {
       var rows = getRanking(scope, metrics[i], S.currentTiming);
@@ -2312,9 +2494,22 @@
       }
     }
 
+    /* Ensure every cup AND league key that is present defaults to true.
+       Previously only cups got initialised, which left league keys at their
+       previous state (could be false if user had toggled off on a prior club). */
+    for (var key in presentCups) {
+      if (S.cupToggles[key] === undefined) S.cupToggles[key] = true;
+    }
+    /* And fill in the inverse — keys not present on this club stay irrelevant */
+    for (var k in COMP_KEY_TO_LABEL) {
+      if (!(k in presentCups) && S.cupToggles[k] === undefined) {
+        S.cupToggles[k] = true;
+      }
+    }
+
     /* Match-chart cup toggles — per-comp toggles including league */
     var matchBox = document.getElementById('matchCupToggles');
-    matchBox.innerHTML = '<span class="cup-toggles-light-label">Include:</span>';
+    matchBox.innerHTML = '<span class="filter-pill-row__label">Include:</span>';
     renderCupToggleButtons(matchBox, presentCups, 'light', function() {
       renderMatchChart();
     });
@@ -2322,7 +2517,7 @@
     /* Totals card cup toggles — also per-comp, League included and togglable.
        The club's own division is always labelled 'League' for simplicity. */
     var totalsBox = document.getElementById('totalsCupToggles');
-    totalsBox.innerHTML = '<span class="cup-toggles-label">Include:</span>';
+    totalsBox.innerHTML = '<span class="filter-pill-row__label" style="color:rgba(255,255,255,0.85);">Include:</span>';
 
     /* Which league key is "their" league? — their division's comp key */
     var leagueKey = DIV_TO_COMPKEY[club.division];
@@ -2339,16 +2534,15 @@
   }
 
   function renderCupToggleButtons(container, presentMap, style, onChange, leagueKeyToLabel) {
-    /* Order: league first, then cups */
-    var order = style === 'light'
-      ? ['nl', 'north', 'south', 'nl-cup', 'fa-cup', 'fa-trophy']
-      : ['nl', 'north', 'south', 'nl-cup', 'fa-cup', 'fa-trophy'];
+    var order = ['nl', 'north', 'south', 'nl-cup', 'fa-cup', 'fa-trophy'];
+    var extraClass = (style === 'navy') ? ' filter-pill--on-dark' : '';
 
     for (var i = 0; i < order.length; i++) {
       var key = order[i];
       if (!presentMap[key]) continue;
       var btn = document.createElement('button');
-      btn.className = (style === 'light' ? 'cup-toggle-light' : 'cup-toggle') + (S.cupToggles[key] ? ' active' : '');
+      btn.type = 'button';
+      btn.className = 'filter-pill' + extraClass + (S.cupToggles[key] ? ' active' : '');
       btn.setAttribute('data-comp', key);
       /* In the totals card, relabel the club's own division comp as 'League' for clarity */
       if (style === 'navy' && leagueKeyToLabel && key === leagueKeyToLabel) {
@@ -2379,19 +2573,17 @@
     var club = S.perClub[clubName];
     if (!club) return;
 
-    document.getElementById('legendHome').textContent =
-      S.matchMode === 'home' ? clubName + ' fans (home)' : clubName + ' fans (travelling)';
     document.getElementById('matchChartTitle').textContent =
       S.matchMode === 'home' ? 'Home matches — crowd breakdown' : 'Away matches — crowd breakdown';
 
     var matches = S.matchMode === 'home' ? club.homeMatches : club.awayMatches;
-    /* Filter to cups that are toggled on AND only include played */
+    /* Filter to cups toggled on. Unlike before, we INCLUDE both played and upcoming
+       — upcoming are rendered as non-interactive placeholders at the bottom. */
     var filtered = matches.filter(function(m) {
-      if (!isPlayed(m.fix)) return false;
       return S.cupToggles[m.fix.competitionKey] !== false;
     });
 
-    /* Sort chronologically (earliest first) */
+    /* Sort chronologically (earliest first). Upcoming naturally falls after played. */
     filtered.sort(function(a, b) {
       var ka = parseKickoff(a.fix.kickoffUTC);
       var kb = parseKickoff(b.fix.kickoffUTC);
@@ -2403,10 +2595,11 @@
 
     if (filtered.length === 0) {
       container.innerHTML = '<p style="color:var(--text-muted);padding:20px;text-align:center;">No matches match your filters.</p>';
+      renderMatchChartLegend({}); /* no states */
       return;
     }
 
-    /* Max total across filtered (for bar width scaling) */
+    /* Max total — only across played, submitted matches. Upcoming + awaiting contribute nothing. */
     var maxTotal = 0;
     for (var i = 0; i < filtered.length; i++) {
       if (filtered[i].sub && filtered[i].sub.total > maxTotal) maxTotal = filtered[i].sub.total;
@@ -2415,10 +2608,20 @@
 
     function isTiny(val) { return (val / maxTotal) < 0.06; }
 
+    /* Track which states are actually present — drives the dynamic legend (item 11). */
+    var statesPresent = {
+      splitKnown:   false,   /* at least one submitted match has an away figure */
+      awaiting:     false,   /* at least one played match has no submission yet */
+      splitUnknown: false,   /* at least one submitted match has no away figure */
+      upcoming:     false    /* at least one match is in the future */
+    };
+
     for (var j = 0; j < filtered.length; j++) {
       var m = filtered[j];
+      var played = isPlayed(m.fix);
+      var isUpcoming = !played;
       var row = document.createElement('div');
-      row.className = 'match-row';
+      row.className = 'match-row' + (isUpcoming ? ' match-row--upcoming' : '');
 
       /* Date */
       var dateEl = document.createElement('div');
@@ -2426,7 +2629,7 @@
       dateEl.textContent = formatDateShort(m.fix.kickoffUTC);
       row.appendChild(dateEl);
 
-      /* Opponent + badge + action button */
+      /* Opponent + badge. For upcoming matches, opponent name renders in muted grey. */
       var oppEl = document.createElement('div');
       oppEl.className = 'match-opp';
       var badge = document.createElement('span');
@@ -2436,26 +2639,36 @@
       var oppName = document.createElement('span');
       oppName.textContent = (S.matchMode === 'home' ? 'vs ' : 'at ') +
         (S.matchMode === 'home' ? m.fix.awayTeamName : m.fix.homeTeamName);
+      if (isUpcoming) oppName.style.color = 'var(--text-muted)';
       oppEl.appendChild(oppName);
-
-      /* Row click action — submit/edit/view modal */
-      row.style.cursor = 'pointer';
-      (function(match) {
-        row.addEventListener('click', function() { handleMatchRowClick(match); });
-      })(m);
-
       row.appendChild(oppEl);
+
+      /* Row click — only for played matches. Upcoming rows are non-interactive. */
+      if (!isUpcoming) {
+        row.style.cursor = 'pointer';
+        (function(match) {
+          row.addEventListener('click', function() { handleMatchRowClick(match); });
+        })(m);
+      } else {
+        row.style.cursor = 'default';
+      }
 
       /* Bar track */
       var track = document.createElement('div');
       track.className = 'match-bar-track';
 
-      if (!m.sub) {
-        /* State: awaiting submission */
+      if (isUpcoming) {
+        /* Upcoming fixture — empty track. No bar, no content, no submit action. (Item 13) */
+        statesPresent.upcoming = true;
+      } else if (!m.sub) {
+        /* Played but no submission. Wording differs by view (item 10). */
         var miss = document.createElement('div');
         miss.className = 'match-bar-missing';
-        miss.textContent = 'awaiting submission';
+        miss.textContent = (S.matchMode === 'home')
+          ? 'Tap to submit attendance data'
+          : 'Awaiting submission from home club';
         track.appendChild(miss);
+        statesPresent.awaiting = true;
       } else if (S.matchMode === 'home') {
         var total = m.sub.total;
         var awayRecorded = m.sub.awayRecorded !== false && m.sub.away != null;
@@ -2468,11 +2681,24 @@
           homeBar.style.width = (homeFans / maxTotal * 100) + '%';
           homeBar.textContent = fmt(homeFans);
           track.appendChild(homeBar);
+          if (homeTiny) {
+            var hf = document.createElement('div');
+            hf.className = 'match-bar-float-label match-bar-float-label--home';
+            hf.textContent = fmt(homeFans);
+            track.appendChild(hf);
+          }
           var awayBar = document.createElement('div');
           awayBar.className = 'match-bar-away' + (awayTiny ? ' tiny' : '');
           awayBar.style.width = (awayFans / maxTotal * 100) + '%';
           awayBar.textContent = fmt(awayFans);
           track.appendChild(awayBar);
+          if (awayTiny) {
+            var af = document.createElement('div');
+            af.className = 'match-bar-float-label match-bar-float-label--away';
+            af.textContent = fmt(awayFans);
+            track.appendChild(af);
+          }
+          statesPresent.splitKnown = true;
         } else {
           /* Split unknown — red bar with star */
           var split = document.createElement('div');
@@ -2480,10 +2706,12 @@
           split.style.width = (total / maxTotal * 100) + '%';
           split.innerHTML = '<span>' + fmt(total) + '</span><span class="split-star">★</span>';
           track.appendChild(split);
+          statesPresent.splitUnknown = true;
         }
       } else {
-        /* Away matches: the match was hosted by someone else. m.sub was written by host.
-           m.sub.away = this club's travelling support. m.sub.total - away = host fans. */
+        /* Away match — m.sub was written by host.
+           m.sub.away = this club's travelling support (their fans who travelled).
+           m.sub.total - away = host club's home crowd at that ground. */
         var total2 = m.sub.total;
         var awayRecorded2 = m.sub.awayRecorded !== false && m.sub.away != null;
         if (awayRecorded2) {
@@ -2495,11 +2723,24 @@
           hostBar.style.width = (hostFans / maxTotal * 100) + '%';
           hostBar.textContent = fmt(hostFans);
           track.appendChild(hostBar);
+          if (hostTiny) {
+            var hf2 = document.createElement('div');
+            hf2.className = 'match-bar-float-label match-bar-float-label--away';
+            hf2.textContent = fmt(hostFans);
+            track.appendChild(hf2);
+          }
           var travBar = document.createElement('div');
           travBar.className = 'match-bar-home' + (travTiny ? ' tiny' : '');
           travBar.style.width = (travellers / maxTotal * 100) + '%';
           travBar.textContent = fmt(travellers);
           track.appendChild(travBar);
+          if (travTiny) {
+            var tf = document.createElement('div');
+            tf.className = 'match-bar-float-label match-bar-float-label--home';
+            tf.textContent = fmt(travellers);
+            track.appendChild(tf);
+          }
+          statesPresent.splitKnown = true;
         } else {
           /* Host didn't record split — navy bar with star */
           var split2 = document.createElement('div');
@@ -2508,6 +2749,7 @@
           split2.style.width = (total2 / maxTotal * 100) + '%';
           split2.innerHTML = '<span>' + fmt(total2) + '</span><span class="split-star">★</span>';
           track.appendChild(split2);
+          statesPresent.splitUnknown = true;
         }
       }
 
@@ -2516,10 +2758,113 @@
       /* Total column */
       var totalCol = document.createElement('div');
       totalCol.className = 'match-total';
-      totalCol.textContent = m.sub ? fmt(m.sub.total) : '—';
+      if (isUpcoming) {
+        totalCol.textContent = '';
+      } else {
+        totalCol.textContent = m.sub ? fmt(m.sub.total) : '—';
+      }
       row.appendChild(totalCol);
 
       container.appendChild(row);
+    }
+
+    renderMatchChartLegend(statesPresent);
+  }
+
+  /* Renders the legend below the match chart. Only includes swatches for states
+     actually present in the current filtered view (item 11). Labels are
+     view-aware (items 11 + 12). */
+  function renderMatchChartLegend(states) {
+    var legend = document.getElementById('matchChartLegend');
+    if (!legend) return;
+    legend.innerHTML = '';
+
+    var clubName = S.effectiveClub || '';
+    var isHome = S.matchMode === 'home';
+
+    /* Club fans — always show if any red bar could be on screen.
+       We show it if any state exists other than pure upcoming. */
+    var anyBar = states.splitKnown || states.awaiting || states.splitUnknown;
+    if (anyBar) {
+      var item1 = document.createElement('div');
+      item1.className = 'legend-item';
+      var sw1 = document.createElement('span');
+      sw1.className = 'legend-swatch';
+      sw1.style.background = 'linear-gradient(90deg, #c81010, #9e0000)';
+      item1.appendChild(sw1);
+      var lbl1 = document.createElement('span');
+      lbl1.textContent = isHome
+        ? clubName + ' fans (home)'
+        : clubName + ' fans (travelling)';
+      item1.appendChild(lbl1);
+      legend.appendChild(item1);
+    }
+
+    /* Navy swatch — only if at least one match has a known split. */
+    if (states.splitKnown) {
+      var item2 = document.createElement('div');
+      item2.className = 'legend-item';
+      var sw2 = document.createElement('span');
+      sw2.className = 'legend-swatch';
+      sw2.style.background = 'linear-gradient(90deg, var(--navy), var(--navy-light))';
+      item2.appendChild(sw2);
+      var lbl2 = document.createElement('span');
+      lbl2.textContent = isHome ? 'Visiting fans' : 'Home crowd';
+      item2.appendChild(lbl2);
+      legend.appendChild(item2);
+    }
+
+    /* Hatched swatch — only if at least one played match has no submission. */
+    if (states.awaiting) {
+      var item3 = document.createElement('div');
+      item3.className = 'legend-item';
+      var sw3 = document.createElement('span');
+      sw3.className = 'legend-swatch';
+      sw3.style.background = 'repeating-linear-gradient(45deg, #e8ebf0, #e8ebf0 3px, #dde1e8 3px, #dde1e8 6px)';
+      item3.appendChild(sw3);
+      var lbl3 = document.createElement('span');
+      lbl3.textContent = isHome
+        ? 'Awaiting submission'
+        : 'Awaiting submission from home club';
+      item3.appendChild(lbl3);
+      legend.appendChild(item3);
+    }
+
+    /* Star — only if at least one match has submitted total but no split. */
+    if (states.splitUnknown) {
+      var item4 = document.createElement('div');
+      item4.className = 'legend-item';
+      var star = document.createElement('span');
+      star.textContent = '★';
+      star.style.color = 'var(--navy)';
+      star.style.fontSize = '14px';
+      star.style.lineHeight = '1';
+      star.style.marginRight = '2px';
+      item4.appendChild(star);
+      var lbl4 = document.createElement('span');
+      lbl4.textContent = isHome
+        ? 'Visiting fan count not supplied'
+        : 'Travelling support not counted';
+      item4.appendChild(lbl4);
+      legend.appendChild(item4);
+    }
+
+    /* Upcoming — non-interactive placeholder description. Shown only if any upcoming present. */
+    if (states.upcoming) {
+      var item5 = document.createElement('div');
+      item5.className = 'legend-item';
+      var dot = document.createElement('span');
+      dot.textContent = '·';
+      dot.style.color = 'var(--text-muted)';
+      dot.style.fontSize = '18px';
+      dot.style.lineHeight = '1';
+      dot.style.marginRight = '2px';
+      item5.appendChild(dot);
+      var lbl5 = document.createElement('span');
+      lbl5.style.color = 'var(--text-muted)';
+      lbl5.textContent = 'Upcoming fixture';
+      item5.appendChild(lbl5);
+      legend.appendChild(item5);
     }
   }
 
@@ -2572,58 +2917,119 @@
       if (S.cupToggles[k]) activeComps[k] = true;
     });
 
-    var homeFiltered = club.homeMatches.filter(function(m) {
-      return isPlayed(m.fix) && activeComps[m.fix.competitionKey] && m.sub;
+    /* Home: all played home matches in active comps. Some may lack a submission
+       (those don't count towards home avg/total). Split-recorded subset is
+       a proper subset of submitted. */
+    var homePlayed = club.homeMatches.filter(function(m) {
+      return isPlayed(m.fix) && activeComps[m.fix.competitionKey];
     });
-    var awayFiltered = club.awayMatches.filter(function(m) {
-      return isPlayed(m.fix) && activeComps[m.fix.competitionKey] && m.sub;
+    var homeSubmitted = homePlayed.filter(function(m) { return !!m.sub; });
+    var homeWithSplit = homeSubmitted.filter(function(m) {
+      return m.sub.awayRecorded !== false && m.sub.away != null;
     });
 
-    /* Totals */
-    var totalHomeCrowd = 0, homeCount = 0;
-    var totalAwayBrought = 0, awayBroughtCount = 0;
-    var totalTravelling = 0, travellingCount = 0;
-    var biggestHome = null;
+    /* Away: rely entirely on host submissions for this club's travelling support.
+       "Played away matches" is the universe; "host recorded our split" is the subset. */
+    var awayPlayed = club.awayMatches.filter(function(m) {
+      return isPlayed(m.fix) && activeComps[m.fix.competitionKey];
+    });
+    var awayWithHostSplit = awayPlayed.filter(function(m) {
+      return m.sub && m.sub.awayRecorded !== false && m.sub.away != null;
+    });
 
-    for (var i = 0; i < homeFiltered.length; i++) {
-      var m = homeFiltered[i];
+    /* Aggregate numbers */
+    var totalHomeCrowd = 0, biggestHome = null;
+    for (var i = 0; i < homeSubmitted.length; i++) {
+      var m = homeSubmitted[i];
       totalHomeCrowd += m.sub.total;
-      homeCount++;
       if (!biggestHome || m.sub.total > biggestHome.total) {
         biggestHome = { total: m.sub.total, opp: m.fix.awayTeamName };
       }
-      if (m.sub.awayRecorded !== false && m.sub.away != null) {
-        totalAwayBrought += m.sub.away;
-        awayBroughtCount++;
-      }
     }
-    for (var j = 0; j < awayFiltered.length; j++) {
-      var m2 = awayFiltered[j];
-      if (m2.sub.awayRecorded !== false && m2.sub.away != null) {
-        totalTravelling += m2.sub.away;
-        travellingCount++;
-      }
+    var avgHome = homeSubmitted.length ? Math.round(totalHomeCrowd / homeSubmitted.length) : 0;
+
+    var totalAwayBrought = 0;
+    for (var j = 0; j < homeWithSplit.length; j++) {
+      totalAwayBrought += homeWithSplit[j].sub.away;
     }
 
-    var stats = [
-      { label: 'Home matches',        value: fmt(homeCount), sub: homeCount ? 'with attendance data' : '' },
-      { label: 'Home crowd total',    value: fmt(totalHomeCrowd) },
-      { label: 'Home avg',            value: homeCount ? fmt(Math.round(totalHomeCrowd / homeCount)) : '—' },
-      { label: 'Away fans brought',
-        value: awayBroughtCount ? fmt(totalAwayBrought) : '—',
-        sub: awayBroughtCount
-               ? 'across ' + awayBroughtCount + ' match' + (awayBroughtCount === 1 ? '' : 'es')
-               : (homeCount ? 'away fan data not recorded' : '') },
-      { label: 'Travelling support',
-        value: travellingCount ? fmt(totalTravelling) : '—',
-        sub: travellingCount
-               ? 'across ' + travellingCount + ' away game' + (travellingCount === 1 ? '' : 's')
-               : (awayFiltered.length ? 'no host has recorded our travelling support' : '') },
-      { label: 'Biggest crowd',       value: biggestHome ? fmt(biggestHome.total) : '—', sub: biggestHome ? 'v ' + biggestHome.opp : '' }
+    var totalTravelling = 0;
+    for (var k = 0; k < awayWithHostSplit.length; k++) {
+      totalTravelling += awayWithHostSplit[k].sub.away;
+    }
+
+    /* Render top tier: headline metrics, all derived directly from own submissions.
+       No "X of X" — these are complete because the data IS all that exists. */
+    var topTier = [
+      {
+        label: 'Home matches',
+        value: fmt(homeSubmitted.length)
+      },
+      {
+        label: 'Home crowd total',
+        value: fmt(totalHomeCrowd)
+      },
+      {
+        label: 'Home avg',
+        value: homeSubmitted.length ? fmt(avgHome) : '—',
+        sub:   homeSubmitted.length ? 'per match' : ''
+      },
+      {
+        label: 'Biggest crowd',
+        value: biggestHome ? fmt(biggestHome.total) : '—',
+        sub:   biggestHome ? 'v ' + biggestHome.opp : ''
+      }
     ];
-    for (var k = 0; k < stats.length; k++) {
-      var s = stats[k];
+
+    /* Render bottom tier: fan-movement metrics, depend on split-recording.
+       Denominator ONLY when partial; empty state is a human sentence. */
+    var awayBroughtCell;
+    if (homeWithSplit.length === 0) {
+      /* Zero recorded — no misleading 0 */
+      awayBroughtCell = {
+        label: 'Away fans brought',
+        value: '—',
+        sub:   homePlayed.length
+                ? 'Away fan data not recorded at home matches'
+                : ''
+      };
+    } else {
+      var partial = homeWithSplit.length < homeSubmitted.length;
+      awayBroughtCell = {
+        label: 'Away fans brought',
+        value: fmt(totalAwayBrought),
+        sub:   partial
+                ? 'from ' + homeWithSplit.length + ' of ' + homeSubmitted.length + ' where recorded'
+                : 'across ' + homeWithSplit.length + ' home match' + (homeWithSplit.length === 1 ? '' : 'es')
+      };
+    }
+
+    var travellingCell;
+    if (awayWithHostSplit.length === 0) {
+      travellingCell = {
+        label: 'Travelling support',
+        value: '—',
+        sub:   awayPlayed.length
+                ? 'No host data on visiting fans at away games'
+                : ''
+      };
+    } else {
+      var partialA = awayWithHostSplit.length < awayPlayed.length;
+      travellingCell = {
+        label: 'Travelling support',
+        value: fmt(totalTravelling),
+        sub:   partialA
+                ? 'from ' + awayWithHostSplit.length + ' of ' + awayPlayed.length + ' away games where host recorded'
+                : 'across ' + awayWithHostSplit.length + ' away game' + (awayWithHostSplit.length === 1 ? '' : 's')
+      };
+    }
+
+    var bottomTier = [awayBroughtCell, travellingCell];
+
+    /* Render cells to grid. The CSS arranges them into two tiers with a divider. */
+    function makeCell(s, isBottom) {
       var cell = document.createElement('div');
+      cell.className = 'total-stat' + (isBottom ? ' total-stat--secondary' : '');
       var lbl = document.createElement('div');
       lbl.className = 'total-stat-label';
       lbl.textContent = s.label;
@@ -2634,14 +3040,28 @@
       cell.appendChild(val);
       if (s.sub) {
         var subEl = document.createElement('div');
-        subEl.style.fontSize = '12px';
-        subEl.style.opacity = '0.8';
-        subEl.style.marginTop = '4px';
+        subEl.className = 'total-stat-sub';
         subEl.textContent = s.sub;
         cell.appendChild(subEl);
       }
-      grid.appendChild(cell);
+      return cell;
     }
+
+    /* Top tier wrapper */
+    var topRow = document.createElement('div');
+    topRow.className = 'totals-tier totals-tier--top';
+    topTier.forEach(function(s) { topRow.appendChild(makeCell(s, false)); });
+    grid.appendChild(topRow);
+
+    /* Divider + bottom tier wrapper */
+    var divider = document.createElement('div');
+    divider.className = 'totals-tier-divider';
+    grid.appendChild(divider);
+
+    var bottomRow = document.createElement('div');
+    bottomRow.className = 'totals-tier totals-tier--bottom';
+    bottomTier.forEach(function(s) { bottomRow.appendChild(makeCell(s, true)); });
+    grid.appendChild(bottomRow);
   }
 
 
