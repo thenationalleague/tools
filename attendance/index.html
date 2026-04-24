@@ -10,6 +10,43 @@
 
      TECHNICAL CHANGELOG
      -------------------
+     v1.6  (2026-04-24)  Rank bar chart layout fix — v1.5's club-view rebuild
+                         incorrectly applied the mockup layout to staff-focused
+                         mode too. Split cleanly now:
+
+                         STAFF-FOCUSED MODE (staff/admin drilling into a club)
+                         - Reverts to the staff 4-col layout: rank / tier-pill
+                           + name / bar / value. All names visible.
+                         - Focused club's row highlighted red: red bar fill,
+                           red rank number, red name, red value.
+                         - Pink row background dropped — no more #fff1f0 tint.
+                         - renderClubRankChart() now branches: role=club uses
+                           drawBarsClubStyle; everyone else uses drawBars
+                           (staff layout) with selfClubName set.
+                         - CSS tweaks: .bar-row.is-self background transparent,
+                           new .bar-row.is-self .bar-rank rule for red rank.
+
+                         CLUB-USER MODE (own view)
+                         - New 4-col layout: rank / tier-pill / track / value.
+                           Previously 3-col with tier badge inside fill.
+                         - Tier pill (NAT/NLN/NLS) now ALWAYS visible in its
+                           own column, so the user sees division order across
+                           the league without seeing specific names.
+                         - Club names hidden on all non-self rows.
+                         - Self-row: own name rendered inside red fill when
+                           the bar is wide enough (>= 30% of max), otherwise
+                           as a red float-label to the right of the bar end.
+                         - Red rank, red value on self-row.
+                         - CSS: .bar-row--club grid changed from
+                           "28px 1fr 80px" to "28px 44px 1fr 80px" adding a
+                           tier-pill column. Bar-fill no longer hosts tier
+                           badge inline.
+                         - bars--club class now removed when switching from
+                           club to staff-focused mode to avoid style leak.
+                         - Extracted buildRankValueCell() to dedupe null /
+                           away-not-recorded handling across the two bar
+                           drawing paths.
+
      v1.5  (2026-04-24)  Post-deploy feedback, 3 items:
 
                          RANK BAR CHART — CLUB VIEW REBUILD (item 16)
@@ -280,6 +317,14 @@
   var NL_TOOL_KEY = 'ops-attendance';
 
   window.NL_CHANGELOG = [
+    {
+      date: '24 April 2026',
+      version: 'v1.6',
+      items: [
+        'Rank chart layout fix. When staff focus on a club, all club names are now visible (as a staff member viewing the league) with just the focused club\'s row highlighted in red — same layout as the aggregate staff view.',
+        'When a club user views their own rank chart, every row now shows its tier pill (NAT/NLN/NLS) so you can see the spread of divisions across the league, but specific club names stay hidden. Your own club name appears in white inside your red bar, or in red next to the bar if your bar is too short to fit the name.'
+      ]
+    },
     {
       date: '24 April 2026',
       version: 'v1.5',
@@ -700,7 +745,8 @@
     gap: 10px;
     padding: 3px 0;
   }
-  .bar-row.is-self { background: #fff1f0; border-radius: 3px; }
+  .bar-row.is-self { background: transparent; }
+  .bar-row.is-self .bar-rank { color: var(--primary); font-variation-settings: 'wght' 900; }
   .bar-rank { font-size: 12px; color: var(--text-muted); font-variation-settings: 'wght' 800; text-align: right; }
   .bar-name {
     font-size: 13px; font-variation-settings: 'wght' 700;
@@ -737,14 +783,15 @@
   }
   .bar-row.is-self .bar-value { color: var(--primary); }
 
-  /* Club-view variant: 3-column grid (rank / track+name-inside / value).
-     Name renders inside the coloured bar in white; tier badge overlays the
-     fill; tiny bars fall back to a dark float-label to the right of the bar
-     so the name stays legible. Mirrors the mockup's treatment exactly. */
+  /* Club-view variant: 4-column grid — rank / tier-pill / track / value.
+     - Tier pill is always visible so the reader sees the division order.
+     - Club names are hidden EXCEPT on the self-row.
+     - Self-row fills red; name renders white-inside-bar when the fill is wide
+       enough, otherwise as a red float-label to the right of the bar end. */
   .bars--club { gap: 2px; }
   .bar-row--club {
     display: grid;
-    grid-template-columns: 28px 1fr 80px;
+    grid-template-columns: 28px 44px 1fr 80px;
     align-items: center;
     gap: 10px;
     padding: 4px 0;
@@ -759,6 +806,15 @@
   .bar-row--club.is-self .bar-rank {
     color: var(--primary);
     font-variation-settings: 'wght' 900;
+  }
+  /* Tier pill column — keeps NAT/NLN/NLS always visible */
+  .bar-row--club .bar-tier-col {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .bar-row--club .bar-tier-col .bar-tier-badge {
+    margin: 0;
   }
   .bar-row--club .bar-track {
     position: relative;
@@ -787,16 +843,9 @@
   .bar-row--club.is-self .bar-fill {
     background: linear-gradient(90deg, #c81010, var(--primary));
   }
-  /* Inline tier badge inside the fill — sits next to the name on all_72 view */
-  .bar-row--club .bar-fill .bar-tier-badge {
-    margin-right: 6px;
-    background: rgba(255, 255, 255, 0.22);
-  }
-  /* Float-label fallback — renders next to the bar end when the fill is too
-     narrow to fit the name legibly. Dark text on the track background. */
+  /* Self-row name as float label when the fill is too narrow to fit the name */
   .bar-row--club .bar-float-label {
     position: absolute;
-    left: 0;
     top: 0;
     height: 100%;
     display: flex;
@@ -804,11 +853,10 @@
     padding-left: 8px;
     font-size: 12px;
     font-variation-settings: 'wght' 800;
-    color: var(--text);
     white-space: nowrap;
     pointer-events: none;
+    color: var(--primary);
   }
-  .bar-row--club.is-self .bar-float-label { color: var(--primary); }
   .bar-row--club .bar-value {
     font-size: 13px;
     font-variation-settings: 'wght' 800;
@@ -2592,21 +2640,24 @@
     }
   }
 
-  /* drawBarsClubStyle — mockup-style rank bars for the club view.
+  /* drawBarsClubStyle — rank bars for CLUB USER view only.
 
-     Layout: 3-column grid (rank | track | value). The club name is rendered
-     INSIDE the coloured bar fill in white text. Self-club gets a red gradient;
-     other clubs get navy. Tier badges overlay the fill on all_72 scope.
+     Layout: 4-column grid (rank | tier-pill | track | value).
 
-     Tiny-bar fallback: when the fill is too narrow to fit the name legibly
-     (< FLOAT_LABEL_THRESHOLD), the name is rendered as a dark-text float
-     label to the right of the bar end instead of being clipped inside.
+     Every row shows its tier pill (NAT / NLN / NLS) so the user sees the
+     division order across the league, but specific club names are hidden
+     for all rows EXCEPT the user's own.
 
-     Anonymisation: when anonymiseOthers = true (club-user mode), non-self
-     rows render with no name at all — just rank + plain coloured bar + value.
-     This is enforced by simply not writing text into the fill for those rows. */
-  function drawBarsClubStyle(targetID, rows, selfClubName, metric, scope, anonymiseOthers) {
-    var FLOAT_LABEL_THRESHOLD = 0.30;  /* bars narrower than 30% of max get a float label */
+     Self-row:
+       - Red bar fill
+       - Own club name rendered inside the fill (white text) when the fill is
+         wide enough to show it legibly; otherwise as a red float-label to the
+         right of the bar end
+       - Red rank number + red value
+
+     Non-self rows: just rank + pill + plain navy bar + value. No name ever. */
+  function drawBarsClubStyle(targetID, rows, selfClubName, metric, scope) {
+    var FLOAT_LABEL_THRESHOLD = 0.30;  /* bars narrower than 30% get name outside */
     var target = document.getElementById(targetID);
     target.innerHTML = '';
     target.classList.add('bars--club');
@@ -2623,81 +2674,87 @@
     for (var j = 0; j < rows.length; j++) {
       var r = rows[j];
       var isSelf = (r.club === selfClubName);
-      var showName = (!anonymiseOthers || isSelf);
 
       var row = document.createElement('div');
       row.className = 'bar-row bar-row--club' + (isSelf ? ' is-self' : '');
 
-      /* Rank */
+      /* Col 1: rank */
       var rankEl = document.createElement('div');
       rankEl.className = 'bar-rank';
       rankEl.textContent = r.rank + '.';
+      row.appendChild(rankEl);
 
-      /* Track (name rendered inside fill OR as float-label) */
+      /* Col 2: tier pill — always visible so division order is legible */
+      var tierCol = document.createElement('div');
+      tierCol.className = 'bar-tier-col';
+      var tierCode = r.division ?
+                     (DIV_TO_SCOPE[r.division] === 'national' ? 'NAT' :
+                      DIV_TO_SCOPE[r.division] === 'north'    ? 'NLN' : 'NLS')
+                     : null;
+      if (tierCode) {
+        var pill = document.createElement('span');
+        pill.className = 'bar-tier-badge ' + tierCode;
+        pill.textContent = tierCode;
+        tierCol.appendChild(pill);
+      }
+      row.appendChild(tierCol);
+
+      /* Col 3: track with fill */
       var trackEl = document.createElement('div');
       trackEl.className = 'bar-track';
-
       var pct = r.value === null ? 0 : (r.value / max) * 100;
       var fillEl = document.createElement('div');
       fillEl.className = 'bar-fill';
       fillEl.style.width = pct + '%';
 
-      /* Tier badge — only when scope is 'all_72' and we're showing a name */
-      var tierCode = null;
-      if (scope === 'all_72' && r.division) {
-        tierCode = DIV_TO_SCOPE[r.division] === 'national' ? 'NAT' :
-                   DIV_TO_SCOPE[r.division] === 'north'    ? 'NLN' : 'NLS';
-      }
+      /* Self-row only: decide whether own name fits inside the fill or
+         renders as a float-label to the right. */
+      if (isSelf) {
+        var isTiny = pct < (FLOAT_LABEL_THRESHOLD * 100);
+        if (!isTiny) {
+          fillEl.appendChild(document.createTextNode(r.club));
+        } else {
+          var floatLbl = document.createElement('div');
+          floatLbl.className = 'bar-float-label';
+          floatLbl.style.left = pct + '%';
+          floatLbl.textContent = r.club;
+          trackEl.appendChild(fillEl);
+          trackEl.appendChild(floatLbl);
+          row.appendChild(trackEl);
 
-      /* Decide: render name inside fill, or as a float label, or not at all */
-      var isTiny = pct < (FLOAT_LABEL_THRESHOLD * 100);
-
-      if (showName && !isTiny) {
-        /* Name inside the fill — enough space */
-        if (tierCode) {
-          var tb = document.createElement('span');
-          tb.className = 'bar-tier-badge ' + tierCode;
-          tb.textContent = tierCode;
-          fillEl.appendChild(tb);
+          /* Col 4: value */
+          var valueElTiny = buildRankValueCell(r, metric);
+          row.appendChild(valueElTiny);
+          target.appendChild(row);
+          continue;
         }
-        fillEl.appendChild(document.createTextNode(r.club));
       }
       trackEl.appendChild(fillEl);
-
-      if (showName && isTiny) {
-        /* Float label to the right of the bar end — dark text, readable */
-        var floatLbl = document.createElement('div');
-        floatLbl.className = 'bar-float-label';
-        floatLbl.style.left = pct + '%';
-        if (tierCode) {
-          var tb2 = document.createElement('span');
-          tb2.className = 'bar-tier-badge ' + tierCode;
-          tb2.style.marginRight = '6px';
-          tb2.textContent = tierCode;
-          floatLbl.appendChild(tb2);
-        }
-        floatLbl.appendChild(document.createTextNode(r.club));
-        trackEl.appendChild(floatLbl);
-      }
-
-      /* Value column — always shown */
-      var valueEl = document.createElement('div');
-      valueEl.className = 'bar-value';
-      if (r.value === null) {
-        valueEl.textContent = '—';
-        valueEl.style.color = 'var(--text-muted)';
-        if (r.reason === 'away_not_recorded' && (metric === 'away_fans_brought' || metric === 'travelling')) {
-          valueEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted);font-variation-settings:\'wght\' 600;">not recorded</span>';
-        }
-      } else {
-        valueEl.textContent = fmt(r.value);
-      }
-
-      row.appendChild(rankEl);
       row.appendChild(trackEl);
+
+      /* Col 4: value */
+      var valueEl = buildRankValueCell(r, metric);
       row.appendChild(valueEl);
+
       target.appendChild(row);
     }
+  }
+
+  /* Shared value-cell builder — handles null + away-not-recorded hint for both
+     bar-chart layouts. */
+  function buildRankValueCell(r, metric) {
+    var valueEl = document.createElement('div');
+    valueEl.className = 'bar-value';
+    if (r.value === null) {
+      valueEl.textContent = '—';
+      valueEl.style.color = 'var(--text-muted)';
+      if (r.reason === 'away_not_recorded' && (metric === 'away_fans_brought' || metric === 'travelling')) {
+        valueEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted);font-variation-settings:\'wght\' 600;">not recorded</span>';
+      }
+    } else {
+      valueEl.textContent = fmt(r.value);
+    }
+    return valueEl;
   }
 
 
@@ -2965,11 +3022,24 @@
     document.getElementById('rankChartTitle').textContent = metricTitle(metric);
     document.getElementById('rankChartSubtitle').textContent = rankSubtitle(scope, metric, timing);
 
-    /* Club view uses the mockup-style bar: name inside coloured fill, float-label
-       fallback for tiny bars. Anonymisation: show only self name for role=club;
-       admin/staff drilling into a focused club see all names. */
-    var anonymise = (S.session.role === 'club');
-    drawBarsClubStyle('rankBars', rows, clubName, metric, scope, anonymise);
+    /* Two genuinely different layouts:
+       - Club user (role=club): anonymised mockup-style bars. Tier pill shown
+         on every row so division order is visible; names hidden except on
+         their own row. Own name renders inside the red bar (if wide) or as
+         a red float-label to the right of the bar (if narrow).
+       - Staff/admin focused on a club: full staff layout with names visible
+         throughout, but the focused club's row highlighted in red.
+    */
+    if (S.session.role === 'club') {
+      drawBarsClubStyle('rankBars', rows, clubName, metric, scope);
+    } else {
+      /* Staff-focused: use the staff 4-column layout. Pass the focused club
+         name as selfClubName so its row gets the is-self red treatment.
+         NO anonymisation — all names visible. */
+      var rankBarsEl = document.getElementById('rankBars');
+      if (rankBarsEl) rankBarsEl.classList.remove('bars--club');
+      drawBars('rankBars', rows, clubName, metric, false);
+    }
 
     /* Rank listing note removed — rank + total already surfaced in hero card. */
     var noted = document.getElementById('rankListingNote');
