@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   NL Tools -- Portal Dashboard
-  Version: v5.65 (21/04/2026)
+  Version: v5.66 (21/04/2026)
   Date: 09/04/2026
   File: /tools/portal/index.html
 
@@ -19,6 +19,15 @@
            * No retrofit to other tool pages yet — installed app scope covers
              all /tools/ URLs via service worker, but tool page browser tabs
              won't show the rose favicon without a later head-tag sweep.
+
+  v5.66 (25/04/2026) — Slider + layout fixes:
+           * Slider: only active dot red. Previously all dots to the left
+             (--filled) were also red — misleading. Now white until selected.
+           * Slider: removed scale(1.15) transform from active dot — was
+             causing misalignment between red and white dots.
+           * Users/Invite split: 50/50 (was 1fr 340px fixed column).
+           * Inbound: removed 'Recently handled' section. Handled requests
+             are in the Audit Log as before.
 
   v5.65 (25/04/2026) — Admin panel redesign + deploy fix:
            * Admin panel: 5 tabs → 3 tabs.
@@ -82,7 +91,7 @@
            * renderTopbar() function removed (handled by nl-topbar.js)
            * signOutBtn click handler removed (handled by nl-topbar.js; audit
              + session clear added to nl-topbar.js signOut directly)
-           * Added /tools/system/nl-topbar.js?v=7 script load
+           * Added /tools/system/nl-topbar.js script load
 
   v5.59 (17/04/2026) — System file migration (MVP):
            * Firebase SDK 10.7.1 → 10.12.0
@@ -258,11 +267,11 @@
     });
   }
 </script>
-<script src="/tools/system/nl-utils.js?v=5"></script>
-<script src="/tools/system/nl-topbar.js?v=7"></script>
-<script src="/tools/system/auth-guard.js?v=4"></script>
+<script src="/tools/system/nl-utils.js"></script>
+<script src="/tools/system/nl-topbar.js"></script>
+<script src="/tools/system/auth-guard.js"></script>
 
-<link rel="stylesheet" href="/tools/system/nl-brand.css?v=10">
+<link rel="stylesheet" href="/tools/system/nl-brand.css">
 
 <!-- Quill (welcome message editor) -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
@@ -667,7 +676,7 @@
 /* -- Users + Invite two-column split --------------------------------------- */
 .users-invite-split {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 1fr;
   gap: 28px;
   align-items: start;
 }
@@ -1214,13 +1223,12 @@
   background: var(--primary);
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(158,0,0,0.15);
-  transform: scale(1.15);
 }
 
 /* Nodes to the left of active */
 .acc-slider__stop--filled .acc-slider__node {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--white);
+  border-color: var(--border);
 }
 
 .acc-slider__label {
@@ -1235,7 +1243,7 @@
   line-height: 1;
 }
 .acc-slider__stop--active .acc-slider__label { color: var(--primary); }
-.acc-slider__stop--filled .acc-slider__label { color: var(--primary); }
+.acc-slider__stop--filled .acc-slider__label { color: var(--text-muted); }
 
 /* Default ring removed */
 
@@ -1244,9 +1252,9 @@
 /* Dimmed track fill when locked */
 .acc-slider--locked /* Active/filled stops: show value but slightly muted */
 .acc-slider--locked .acc-slider__stop--active .acc-slider__node { opacity: 0.6; }
-.acc-slider--locked .acc-slider__stop--filled .acc-slider__node { opacity: 0.45; }
+
 .acc-slider--locked .acc-slider__stop--active .acc-slider__label { opacity: 0.6; }
-.acc-slider--locked .acc-slider__stop--filled .acc-slider__label { opacity: 0.45; }
+
 /* Truly padlocked stops (superadmin, staff-locked) */
 .acc-slider--locked .acc-slider__stop--padlocked .acc-slider__node { opacity: 0.35; }
 
@@ -2980,31 +2988,8 @@ function loadRequests() {
       container.appendChild(np);
     }
 
-    if (handled.length) {
-      var hh = document.createElement('div');
-      hh.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin:20px 0 12px;border-top:1px solid var(--border);padding-top:16px;';
-      hh.textContent = 'Recently handled';
-      container.appendChild(hh);
-      handled.forEach(function(r) {
-        var card = document.createElement('div');
-        card.style.cssText = 'background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;opacity:0.75;';
-        var dot = document.createElement('span');
-        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;flex-shrink:0;background:' +
-          (r.status === 'approved' ? 'var(--green)' : 'var(--red)') + ';';
-        var inf = document.createElement('div'); inf.style.cssText = 'flex:1;min-width:0;';
-        var nm = document.createElement('div'); nm.style.cssText = 'font-size:13px;font-weight:700;';
-        nm.textContent = (r.name || '(no name)') + (r.club ? '  —  ' + r.club : '');
-        var em = document.createElement('div'); em.style.cssText = 'font-size:11px;color:var(--text-muted);';
-        em.textContent = r.email || '';
-        inf.appendChild(nm); inf.appendChild(em);
-        var pill = document.createElement('span');
-        pill.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-radius:10px;white-space:nowrap;' +
-          (r.status === 'approved' ? 'background:var(--green-light);color:var(--green);' : 'background:var(--red-light);color:var(--red);');
-        pill.textContent = r.status;
-        card.appendChild(dot); card.appendChild(inf); card.appendChild(pill);
-        container.appendChild(card);
-      });
-    }
+    /* Recently handled removed — audit log handles this */
+    void 0;
   }).catch(function() {
     container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Could not load requests.</div>';
   });
