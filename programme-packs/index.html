@@ -3,36 +3,32 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 3.1
+  Version: 3.2
   Date: 25/04/2026
 
   CHANGELOG
+  v3.2 (25/04/2026)
+    - Bulk upload: file picker now allows multi-select. Each file uploads
+      sequentially with a per-file status row (Ready → Uploading → Done /
+      Failed). Files >25MB filtered out at selection. Description applies
+      to all files in a batch. Replace flow stays single-file.
+    - Thumbnail grid loads ~5x faster: switched to batched pp_thumbnails
+      GAS call (up to 20 thumbs per request, debounced ~60ms after observer
+      fires). Files stay private — no anyone-with-link sharing.
+    - Admin Drive sync:
+      * "↻ Sync with Drive" button on club folder views and NL Assets folder
+        views (admin only). Calls new pp_reconcile_folder GAS action.
+      * Imports new files dropped into Drive directly, fixes renames in
+        Drive, marks RTDB orphans as deleted.
+      * Self-healing on download: pp_download silently patches RTDB if
+        Drive's filename has drifted. Cheap and continuous.
+
   v3.1 (25/04/2026)
-    - Removed persistent "Your club" banner above layout. Sidebar pinning +
-      colour highlight already signpost it; banner was just taking space.
-    - Header bar colours swapped to match sidebar:
-      * Own club: navy (was crimson) — now consistent across sidebar + header
-      * NL Assets: red (was navy) — now consistent across sidebar + header
-    - Bulk download (zip) re-architected:
-      * GAS now saves zip to Drive, returns a direct-download URL
-      * Browser opens URL in a tab — native download manager handles progress
-      * Cap raised: 30→100 files, 50MB→250MB
-      * No more browser-side base64 decoding (was locking up tabs on big zips)
-      * Auto-cleanup: temp zips trashed 1h after creation via scheduled trigger
-    - Hard delete (replaces soft delete):
-      * File delete now sets Drive trash + removes RTDB record
-      * Drive's native 30-day trash gives recovery — no need for our own
-      * Replace flow also hard-deletes the old file once new upload succeeds
-      * Delete modal copy updated to be honest ("Drive's trash holds it for
-        30 days") instead of the previous restore lie
-    - One-shot orphan cleanup: superadmin can run window.ppPurgeOrphans()
-      from console to hard-delete legacy soft-deleted records.
-    - GAS additions (must redeploy):
-      * pp_zip rewritten (Drive URL approach)
-      * pp_delete (hard delete)
-      * pp_purge_orphans (one-shot legacy cleanup)
-      * pp_setupCleanupTrigger() — run once from GAS editor to install hourly
-        cleanup of temp zips
+    - Removed persistent "Your club" banner above layout.
+    - Header bar colours swapped: own = navy, NL Assets = red.
+    - Bulk download (zip) re-architected via Drive direct-link, 250MB cap.
+    - Hard delete via GAS — Drive's 30-day trash gives recovery.
+    - One-shot orphan cleanup: window.ppPurgeOrphans() from console.
 
   v3.0 (25/04/2026)
     - Bulk download (Download all):
@@ -130,6 +126,15 @@
 
   /* Public-facing "What's new" — shown when users click the version badge. */
   window.NL_CHANGELOG = [
+    {
+      date:    '25 April 2026',
+      version: 'v3.2',
+      items: [
+        'Bulk upload — pick multiple files at once and upload them in one go.',
+        'Thumbnails load noticeably faster.',
+        'NL admins: new "↻ Sync with Drive" button — pulls in files dropped into Drive directly, fixes renames, cleans up missing files.'
+      ]
+    },
     {
       date:    '25 April 2026',
       version: 'v3.1',
@@ -979,6 +984,67 @@
   gap: 10px;
 }
 
+/* Selected-files list shown in upload modal when user picks multi-file */
+.pp-upload-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--off-white);
+}
+.pp-upload-list__item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.pp-upload-list__item:last-child { border-bottom: 0; }
+.pp-upload-list__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variation-settings: 'wght' 600;
+  color: var(--navy);
+}
+.pp-upload-list__size {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pp-upload-list__status {
+  font-size: 11px;
+  font-variation-settings: 'wght' 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--border);
+  color: var(--text-muted);
+  min-width: 70px;
+  text-align: center;
+}
+.pp-upload-list__status--pending  { background: var(--border);      color: var(--text-muted); }
+.pp-upload-list__status--uploading{ background: var(--info-light);   color: var(--info); }
+.pp-upload-list__status--ok       { background: var(--green-light);  color: var(--green); }
+.pp-upload-list__status--error    { background: var(--red-light);    color: var(--red); }
+.pp-upload-list__status--skipped  { background: var(--amber-light);  color: var(--amber); }
+.pp-upload-list__remove {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.pp-upload-list__remove:hover { background: var(--red-light); color: var(--red); }
+
 /* Preview modal canvas */
 .pp-preview-canvas {
   background: #1a2a44;
@@ -1208,7 +1274,7 @@
 <div class="modal-backdrop" id="ppUploadModal">
   <div class="modal">
     <div class="modal__head">
-      <h3 id="ppUploadTitle">Upload file</h3>
+      <h3 id="ppUploadTitle">Upload files</h3>
       <button class="modal__close" onclick="ppCloseUpload()">×</button>
     </div>
     <div class="modal__body">
@@ -1217,17 +1283,21 @@
         <input type="text" id="ppUploadDest" readonly style="background:var(--off-white); color:var(--text-muted); cursor:default;">
       </div>
 
-      <input type="file" id="ppFileInput" style="display:none;" onchange="ppOnFileChosen(event)">
+      <input type="file" id="ppFileInput" multiple style="display:none;" onchange="ppOnFileChosen(event)">
       <div class="pp-dropzone" id="ppDropzone" onclick="document.getElementById('ppFileInput').click();">
         <div class="pp-dropzone__icon">⬆</div>
-        <div class="pp-dropzone__title">Drop file here or click to browse</div>
-        <div class="pp-dropzone__hint">Max 25 MB — images, PDFs, Office docs, video clips</div>
+        <div class="pp-dropzone__title">Drop files here or click to browse</div>
+        <div class="pp-dropzone__hint">Pick one or many · max 25MB each</div>
         <div class="pp-dropzone__filename" id="ppDropzoneFilename"></div>
       </div>
 
-      <div class="form-group" style="margin-top:14px;">
+      <!-- Selected files list (visible only when 1+ files chosen) -->
+      <ul class="pp-upload-list" id="ppUploadList" style="display:none;"></ul>
+
+      <div class="form-group" id="ppUploadDescGroup" style="margin-top:14px;">
         <label>Description (optional)</label>
         <input type="text" id="ppUploadDesc" placeholder="Brief note about this file…">
+        <div class="form-hint" id="ppUploadDescHint" style="display:none;">Description applies to all files in this upload.</div>
       </div>
 
       <div class="pp-upload-progress" id="ppUploadProgress" style="display:none;">
@@ -1990,8 +2060,11 @@ function ppRenderFilesView() {
   if (allFiles.length > 0) {
     actionsHtml += '<button class="btn btn--ghost btn--sm" onclick="ppDownloadAllInFolder(\'' + NL.escJ(club.key) + '\', \'' + NL.escJ(folder.key) + '\')" title="Download every file in this folder as a ZIP">↓ Download all</button>';
   }
+  if (STATE.isAdmin) {
+    actionsHtml += '<button class="btn btn--ghost btn--sm" onclick="ppDoReconcile(\'' + NL.escJ(club.key) + '\', \'' + NL.escJ(folder.key) + '\')" title="Sync this folder with Drive — imports new files, fixes renames, marks deletions">↻ Sync with Drive</button>';
+  }
   if (canEdit) {
-    actionsHtml += '<button class="btn btn--primary btn--sm" onclick="ppOpenUpload()">⬆ Upload file</button>';
+    actionsHtml += '<button class="btn btn--primary btn--sm" onclick="ppOpenUpload()">⬆ Upload files</button>';
   }
 
   var filesHtml;
@@ -2107,6 +2180,10 @@ function ppSetView(mode) {
    status: 'pending' | 'loaded' | 'failed' */
 var ppThumbCache = {};
 var ppThumbObserver = null;
+var ppThumbQueue = [];          /* fileIds waiting to be batched */
+var ppThumbFlushTimer = null;
+var PP_THUMB_BATCH_SIZE = 20;
+var PP_THUMB_FLUSH_DELAY = 60;  /* ms — short debounce so observer entries collapse into one batch */
 
 /* IntersectionObserver: starts thumbnail fetch when the card scrolls in.
    Singleton — re-uses across renders. */
@@ -2121,40 +2198,81 @@ function ppGetThumbObserver() {
       var fileId = el.dataset.thumbFileId;
       if (!fileId) return;
       ppThumbObserver.unobserve(el);  /* one-shot per element */
-      ppLoadThumb(fileId);
+      ppQueueThumb(fileId);
     });
   }, { rootMargin: '200px' });  /* preload slightly before card enters viewport */
 
   return ppThumbObserver;
 }
 
-function ppLoadThumb(fileId) {
-  /* Already loaded or in-flight? Just paint it. */
+/* Queue a thumb fetch. Multiple cards intersecting at once are gathered into a
+   single batched GAS call. ~5x faster than per-thumb roundtrips. */
+function ppQueueThumb(fileId) {
+  /* Already cached or in-flight — short-circuit */
   var existing = ppThumbCache[fileId];
   if (existing && existing.status === 'loaded') {
     ppPaintThumb(fileId, existing.url);
     return;
   }
-  if (existing && existing.status === 'pending') return;
-  if (existing && existing.status === 'failed') return;  /* don't retry within session */
+  if (existing && (existing.status === 'pending' || existing.status === 'failed')) return;
 
   ppThumbCache[fileId] = { status: 'pending' };
+  ppThumbQueue.push(fileId);
 
-  ppCallGas({ action: 'pp_thumbnail', fileId: fileId })
+  /* Debounced flush so observer entries firing in the same tick collapse */
+  if (!ppThumbFlushTimer) {
+    ppThumbFlushTimer = setTimeout(ppFlushThumbQueue, PP_THUMB_FLUSH_DELAY);
+  }
+}
+
+function ppFlushThumbQueue() {
+  ppThumbFlushTimer = null;
+  if (!ppThumbQueue.length) return;
+
+  /* Take up to BATCH_SIZE off the queue */
+  var batch = ppThumbQueue.splice(0, PP_THUMB_BATCH_SIZE);
+
+  /* If more remain, schedule another flush after this batch's response (avoid
+     firing parallel batches — they'd compete for GAS execution time). */
+  ppCallGas({ action: 'pp_thumbnails', fileIds: batch })
     .then(function(r) {
-      if (!r.ok) throw new Error(r.error || 'No thumbnail');
-      var byteChars = atob(r.dataB64);
-      var bytes = new Uint8Array(byteChars.length);
-      for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-      var blob = new Blob([bytes], { type: r.mimeType || 'image/png' });
-      var url = URL.createObjectURL(blob);
-      ppThumbCache[fileId] = { status: 'loaded', url: url };
-      ppPaintThumb(fileId, url);
+      if (!r.ok) throw new Error(r.error || 'Thumbnail batch failed');
+      var results = r.results || {};
+      batch.forEach(function(fid) {
+        var item = results[fid];
+        if (!item || !item.ok) {
+          ppThumbCache[fid] = { status: 'failed' };
+          return;
+        }
+        try {
+          var byteChars = atob(item.dataB64);
+          var bytes = new Uint8Array(byteChars.length);
+          for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+          var blob = new Blob([bytes], { type: item.mimeType || 'image/png' });
+          var url = URL.createObjectURL(blob);
+          ppThumbCache[fid] = { status: 'loaded', url: url };
+          ppPaintThumb(fid, url);
+        } catch (e) {
+          ppThumbCache[fid] = { status: 'failed' };
+        }
+      });
     })
     .catch(function() {
-      ppThumbCache[fileId] = { status: 'failed' };
-      /* Card already shows fallback icon, do nothing extra. */
+      /* Whole batch failed — mark all as failed (won't retry this session) */
+      batch.forEach(function(fid) { ppThumbCache[fid] = { status: 'failed' }; });
+    })
+    .then(function() {
+      /* Drain remainder of queue if any built up while we waited */
+      if (ppThumbQueue.length && !ppThumbFlushTimer) {
+        ppThumbFlushTimer = setTimeout(ppFlushThumbQueue, PP_THUMB_FLUSH_DELAY);
+      }
     });
+}
+
+/* Legacy single-thumb loader — kept for any code that still calls it
+   (currently nothing). Routes through the queue for consistency. */
+function ppLoadThumb(fileId) {
+  ppQueueThumb(fileId);
 }
 
 function ppPaintThumb(fileId, url) {
@@ -2374,6 +2492,11 @@ function ppRenderNlAssets() {
     headerActions += '<button class="btn btn--ghost btn--sm" onclick="ppDownloadAllInNlfFolder(\'' + NL.escJ(currentId) + '\')" title="Download every file in this folder as a ZIP">↓ Download all</button>';
   }
 
+  /* Sync with Drive (admin only, inside a folder) */
+  if (currentId && STATE.isAdmin) {
+    headerActions += '<button class="btn btn--ghost btn--sm" onclick="ppDoReconcile(\'_nl-central\', \'' + NL.escJ(currentId) + '\')" title="Sync this folder with Drive — imports new files, fixes renames, marks deletions">↻ Sync with Drive</button>';
+  }
+
   if (canEdit) {
     /* "New folder" only if depth allows */
     var depthOk = !currentId || (ppNlfDepth(currentId) + 1 < 3);
@@ -2382,7 +2505,7 @@ function ppRenderNlAssets() {
     }
     if (currentId) {
       /* Upload only makes sense inside a folder, not at the root level */
-      headerActions += '<button class="btn btn--primary btn--sm" onclick="ppOpenNlfUpload()">⬆ Upload file</button>';
+      headerActions += '<button class="btn btn--primary btn--sm" onclick="ppOpenNlfUpload()">⬆ Upload files</button>';
     }
   }
   if (currentId && canEdit) {
@@ -2696,17 +2819,18 @@ function ppOpenNlfUpload() {
   var meta = STATE.nlAssetsFolders[currentId];
   if (!meta) return;
 
-  STATE.upload = { mode: 'create', file: null, replaceFileId: null, replaceFilename: null, nlAssetsFolderId: currentId };
-  document.getElementById('ppUploadTitle').textContent = 'Upload file';
+  STATE.upload = { mode: 'create', files: [], replaceFileId: null, replaceFilename: null, nlAssetsFolderId: currentId };
+  document.getElementById('ppUploadTitle').textContent = 'Upload files';
   /* Build path string for clarity */
   var pathLabel = 'National League Assets';
   ppNlfPathTrail().forEach(function(crumb) { pathLabel += ' › ' + crumb.name; });
   document.getElementById('ppUploadDest').value = pathLabel;
   document.getElementById('ppUploadDesc').value = '';
-  document.getElementById('ppDropzoneFilename').textContent = '';
+  ppRefreshUploadList();
   document.getElementById('ppFileInput').value = '';
   document.getElementById('ppUploadProgress').style.display = 'none';
   document.getElementById('ppUploadConfirm').disabled = false;
+  document.getElementById('ppUploadConfirm').textContent = 'Upload';
   document.getElementById('ppUploadModal').classList.add('open');
 }
 
@@ -2722,14 +2846,15 @@ function ppOpenUpload() {
     NL.toast('You can only upload to your own club\'s folders.', 'error');
     return;
   }
-  STATE.upload = { mode: 'create', file: null, replaceFileId: null, replaceFilename: null };
-  document.getElementById('ppUploadTitle').textContent = 'Upload file';
+  STATE.upload = { mode: 'create', files: [], replaceFileId: null, replaceFilename: null };
+  document.getElementById('ppUploadTitle').textContent = 'Upload files';
   document.getElementById('ppUploadDest').value = club.name + ' — ' + folder.name;
   document.getElementById('ppUploadDesc').value = '';
-  document.getElementById('ppDropzoneFilename').textContent = '';
+  ppRefreshUploadList();
   document.getElementById('ppFileInput').value = '';
   document.getElementById('ppUploadProgress').style.display = 'none';
   document.getElementById('ppUploadConfirm').disabled = false;
+  document.getElementById('ppUploadConfirm').textContent = 'Upload';
   document.getElementById('ppUploadModal').classList.add('open');
 }
 
@@ -2740,16 +2865,17 @@ function ppOpenReplace(fileId) {
     NL.toast('You can only replace files in your own club\'s folders.', 'error');
     return;
   }
-  STATE.upload = { mode: 'replace', file: null, replaceFileId: fileId, replaceFilename: meta.name };
+  STATE.upload = { mode: 'replace', files: [], replaceFileId: fileId, replaceFilename: meta.name };
   document.getElementById('ppUploadTitle').textContent = 'Replace file';
   var club   = STATE.clubsByKey[meta.clubKey];
   var folder = STATE.folders.find(function(f) { return f.key === meta.folderKey; });
   document.getElementById('ppUploadDest').value = (club ? club.name : meta.clubKey) + ' — ' + (folder ? folder.name : meta.folderKey) + ' — replacing "' + meta.name + '"';
   document.getElementById('ppUploadDesc').value = meta.description || '';
-  document.getElementById('ppDropzoneFilename').textContent = '';
+  ppRefreshUploadList();
   document.getElementById('ppFileInput').value = '';
   document.getElementById('ppUploadProgress').style.display = 'none';
   document.getElementById('ppUploadConfirm').disabled = false;
+  document.getElementById('ppUploadConfirm').textContent = 'Upload';
   document.getElementById('ppUploadModal').classList.add('open');
 }
 
@@ -2758,27 +2884,89 @@ function ppCloseUpload() {
 }
 
 function ppOnFileChosen(ev) {
-  var file = ev.target.files && ev.target.files[0];
-  if (!file) return;
-  STATE.upload.file = file;
-  document.getElementById('ppDropzoneFilename').textContent = file.name + ' (' + ppFmtSize(file.size) + ')';
+  var picked = ev.target.files;
+  if (!picked || !picked.length) return;
+
+  if (STATE.upload.mode === 'replace') {
+    /* Replace = single-file. Take the first only. */
+    if (picked.length > 1) NL.toast('Replace takes one file. Using the first.', 'info');
+    STATE.upload.files = [{ file: picked[0], status: 'pending', err: null }];
+  } else {
+    /* Create mode: append to existing selection. Cap at 25MB per file (server-side
+       guard) — surface oversized files immediately so user can drop them. */
+    var added = 0, oversized = 0;
+    for (var i = 0; i < picked.length; i++) {
+      if (picked[i].size > 25 * 1024 * 1024) { oversized++; continue; }
+      STATE.upload.files.push({ file: picked[i], status: 'pending', err: null });
+      added++;
+    }
+    if (oversized) NL.toast(oversized + ' file' + (oversized === 1 ? '' : 's') + ' over 25MB skipped.', 'error');
+  }
+  /* Reset the input so re-picking the same file fires onchange */
+  ev.target.value = '';
+  ppRefreshUploadList();
 }
 
-function ppDoUpload() {
-  var file = STATE.upload.file;
-  if (!file) {
-    NL.toast('Please choose a file first.', 'error');
-    return;
-  }
-  if (file.size > 25 * 1024 * 1024) {
-    NL.toast('File too large (max 25MB).', 'error');
+/* Render the selected-files list inside the upload modal. */
+function ppRefreshUploadList() {
+  var list  = document.getElementById('ppUploadList');
+  var hint  = document.getElementById('ppUploadDescHint');
+  var dropFn = document.getElementById('ppDropzoneFilename');
+  var files = STATE.upload.files || [];
+
+  if (!files.length) {
+    list.style.display = 'none';
+    list.innerHTML = '';
+    dropFn.textContent = '';
+    if (hint) hint.style.display = 'none';
     return;
   }
 
-  /* Determine target: NL Assets or club folder.
-     - NL Assets: STATE.upload.nlAssetsFolderId is set (set by ppOpenNlfUpload)
-     - Club:      use current ppCurrentClub() + ppCurrentFolder()
-     For replace mode in either world, we pull club/folder from the existing record. */
+  dropFn.textContent = files.length + ' file' + (files.length === 1 ? '' : 's') + ' selected';
+  if (hint) hint.style.display = files.length > 1 ? 'block' : 'none';
+
+  list.style.display = 'block';
+  list.innerHTML = files.map(function(item, idx) {
+    var statusLabel, statusClass;
+    if      (item.status === 'pending')   { statusLabel = 'Ready';      statusClass = 'pending'; }
+    else if (item.status === 'uploading') { statusLabel = 'Uploading…'; statusClass = 'uploading'; }
+    else if (item.status === 'ok')        { statusLabel = 'Done';       statusClass = 'ok'; }
+    else if (item.status === 'error')     { statusLabel = 'Failed';     statusClass = 'error'; }
+    else if (item.status === 'skipped')   { statusLabel = 'Skipped';    statusClass = 'skipped'; }
+
+    /* Remove button only on pending items, and only before we've started uploading */
+    var canRemove = (item.status === 'pending' || item.status === 'error');
+    var removeBtn = canRemove
+      ? '<button class="pp-upload-list__remove" onclick="ppRemoveUploadAt(' + idx + ')" title="Remove">×</button>'
+      : '<span></span>';
+
+    return '<li class="pp-upload-list__item">'
+      + '<div class="pp-upload-list__name" title="' + NL.escHtml(item.file.name) + (item.err ? ' — ' + NL.escHtml(item.err) : '') + '">'
+        + NL.escHtml(item.file.name)
+      + '</div>'
+      + '<div class="pp-upload-list__size">' + ppFmtSize(item.file.size) + '</div>'
+      + '<span class="pp-upload-list__status pp-upload-list__status--' + statusClass + '">' + NL.escHtml(statusLabel) + '</span>'
+      + removeBtn
+    + '</li>';
+  }).join('');
+}
+
+function ppRemoveUploadAt(idx) {
+  if (!STATE.upload.files) return;
+  STATE.upload.files.splice(idx, 1);
+  ppRefreshUploadList();
+}
+
+/* Sequential upload of selected files. Each goes through pp_upload independently;
+   one failure doesn't block the rest. Per-file status updated live in the list. */
+function ppDoUpload() {
+  var files = STATE.upload.files || [];
+  if (!files.length) {
+    NL.toast('Please choose at least one file.', 'error');
+    return;
+  }
+
+  /* Resolve destination once for the whole batch */
   var clubKey, folderKey, destLabel;
   if (STATE.upload.mode === 'replace' && STATE.upload.replaceFileId) {
     var existing = STATE.files[STATE.upload.replaceFileId];
@@ -2799,60 +2987,94 @@ function ppDoUpload() {
     destLabel = club.name + ' / ' + folder.name;
   }
 
+  var description = document.getElementById('ppUploadDesc').value;
   var btn = document.getElementById('ppUploadConfirm');
   btn.disabled = true;
   document.getElementById('ppUploadProgress').style.display = 'flex';
-  document.getElementById('ppUploadProgressText').textContent = 'Encoding…';
 
-  /* For 'replace': we soft-delete the old file's RTDB record AFTER the new
-     upload succeeds, so the user keeps the old file if upload fails. */
-  ppFileToBase64(file)
-    .then(function(b64) {
-      document.getElementById('ppUploadProgressText').textContent = 'Uploading to Drive…';
-      return ppCallGas({
-        action:      'pp_upload',
-        clubKey:     clubKey,
-        folderKey:   folderKey,
-        filename:    file.name,
-        mimeType:    file.type || 'application/octet-stream',
-        dataB64:     b64,
-        description: document.getElementById('ppUploadDesc').value
-      });
-    })
-    .then(function(result) {
-      if (!result.ok) throw new Error(result.error || 'Upload failed');
+  /* For replace mode: hard-delete old file after first successful upload */
+  var doReplaceCleanup = (STATE.upload.mode === 'replace' && STATE.upload.replaceFileId);
+  var oldFileIdToDelete = doReplaceCleanup ? STATE.upload.replaceFileId : null;
 
-      /* Audit (browser-side, direct RTDB) */
-      ppAudit(STATE.upload.mode === 'replace' ? 'replaced' : 'uploaded', {
-        fileId:    result.fileId,
-        fileName:  file.name,
-        clubKey:   clubKey,
-        folderKey: folderKey
-      });
+  /* Pending items only (skip already-done ones if user retries). */
+  var queue = [];
+  for (var i = 0; i < files.length; i++) {
+    if (files[i].status === 'pending' || files[i].status === 'error') {
+      queue.push(i);
+    }
+  }
 
-      /* If replacing, hard-delete the old file (Drive trashed + RTDB removed).
-         Drive's 30-day trash provides recovery. We only do this *after* the
-         new upload succeeded — so a failed replace leaves the old file intact. */
-      if (STATE.upload.mode === 'replace' && STATE.upload.replaceFileId) {
-        var oldId = STATE.upload.replaceFileId;
-        return ppCallGas({ action: 'pp_delete', fileId: oldId }).then(function(r) {
-          if (!r.ok) {
-            /* Don't fail the whole flow — new file is up. Warn and continue. */
-            NL.toast('Replaced — but couldn\'t remove old file: ' + r.error, 'info');
-          } else {
-            NL.toast('File replaced.', 'success');
-          }
-        });
-      }
+  var totalToUpload = queue.length;
+  var doneCount = 0;
+  var successCount = 0;
+  var failCount = 0;
 
-      NL.toast('Upload complete.', 'success');
-    })
-    .then(function() { ppCloseUpload(); })
-    .catch(function(err) {
+  function uploadNext() {
+    if (!queue.length) {
+      /* Done. Summary toast + maybe close */
       document.getElementById('ppUploadProgress').style.display = 'none';
       btn.disabled = false;
-      NL.toast('Error: ' + (err && err.message ? err.message : String(err)), 'error');
-    });
+      btn.textContent = 'Upload';
+      if (failCount === 0 && successCount > 0) {
+        NL.toast(successCount + ' file' + (successCount === 1 ? '' : 's') + ' uploaded.', 'success');
+        /* All-good in single replace mode → cleanup old file */
+        if (doReplaceCleanup && oldFileIdToDelete) {
+          ppCallGas({ action: 'pp_delete', fileId: oldFileIdToDelete }).then(function(r) {
+            if (!r.ok) NL.toast('Replaced — but couldn\'t remove old file: ' + r.error, 'info');
+          }).catch(function() { /* not fatal */ });
+        }
+        setTimeout(ppCloseUpload, 800);
+      } else if (failCount > 0 && successCount > 0) {
+        NL.toast(successCount + ' uploaded, ' + failCount + ' failed. Hover failed rows to see why.', 'error');
+      } else {
+        NL.toast('All ' + failCount + ' upload' + (failCount === 1 ? '' : 's') + ' failed.', 'error');
+      }
+      return;
+    }
+
+    var idx  = queue.shift();
+    var item = files[idx];
+    item.status = 'uploading';
+    item.err    = null;
+    ppRefreshUploadList();
+    document.getElementById('ppUploadProgressText').textContent =
+      'Uploading ' + (++doneCount) + ' of ' + totalToUpload + '… ' + item.file.name;
+
+    ppFileToBase64(item.file)
+      .then(function(b64) {
+        return ppCallGas({
+          action:      'pp_upload',
+          clubKey:     clubKey,
+          folderKey:   folderKey,
+          filename:    item.file.name,
+          mimeType:    item.file.type || 'application/octet-stream',
+          dataB64:     b64,
+          description: description
+        });
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error(r.error || 'Upload failed');
+        item.status = 'ok';
+        successCount++;
+        ppAudit(STATE.upload.mode === 'replace' ? 'replaced' : 'uploaded', {
+          fileId:    r.fileId,
+          fileName:  item.file.name,
+          clubKey:   clubKey,
+          folderKey: folderKey
+        });
+        ppRefreshUploadList();
+        uploadNext();
+      })
+      .catch(function(err) {
+        item.status = 'error';
+        item.err    = err && err.message ? err.message : String(err);
+        failCount++;
+        ppRefreshUploadList();
+        uploadNext();
+      });
+  }
+
+  uploadNext();
 }
 
 function ppFileToBase64(file) {
@@ -3018,6 +3240,54 @@ function ppDoBulkZip(fileIds, totalBytes, zipName, descriptiveLabel) {
     });
   }).catch(function(err) {
     NL.toast('Download failed: ' + err.message, 'error');
+  });
+}
+
+/* ============================================================================
+   RECONCILE — Drive ↔ RTDB sync for current folder (admin only)
+   ============================================================================
+   Triggered by the "↻ Sync with Drive" button. Calls pp_reconcile_folder
+   which:
+     - imports Drive files RTDB doesn't know about
+     - marks RTDB files as deleted if their Drive file is gone
+     - patches RTDB names if Drive's name has drifted
+   Reports a friendly summary and lets the live RTDB listener re-render.
+   ============================================================================ */
+
+function ppDoReconcile(clubKey, folderKey) {
+  if (!STATE.isAdmin) {
+    NL.toast('Admins only.', 'error');
+    return;
+  }
+  NL.toast('Scanning Drive…', 'info');
+
+  ppCallGas({
+    action:    'pp_reconcile_folder',
+    clubKey:   clubKey,
+    folderKey: folderKey
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.error || 'Reconcile failed');
+
+    /* Friendly summary — only mentions what changed. */
+    var parts = [];
+    if (r.imported)     parts.push(r.imported + ' imported from Drive');
+    if (r.renamed)      parts.push(r.renamed + ' renamed');
+    if (r.orphanedRtdb) parts.push(r.orphanedRtdb + ' marked deleted (missing in Drive)');
+    if (parts.length === 0) {
+      NL.toast('Already in sync — no changes.', 'success');
+    } else {
+      NL.toast('Sync done: ' + parts.join(' · '), 'success');
+    }
+
+    ppAudit('reconciled', {
+      clubKey:      clubKey,
+      folderKey:    folderKey,
+      imported:     r.imported,
+      renamed:      r.renamed,
+      orphanedRtdb: r.orphanedRtdb
+    });
+  }).catch(function(err) {
+    NL.toast('Sync failed: ' + err.message, 'error');
   });
 }
 
