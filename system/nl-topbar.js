@@ -1,7 +1,7 @@
 /* =========================================================================
    NL Tools — Topbar renderer
    File: /tools/system/nl-topbar.js
-   Version: v1.3 (21/04/2026)
+   Version: v1.4 (25/04/2026)
 
    Renders the standardised NL Tools topbar into #nlTopbar slot. Reads
    session from window.NL_SESSION (set by auth-guard) and tool catalogue
@@ -31,6 +31,10 @@
    which doesn't use auth-guard directly).
 
    Changelog
+   v1.4 (25/04/2026)
+     - Logo now a link to /tools/portal/ on all pages (acts as home button).
+     - Removed arrow (←) from Portal button — just shows "Portal" text.
+
    v1.3 (21/04/2026)
      - Added "Install as app" item in profile dropdown. Captures Android Chrome's
        beforeinstallprompt event and fires the native install dialog on click.
@@ -149,14 +153,21 @@
       while (leftWrap.firstChild) header.appendChild(leftWrap.firstChild);
     }
 
-    /* Logo */
+    /* Logo — links to portal (home) on all pages */
+    var logoLink = el('a', {
+      class: 'topbar__logo-link',
+      href: '/tools/portal/',
+      'aria-label': 'NL Tools home',
+      title: 'Go to portal'
+    });
     var logo = el('img', {
       class: 'topbar__logo',
       src: LOGO_URL,
       alt: 'National League'
     });
     logo.onerror = function() { this.onerror = null; this.src = LOGO_FALLBACK; };
-    header.appendChild(logo);
+    logoLink.appendChild(logo);
+    header.appendChild(logoLink);
 
     /* Title + (clickable version badge if NL_CHANGELOG is declared) */
     var titleWrap = el('div', { class: 'topbar__title-wrap' });
@@ -211,9 +222,7 @@
         href: '/tools/portal/',
         'aria-label': 'Back to portal'
       });
-      portalBtn.innerHTML =
-        '<span>\u2190</span>' +
-        '<span class="topbar__btn-text-portal">Portal</span>';
+      portalBtn.textContent = 'Portal';
       header.appendChild(portalBtn);
     }
 
@@ -590,6 +599,8 @@
       '.topbar__title-row{display:flex;align-items:center;gap:8px;}',
       '.topbar__version{position:relative;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);border:1px solid rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;font-family:var(--font);cursor:pointer;transition:all 0.15s;white-space:nowrap;letter-spacing:0.04em;}',
       '.topbar__version:hover{background:rgba(255,255,255,0.25);border-color:rgba(255,255,255,0.35);}',
+      '.topbar__logo-link{display:flex;align-items:center;flex-shrink:0;opacity:0.92;transition:opacity 0.15s;}',
+      '.topbar__logo-link:hover{opacity:1;}',
       '.topbar__version-dot{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#4ade80;border:1.5px solid var(--primary);box-shadow:0 0 0 1px rgba(255,255,255,0.4);}',
       '.nl-changelog-backdrop{position:fixed;inset:0;background:rgba(10,22,40,0.65);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto;animation:nlFade 0.15s ease-out;}',
       '.nl-changelog-modal{background:var(--white);border-radius:10px;width:100%;max-width:560px;box-shadow:0 16px 60px rgba(0,0,0,0.3);overflow:hidden;margin:auto;animation:nlFade 0.2s ease-out;}',
