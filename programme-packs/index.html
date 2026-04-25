@@ -1,346 +1,1352 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Programme Packs — Phase 0 Tester</title>
-
 <!--
-  ============================================================================
-  PROGRAMME PACKS — PHASE 0 ENDPOINT TESTER
-  ============================================================================
-  Standalone HTML tester for the pp_upload / pp_download / pp_preview GAS
-  handlers. Use this once during Phase 0 to verify the endpoints work end
-  to end — then throw it away (or keep for debugging future regressions).
+  NL Tools — Programme Packs
+  Version: 1.0
+  Date: 25/04/2026
 
-  How it works:
-  - Loads Firebase compat SDK
-  - Signs in via the existing portal session (no separate login)
-  - Auto-grabs a fresh ID token
-  - Lets you pick a file, choose club + folder, upload to the GAS endpoint
-  - Shows full JSON response for every call
-
-  HOW TO USE:
-  1. Save this file locally (or upload to a non-portal folder on your repo)
-  2. Open it in the SAME browser where you're already signed into the portal
-  3. Token field auto-populates — if not, click "Refresh token"
-  4. Pick a file, choose club + folder, click Upload
-  5. Watch the response area
-  6. Verify in Drive + RTDB
-  ============================================================================
+  CHANGELOG
+  v1.0 (25/04/2026)
+    - Initial tool page (Phase 1 of Programme Packs build).
+    - Browse view: club sidebar + folder grid + file list per folder.
+    - Upload via GAS pp_upload (base64 → Drive blob); single-file download
+      via pp_download (returns base64, browser triggers Blob download).
+    - Replace re-uses upload (overwrites Drive file in place — phase 1
+      simplification: replace = delete-then-upload at the GAS layer; from
+      user POV identical filename, treated as replacement).
+    - Delete is soft: writes isDeleted:true to RTDB metadata (file remains
+      in Drive — Phase 3 will add admin restore + trash purge).
+    - Preview: PDF/image/video render inline; office docs fall through to
+      download. Uses pp_preview Drive embed URL.
+    - Audit logging on every write (NL.writeAudit + tool-scoped audit at
+      /app-data/ops-programme-packs/audit/).
+    - Search + sort within a folder.
+    - 8 seeded folders pulled from /app-data/ops-programme-packs/folders-config/.
+    - Club list pulled from clubs-meta.json + virtual NL Central entry.
+    - File metadata read directly from RTDB /app-data/ops-programme-packs/files/
+      (filtered client-side by clubKey + folderKey + isDeleted).
+    - Matrix view + bulk download deferred to Phase 2/3.
 -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Programme Packs — NL Tools</title>
+
+<link rel="stylesheet" href="/tools/system/nl-brand.css?v=11">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+    authDomain:        "nl-tools.firebaseapp.com",
+    databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:         "nl-tools",
+    storageBucket:     "nl-tools.firebasestorage.app",
+    messagingSenderId: "801354670005",
+    appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+  });
+</script>
+
+<script>
+  window.NL_TOOL = {
+    title:   'Programme Packs',
+    toolKey: 'ops-programme-packs'
+  };
+  var NL_TOOL_KEY = 'ops-programme-packs';
+
+  /* Public-facing "What's new" — shown when users click the version badge. */
+  window.NL_CHANGELOG = [
+    {
+      date:    '25 April 2026',
+      version: 'v1.0',
+      items: [
+        'Initial release — shared club asset library for matchday programmes.',
+        'Eight seeded folders per club: Club Identity, Stadium, Squad, Players, Management, History, Action, Miscellaneous.',
+        'Upload to your own club folder. Browse, preview and download from any club.',
+        'Files marked with green dots when present, grey when empty.'
+      ]
+    }
+  ];
+
+  /* GAS endpoint for upload/download/preview. */
+  var PP_GAS_URL = 'https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec';
+</script>
+
+<script src="/tools/system/nl-utils.js?v=5"></script>
+<script src="/tools/system/nl-topbar.js?v=7"></script>
+<script src="/tools/system/auth-guard.js?v=4"></script>
 
 <style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f4f6f9;
-    color: #1a2a44;
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 30px 20px;
-    line-height: 1.5;
-  }
-  h1 { color: #9e0000; margin-bottom: 4px; }
-  .subtitle { color: #5a6a82; margin-bottom: 30px; }
-  .card {
-    background: white;
-    border: 1px solid #dde3ed;
-    border-radius: 8px;
-    padding: 20px 24px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(10,22,40,0.06);
-  }
-  .card h2 {
-    margin-top: 0;
-    font-size: 16px;
-    color: #223b7c;
-    border-bottom: 1px solid #dde3ed;
-    padding-bottom: 8px;
-  }
-  label {
-    display: block;
-    font-weight: 600;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #5a6a82;
-    margin: 12px 0 4px;
-  }
-  input, select, button, textarea {
-    font-family: inherit;
-    font-size: 14px;
-    padding: 8px 12px;
-    border: 1px solid #dde3ed;
-    border-radius: 4px;
-    background: white;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  textarea {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 12px;
-    min-height: 60px;
-    resize: vertical;
-  }
-  button {
-    background: #9e0000;
-    color: white;
-    border: 0;
-    cursor: pointer;
-    font-weight: 700;
-    width: auto;
-    padding: 10px 20px;
-    margin-top: 12px;
-  }
-  button:hover { background: #7a0000; }
-  button.secondary {
-    background: white;
-    color: #223b7c;
-    border: 1px solid #dde3ed;
-  }
-  button.secondary:hover { background: #f4f6f9; }
-  pre.response {
-    background: #1a2a44;
-    color: #b8d4ff;
-    padding: 14px;
-    border-radius: 4px;
-    overflow-x: auto;
-    font-size: 12px;
-    line-height: 1.5;
-    margin-top: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 400px;
-    overflow-y: auto;
-  }
-  pre.response.success { color: #b9efc6; }
-  pre.response.error { color: #ffb3b3; }
-  .row { display: flex; gap: 12px; }
-  .row > * { flex: 1; }
-  .status {
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 13px;
-    margin-bottom: 12px;
-  }
-  .status.ok { background: #edf7ee; color: #1e7e34; }
-  .status.warn { background: #fef6ec; color: #e67e22; }
-  .status.err { background: #fdf0ef; color: #c0392b; }
-  .small { font-size: 12px; color: #5a6a82; }
-  code { background: #f4f6f9; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+/* ────────────────────────────────────────────────────────────────
+   Programme Packs — tool-specific styles only.
+   Shared widgets (topbar, buttons, modals, pills, toast, form-group,
+   spinner) live in nl-brand.css.
+   ──────────────────────────────────────────────────────────────── */
+
+/* Two-column layout: clubs sidebar + content panel */
+.pp-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 24px;
+  align-items: flex-start;
+}
+@media (max-width: 900px) {
+  .pp-layout { grid-template-columns: 1fr; }
+  .pp-sidebar { position: static !important; }
+}
+
+/* Sidebar */
+.pp-sidebar {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 0;
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.pp-sidebar__heading {
+  padding: 0 18px 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-variation-settings: 'wght' 800;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.pp-club-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.pp-club-list__item {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 16px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+  font-size: 13px;
+}
+.pp-club-list__item:hover { background: var(--off-white); }
+.pp-club-list__item.is-active {
+  background: var(--off-white);
+  border-left-color: var(--primary);
+  font-variation-settings: 'wght' 700;
+}
+.pp-club-list__crest {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.pp-club-list__crest--text {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-variation-settings: 'wght' 800;
+}
+.pp-club-list__info { min-width: 0; }
+.pp-club-list__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-club-list__progress {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variation-settings: 'wght' 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.pp-club-list__dots {
+  display: flex;
+  gap: 2px;
+}
+.pp-club-list__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c0c8d0;
+}
+.pp-club-list__dot.is-green { background: var(--green); }
+.pp-club-list__count {
+  font-size: 11px;
+  background: var(--border);
+  color: var(--text-muted);
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-variation-settings: 'wght' 700;
+}
+.pp-club-list__item.is-own .pp-club-list__name::after {
+  content: 'YOU';
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 9px;
+  background: var(--primary);
+  color: var(--white);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+
+/* Content panel */
+.pp-panel {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.pp-panel__head {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.pp-panel__head__left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+.pp-panel__crest {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.pp-panel__crest--text {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variation-settings: 'wght' 900;
+  font-size: 14px;
+}
+.pp-panel__title {
+  font-size: 22px;
+  font-variation-settings: 'wght' 900;
+  color: var(--navy);
+  margin: 0 0 2px 0;
+}
+.pp-panel__sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Folder grid */
+.pp-folder-grid {
+  padding: 18px 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.pp-folder-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  cursor: pointer;
+  background: var(--white);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pp-folder-card:hover {
+  border-color: var(--navy);
+  box-shadow: 0 4px 14px rgba(10,22,40,0.08);
+}
+.pp-folder-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pp-folder-card__icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--off-white);
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.pp-folder-card__title {
+  font-variation-settings: 'wght' 800;
+  font-size: 14px;
+  color: var(--navy);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-folder-card__status {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pp-folder-card__status--green { background: var(--green); }
+.pp-folder-card__status--grey  { background: #c0c8d0; }
+.pp-folder-card__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.pp-folder-card__meta--empty {
+  font-style: italic;
+  color: #8590a4;
+}
+.pp-folder-card__desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Folder instructions banner (inside a folder view) */
+.pp-folder-instructions {
+  padding: 12px 24px;
+  background: var(--info-light);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--navy);
+}
+.pp-folder-instructions strong {
+  font-variation-settings: 'wght' 800;
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 3px;
+  color: var(--navy);
+}
+
+/* Filter bar inside a folder */
+.pp-filterbar {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  background: var(--off-white);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pp-filterbar__search {
+  flex: 1;
+  min-width: 200px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--white);
+}
+.pp-filterbar__select {
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--white);
+  cursor: pointer;
+}
+.pp-back-link {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pp-back-link:hover {
+  background: var(--white);
+  color: var(--navy);
+}
+
+/* File list */
+.pp-files {
+  padding: 0;
+}
+.pp-files__empty {
+  padding: 50px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.pp-files__empty__icon {
+  font-size: 42px;
+  margin-bottom: 10px;
+  opacity: 0.3;
+}
+.pp-file {
+  display: grid;
+  grid-template-columns: 38px 1fr 130px 80px auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.pp-file:hover { background: var(--off-white); }
+.pp-file:last-child { border-bottom: 0; }
+
+.pp-file__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--white);
+  font-size: 12px;
+  font-variation-settings: 'wght' 800;
+}
+.pp-file__icon--pdf   { background: var(--primary); }
+.pp-file__icon--doc   { background: var(--blue, #1565c0); }
+.pp-file__icon--xls   { background: var(--green); }
+.pp-file__icon--img   { background: var(--purple, #6a1b9a); }
+.pp-file__icon--vid   { background: var(--navy); }
+.pp-file__icon--other { background: var(--text-muted); }
+
+.pp-file__main { min-width: 0; }
+.pp-file__name {
+  font-variation-settings: 'wght' 700;
+  font-size: 13px;
+  color: var(--navy);
+  margin-bottom: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-file__meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.pp-file__date,
+.pp-file__size {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pp-file__actions {
+  display: flex;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pp-file:hover .pp-file__actions { opacity: 1; }
+.pp-file__btn {
+  background: var(--white);
+  border: 1px solid var(--border);
+  color: var(--navy);
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-variation-settings: 'wght' 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-family: inherit;
+}
+.pp-file__btn:hover { background: var(--off-white); }
+.pp-file__btn--danger:hover {
+  background: var(--red-light);
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* Hide actions for non-editable folders */
+.pp-file[data-editable="false"] .pp-file__btn--edit,
+.pp-file[data-editable="false"] .pp-file__btn--danger {
+  display: none;
+}
+@media (max-width: 700px) {
+  .pp-file { grid-template-columns: 38px 1fr auto; }
+  .pp-file__date, .pp-file__size { display: none; }
+  .pp-file__actions { opacity: 1; }
+}
+
+/* Upload modal — drop zone + form */
+.pp-dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 30px 20px;
+  text-align: center;
+  background: var(--off-white);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.pp-dropzone:hover,
+.pp-dropzone.is-active {
+  border-color: var(--primary);
+  background: var(--red-light);
+}
+.pp-dropzone__icon {
+  font-size: 30px;
+  margin-bottom: 6px;
+  opacity: 0.5;
+}
+.pp-dropzone__title {
+  font-variation-settings: 'wght' 800;
+  color: var(--navy);
+  margin-bottom: 3px;
+}
+.pp-dropzone__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.pp-dropzone__filename {
+  font-size: 13px;
+  color: var(--navy);
+  font-variation-settings: 'wght' 700;
+  margin-top: 8px;
+}
+
+.pp-upload-progress {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--info-light);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--navy);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Preview modal canvas */
+.pp-preview-canvas {
+  background: #1a2a44;
+  min-height: 400px;
+  max-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.pp-preview-canvas img,
+.pp-preview-canvas video {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+}
+.pp-preview-canvas iframe {
+  width: 100%;
+  height: 60vh;
+  border: 0;
+  background: #525659;
+}
+.pp-preview-meta {
+  padding: 14px 24px;
+  background: var(--off-white);
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+}
+.pp-preview-meta strong {
+  color: var(--navy);
+  font-variation-settings: 'wght' 800;
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+/* Loading overlay (used during upload/download) */
+.pp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
 </style>
 </head>
 <body>
 
-<h1>Programme Packs — Phase 0 Tester</h1>
-<p class="subtitle">Standalone test page for upload / download / preview endpoints. Use once, throw away.</p>
+<div id="pageWrap" style="display:none;">
 
-<!-- AUTH STATUS -->
-<div class="card">
-  <h2>1. Authentication</h2>
-  <div id="authStatus" class="status warn">Loading Firebase…</div>
-  <label>ID Token</label>
-  <textarea id="idToken" rows="3" placeholder="Auto-populates after sign-in"></textarea>
-  <button class="secondary" onclick="refreshToken()">Refresh token</button>
-  <p class="small">Token is auto-grabbed if you're already signed into the portal in this browser. Tokens expire in 1 hour — refresh if anything fails with "Token verification".</p>
+  <div id="nlTopbar"></div>
+
+  <div class="main">
+
+    <!-- Section header -->
+    <div class="section-head" style="margin-bottom:24px;">
+      <div>
+        <h1 style="margin:0 0 4px 0; font-size:clamp(22px,1.8vw+12px,32px); font-variation-settings:'wght' 900; color:var(--navy);">Programme Packs</h1>
+        <p id="ppSub" style="margin:0; color:var(--text-muted); font-size:14px;">Shared club assets for matchday programmes.</p>
+      </div>
+    </div>
+
+    <div class="pp-layout">
+
+      <aside class="pp-sidebar">
+        <div class="pp-sidebar__heading">Clubs</div>
+        <ul class="pp-club-list" id="ppClubList">
+          <li style="padding:14px 18px; color:var(--text-muted); font-size:13px;">Loading clubs…</li>
+        </ul>
+      </aside>
+
+      <section id="ppMainPanel">
+        <div class="pp-panel">
+          <div class="pp-loading">Loading…</div>
+        </div>
+      </section>
+
+    </div>
+
+  </div>
 </div>
 
-<!-- UPLOAD -->
-<div class="card">
-  <h2>2. Upload a test file</h2>
-
-  <label>File to upload</label>
-  <input type="file" id="fileInput">
-
-  <div class="row">
-    <div>
-      <label>Club key</label>
-      <select id="clubKey">
-        <option value="aldershot-town">aldershot-town</option>
-        <option value="altrincham">altrincham</option>
-        <option value="barnet">barnet</option>
-        <option value="_nl-central">_nl-central (NL Central)</option>
-      </select>
+<!-- Upload / Replace modal -->
+<div class="modal-backdrop" id="ppUploadModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3 id="ppUploadTitle">Upload file</h3>
+      <button class="modal__close" onclick="ppCloseUpload()">×</button>
     </div>
-    <div>
-      <label>Folder key</label>
-      <select id="folderKey">
-        <option value="club-identity">club-identity</option>
-        <option value="stadium">stadium</option>
-        <option value="squad">squad</option>
-        <option value="players">players</option>
-        <option value="management">management</option>
-        <option value="history">history</option>
-        <option value="action">action</option>
-        <option value="miscellaneous">miscellaneous</option>
-      </select>
+    <div class="modal__body">
+      <div class="form-group">
+        <label>Destination</label>
+        <input type="text" id="ppUploadDest" readonly style="background:var(--off-white); color:var(--text-muted); cursor:default;">
+      </div>
+
+      <input type="file" id="ppFileInput" style="display:none;" onchange="ppOnFileChosen(event)">
+      <div class="pp-dropzone" id="ppDropzone" onclick="document.getElementById('ppFileInput').click();">
+        <div class="pp-dropzone__icon">⬆</div>
+        <div class="pp-dropzone__title">Drop file here or click to browse</div>
+        <div class="pp-dropzone__hint">Max 25 MB — images, PDFs, Office docs, video clips</div>
+        <div class="pp-dropzone__filename" id="ppDropzoneFilename"></div>
+      </div>
+
+      <div class="form-group" style="margin-top:14px;">
+        <label>Description (optional)</label>
+        <input type="text" id="ppUploadDesc" placeholder="Brief note about this file…">
+      </div>
+
+      <div class="pp-upload-progress" id="ppUploadProgress" style="display:none;">
+        <div class="spinner"></div>
+        <span id="ppUploadProgressText">Uploading…</span>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="ppCloseUpload()">Cancel</button>
+      <button class="btn btn--primary" id="ppUploadConfirm" onclick="ppDoUpload()">Upload</button>
     </div>
   </div>
-
-  <label>Description (optional)</label>
-  <input type="text" id="description" placeholder="Phase 0 test — please delete after">
-
-  <button onclick="doUpload()">Upload</button>
-  <pre class="response" id="uploadResponse">Response will appear here…</pre>
 </div>
 
-<!-- DOWNLOAD -->
-<div class="card">
-  <h2>3. Download a file (optional)</h2>
-  <p class="small">After upload succeeds, copy the <code>fileId</code> from the response above and paste below.</p>
-
-  <label>File ID</label>
-  <input type="text" id="downloadFileId" placeholder="e.g. 1745000000-abc123">
-
-  <button onclick="doDownload()">Download</button>
-  <pre class="response" id="downloadResponse">Response will appear here…</pre>
+<!-- Delete confirm modal -->
+<div class="modal-backdrop" id="ppDeleteModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3>Delete file?</h3>
+      <button class="modal__close" onclick="ppCloseDelete()">×</button>
+    </div>
+    <div class="modal__body">
+      <p style="margin:0 0 12px;">You're about to delete:</p>
+      <p style="background:var(--off-white); padding:10px 14px; border-radius:4px; font-variation-settings:'wght' 700;" id="ppDeleteFilename">—</p>
+      <p style="margin:14px 0 0; font-size:13px; color:var(--text-muted);">
+        The file will be hidden from the library. An admin can restore it within 30 days.
+      </p>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="ppCloseDelete()">Cancel</button>
+      <button class="btn btn--danger" id="ppDeleteConfirm" onclick="ppDoDelete()">Delete</button>
+    </div>
+  </div>
 </div>
 
-<!-- VERIFICATION CHECKLIST -->
-<div class="card">
-  <h2>4. Verification</h2>
-  <p class="small">After a successful upload, verify these in three places:</p>
-  <ol class="small">
-    <li><strong>Drive:</strong> open the Shared Drive → club folder → folder you uploaded to → file should be there</li>
-    <li><strong>RTDB:</strong> Firebase console → <code>/app-data/ops-programme-packs/files/{fileId}</code> should exist with metadata</li>
-    <li><strong>Audit:</strong> Firebase console → <code>/app-data/ops-programme-packs/audit/</code> → recent entry with <code>action: "uploaded"</code></li>
-  </ol>
+<!-- Preview modal -->
+<div class="modal-backdrop" id="ppPreviewModal">
+  <div class="modal modal--wide">
+    <div class="modal__head">
+      <h3 id="ppPreviewTitle">—</h3>
+      <button class="modal__close" onclick="ppClosePreview()">×</button>
+    </div>
+    <div class="pp-preview-canvas" id="ppPreviewCanvas">
+      <div class="spinner" style="filter:invert(1);"></div>
+    </div>
+    <div class="pp-preview-meta" id="ppPreviewMeta"></div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="ppClosePreview()">Close</button>
+      <button class="btn btn--navy" id="ppPreviewDownload" onclick="ppDownloadFromPreview()">↓ Download</button>
+    </div>
+  </div>
 </div>
-
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 
 <script>
 /* ============================================================================
-   CONFIG
+   STATE & CONFIG
    ============================================================================ */
 
-var FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
-  authDomain:        "nl-tools.firebaseapp.com",
-  databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:         "nl-tools",
-  storageBucket:     "nl-tools.firebasestorage.app",
-  messagingSenderId: "801354670005",
-  appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+var STATE = {
+  uid:           null,
+  email:         null,
+  role:          null,         /* superadmin | admin | nl-admin | nl-staff | club | etc */
+  myClub:        null,         /* slug from /users/{uid}/club, e.g. 'aldershot-town' */
+  isAdmin:       false,        /* superadmin or admin (full edit) */
+  clubs:         [],           /* sorted [{ key, name, short, division, isCentral }] */
+  clubsByKey:    {},
+  folders:       [],           /* sorted [{ key, name, icon, description, sortOrder }] */
+  files:         {},           /* fileId → metadata */
+  activeClub:    null,         /* clubKey */
+  activeFolder:  null,         /* folderKey or null (folder grid mode) */
+  search:        '',
+  sortBy:        'date-desc',
+  upload:        { mode: 'create', file: null, replaceFileId: null, replaceFilename: null },
+  deleteId:      null,
+  previewId:     null,
+  previewBlobUrl: null
 };
 
-var GAS_URL = "https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec";
+var CREST_BASE     = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/crests/';
+var FALLBACK_CREST = CREST_BASE + 'National%20League%20rose.png';
+var CLUBS_META_URL = 'https://raw.githubusercontent.com/thenationalleague/tools/refs/heads/main/assets/data/clubs-meta.json';
+var TOOL_DATA_PATH = 'app-data/ops-programme-packs';
 
 /* ============================================================================
-   FIREBASE INIT + TOKEN
+   AUTH READY — entry point
    ============================================================================ */
 
-firebase.initializeApp(FIREBASE_CONFIG);
+window.nlAuthReady = function(session) {
+  STATE.uid     = session.uid;
+  STATE.email   = session.email;
+  STATE.role    = session.role || '';
+  STATE.myClub  = session.club || null;
 
-var auth = firebase.auth();
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+  /* Determine admin status the standard way */
+  var toolEntry = session.tools && session.tools[NL_TOOL_KEY];
+  var toolAdmin = false;
+  if (toolEntry && typeof toolEntry === 'object')      toolAdmin = !!toolEntry.admin;
+  else if (typeof toolEntry === 'string')              toolAdmin = (toolEntry === 'admin');
+  STATE.isAdmin = (STATE.role === 'superadmin' || STATE.role === 'admin' || toolAdmin);
 
-auth.onAuthStateChanged(function(user) {
-  var status = document.getElementById('authStatus');
-  if (!user) {
-    status.className = 'status err';
-    status.innerHTML = 'Not signed in. <a href="https://thenationalleague.github.io/tools/" target="_blank">Sign in to the portal</a> in another tab, then click "Refresh token" here.';
-    return;
-  }
-  status.className = 'status ok';
-  status.textContent = 'Signed in as ' + user.email + ' (' + user.uid + ')';
-  refreshToken();
-});
+  /* Default active club: own club if member; else first non-central club */
+  if (STATE.myClub) STATE.activeClub = STATE.myClub;
 
-function refreshToken() {
-  var user = auth.currentUser;
-  if (!user) {
-    document.getElementById('authStatus').className = 'status err';
-    document.getElementById('authStatus').textContent = 'No user — sign in to the portal first.';
-    return;
-  }
-  user.getIdToken(true).then(function(t) {
-    document.getElementById('idToken').value = t;
+  Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles()])
+    .then(function() {
+      if (!STATE.activeClub) {
+        var first = STATE.clubs.find(function(c) { return !c.isCentral; });
+        STATE.activeClub = first ? first.key : (STATE.clubs[0] && STATE.clubs[0].key);
+      }
+      ppRenderClubList();
+      ppRenderMainPanel();
+    })
+    .catch(function(err) {
+      NL.toast('Failed to load library: ' + err.message, 'error');
+    });
+};
+
+/* ============================================================================
+   DATA LOADING
+   ============================================================================ */
+
+function ppLoadClubs() {
+  return fetch(CLUBS_META_URL + '?cb=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var arr = (data.clubs || []).map(function(c) {
+        return {
+          key:      ppClubKey(c.name),
+          name:     c.name,
+          short:    c.short || c.code || '',
+          division: c.division || '',
+          isCentral: false
+        };
+      });
+      arr.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      arr.unshift({ key: '_nl-central', name: 'NL Central', short: 'NL', division: 'Reference', isCentral: true });
+      STATE.clubs = arr;
+      STATE.clubsByKey = {};
+      arr.forEach(function(c) { STATE.clubsByKey[c.key] = c; });
+    });
+}
+
+function ppLoadFolders() {
+  return firebase.database().ref(TOOL_DATA_PATH + '/folders-config').once('value').then(function(snap) {
+    var val = snap.val() || {};
+    var arr = [];
+    Object.keys(val).forEach(function(k) {
+      if (k.charAt(0) === '_') return;  /* skip _comment if leftover */
+      var f = val[k];
+      if (!f) return;
+      arr.push({
+        key:         k,
+        name:        f.name || k,
+        icon:        f.icon || '📁',
+        description: f.description || '',
+        sortOrder:   typeof f.sortOrder === 'number' ? f.sortOrder : 999
+      });
+    });
+    arr.sort(function(a, b) { return a.sortOrder - b.sortOrder; });
+    STATE.folders = arr;
   });
+}
+
+/* Files are loaded once and kept in STATE.files. Live updates via .on('child_*') */
+function ppLoadFiles() {
+  var db = firebase.database();
+  return db.ref(TOOL_DATA_PATH + '/files').once('value').then(function(snap) {
+    STATE.files = snap.val() || {};
+    /* attach listeners for live updates after initial load */
+    db.ref(TOOL_DATA_PATH + '/files').on('child_added', function(s) {
+      STATE.files[s.key] = s.val();
+      ppRerenderIfRelevant(s.val());
+    });
+    db.ref(TOOL_DATA_PATH + '/files').on('child_changed', function(s) {
+      STATE.files[s.key] = s.val();
+      ppRerenderIfRelevant(s.val());
+    });
+    db.ref(TOOL_DATA_PATH + '/files').on('child_removed', function(s) {
+      delete STATE.files[s.key];
+      ppRerenderIfRelevant({ clubKey: STATE.activeClub, folderKey: STATE.activeFolder });
+    });
+  });
+}
+
+function ppRerenderIfRelevant(meta) {
+  if (!meta) return;
+  /* re-render sidebar dots regardless */
+  ppRenderClubList();
+  /* re-render main panel only if relevant club/folder is showing */
+  if (meta.clubKey === STATE.activeClub) ppRenderMainPanel();
 }
 
 /* ============================================================================
    HELPERS
    ============================================================================ */
 
-function getToken() {
-  return document.getElementById('idToken').value.trim();
+function ppClubKey(name) {
+  return String(name || '').toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
-function setResponse(elId, payload, isError) {
-  var el = document.getElementById(elId);
-  el.className = 'response ' + (isError ? 'error' : (payload && payload.ok ? 'success' : 'error'));
-  el.textContent = JSON.stringify(payload, null, 2);
+function ppCrestUrl(clubName) {
+  return CREST_BASE + encodeURIComponent(clubName) + '.png';
 }
 
-function fileToBase64(file) {
-  return new Promise(function(resolve, reject) {
-    var reader = new FileReader();
-    reader.onload = function() {
-      // reader.result is a data URL like "data:image/png;base64,iVBORw0..."
-      // Strip the prefix to get just the base64 string
-      var b64 = reader.result.split(',')[1];
-      resolve(b64);
-    };
-    reader.onerror = function() { reject(reader.error); };
-    reader.readAsDataURL(file);
+function ppCurrentClub() {
+  return STATE.clubsByKey[STATE.activeClub] || STATE.clubs[0];
+}
+
+function ppCurrentFolder() {
+  if (!STATE.activeFolder) return null;
+  return STATE.folders.find(function(f) { return f.key === STATE.activeFolder; });
+}
+
+function ppFilesIn(clubKey, folderKey) {
+  var out = [];
+  Object.keys(STATE.files).forEach(function(id) {
+    var f = STATE.files[id];
+    if (!f || f.isDeleted) return;
+    if (f.clubKey !== clubKey) return;
+    if (folderKey && f.folderKey !== folderKey) return;
+    var copy = {};
+    Object.keys(f).forEach(function(k) { copy[k] = f[k]; });
+    copy.id = id;
+    out.push(copy);
   });
+  return out;
+}
+
+function ppFolderHasContent(clubKey, folderKey) {
+  var any = false;
+  Object.keys(STATE.files).some(function(id) {
+    var f = STATE.files[id];
+    if (f && !f.isDeleted && f.clubKey === clubKey && f.folderKey === folderKey) { any = true; return true; }
+    return false;
+  });
+  return any;
+}
+
+function ppFolderLastUpdated(clubKey, folderKey) {
+  var newest = 0;
+  Object.keys(STATE.files).forEach(function(id) {
+    var f = STATE.files[id];
+    if (!f || f.isDeleted) return;
+    if (f.clubKey !== clubKey || f.folderKey !== folderKey) return;
+    var t = f.lastModifiedAt || f.uploadedAt || 0;
+    if (t > newest) newest = t;
+  });
+  return newest;
+}
+
+function ppFmtDate(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function ppFmtSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+function ppFileTypeIcon(type) {
+  var map = {
+    pdf:   { cls: 'pdf',   label: 'PDF' },
+    doc:   { cls: 'doc',   label: 'DOC' },
+    xls:   { cls: 'xls',   label: 'XLS' },
+    img:   { cls: 'img',   label: 'IMG' },
+    vid:   { cls: 'vid',   label: '▶' },
+    other: { cls: 'other', label: '—' }
+  };
+  return map[type] || map.other;
+}
+
+function ppCanEditClub(clubKey) {
+  if (STATE.isAdmin) return true;
+  if (!STATE.myClub) return false;
+  return STATE.myClub === clubKey;
+}
+
+function ppIsOwnClub(clubKey) {
+  return STATE.myClub && STATE.myClub === clubKey;
+}
+
+/* ============================================================================
+   RENDER — sidebar
+   ============================================================================ */
+
+function ppRenderClubList() {
+  var ul = document.getElementById('ppClubList');
+  if (!STATE.clubs.length) {
+    ul.innerHTML = '<li style="padding:14px 18px; color:var(--text-muted);">No clubs found.</li>';
+    return;
+  }
+
+  ul.innerHTML = STATE.clubs.map(function(c) {
+    var isActive = c.key === STATE.activeClub;
+    var isOwn    = ppIsOwnClub(c.key);
+    var dotsHtml = c.isCentral ? '' :
+      STATE.folders.map(function(f) {
+        var filled = ppFolderHasContent(c.key, f.key);
+        return '<div class="pp-club-list__dot ' + (filled ? 'is-green' : '') + '" title="' + NL.escHtml(f.name) + '"></div>';
+      }).join('');
+
+    var filledCount = c.isCentral ? null :
+      STATE.folders.filter(function(f) { return ppFolderHasContent(c.key, f.key); }).length;
+
+    var totalFiles = ppFilesIn(c.key).length;
+
+    var crestHtml;
+    if (c.isCentral) {
+      crestHtml = '<div class="pp-club-list__crest pp-club-list__crest--text">NL</div>';
+    } else {
+      crestHtml = '<img class="pp-club-list__crest" src="' + NL.escHtml(ppCrestUrl(c.name)) + '" '
+        + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
+    }
+
+    var progressHtml = c.isCentral
+      ? '<div class="pp-club-list__progress">Reference library</div>'
+      : '<div class="pp-club-list__progress"><span>' + filledCount + '/' + STATE.folders.length + '</span><div class="pp-club-list__dots">' + dotsHtml + '</div></div>';
+
+    return '<li class="pp-club-list__item ' + (isActive ? 'is-active' : '') + ' ' + (isOwn ? 'is-own' : '') + '" '
+      + 'onclick="ppSelectClub(\'' + NL.escJ(c.key) + '\')">'
+      + crestHtml
+      + '<div class="pp-club-list__info">'
+        + '<div class="pp-club-list__name">' + NL.escHtml(c.name) + '</div>'
+        + progressHtml
+      + '</div>'
+      + '<div class="pp-club-list__count">' + totalFiles + '</div>'
+      + '</li>';
+  }).join('');
+}
+
+function ppSelectClub(clubKey) {
+  STATE.activeClub = clubKey;
+  STATE.activeFolder = null;
+  STATE.search = '';
+  ppRenderClubList();
+  ppRenderMainPanel();
+}
+
+/* ============================================================================
+   RENDER — main panel (folder grid OR file list)
+   ============================================================================ */
+
+function ppRenderMainPanel() {
+  if (STATE.activeFolder) ppRenderFilesView();
+  else ppRenderFolderGrid();
+}
+
+function ppRenderFolderGrid() {
+  var panel  = document.getElementById('ppMainPanel');
+  var club   = ppCurrentClub();
+  if (!club) { panel.innerHTML = '<div class="pp-panel"><div class="pp-loading">No club selected.</div></div>'; return; }
+
+  var filledCount = STATE.folders.filter(function(f) { return ppFolderHasContent(club.key, f.key); }).length;
+  var totalFiles  = ppFilesIn(club.key).length;
+  var canEdit     = ppCanEditClub(club.key);
+
+  var crestHtml;
+  if (club.isCentral) {
+    crestHtml = '<div class="pp-panel__crest pp-panel__crest--text">NL</div>';
+  } else {
+    crestHtml = '<img class="pp-panel__crest" src="' + NL.escHtml(ppCrestUrl(club.name)) + '" '
+      + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
+  }
+
+  var subText;
+  if (club.isCentral) {
+    subText = 'NL staff reference library — visible to all clubs';
+  } else {
+    subText = totalFiles + ' file' + (totalFiles === 1 ? '' : 's')
+      + ' · ' + filledCount + ' of ' + STATE.folders.length + ' folders filled';
+    if (canEdit) subText += ' · you can upload here';
+  }
+
+  var foldersHtml = STATE.folders.map(function(f) {
+    var has = ppFolderHasContent(club.key, f.key);
+    var fileCount = STATE.files ?
+      Object.keys(STATE.files).filter(function(id) {
+        var fi = STATE.files[id];
+        return fi && !fi.isDeleted && fi.clubKey === club.key && fi.folderKey === f.key;
+      }).length : 0;
+    var lastTs = ppFolderLastUpdated(club.key, f.key);
+    var meta = has
+      ? '<div class="pp-folder-card__meta"><strong>' + fileCount + '</strong> file' + (fileCount === 1 ? '' : 's') + (lastTs ? ' · updated ' + ppFmtDate(lastTs) : '') + '</div>'
+      : '<div class="pp-folder-card__meta pp-folder-card__meta--empty">No files yet</div>';
+
+    return '<div class="pp-folder-card" onclick="ppOpenFolder(\'' + NL.escJ(f.key) + '\')">'
+      + '<div class="pp-folder-card__head">'
+        + '<div class="pp-folder-card__icon">' + NL.escHtml(f.icon) + '</div>'
+        + '<div class="pp-folder-card__title">' + NL.escHtml(f.name) + '</div>'
+        + '<div class="pp-folder-card__status pp-folder-card__status--' + (has ? 'green' : 'grey') + '"></div>'
+      + '</div>'
+      + meta
+      + '<div class="pp-folder-card__desc">' + NL.escHtml(f.description) + '</div>'
+    + '</div>';
+  }).join('');
+
+  panel.innerHTML =
+    '<div class="pp-panel">'
+    + '<div class="pp-panel__head">'
+      + '<div class="pp-panel__head__left">'
+        + crestHtml
+        + '<div>'
+          + '<h2 class="pp-panel__title">' + NL.escHtml(club.isCentral ? 'NL Central Library' : club.name) + '</h2>'
+          + '<div class="pp-panel__sub">' + NL.escHtml(subText) + '</div>'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+    + '<div class="pp-folder-grid">' + foldersHtml + '</div>'
+  + '</div>';
+}
+
+function ppOpenFolder(folderKey) {
+  STATE.activeFolder = folderKey;
+  STATE.search = '';
+  ppRenderMainPanel();
+}
+
+function ppBackToFolders() {
+  STATE.activeFolder = null;
+  STATE.search = '';
+  ppRenderMainPanel();
+}
+
+function ppRenderFilesView() {
+  var panel  = document.getElementById('ppMainPanel');
+  var club   = ppCurrentClub();
+  var folder = ppCurrentFolder();
+  if (!folder) { ppBackToFolders(); return; }
+
+  var canEdit  = ppCanEditClub(club.key);
+  var allFiles = ppFilesIn(club.key, folder.key);
+
+  /* Apply search */
+  var files = allFiles;
+  if (STATE.search) {
+    var q = STATE.search.toLowerCase();
+    files = files.filter(function(f) {
+      return (f.name || '').toLowerCase().indexOf(q) !== -1
+          || (f.description || '').toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  /* Sort */
+  files.sort(function(a, b) {
+    if (STATE.sortBy === 'name')      return (a.name || '').localeCompare(b.name || '');
+    if (STATE.sortBy === 'date-asc')  return (a.uploadedAt || 0) - (b.uploadedAt || 0);
+    if (STATE.sortBy === 'size')      return (b.size || 0) - (a.size || 0);
+    return (b.uploadedAt || 0) - (a.uploadedAt || 0);   /* date-desc */
+  });
+
+  var lastTs = ppFolderLastUpdated(club.key, folder.key);
+  var subText = allFiles.length > 0
+    ? (allFiles.length + ' file' + (allFiles.length === 1 ? '' : 's') + (lastTs ? ' · last updated ' + ppFmtDate(lastTs) : ''))
+    : 'No files yet';
+
+  var actionsHtml = canEdit
+    ? '<button class="btn btn--primary btn--sm" onclick="ppOpenUpload()">⬆ Upload file</button>'
+    : '';
+
+  var filesHtml;
+  if (files.length === 0 && !STATE.search) {
+    filesHtml =
+      '<div class="pp-files__empty">'
+      + '<div class="pp-files__empty__icon">📂</div>'
+      + '<div>No files in this folder yet.</div>'
+      + (canEdit ? '<button class="btn btn--primary btn--sm" style="margin-top:14px;" onclick="ppOpenUpload()">Upload the first file</button>' : '')
+      + '</div>';
+  } else if (files.length === 0) {
+    filesHtml =
+      '<div class="pp-files__empty">'
+      + '<div class="pp-files__empty__icon">🔍</div>'
+      + '<div>No files match "' + NL.escHtml(STATE.search) + '"</div>'
+      + '</div>';
+  } else {
+    filesHtml = files.map(function(f) {
+      var ic = ppFileTypeIcon(f.type);
+      var actions = '<button class="pp-file__btn" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓</button>';
+      if (canEdit) {
+        actions +=
+            '<button class="pp-file__btn pp-file__btn--edit" onclick="event.stopPropagation();ppOpenReplace(\'' + NL.escJ(f.id) + '\')">Replace</button>'
+          + '<button class="pp-file__btn pp-file__btn--danger" onclick="event.stopPropagation();ppOpenDelete(\'' + NL.escJ(f.id) + '\')">Delete</button>';
+      }
+      return '<div class="pp-file" data-editable="' + (canEdit ? 'true' : 'false') + '" '
+        + 'onclick="ppOpenPreview(\'' + NL.escJ(f.id) + '\')">'
+        + '<div class="pp-file__icon pp-file__icon--' + ic.cls + '">' + ic.label + '</div>'
+        + '<div class="pp-file__main">'
+          + '<div class="pp-file__name">' + NL.escHtml(f.name) + '</div>'
+          + '<div class="pp-file__meta">' + NL.escHtml(f.uploadedByName || 'Unknown') + (f.description ? ' · ' + NL.escHtml(f.description) : '') + '</div>'
+        + '</div>'
+        + '<div class="pp-file__date">' + ppFmtDate(f.uploadedAt) + '</div>'
+        + '<div class="pp-file__size">' + ppFmtSize(f.size) + '</div>'
+        + '<div class="pp-file__actions">' + actions + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  panel.innerHTML =
+    '<div class="pp-panel">'
+    + '<div class="pp-panel__head">'
+      + '<div class="pp-panel__head__left">'
+        + '<button class="pp-back-link" onclick="ppBackToFolders()">← All folders</button>'
+        + '<div style="font-size:24px;">' + NL.escHtml(folder.icon) + '</div>'
+        + '<div>'
+          + '<h2 class="pp-panel__title">' + NL.escHtml(folder.name) + '</h2>'
+          + '<div class="pp-panel__sub">' + NL.escHtml(club.name) + ' · ' + NL.escHtml(subText) + '</div>'
+        + '</div>'
+      + '</div>'
+      + '<div>' + actionsHtml + '</div>'
+    + '</div>'
+    + (folder.description ? '<div class="pp-folder-instructions"><strong>What goes here</strong>' + NL.escHtml(folder.description) + '</div>' : '')
+    + '<div class="pp-filterbar">'
+      + '<input type="text" class="pp-filterbar__search" id="ppSearchInput" placeholder="Search in this folder…" value="' + NL.escHtml(STATE.search) + '" oninput="ppOnSearchInput(this.value)">'
+      + '<select class="pp-filterbar__select" id="ppSortSelect" onchange="ppOnSortChange(this.value)">'
+        + '<option value="date-desc"' + (STATE.sortBy === 'date-desc' ? ' selected' : '') + '>Newest first</option>'
+        + '<option value="date-asc"'  + (STATE.sortBy === 'date-asc'  ? ' selected' : '') + '>Oldest first</option>'
+        + '<option value="name"'      + (STATE.sortBy === 'name'      ? ' selected' : '') + '>Name (A–Z)</option>'
+        + '<option value="size"'      + (STATE.sortBy === 'size'      ? ' selected' : '') + '>Largest first</option>'
+      + '</select>'
+    + '</div>'
+    + '<div class="pp-files">' + filesHtml + '</div>'
+  + '</div>';
+}
+
+function ppOnSearchInput(val) {
+  STATE.search = val;
+  /* re-render only the file list portion to preserve focus */
+  var files;
+  var club   = ppCurrentClub();
+  var folder = ppCurrentFolder();
+  if (!folder) return;
+  ppRenderFilesView();
+  /* refocus the search input after rerender */
+  var input = document.getElementById('ppSearchInput');
+  if (input) {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+
+function ppOnSortChange(val) {
+  STATE.sortBy = val;
+  ppRenderFilesView();
 }
 
 /* ============================================================================
    UPLOAD
    ============================================================================ */
 
-function doUpload() {
-  var token = getToken();
-  if (!token) {
-    setResponse('uploadResponse', { error: 'No token — refresh first' }, true);
+function ppOpenUpload() {
+  var club   = ppCurrentClub();
+  var folder = ppCurrentFolder();
+  if (!folder) return;
+  if (!ppCanEditClub(club.key)) {
+    NL.toast('You can only upload to your own club\'s folders.', 'error');
     return;
   }
+  STATE.upload = { mode: 'create', file: null, replaceFileId: null, replaceFilename: null };
+  document.getElementById('ppUploadTitle').textContent = 'Upload file';
+  document.getElementById('ppUploadDest').value = club.name + ' — ' + folder.name;
+  document.getElementById('ppUploadDesc').value = '';
+  document.getElementById('ppDropzoneFilename').textContent = '';
+  document.getElementById('ppFileInput').value = '';
+  document.getElementById('ppUploadProgress').style.display = 'none';
+  document.getElementById('ppUploadConfirm').disabled = false;
+  document.getElementById('ppUploadModal').classList.add('open');
+}
 
-  var fileInput = document.getElementById('fileInput');
-  if (!fileInput.files || !fileInput.files[0]) {
-    setResponse('uploadResponse', { error: 'Pick a file first' }, true);
+function ppOpenReplace(fileId) {
+  var meta = STATE.files[fileId];
+  if (!meta) return;
+  if (!ppCanEditClub(meta.clubKey)) {
+    NL.toast('You can only replace files in your own club\'s folders.', 'error');
     return;
   }
+  STATE.upload = { mode: 'replace', file: null, replaceFileId: fileId, replaceFilename: meta.name };
+  document.getElementById('ppUploadTitle').textContent = 'Replace file';
+  var club   = STATE.clubsByKey[meta.clubKey];
+  var folder = STATE.folders.find(function(f) { return f.key === meta.folderKey; });
+  document.getElementById('ppUploadDest').value = (club ? club.name : meta.clubKey) + ' — ' + (folder ? folder.name : meta.folderKey) + ' — replacing "' + meta.name + '"';
+  document.getElementById('ppUploadDesc').value = meta.description || '';
+  document.getElementById('ppDropzoneFilename').textContent = '';
+  document.getElementById('ppFileInput').value = '';
+  document.getElementById('ppUploadProgress').style.display = 'none';
+  document.getElementById('ppUploadConfirm').disabled = false;
+  document.getElementById('ppUploadModal').classList.add('open');
+}
 
-  var file = fileInput.files[0];
+function ppCloseUpload() {
+  document.getElementById('ppUploadModal').classList.remove('open');
+}
+
+function ppOnFileChosen(ev) {
+  var file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  STATE.upload.file = file;
+  document.getElementById('ppDropzoneFilename').textContent = file.name + ' (' + ppFmtSize(file.size) + ')';
+}
+
+function ppDoUpload() {
+  var file = STATE.upload.file;
+  if (!file) {
+    NL.toast('Please choose a file first.', 'error');
+    return;
+  }
   if (file.size > 25 * 1024 * 1024) {
-    setResponse('uploadResponse', { error: 'File too large (max 25MB)' }, true);
+    NL.toast('File too large (max 25MB).', 'error');
     return;
   }
 
-  setResponse('uploadResponse', { status: 'Encoding & uploading… (this can take 5-30 seconds)' }, false);
+  var folder = ppCurrentFolder();
+  var club   = ppCurrentClub();
+  if (!folder || !club) return;
 
-  fileToBase64(file).then(function(b64) {
-    var body = {
-      action:      'pp_upload',
-      idToken:     token,
-      clubKey:     document.getElementById('clubKey').value,
-      folderKey:   document.getElementById('folderKey').value,
-      filename:    file.name,
-      mimeType:    file.type || 'application/octet-stream',
-      dataB64:     b64,
-      description: document.getElementById('description').value
-    };
+  var btn = document.getElementById('ppUploadConfirm');
+  btn.disabled = true;
+  document.getElementById('ppUploadProgress').style.display = 'flex';
+  document.getElementById('ppUploadProgressText').textContent = 'Encoding…';
 
-    return fetch(GAS_URL + '?cb=' + Date.now(), {
-      method:  'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body:    JSON.stringify(body)
+  /* For 'replace': we soft-delete the old file's RTDB record AFTER the new
+     upload succeeds, so the user keeps the old file if upload fails. */
+  ppFileToBase64(file)
+    .then(function(b64) {
+      document.getElementById('ppUploadProgressText').textContent = 'Uploading to Drive…';
+      return ppCallGas({
+        action:      'pp_upload',
+        clubKey:     club.key,
+        folderKey:   folder.key,
+        filename:    file.name,
+        mimeType:    file.type || 'application/octet-stream',
+        dataB64:     b64,
+        description: document.getElementById('ppUploadDesc').value
+      });
+    })
+    .then(function(result) {
+      if (!result.ok) throw new Error(result.error || 'Upload failed');
+
+      /* Audit (browser-side, direct RTDB) */
+      ppAudit(STATE.upload.mode === 'replace' ? 'replaced' : 'uploaded', {
+        fileId:    result.fileId,
+        fileName:  file.name,
+        clubKey:   club.key,
+        folderKey: folder.key
+      });
+
+      /* If replacing, soft-delete the old metadata */
+      if (STATE.upload.mode === 'replace' && STATE.upload.replaceFileId) {
+        var oldId = STATE.upload.replaceFileId;
+        return NL.ensureAuth().then(function() {
+          return firebase.database().ref(TOOL_DATA_PATH + '/files/' + oldId).update({
+            isDeleted:    true,
+            deletedAt:    Date.now(),
+            deletedBy:    STATE.uid,
+            replacedBy:   result.fileId
+          });
+        }).then(function() {
+          NL.toast('File replaced.', 'success');
+        });
+      }
+
+      NL.toast('Upload complete.', 'success');
+    })
+    .then(function() { ppCloseUpload(); })
+    .catch(function(err) {
+      document.getElementById('ppUploadProgress').style.display = 'none';
+      btn.disabled = false;
+      NL.toast('Error: ' + (err && err.message ? err.message : String(err)), 'error');
     });
-  }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
-    setResponse('uploadResponse', data, !data.ok);
-    if (data.ok && data.fileId) {
-      // Auto-fill download field for convenience
-      document.getElementById('downloadFileId').value = data.fileId;
-    }
-  }).catch(function(err) {
-    setResponse('uploadResponse', { error: err.message || String(err) }, true);
+}
+
+function ppFileToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload  = function() {
+      var b64 = String(reader.result).split(',')[1] || '';
+      resolve(b64);
+    };
+    reader.onerror = function() { reject(reader.error || new Error('Read failed')); };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -348,61 +1354,231 @@ function doUpload() {
    DOWNLOAD
    ============================================================================ */
 
-function doDownload() {
-  var token = getToken();
-  if (!token) {
-    setResponse('downloadResponse', { error: 'No token — refresh first' }, true);
-    return;
-  }
+function ppDoDownload(fileId) {
+  var meta = STATE.files[fileId];
+  if (!meta) return;
+  NL.toast('Preparing download…', 'info');
 
-  var fileId = document.getElementById('downloadFileId').value.trim();
-  if (!fileId) {
-    setResponse('downloadResponse', { error: 'Paste a file ID first' }, true);
-    return;
-  }
-
-  setResponse('downloadResponse', { status: 'Downloading…' }, false);
-
-  fetch(GAS_URL + '?cb=' + Date.now(), {
-    method:  'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify({
-      action:  'pp_download',
-      idToken: token,
-      fileId:  fileId
+  ppCallGas({ action: 'pp_download', fileId: fileId })
+    .then(function(result) {
+      if (!result.ok) throw new Error(result.error || 'Download failed');
+      ppTriggerBrowserDownload(result.dataB64, result.mimeType, result.filename);
+      ppAudit('downloaded', {
+        fileId:    fileId,
+        fileName:  meta.name,
+        clubKey:   meta.clubKey,
+        folderKey: meta.folderKey
+      });
     })
-  }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
-    if (!data.ok) {
-      setResponse('downloadResponse', data, true);
+    .catch(function(err) {
+      NL.toast('Download failed: ' + err.message, 'error');
+    });
+}
+
+function ppTriggerBrowserDownload(b64, mimeType, filename) {
+  var byteChars = atob(b64);
+  var bytes = new Uint8Array(byteChars.length);
+  for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+  var blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+}
+
+/* ============================================================================
+   DELETE (soft)
+   ============================================================================ */
+
+function ppOpenDelete(fileId) {
+  var meta = STATE.files[fileId];
+  if (!meta) return;
+  if (!ppCanEditClub(meta.clubKey)) {
+    NL.toast('You can only delete files in your own club\'s folders.', 'error');
+    return;
+  }
+  STATE.deleteId = fileId;
+  document.getElementById('ppDeleteFilename').textContent = meta.name;
+  document.getElementById('ppDeleteModal').classList.add('open');
+}
+
+function ppCloseDelete() {
+  document.getElementById('ppDeleteModal').classList.remove('open');
+  STATE.deleteId = null;
+}
+
+function ppDoDelete() {
+  if (!STATE.deleteId) return;
+  var fileId = STATE.deleteId;
+  var meta = STATE.files[fileId];
+  if (!meta) { ppCloseDelete(); return; }
+
+  var btn = document.getElementById('ppDeleteConfirm');
+  btn.disabled = true;
+
+  NL.ensureAuth().then(function() {
+    return firebase.database().ref(TOOL_DATA_PATH + '/files/' + fileId).update({
+      isDeleted: true,
+      deletedAt: Date.now(),
+      deletedBy: STATE.uid
+    });
+  }).then(function() {
+    NL.toast('File deleted.', 'success');
+    ppAudit('deleted', {
+      fileId:    fileId,
+      fileName:  meta.name,
+      clubKey:   meta.clubKey,
+      folderKey: meta.folderKey
+    });
+    ppCloseDelete();
+    btn.disabled = false;
+  }).catch(function(err) {
+    btn.disabled = false;
+    NL.toast('Delete failed: ' + err.message, 'error');
+  });
+}
+
+/* ============================================================================
+   PREVIEW
+   ============================================================================ */
+
+function ppOpenPreview(fileId) {
+  var meta = STATE.files[fileId];
+  if (!meta) return;
+  STATE.previewId = fileId;
+
+  document.getElementById('ppPreviewTitle').textContent = meta.name;
+  var canvas = document.getElementById('ppPreviewCanvas');
+  canvas.innerHTML = '<div class="spinner" style="filter:invert(1);"></div>';
+
+  /* Meta */
+  var club   = STATE.clubsByKey[meta.clubKey];
+  var folder = STATE.folders.find(function(f) { return f.key === meta.folderKey; });
+  document.getElementById('ppPreviewMeta').innerHTML =
+    '<div><strong>Club</strong>'    + NL.escHtml(club ? club.name : meta.clubKey)         + '</div>'
+    + '<div><strong>Folder</strong>' + NL.escHtml(folder ? folder.name : meta.folderKey) + '</div>'
+    + '<div><strong>Uploaded by</strong>' + NL.escHtml(meta.uploadedByName || '—') + '</div>'
+    + '<div><strong>Date</strong>'   + NL.escHtml(ppFmtDate(meta.uploadedAt))  + '</div>'
+    + '<div><strong>Size</strong>'   + NL.escHtml(ppFmtSize(meta.size))        + '</div>';
+
+  document.getElementById('ppPreviewModal').classList.add('open');
+
+  /* For images and video we can fetch base64 once and render via Blob URL.
+     For PDFs we use Drive embed iframe (fast, native viewer).
+     For office docs / unknown types, show "download to view" prompt. */
+  if (meta.type === 'pdf') {
+    /* Try Drive embed first */
+    ppCallGas({ action: 'pp_preview', fileId: fileId }).then(function(r) {
+      if (!r.ok || !r.embedUrl) {
+        /* fallback: download as base64 then blob-url it */
+        return ppPreviewViaDownload(fileId, meta);
+      }
+      canvas.innerHTML = '<iframe src="' + NL.escHtml(r.embedUrl) + '" allow="autoplay"></iframe>';
+    }).catch(function() { ppPreviewViaDownload(fileId, meta); });
+  } else if (meta.type === 'img' || meta.type === 'vid') {
+    ppPreviewViaDownload(fileId, meta);
+  } else {
+    /* doc, xls, other — no inline preview */
+    canvas.innerHTML =
+      '<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.85);">'
+      + '<div style="font-size:60px; margin-bottom:14px;">📄</div>'
+      + '<div style="font-size:14px; font-variation-settings:\'wght\' 700; margin-bottom:6px;">No inline preview available</div>'
+      + '<div style="font-size:12px; opacity:0.7;">Click Download to open this file.</div>'
+      + '</div>';
+  }
+}
+
+function ppPreviewViaDownload(fileId, meta) {
+  var canvas = document.getElementById('ppPreviewCanvas');
+  ppCallGas({ action: 'pp_download', fileId: fileId }).then(function(r) {
+    if (!r.ok) {
+      canvas.innerHTML = '<div style="padding:30px; color:#ffb3b3;">Preview failed: ' + NL.escHtml(r.error || 'unknown') + '</div>';
       return;
     }
-
-    // Trigger a real download in the browser
-    var byteChars = atob(data.dataB64);
+    var byteChars = atob(r.dataB64);
     var bytes = new Uint8Array(byteChars.length);
     for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-    var blob = new Blob([bytes], { type: data.mimeType });
+    var blob = new Blob([bytes], { type: r.mimeType || meta.mimeType });
     var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = data.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    if (STATE.previewBlobUrl) URL.revokeObjectURL(STATE.previewBlobUrl);
+    STATE.previewBlobUrl = url;
 
-    // Strip the dataB64 from the response display so it's readable
-    var displayData = {};
-    Object.keys(data).forEach(function(k) {
-      if (k === 'dataB64') displayData[k] = '<' + data.dataB64.length + ' chars of base64 - download triggered>';
-      else displayData[k] = data[k];
-    });
-    setResponse('downloadResponse', displayData, false);
+    if (meta.type === 'img') {
+      canvas.innerHTML = '<img src="' + url + '" alt="">';
+    } else if (meta.type === 'vid') {
+      canvas.innerHTML = '<video src="' + url + '" controls></video>';
+    } else if (meta.type === 'pdf') {
+      canvas.innerHTML = '<iframe src="' + url + '"></iframe>';
+    } else {
+      canvas.innerHTML =
+        '<div style="padding:30px; color:rgba(255,255,255,0.85); text-align:center;">'
+        + '<div style="font-size:13px;">No inline preview — click Download.</div>'
+        + '</div>';
+    }
   }).catch(function(err) {
-    setResponse('downloadResponse', { error: err.message || String(err) }, true);
+    canvas.innerHTML = '<div style="padding:30px; color:#ffb3b3;">Preview failed: ' + NL.escHtml(err.message || String(err)) + '</div>';
   });
+}
+
+function ppClosePreview() {
+  document.getElementById('ppPreviewModal').classList.remove('open');
+  if (STATE.previewBlobUrl) {
+    URL.revokeObjectURL(STATE.previewBlobUrl);
+    STATE.previewBlobUrl = null;
+  }
+  STATE.previewId = null;
+}
+
+function ppDownloadFromPreview() {
+  if (STATE.previewId) ppDoDownload(STATE.previewId);
+}
+
+/* ============================================================================
+   GAS CALL HELPER
+   ============================================================================ */
+
+function ppCallGas(body) {
+  return NL.ensureAuth()
+    .then(function(user) { return user.getIdToken(); })
+    .then(function(token) {
+      body.idToken = token;
+      return fetch(PP_GAS_URL + '?cb=' + Date.now(), {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify(body)
+      });
+    })
+    .then(function(res) { return res.json(); });
+}
+
+/* ============================================================================
+   AUDIT — direct RTDB write (matches portal pattern)
+   ============================================================================ */
+
+function ppAudit(action, details) {
+  if (!STATE.uid) return;
+  var entry = {
+    action:    action,
+    timestamp: Date.now(),
+    userUid:   STATE.uid,
+    userName:  STATE.email || '',
+    userRole:  STATE.role  || ''
+  };
+  Object.keys(details || {}).forEach(function(k) { entry[k] = details[k]; });
+  /* Push to tool-scoped audit */
+  NL.ensureAuth().then(function() {
+    return firebase.database().ref(TOOL_DATA_PATH + '/audit').push(entry);
+  }).catch(function() { /* audit shouldn't break the user flow */ });
+
+  /* Also write to portal-wide audit if available */
+  if (NL.writeAudit) {
+    var detailStr = (details && details.fileName) ? (action + ': ' + details.fileName) : action;
+    NL.writeAudit('programme_packs_' + action, detailStr);
+  }
 }
 </script>
 
