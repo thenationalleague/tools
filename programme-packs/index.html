@@ -3,10 +3,17 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 1.0
+  Version: 1.1
   Date: 25/04/2026
 
   CHANGELOG
+  v1.1 (25/04/2026)
+    - Fix: PERMISSION_DENIED reading folders-config / files on first load.
+      Cause: NL.session is restored from sessionStorage faster than Firebase
+      Auth's token. RTDB reads of auth-required paths fired before the real
+      auth was ready. Wrapped initial data loaders in NL.ensureAuth() per
+      the documented gotcha in nl-tools skill.
+
   v1.0 (25/04/2026)
     - Initial tool page (Phase 1 of Programme Packs build).
     - Browse view: club sidebar + folder grid + file list per folder.
@@ -762,7 +769,14 @@ window.nlAuthReady = function(session) {
   /* Default active club: own club if member; else first non-central club */
   if (STATE.myClub) STATE.activeClub = STATE.myClub;
 
-  Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles()])
+  /* CRITICAL: wrap RTDB reads in NL.ensureAuth() — auth-guard's sessionStorage
+     fast-path means nlAuthReady can fire before Firebase Auth's token has fully
+     restored. Reads of auth-required paths (folders-config, files) will then
+     fail with permission_denied. ensureAuth waits for the real auth state. */
+  NL.ensureAuth()
+    .then(function() {
+      return Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles()]);
+    })
     .then(function() {
       if (!STATE.activeClub) {
         var first = STATE.clubs.find(function(c) { return !c.isCentral; });
