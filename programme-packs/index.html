@@ -3,10 +3,20 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 1.2
+  Version: 1.3
   Date: 25/04/2026
 
   CHANGELOG
+  v1.3 (25/04/2026)
+    - Sidebar reorder: user's own club now pinned at the top under a "Your
+      club" header, separated from the rest. Sidebar still shows everyone.
+    - "Your club" banner above the layout: club crest, progress bar (X/8
+      folders filled), file count, last upload date, and contextual CTA
+      that adapts: "Manage your pack →" when elsewhere, "↓ Scroll to
+      folders" when on the folder grid, "← All folders" when in a folder.
+    - Banner only renders when user has a club assigned (admins/staff
+      with no club don't see it).
+
   v1.2 (25/04/2026)
     - Uploader display: shows user's name and org/club instead of email.
       Reads from /users/ once at boot, caches in STATE.users. Falls back
@@ -83,6 +93,15 @@
   window.NL_CHANGELOG = [
     {
       date:    '25 April 2026',
+      version: 'v1.3',
+      items: [
+        'Your own club is now pinned at the top of the sidebar, separated from the rest of the league.',
+        'New "Your club" banner shows your progress at a glance: how many folders are filled, total files, last upload date.',
+        'Quick "Manage your pack" button takes you straight to your folders.'
+      ]
+    },
+    {
+      date:    '25 April 2026',
       version: 'v1.2',
       items: [
         'Uploaders now show by name and organisation, not email.',
@@ -154,6 +173,25 @@
   list-style: none;
   padding: 0;
   margin: 0;
+}
+.pp-club-list__section-header {
+  padding: 12px 18px 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  font-variation-settings: 'wght' 800;
+  color: var(--text-muted);
+  background: var(--off-white);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.pp-club-list__section-header:first-child {
+  border-top: 0;
+}
+.pp-club-list__section-header--own {
+  background: linear-gradient(to right, rgba(158,0,0,0.06), transparent);
+  color: var(--primary);
+  border-top: 0;
 }
 .pp-club-list__item {
   display: grid;
@@ -659,6 +697,91 @@
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* "Your club" banner — shown above the layout when user is a club rep */
+.pp-myclub-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
+  color: var(--white);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+  flex-wrap: wrap;
+}
+.pp-myclub-banner__crest {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.12);
+  border-radius: 50%;
+  padding: 4px;
+}
+.pp-myclub-banner__text {
+  flex: 1;
+  min-width: 200px;
+}
+.pp-myclub-banner__kicker {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+  font-variation-settings: 'wght' 700;
+  margin-bottom: 2px;
+}
+.pp-myclub-banner__title {
+  font-size: 17px;
+  font-variation-settings: 'wght' 900;
+  line-height: 1.15;
+  margin-bottom: 3px;
+}
+.pp-myclub-banner__sub {
+  font-size: 12px;
+  opacity: 0.9;
+  font-variation-settings: 'wght' 500;
+}
+.pp-myclub-banner__sub strong {
+  font-variation-settings: 'wght' 800;
+}
+.pp-myclub-banner__cta {
+  background: var(--white);
+  color: var(--primary);
+  border: 0;
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 12px;
+  font-variation-settings: 'wght' 800;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.12s, transform 0.05s;
+  flex-shrink: 0;
+}
+.pp-myclub-banner__cta:hover { background: var(--off-white); }
+.pp-myclub-banner__cta:active { transform: translateY(1px); }
+.pp-myclub-banner__progress-bar {
+  display: inline-block;
+  vertical-align: middle;
+  width: 80px;
+  height: 5px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0 6px;
+}
+.pp-myclub-banner__progress-fill {
+  height: 100%;
+  background: var(--white);
+  transition: width 0.4s;
+}
+@media (max-width: 600px) {
+  .pp-myclub-banner { padding: 12px 16px; }
+  .pp-myclub-banner__title { font-size: 15px; }
+}
 </style>
 </head>
 <body>
@@ -676,6 +799,9 @@
         <p id="ppSub" style="margin:0; color:var(--text-muted); font-size:14px;">Shared club assets for matchday programmes.</p>
       </div>
     </div>
+
+    <!-- "Your club" banner — populated only when user has a myClub -->
+    <div id="ppMyClubBanner" style="display:none;"></div>
 
     <div class="pp-layout">
 
@@ -839,6 +965,7 @@ window.nlAuthReady = function(session) {
         var first = STATE.clubs.find(function(c) { return !c.isCentral; });
         STATE.activeClub = first ? first.key : (STATE.clubs[0] && STATE.clubs[0].key);
       }
+      ppRenderMyClubBanner();
       ppRenderClubList();
       ppRenderMainPanel();
     })
@@ -918,6 +1045,8 @@ function ppRerenderIfRelevant(meta) {
   if (!meta) return;
   /* re-render sidebar dots regardless */
   ppRenderClubList();
+  /* re-render banner if it's the user's own club that changed */
+  if (STATE.myClub && meta.clubKey === STATE.myClub) ppRenderMyClubBanner();
   /* re-render main panel only if relevant club/folder is showing */
   if (meta.clubKey === STATE.activeClub) ppRenderMainPanel();
 }
@@ -1069,6 +1198,71 @@ function ppLoadUsersIfNeeded() {
 }
 
 /* ============================================================================
+   RENDER — "your club" banner (above layout, club reps only)
+   ============================================================================ */
+
+function ppRenderMyClubBanner() {
+  var el = document.getElementById('ppMyClubBanner');
+  if (!STATE.myClub) { el.style.display = 'none'; return; }
+
+  var club = STATE.clubsByKey[STATE.myClub];
+  if (!club) { el.style.display = 'none'; return; }
+
+  var filledCount = STATE.folders.filter(function(f) { return ppFolderHasContent(club.key, f.key); }).length;
+  var total       = STATE.folders.length;
+  var pct         = total > 0 ? Math.round((filledCount / total) * 100) : 0;
+  var totalFiles  = ppFilesIn(club.key).length;
+  var lastTs      = 0;
+  Object.keys(STATE.files).forEach(function(id) {
+    var f = STATE.files[id];
+    if (f && !f.isDeleted && f.clubKey === club.key) {
+      var t = f.lastModifiedAt || f.uploadedAt || 0;
+      if (t > lastTs) lastTs = t;
+    }
+  });
+
+  /* Sub line: progress + last upload */
+  var subParts = [];
+  subParts.push('<strong>' + filledCount + ' of ' + total + '</strong> folders filled<span class="pp-myclub-banner__progress-bar"><span class="pp-myclub-banner__progress-fill" style="width:' + pct + '%;"></span></span>');
+  if (totalFiles > 0) {
+    subParts.push('<strong>' + totalFiles + '</strong> file' + (totalFiles === 1 ? '' : 's'));
+  }
+  if (lastTs) {
+    subParts.push('last upload ' + ppFmtDate(lastTs));
+  } else {
+    subParts.push('no uploads yet');
+  }
+
+  /* CTA — varies based on whether already viewing own club */
+  var ctaLabel, ctaAction;
+  if (STATE.activeClub === club.key && !STATE.activeFolder) {
+    ctaLabel = '↓ Scroll to folders';
+    ctaAction = "var g=document.querySelector('.pp-folder-grid');if(g)g.scrollIntoView({behavior:'smooth',block:'start'});";
+  } else if (STATE.activeClub === club.key && STATE.activeFolder) {
+    ctaLabel = '← All folders';
+    ctaAction = 'ppBackToFolders()';
+  } else {
+    ctaLabel = 'Manage your pack →';
+    ctaAction = "ppSelectClub('" + NL.escJ(club.key) + "')";
+  }
+
+  var crestHtml = '<img class="pp-myclub-banner__crest" src="' + NL.escHtml(ppCrestUrl(club.name)) + '" '
+    + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
+
+  el.innerHTML =
+    '<div class="pp-myclub-banner">'
+    + crestHtml
+    + '<div class="pp-myclub-banner__text">'
+      + '<div class="pp-myclub-banner__kicker">Your club</div>'
+      + '<div class="pp-myclub-banner__title">' + NL.escHtml(club.name) + '</div>'
+      + '<div class="pp-myclub-banner__sub">' + subParts.join(' · ') + '</div>'
+    + '</div>'
+    + '<button class="pp-myclub-banner__cta" onclick="' + ctaAction + '">' + NL.escHtml(ctaLabel) + '</button>'
+  + '</div>';
+  el.style.display = '';
+}
+
+/* ============================================================================
    RENDER — sidebar
    ============================================================================ */
 
@@ -1079,48 +1273,75 @@ function ppRenderClubList() {
     return;
   }
 
-  ul.innerHTML = STATE.clubs.map(function(c) {
-    var isActive = c.key === STATE.activeClub;
-    var isOwn    = ppIsOwnClub(c.key);
-    var dotsHtml = c.isCentral ? '' :
-      STATE.folders.map(function(f) {
-        var filled = ppFolderHasContent(c.key, f.key);
-        return '<div class="pp-club-list__dot ' + (filled ? 'is-green' : '') + '" title="' + NL.escHtml(f.name) + '"></div>';
-      }).join('');
+  /* Build the sorted view at render time:
+     1. Own club (pinned) — only if user has one
+     2. Section header
+     3. NL Central
+     4. Everyone else, alphabetical (own club excluded since it's pinned)
+  */
+  var ownClub = STATE.myClub ? STATE.clubsByKey[STATE.myClub] : null;
+  var others  = STATE.clubs.filter(function(c) {
+    if (ownClub && c.key === ownClub.key) return false;
+    return true;
+  });
 
-    var filledCount = c.isCentral ? null :
-      STATE.folders.filter(function(f) { return ppFolderHasContent(c.key, f.key); }).length;
+  var html = '';
 
-    var totalFiles = ppFilesIn(c.key).length;
+  /* Pinned own club */
+  if (ownClub) {
+    html += '<li class="pp-club-list__section-header pp-club-list__section-header--own">Your club</li>';
+    html += ppRenderClubItem(ownClub);
+    html += '<li class="pp-club-list__section-header">All clubs</li>';
+  }
 
-    var crestHtml;
-    if (c.isCentral) {
-      crestHtml = '<div class="pp-club-list__crest pp-club-list__crest--text">NL</div>';
-    } else {
-      crestHtml = '<img class="pp-club-list__crest" src="' + NL.escHtml(ppCrestUrl(c.name)) + '" '
-        + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
-    }
+  /* Everyone else (NL Central first by virtue of its existing position in STATE.clubs) */
+  html += others.map(ppRenderClubItem).join('');
 
-    var progressHtml = c.isCentral
-      ? '<div class="pp-club-list__progress">Reference library</div>'
-      : '<div class="pp-club-list__progress"><span>' + filledCount + '/' + STATE.folders.length + '</span><div class="pp-club-list__dots">' + dotsHtml + '</div></div>';
+  ul.innerHTML = html;
+}
 
-    return '<li class="pp-club-list__item ' + (isActive ? 'is-active' : '') + ' ' + (isOwn ? 'is-own' : '') + '" '
-      + 'onclick="ppSelectClub(\'' + NL.escJ(c.key) + '\')">'
-      + crestHtml
-      + '<div class="pp-club-list__info">'
-        + '<div class="pp-club-list__name">' + NL.escHtml(c.name) + '</div>'
-        + progressHtml
-      + '</div>'
-      + '<div class="pp-club-list__count">' + totalFiles + '</div>'
-      + '</li>';
-  }).join('');
+function ppRenderClubItem(c) {
+  var isActive = c.key === STATE.activeClub;
+  var isOwn    = ppIsOwnClub(c.key);
+  var dotsHtml = c.isCentral ? '' :
+    STATE.folders.map(function(f) {
+      var filled = ppFolderHasContent(c.key, f.key);
+      return '<div class="pp-club-list__dot ' + (filled ? 'is-green' : '') + '" title="' + NL.escHtml(f.name) + '"></div>';
+    }).join('');
+
+  var filledCount = c.isCentral ? null :
+    STATE.folders.filter(function(f) { return ppFolderHasContent(c.key, f.key); }).length;
+
+  var totalFiles = ppFilesIn(c.key).length;
+
+  var crestHtml;
+  if (c.isCentral) {
+    crestHtml = '<div class="pp-club-list__crest pp-club-list__crest--text">NL</div>';
+  } else {
+    crestHtml = '<img class="pp-club-list__crest" src="' + NL.escHtml(ppCrestUrl(c.name)) + '" '
+      + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
+  }
+
+  var progressHtml = c.isCentral
+    ? '<div class="pp-club-list__progress">Reference library</div>'
+    : '<div class="pp-club-list__progress"><span>' + filledCount + '/' + STATE.folders.length + '</span><div class="pp-club-list__dots">' + dotsHtml + '</div></div>';
+
+  return '<li class="pp-club-list__item ' + (isActive ? 'is-active' : '') + ' ' + (isOwn ? 'is-own' : '') + '" '
+    + 'onclick="ppSelectClub(\'' + NL.escJ(c.key) + '\')">'
+    + crestHtml
+    + '<div class="pp-club-list__info">'
+      + '<div class="pp-club-list__name">' + NL.escHtml(c.name) + '</div>'
+      + progressHtml
+    + '</div>'
+    + '<div class="pp-club-list__count">' + totalFiles + '</div>'
+    + '</li>';
 }
 
 function ppSelectClub(clubKey) {
   STATE.activeClub = clubKey;
   STATE.activeFolder = null;
   STATE.search = '';
+  ppRenderMyClubBanner();
   ppRenderClubList();
   ppRenderMainPanel();
 }
@@ -1201,12 +1422,14 @@ function ppRenderFolderGrid() {
 function ppOpenFolder(folderKey) {
   STATE.activeFolder = folderKey;
   STATE.search = '';
+  ppRenderMyClubBanner();
   ppRenderMainPanel();
 }
 
 function ppBackToFolders() {
   STATE.activeFolder = null;
   STATE.search = '';
+  ppRenderMyClubBanner();
   ppRenderMainPanel();
 }
 
