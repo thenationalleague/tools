@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Programme Packs — Phase 0 Tester</title>
+
+<!--
+  ============================================================================
+  PROGRAMME PACKS — PHASE 0 ENDPOINT TESTER
+  ============================================================================
+  Standalone HTML tester for the pp_upload / pp_download / pp_preview GAS
+  handlers. Use this once during Phase 0 to verify the endpoints work end
+  to end — then throw it away (or keep for debugging future regressions).
+
+  How it works:
+  - Loads Firebase compat SDK
+  - Signs in via the existing portal session (no separate login)
+  - Auto-grabs a fresh ID token
+  - Lets you pick a file, choose club + folder, upload to the GAS endpoint
+  - Shows full JSON response for every call
+
+  HOW TO USE:
+  1. Save this file locally (or upload to a non-portal folder on your repo)
+  2. Open it in the SAME browser where you're already signed into the portal
+  3. Token field auto-populates — if not, click "Refresh token"
+  4. Pick a file, choose club + folder, click Upload
+  5. Watch the response area
+  6. Verify in Drive + RTDB
+  ============================================================================
+-->
+
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f4f6f9;
+    color: #1a2a44;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 30px 20px;
+    line-height: 1.5;
+  }
+  h1 { color: #9e0000; margin-bottom: 4px; }
+  .subtitle { color: #5a6a82; margin-bottom: 30px; }
+  .card {
+    background: white;
+    border: 1px solid #dde3ed;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(10,22,40,0.06);
+  }
+  .card h2 {
+    margin-top: 0;
+    font-size: 16px;
+    color: #223b7c;
+    border-bottom: 1px solid #dde3ed;
+    padding-bottom: 8px;
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #5a6a82;
+    margin: 12px 0 4px;
+  }
+  input, select, button, textarea {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 12px;
+    border: 1px solid #dde3ed;
+    border-radius: 4px;
+    background: white;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  textarea {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+    min-height: 60px;
+    resize: vertical;
+  }
+  button {
+    background: #9e0000;
+    color: white;
+    border: 0;
+    cursor: pointer;
+    font-weight: 700;
+    width: auto;
+    padding: 10px 20px;
+    margin-top: 12px;
+  }
+  button:hover { background: #7a0000; }
+  button.secondary {
+    background: white;
+    color: #223b7c;
+    border: 1px solid #dde3ed;
+  }
+  button.secondary:hover { background: #f4f6f9; }
+  pre.response {
+    background: #1a2a44;
+    color: #b8d4ff;
+    padding: 14px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  pre.response.success { color: #b9efc6; }
+  pre.response.error { color: #ffb3b3; }
+  .row { display: flex; gap: 12px; }
+  .row > * { flex: 1; }
+  .status {
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .status.ok { background: #edf7ee; color: #1e7e34; }
+  .status.warn { background: #fef6ec; color: #e67e22; }
+  .status.err { background: #fdf0ef; color: #c0392b; }
+  .small { font-size: 12px; color: #5a6a82; }
+  code { background: #f4f6f9; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Programme Packs — Phase 0 Tester</h1>
+<p class="subtitle">Standalone test page for upload / download / preview endpoints. Use once, throw away.</p>
+
+<!-- AUTH STATUS -->
+<div class="card">
+  <h2>1. Authentication</h2>
+  <div id="authStatus" class="status warn">Loading Firebase…</div>
+  <label>ID Token</label>
+  <textarea id="idToken" rows="3" placeholder="Auto-populates after sign-in"></textarea>
+  <button class="secondary" onclick="refreshToken()">Refresh token</button>
+  <p class="small">Token is auto-grabbed if you're already signed into the portal in this browser. Tokens expire in 1 hour — refresh if anything fails with "Token verification".</p>
+</div>
+
+<!-- UPLOAD -->
+<div class="card">
+  <h2>2. Upload a test file</h2>
+
+  <label>File to upload</label>
+  <input type="file" id="fileInput">
+
+  <div class="row">
+    <div>
+      <label>Club key</label>
+      <select id="clubKey">
+        <option value="aldershot-town">aldershot-town</option>
+        <option value="altrincham">altrincham</option>
+        <option value="barnet">barnet</option>
+        <option value="_nl-central">_nl-central (NL Central)</option>
+      </select>
+    </div>
+    <div>
+      <label>Folder key</label>
+      <select id="folderKey">
+        <option value="club-identity">club-identity</option>
+        <option value="stadium">stadium</option>
+        <option value="squad">squad</option>
+        <option value="players">players</option>
+        <option value="management">management</option>
+        <option value="history">history</option>
+        <option value="action">action</option>
+        <option value="miscellaneous">miscellaneous</option>
+      </select>
+    </div>
+  </div>
+
+  <label>Description (optional)</label>
+  <input type="text" id="description" placeholder="Phase 0 test — please delete after">
+
+  <button onclick="doUpload()">Upload</button>
+  <pre class="response" id="uploadResponse">Response will appear here…</pre>
+</div>
+
+<!-- DOWNLOAD -->
+<div class="card">
+  <h2>3. Download a file (optional)</h2>
+  <p class="small">After upload succeeds, copy the <code>fileId</code> from the response above and paste below.</p>
+
+  <label>File ID</label>
+  <input type="text" id="downloadFileId" placeholder="e.g. 1745000000-abc123">
+
+  <button onclick="doDownload()">Download</button>
+  <pre class="response" id="downloadResponse">Response will appear here…</pre>
+</div>
+
+<!-- VERIFICATION CHECKLIST -->
+<div class="card">
+  <h2>4. Verification</h2>
+  <p class="small">After a successful upload, verify these in three places:</p>
+  <ol class="small">
+    <li><strong>Drive:</strong> open the Shared Drive → club folder → folder you uploaded to → file should be there</li>
+    <li><strong>RTDB:</strong> Firebase console → <code>/app-data/ops-programme-packs/files/{fileId}</code> should exist with metadata</li>
+    <li><strong>Audit:</strong> Firebase console → <code>/app-data/ops-programme-packs/audit/</code> → recent entry with <code>action: "uploaded"</code></li>
+  </ol>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+<script>
+/* ============================================================================
+   CONFIG
+   ============================================================================ */
+
+var FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyC3az3OMnU7TdqlaWp8yrO_EjgZ36l-mXU",
+  authDomain:        "nl-tools.firebaseapp.com",
+  databaseURL:       "https://nl-tools-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nl-tools",
+  storageBucket:     "nl-tools.firebasestorage.app",
+  messagingSenderId: "801354670005",
+  appId:             "1:801354670005:web:05d8ebad3e7e63610d03fc"
+};
+
+var GAS_URL = "https://script.google.com/macros/s/AKfycbyHutd1esz1kykMR5aLXBkgXY2LPC-CzhUWOLBAFjhN-6XCPlxocQ1N9BAoCpE6cdof/exec";
+
+/* ============================================================================
+   FIREBASE INIT + TOKEN
+   ============================================================================ */
+
+firebase.initializeApp(FIREBASE_CONFIG);
+
+var auth = firebase.auth();
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+auth.onAuthStateChanged(function(user) {
+  var status = document.getElementById('authStatus');
+  if (!user) {
+    status.className = 'status err';
+    status.innerHTML = 'Not signed in. <a href="https://thenationalleague.github.io/tools/" target="_blank">Sign in to the portal</a> in another tab, then click "Refresh token" here.';
+    return;
+  }
+  status.className = 'status ok';
+  status.textContent = 'Signed in as ' + user.email + ' (' + user.uid + ')';
+  refreshToken();
+});
+
+function refreshToken() {
+  var user = auth.currentUser;
+  if (!user) {
+    document.getElementById('authStatus').className = 'status err';
+    document.getElementById('authStatus').textContent = 'No user — sign in to the portal first.';
+    return;
+  }
+  user.getIdToken(true).then(function(t) {
+    document.getElementById('idToken').value = t;
+  });
+}
+
+/* ============================================================================
+   HELPERS
+   ============================================================================ */
+
+function getToken() {
+  return document.getElementById('idToken').value.trim();
+}
+
+function setResponse(elId, payload, isError) {
+  var el = document.getElementById(elId);
+  el.className = 'response ' + (isError ? 'error' : (payload && payload.ok ? 'success' : 'error'));
+  el.textContent = JSON.stringify(payload, null, 2);
+}
+
+function fileToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      // reader.result is a data URL like "data:image/png;base64,iVBORw0..."
+      // Strip the prefix to get just the base64 string
+      var b64 = reader.result.split(',')[1];
+      resolve(b64);
+    };
+    reader.onerror = function() { reject(reader.error); };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ============================================================================
+   UPLOAD
+   ============================================================================ */
+
+function doUpload() {
+  var token = getToken();
+  if (!token) {
+    setResponse('uploadResponse', { error: 'No token — refresh first' }, true);
+    return;
+  }
+
+  var fileInput = document.getElementById('fileInput');
+  if (!fileInput.files || !fileInput.files[0]) {
+    setResponse('uploadResponse', { error: 'Pick a file first' }, true);
+    return;
+  }
+
+  var file = fileInput.files[0];
+  if (file.size > 25 * 1024 * 1024) {
+    setResponse('uploadResponse', { error: 'File too large (max 25MB)' }, true);
+    return;
+  }
+
+  setResponse('uploadResponse', { status: 'Encoding & uploading… (this can take 5-30 seconds)' }, false);
+
+  fileToBase64(file).then(function(b64) {
+    var body = {
+      action:      'pp_upload',
+      idToken:     token,
+      clubKey:     document.getElementById('clubKey').value,
+      folderKey:   document.getElementById('folderKey').value,
+      filename:    file.name,
+      mimeType:    file.type || 'application/octet-stream',
+      dataB64:     b64,
+      description: document.getElementById('description').value
+    };
+
+    return fetch(GAS_URL + '?cb=' + Date.now(), {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body:    JSON.stringify(body)
+    });
+  }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
+    setResponse('uploadResponse', data, !data.ok);
+    if (data.ok && data.fileId) {
+      // Auto-fill download field for convenience
+      document.getElementById('downloadFileId').value = data.fileId;
+    }
+  }).catch(function(err) {
+    setResponse('uploadResponse', { error: err.message || String(err) }, true);
+  });
+}
+
+/* ============================================================================
+   DOWNLOAD
+   ============================================================================ */
+
+function doDownload() {
+  var token = getToken();
+  if (!token) {
+    setResponse('downloadResponse', { error: 'No token — refresh first' }, true);
+    return;
+  }
+
+  var fileId = document.getElementById('downloadFileId').value.trim();
+  if (!fileId) {
+    setResponse('downloadResponse', { error: 'Paste a file ID first' }, true);
+    return;
+  }
+
+  setResponse('downloadResponse', { status: 'Downloading…' }, false);
+
+  fetch(GAS_URL + '?cb=' + Date.now(), {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body:    JSON.stringify({
+      action:  'pp_download',
+      idToken: token,
+      fileId:  fileId
+    })
+  }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
+    if (!data.ok) {
+      setResponse('downloadResponse', data, true);
+      return;
+    }
+
+    // Trigger a real download in the browser
+    var byteChars = atob(data.dataB64);
+    var bytes = new Uint8Array(byteChars.length);
+    for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    var blob = new Blob([bytes], { type: data.mimeType });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = data.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Strip the dataB64 from the response display so it's readable
+    var displayData = {};
+    Object.keys(data).forEach(function(k) {
+      if (k === 'dataB64') displayData[k] = '<' + data.dataB64.length + ' chars of base64 - download triggered>';
+      else displayData[k] = data[k];
+    });
+    setResponse('downloadResponse', displayData, false);
+  }).catch(function(err) {
+    setResponse('downloadResponse', { error: err.message || String(err) }, true);
+  });
+}
+</script>
+
+</body>
+</html>
