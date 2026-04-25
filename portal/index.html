@@ -20,6 +20,24 @@
              all /tools/ URLs via service worker, but tool page browser tabs
              won't show the rose favicon without a later head-tag sweep.
 
+  v5.65 (25/04/2026) — Admin panel redesign + deploy fix:
+           * Admin panel: 5 tabs → 3 tabs.
+             - Requests + Pending Invites merged into "Inbound" pane,
+               with section headers distinguishing the two.
+             - Users + Invite merged into "Users" pane with two-column
+               layout: user list left, invite form right (sticky). Stacks
+               on mobile (<860px).
+             - Audit Log stays separate.
+           * Role selector: removed connecting track line between dots.
+             Four dots + labels only — cleaner, less visually noisy.
+           * Deploy button renamed + fixed:
+             - Was "Deploy / Re-deploy" — overwrote all users including
+               manually-adjusted access levels. Bug: string-format entries
+               from manual edits were treated as needing overwrite.
+             - Now "Seed / Seed new" — only touches users where the tool
+               key is entirely absent (null/undefined). Never overwrites
+               any existing entry regardless of format.
+
   v5.64 (20/04/2026) — Universal container:
            * Removed local .page-body override. nl-brand.css v2.2 now handles
              .page-body, .page, .container as universal aliases for .main —
@@ -623,6 +641,64 @@
 }
 .admin-tab.active { background: var(--primary); color: var(--white); }
 
+
+/* -- Inbound section headers (merged requests + pending invites) ----------- */
+.inbound-section__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.inbound-section__label {
+  font-size: 11px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--navy);
+}
+.inbound-section__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* -- Users + Invite two-column split --------------------------------------- */
+.users-invite-split {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 28px;
+  align-items: start;
+}
+.users-invite-split__invite {
+  background: var(--off-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  position: sticky;
+  top: 80px;
+}
+.users-invite-split__invite-head {
+  font-size: 11px;
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--navy);
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+@media (max-width: 860px) {
+  .users-invite-split {
+    grid-template-columns: 1fr;
+  }
+  .users-invite-split__invite {
+    position: static;
+  }
+}
+
 .admin-pane { display: none; }
 .admin-pane.active { display: block; }
 
@@ -1104,25 +1180,6 @@
 }
 
 /* The connecting track -- sits behind the node row */
-.acc-slider__track {
-  position: absolute;
-  top: 7px; /* vertically centred on 14px node */
-  left: 27px; /* starts at centre of first node */
-  right: 27px; /* ends at centre of last node */
-  height: 2px;
-  background: var(--border);
-  z-index: 0;
-  border-radius: 1px;
-}
-.acc-slider__track-fill {
-  position: absolute;
-  top: 0; left: 0;
-  height: 100%;
-  background: var(--primary);
-  border-radius: 1px;
-  transition: width 0.2s ease;
-}
-
 /* Each stop */
 .acc-slider__stop {
   display: flex;
@@ -1185,8 +1242,7 @@
 /* Locked -- interaction disabled but value still visible */
 .acc-slider--locked .acc-slider__stop { cursor: default; pointer-events: none; }
 /* Dimmed track fill when locked */
-.acc-slider--locked .acc-slider__track-fill { opacity: 0.45; }
-/* Active/filled stops: show value but slightly muted */
+.acc-slider--locked /* Active/filled stops: show value but slightly muted */
 .acc-slider--locked .acc-slider__stop--active .acc-slider__node { opacity: 0.6; }
 .acc-slider--locked .acc-slider__stop--filled .acc-slider__node { opacity: 0.45; }
 .acc-slider--locked .acc-slider__stop--active .acc-slider__label { opacity: 0.6; }
@@ -1648,47 +1704,63 @@
       <div class="admin-panel__title">Admin Panel</div>
 
       <div class="admin-tabs">
-        <button class="admin-tab active" data-pane="requests">Requests</button>
-        <button class="admin-tab" data-pane="pending-invites">Pending Invites <span id="pendingInviteCount"></span></button>
+        <button class="admin-tab active" data-pane="inbound">Inbound <span id="pendingInviteCount"></span></button>
         <button class="admin-tab" data-pane="users">Users</button>
-        <button class="admin-tab" data-pane="invite">Invite</button>
         <button class="admin-tab" data-pane="audit">Audit Log</button>
       </div>
 
-      <!-- Requests pane -->
-      <div class="admin-pane active" id="pane-requests">
-        <div id="requestsList">
-          <div class="empty-state">
-            <div class="empty-state__icon">📭</div>
-            <div class="empty-state__text">Loading requests…</div>
+      <!-- Inbound pane: sign-up requests + pending invites -->
+      <div class="admin-pane active" id="pane-inbound">
+
+        <!-- Sign-up requests section -->
+        <div class="inbound-section">
+          <div class="inbound-section__head">
+            <span class="inbound-section__label">Sign-up requests</span>
+            <span class="inbound-section__hint">Clubs requesting access to the portal</span>
+          </div>
+          <div id="requestsList">
+            <div class="empty-state">
+              <div class="empty-state__icon">📭</div>
+              <div class="empty-state__text">Loading requests…</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Pending Invites pane -->
-      <div class="admin-pane" id="pane-pending-invites">
-        <div id="pendingInvitesList">
-          <div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>
+        <!-- Pending invites section -->
+        <div class="inbound-section" style="margin-top:28px;">
+          <div class="inbound-section__head">
+            <span class="inbound-section__label">Pending invites</span>
+            <span class="inbound-section__hint">Sent but not yet accepted</span>
+          </div>
+          <div id="pendingInvitesList">
+            <div style="font-size:13px;color:var(--text-muted);padding:8px 0;">Loading…</div>
+          </div>
         </div>
+
       </div>
 
-      <!-- Users pane -->
+      <!-- Users pane — includes user list (left) + invite form (right) -->
       <div class="admin-pane" id="pane-users">
-        <div class="users-controls">
-          <input type="text" id="userSearch" placeholder="Search by name or email…">
-          <button class="btn btn--ghost btn--sm" id="reloadUsersBtn">Reload</button>
-        </div>
-        <div style="margin-bottom:10px;display:none;" id="clubFilterWrap">
-          <select id="clubFilterSelect" style="font-family:var(--font);font-size:13px;padding:7px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--text);cursor:pointer;outline:none;transition:border-color 0.15s;width:100%;max-width:320px;">
-            <option value="">All users</option>
-          </select>
-        </div>
+        <div class="users-invite-split">
 
-        <div class="users-accordion" id="usersAccordion"></div>
-      </div>
+          <!-- Left: user list -->
+          <div class="users-invite-split__users">
+            <div class="users-controls">
+              <input type="text" id="userSearch" placeholder="Search by name or email…">
+              <button class="btn btn--ghost btn--sm" id="reloadUsersBtn">Reload</button>
+            </div>
+            <div style="margin-bottom:10px;display:none;" id="clubFilterWrap">
+              <select id="clubFilterSelect" style="font-family:var(--font);font-size:13px;padding:7px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--text);cursor:pointer;outline:none;transition:border-color 0.15s;width:100%;max-width:320px;">
+                <option value="">All users</option>
+              </select>
+            </div>
+            <div class="users-accordion" id="usersAccordion"></div>
+          </div>
 
-      <!-- Invite pane -->
-      <div class="admin-pane" id="pane-invite">
+          <!-- Right: invite form -->
+          <div class="users-invite-split__invite">
+            <div class="users-invite-split__invite-head">Invite a new user</div>
+            <div class="invite-form-wrap">
         <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
 
           <!-- Left: invite details form -->
@@ -1768,8 +1840,11 @@
             </div>
           </div>
 
-        </div>
-      </div>
+            </div>
+          </div><!-- /invite -->
+
+        </div><!-- /users-invite-split -->
+      </div><!-- /pane-users -->
 
 
       <!-- Audit log pane -->
@@ -2304,12 +2379,12 @@ function buildToolTile(key, t, level) {
     if (!isDeployed) {
       deployBtn.className += ' tool-tile__deploy-btn--deploy';
       deployBtn.textContent = 'Deploy';
-      deployBtn.title = 'Seed default access to all existing users';
+      deployBtn.title = 'Seed default access for users who have never had this tool configured';
     } else {
       deployBtn.className += ' tool-tile__deploy-btn--redeploy';
-      deployBtn.textContent = 'Re-deploy';
+      deployBtn.textContent = 'Seed new';
       deployBtn.dataset.isRedeployed = '1';
-      deployBtn.title = 'Re-run deployment to catch any users added since last deploy';
+      deployBtn.title = 'Seed access for any users added since the tool was first deployed';
     }
 
     deployBtn.addEventListener('click', function(e) {
@@ -2428,12 +2503,10 @@ function deployTool(toolKey, btn) {
 
     Object.keys(allUsers).forEach(function(uid) {
       var u = allUsers[uid];
-      /* Skip if entry is already in correct object format.
-         Overwrite string-format entries left by v5.56 deploy bug. */
-      if (u.tools && u.tools[toolKey] !== undefined) {
-        var existing = u.tools[toolKey];
-        if (typeof existing === 'object' && existing !== null) return;
-      }
+      /* Skip if user already has any non-null entry for this tool.
+         This only seeds users who have never had this tool configured.
+         Never overwrites existing access levels regardless of format. */
+      if (u.tools && u.tools[toolKey] != null) return;
       if (u.pending || u.rejected) return;
 
       var gk = getGroupKey(u);
@@ -2450,21 +2523,21 @@ function deployTool(toolKey, btn) {
     if (count === 0) {
       showToast('All users already have ' + (tool.label || toolKey) + ' configured', 'info');
       btn.disabled = false;
-      btn.textContent = btn.dataset.isRedeployed ? 'Re-deploy' : 'Deploy';
+      btn.textContent = btn.dataset.isRedeployed ? 'Seed new' : 'Seed';
       return Promise.resolve();
     }
 
     updates['tools/' + toolKey + '/deployedAt'] = Date.now();
 
     return db.ref().update(updates).then(function() {
-      writeAudit('tool_deployed',
-        (tool.label || toolKey) + ' deployed to ' + count + ' user' + (count === 1 ? '' : 's'));
-      showToast((tool.label || toolKey) + ' deployed to ' + count + ' user' + (count === 1 ? '' : 's'), 'success');
+      writeAudit('tool_seeded',
+        (tool.label || toolKey) + ' seeded to ' + count + ' user' + (count === 1 ? '' : 's') + ' (new only)');
+      showToast((tool.label || toolKey) + ' seeded to ' + count + ' new user' + (count === 1 ? '' : 's'), 'success');
       loadTools().then(function() { renderToolGrid(); });
     });
   }).catch(function(err) {
     btn.disabled = false;
-    btn.textContent = btn.dataset.isRedeployed ? 'Re-deploy' : 'Deploy';
+    btn.textContent = btn.dataset.isRedeployed ? 'Seed new' : 'Seed';
     showToast('Deploy failed: ' + err.message, 'error');
   });
 }
@@ -3772,7 +3845,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       if (idx === -1) idx = 0;
 
       var fill = slider.querySelector('.acc-slider__track-fill');
-      if (fill) fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+      if (fill) /* fill removed */ void idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
 
       slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
         stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled', 'acc-slider__stop--padlocked');
@@ -3915,7 +3988,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
       if (idx === -1) idx = 0;
 
       var fill = slider.querySelector('.acc-slider__track-fill');
-      if (fill) fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+      if (fill) /* fill removed */ void idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
 
       slider.querySelectorAll('.acc-slider__stop').forEach(function(stop, si) {
         stop.classList.remove('acc-slider__stop--active', 'acc-slider__stop--filled');
@@ -4056,7 +4129,7 @@ function buildAccordionItem(uid, u, depts, deptMap) {
         if (useIdx === -1) useIdx = 0;
 
         var fill = slider.querySelector('.acc-slider__track-fill');
-        if (fill) fill.style.width = useIdx <= 0 ? '0%' : (useIdx / (ACC_LEVELS.length - 1) * 100) + '%';
+        if (fill) /* fill removed */ void useIdx <= 0 ? '0%' : (useIdx / (ACC_LEVELS.length - 1) * 100) + '%';
 
         /* Lock entire slider if staff-locked */
         slider.className = 'acc-slider' + (isStaffLocked ? ' acc-slider--locked' : '');
@@ -4525,7 +4598,7 @@ function buildAccSlider(uid, toolKey, currentLevel, defaultLevel, locked, clubLo
 
   function updateFill(idx) {
     var pct = idx <= 0 ? 0 : (idx / (ACC_LEVELS.length - 1)) * 100;
-    fill.style.width = pct + '%';
+    /* fill removed */ void pct + '%';
   }
   updateFill(currentIdx);
 
@@ -4616,7 +4689,7 @@ function resetSetAllSlider(bodyEl, dept) {
     s.classList.remove('uacc-set-all-slider__stop--active', 'uacc-set-all-slider__stop--filled');
   });
   var fill = slider.querySelector('.uacc-set-all-slider__fill');
-  if (fill) fill.style.width = '0%';
+  if (fill) /* fill removed */ void '0%';
 }
 
 function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
@@ -4631,7 +4704,7 @@ function buildSetAllSlider(uid, u, dept, deptMap, deptWrap) {
   wrap.appendChild(track);
 
   function updateFill(idx) {
-    fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+    /* fill removed */ void idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
   }
 
   var isClubUser  = u.role === 'club';
@@ -5061,7 +5134,7 @@ function buildInviteSetAllSlider(dept, deptMap, container, isClubOrg) {
   wrap.appendChild(track);
 
   function updateFill(idx) {
-    fill.style.width = idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
+    /* fill removed */ void idx <= 0 ? '0%' : (idx / (ACC_LEVELS.length - 1) * 100) + '%';
   }
 
   ACC_LEVELS.forEach(function(level, idx) {
@@ -5131,7 +5204,7 @@ function buildInviteSlider(toolKey, currentLevel, clubLocked, dept, container) {
   wrap.appendChild(track);
   function updateFill(idx) {
     var pct = idx <= 0 ? 0 : (idx / (ACC_LEVELS.length - 1)) * 100;
-    fill.style.width = pct + '%';
+    /* fill removed */ void pct + '%';
   }
   updateFill(currentIdx);
   ACC_LEVELS.forEach(function(level, idx) {
