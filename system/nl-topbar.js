@@ -1,7 +1,7 @@
 /* =========================================================================
    NL Tools — Topbar renderer
    File: /tools/system/nl-topbar.js
-   Version: v1.4 (25/04/2026)
+   Version: v1.5 (25/04/2026)
 
    Renders the standardised NL Tools topbar into #nlTopbar slot. Reads
    session from window.NL_SESSION (set by auth-guard) and tool catalogue
@@ -31,6 +31,13 @@
    which doesn't use auth-guard directly).
 
    Changelog
+   v1.5 (25/04/2026)
+     - PWA + favicon injection: injects manifest link, theme-color meta,
+       favicon links, and iOS PWA meta tags into every page that loads
+       nl-topbar.js. Tools no longer need these tags in their own <head>.
+       Idempotent — safe to run even if tags already exist.
+       Pairs with _headers file (repo root) for no-cache on system files.
+
    v1.4 (25/04/2026)
      - Logo now a link to /tools/portal/ on all pages (acts as home button).
      - Removed arrow (←) from Portal button — just shows "Portal" text.
@@ -141,6 +148,75 @@
     /* Load tool catalogue for dropdown (async, non-blocking) */
     if (session && session.uid) loadToolCatalogue(session);
   };
+
+
+  /* ── PWA + favicon injection ─────────────────────────────────────────────
+     Injects manifest link, theme-color, and favicon tags into <head> on
+     every page that loads nl-topbar.js. This means the portal only needs
+     the PWA setup (manifest.json + sw.js) — all tool pages get the
+     favicons automatically without any HTML changes. Idempotent. */
+  (function injectPWAMeta() {
+    var head = document.head;
+    if (!head) return;
+
+    function hasLink(rel, sizes) {
+      var sel = 'link[rel="' + rel + '"]' + (sizes ? '[sizes="' + sizes + '"]' : '');
+      return !!document.querySelector(sel);
+    }
+    function hasMeta(name) {
+      return !!document.querySelector('meta[name="' + name + '"]');
+    }
+
+    /* Manifest */
+    if (!document.querySelector('link[rel="manifest"]')) {
+      var m = document.createElement('link');
+      m.rel = 'manifest'; m.href = '/tools/manifest.json';
+      head.appendChild(m);
+    }
+
+    /* Theme colour */
+    if (!hasMeta('theme-color')) {
+      var tc = document.createElement('meta');
+      tc.name = 'theme-color'; tc.content = '#9e0000';
+      head.appendChild(tc);
+    }
+
+    /* Favicons */
+    if (!hasLink('icon', '32x32')) {
+      var f32 = document.createElement('link');
+      f32.rel = 'icon'; f32.type = 'image/png';
+      f32.setAttribute('sizes', '32x32');
+      f32.href = '/tools/assets/icons/favicon-32x32.png';
+      head.appendChild(f32);
+    }
+    if (!hasLink('icon', '16x16')) {
+      var f16 = document.createElement('link');
+      f16.rel = 'icon'; f16.type = 'image/png';
+      f16.setAttribute('sizes', '16x16');
+      f16.href = '/tools/assets/icons/favicon-16x16.png';
+      head.appendChild(f16);
+    }
+    if (!hasLink('apple-touch-icon')) {
+      var atc = document.createElement('link');
+      atc.rel = 'apple-touch-icon';
+      atc.setAttribute('sizes', '180x180');
+      atc.href = '/tools/assets/icons/apple-touch-icon.png';
+      head.appendChild(atc);
+    }
+
+    /* iOS PWA meta */
+    if (!hasMeta('apple-mobile-web-app-capable')) {
+      var amc = document.createElement('meta');
+      amc.name = 'apple-mobile-web-app-capable'; amc.content = 'yes';
+      head.appendChild(amc);
+    }
+    if (!hasMeta('apple-mobile-web-app-status-bar-style')) {
+      var ambs = document.createElement('meta');
+      ambs.name = 'apple-mobile-web-app-status-bar-style';
+      ambs.content = 'black-translucent';
+      head.appendChild(ambs);
+    }
+  })();
 
   /* ── Topbar builder ──────────────────────────────────────────────────── */
   function buildTopbar(session, opts) {
