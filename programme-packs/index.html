@@ -3,45 +3,44 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 1.4
+  Version: 2.0
   Date: 25/04/2026
 
   CHANGELOG
+  v2.0 (25/04/2026)
+    - "NL Central" renamed to "National League Assets" — different model from
+      club folders. Admin-managed dynamic folder tree (up to 3 levels deep).
+      Files live alongside folders inside any folder; root cannot hold files.
+    - NL admins can create / rename / hard-delete folders. Hard-delete cascades:
+      removes all subtree folders + soft-deletes all files inside (Drive folder
+      goes to trash, taking contents with it).
+    - Hard-delete requires typing DELETE to confirm.
+    - GAS additions (must redeploy): pp_nlf_create / pp_nlf_rename / pp_nlf_delete.
+      pp_upload now routes NL Assets uploads via nl-assets-folders lookup.
+    - "Scroll to folders" CTA dropped — banner shows no CTA when already on own
+      club's folder grid.
+    - Note: existing "_NL Central" Drive folder retained as the storage root for
+      NL Assets — bootstrap is unchanged. The 8 seeded folders previously
+      created inside it are unused and can be ignored or manually deleted.
+
   v1.4 (25/04/2026)
-    - Fix: club reps couldn't see their own club's banner / pinned sidebar
-      entry / upload buttons. Cause: session.club is the display name
-      ("Darlington") but the tool internally uses slugs ("darlington").
-      All comparisons silently failed.
-    - Added ppResolveMyClub() that maps raw session.club to a known club
-      key, tolerating display name / slug / case-insensitive name match.
-      Logs a warning if no match found.
-    - GAS pp_upload also fixed: slugifies user.club before comparing to
-      body.clubKey. Companion fix in ProgrammePacks.gs (must redeploy).
-    - Note: RTDB rules don't need changing — the create-branch of files/$fileId
-      only triggers for direct browser writes, which we don't use (uploads go
-      via GAS, which bypasses rules via RTDB_SECRET).
+    - Fix: club reps couldn't see club-specific UI. session.club is display
+      name ("Darlington") but tool uses slugs internally ("darlington").
+      Added ppResolveMyClub() + GAS-side slug normalisation in pp_upload.
 
   v1.3 (25/04/2026)
-    - Sidebar reorder: user's own club now pinned at the top under a "Your
-      club" header, separated from the rest. Sidebar still shows everyone.
-    - "Your club" banner above the layout: club crest, progress bar (X/8
-      folders filled), file count, last upload date, and contextual CTA
-      that adapts: "Manage your pack →" when elsewhere, "↓ Scroll to
-      folders" when on the folder grid, "← All folders" when in a folder.
-    - Banner only renders when user has a club assigned (admins/staff
-      with no club don't see it).
+    - Sidebar: own club pinned at top under "Your club" header.
+    - "Your club" banner above layout: progress bar, file count, last upload,
+      contextual CTA.
 
   v1.2 (25/04/2026)
-    - Uploader display: shows user's name and org/club instead of email.
-    - Role checks tidied to match Attendance idiom: STATE.isClub /
-      isStaffLike / isAdmin (was: a tools[]+role mishmash).
-    - Back button restyled: now a proper button with chevron.
-    - Download button: now navy-filled with "Download" label, always visible.
-    - Preview loading state: shows file size + "routed through Drive" hint.
+    - Uploader display: name + org instead of email.
+    - Role checks tidied to match Attendance idiom.
+    - Back button + Download button restyled.
+    - Preview shows file size while loading.
 
   v1.1 (25/04/2026)
-    - Fix: PERMISSION_DENIED reading folders-config / files on first load.
-      Wrapped initial data loaders in NL.ensureAuth().
+    - Fix: PERMISSION_DENIED on first load. Wrapped initial loads in NL.ensureAuth().
 
   v1.0 (25/04/2026)
     - Initial Phase 1 build.
@@ -76,6 +75,16 @@
 
   /* Public-facing "What's new" — shown when users click the version badge. */
   window.NL_CHANGELOG = [
+    {
+      date:    '25 April 2026',
+      version: 'v2.0',
+      items: [
+        'New: National League Assets — a free-form library where NL admins can create folders for programme ads, branding, FA Cup info, templates, etc.',
+        'NL admins can create folders, rename them, and delete them (with confirmation).',
+        'Folders can nest up to 3 levels deep.',
+        'Club folders unchanged — same eight categories per club.'
+      ]
+    },
     {
       date:    '25 April 2026',
       version: 'v1.3',
@@ -767,6 +776,65 @@
   .pp-myclub-banner { padding: 12px 16px; }
   .pp-myclub-banner__title { font-size: 15px; }
 }
+
+/* === NL Assets — breadcrumbs + section labels === */
+.pp-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.pp-breadcrumb__root,
+.pp-breadcrumb {
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+  font-size: 16px;
+  font-variation-settings: 'wght' 800;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+}
+.pp-breadcrumb__root:hover,
+.pp-breadcrumb:hover { background: var(--off-white); color: var(--navy); }
+.pp-breadcrumb__root.is-active,
+.pp-breadcrumb.is-active {
+  color: var(--navy);
+  cursor: default;
+  font-variation-settings: 'wght' 900;
+  font-size: 22px;
+}
+.pp-breadcrumb__root.is-active:hover,
+.pp-breadcrumb.is-active:hover {
+  background: transparent;
+}
+.pp-breadcrumb__sep {
+  color: var(--border);
+  font-size: 18px;
+  font-variation-settings: 'wght' 600;
+}
+
+.pp-nlf-section-label {
+  padding: 14px 24px 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-variation-settings: 'wght' 800;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--off-white);
+}
+
+/* Header actions area — used for both club view and NL Assets */
+.pp-panel__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 </style>
 </head>
 <body>
@@ -868,6 +936,80 @@
 </div>
 
 <!-- Preview modal -->
+<!-- NL Assets — Create folder modal -->
+<div class="modal-backdrop" id="ppNlfCreateModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3>New folder</h3>
+      <button class="modal__close" onclick="ppCloseNlfCreate()">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label>Inside</label>
+        <input type="text" id="ppNlfCreateParent" readonly style="background:var(--off-white); color:var(--text-muted); cursor:default;">
+      </div>
+      <div class="form-group">
+        <label>Folder name</label>
+        <input type="text" id="ppNlfCreateInput" placeholder="e.g. Programme Ads, FA Cup, Templates" maxlength="80" onkeydown="if(event.key==='Enter')ppDoNlfCreate();">
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="ppCloseNlfCreate()">Cancel</button>
+      <button class="btn btn--primary" id="ppNlfCreateConfirm" onclick="ppDoNlfCreate()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- NL Assets — Rename folder modal -->
+<div class="modal-backdrop" id="ppNlfRenameModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3>Rename folder</h3>
+      <button class="modal__close" onclick="ppCloseNlfRename()">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label>Current name</label>
+        <p id="ppNlfRenameOldName" style="margin:0; padding:9px 12px; background:var(--off-white); border-radius:var(--radius); color:var(--text-muted);">—</p>
+      </div>
+      <div class="form-group">
+        <label>New name</label>
+        <input type="text" id="ppNlfRenameInput" maxlength="80" onkeydown="if(event.key==='Enter')ppDoNlfRename();">
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="ppCloseNlfRename()">Cancel</button>
+      <button class="btn btn--primary" id="ppNlfRenameConfirm" onclick="ppDoNlfRename()">Rename</button>
+    </div>
+  </div>
+</div>
+
+<!-- NL Assets — Delete folder modal (hard delete with type-DELETE confirm) -->
+<div class="modal-backdrop" id="ppNlfDeleteModal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3 style="color:var(--red);">Delete folder?</h3>
+      <button class="modal__close" onclick="ppCloseNlfDelete()">×</button>
+    </div>
+    <div class="modal__body">
+      <p style="margin:0 0 12px;">You're about to delete:</p>
+      <p style="background:var(--off-white); padding:10px 14px; border-radius:4px; font-variation-settings:'wght' 700;" id="ppNlfDeleteName">—</p>
+      <div style="margin:14px 0; padding:12px 14px; background:var(--red-light); border-left:3px solid var(--red); border-radius:4px; font-size:13px; color:var(--navy);">
+        <strong style="color:var(--red); display:block; font-variation-settings:'wght' 800; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">This is permanent</strong>
+        <span id="ppNlfDeleteFolderCount">1</span> folder<span id="ppNlfDeleteFolderS">s</span> and <span id="ppNlfDeleteFileCount">0</span> file<span id="ppNlfDeleteFileS">s</span> will be deleted from Drive. This cannot be undone.
+      </div>
+      <div class="form-group">
+        <label>Type DELETE to confirm</label>
+        <input type="text" id="ppNlfDeleteTypeInput" placeholder="DELETE" oninput="ppOnNlfDeleteTypeInput()" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="ppCloseNlfDelete()">Cancel</button>
+      <button class="btn btn--danger" id="ppNlfDeleteConfirm" onclick="ppDoNlfDelete()" disabled>Delete folder</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="ppPreviewModal">
   <div class="modal modal--wide">
     <div class="modal__head">
@@ -894,19 +1036,23 @@ var STATE = {
   uid:           null,
   email:         null,
   role:          null,         /* superadmin | admin | staff | club */
-  myClub:        null,         /* slug from /users/{uid}/club, e.g. 'aldershot-town' */
+  myClubRaw:     null,         /* raw value from session.club, may be display name */
+  myClub:        null,         /* canonical slug after resolution */
   isStaffLike:   false,        /* staff | admin | superadmin */
   isAdmin:       false,        /* admin | superadmin (excludes staff) */
   isClub:        false,        /* role === 'club' */
   clubs:         [],           /* sorted [{ key, name, short, division, isCentral }] */
   clubsByKey:    {},
-  folders:       [],           /* sorted [{ key, name, icon, description, sortOrder }] */
+  folders:       [],           /* sorted [{ key, name, icon, description, sortOrder }] — club seeded folders */
   files:         {},           /* fileId → metadata */
   users:         {},           /* uid → { name, email, org } — for upload-by display */
+  nlAssetsFolders: {},         /* folderId → { name, parentId, driveFolderId, ... } — NL Assets dynamic tree */
+  nlAssetsPath:  [],           /* breadcrumb stack for NL Assets navigation: [folderId, folderId, ...] */
   activeClub:    null,         /* clubKey */
-  activeFolder:  null,         /* folderKey or null (folder grid mode) */
+  activeFolder:  null,         /* folderKey or null (folder grid mode); for NL Assets: nlAssetsFolders id */
   search:        '',
   sortBy:        'date-desc',
+  view:          'list',       /* 'list' | 'grid' */
   upload:        { mode: 'create', file: null, replaceFileId: null, replaceFilename: null },
   deleteId:      null,
   previewId:     null,
@@ -943,7 +1089,13 @@ window.nlAuthReady = function(session) {
      fail with permission_denied. ensureAuth waits for the real auth state. */
   NL.ensureAuth()
     .then(function() {
-      return Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles(), ppLoadUsersIfNeeded()]);
+      return Promise.all([
+        ppLoadClubs(),
+        ppLoadFolders(),
+        ppLoadFiles(),
+        ppLoadUsersIfNeeded(),
+        ppLoadNlAssetsFolders()
+      ]);
     })
     .then(function() {
       /* Resolve myClubRaw to a canonical clubKey (slug). Tolerates display
@@ -1008,7 +1160,7 @@ function ppLoadClubs() {
         };
       });
       arr.sort(function(a, b) { return a.name.localeCompare(b.name); });
-      arr.unshift({ key: '_nl-central', name: 'NL Central', short: 'NL', division: 'Reference', isCentral: true });
+      arr.unshift({ key: '_nl-central', name: 'National League Assets', short: 'NL', division: 'Reference', isCentral: true });
       STATE.clubs = arr;
       STATE.clubsByKey = {};
       arr.forEach(function(c) { STATE.clubsByKey[c.key] = c; });
@@ -1055,6 +1207,38 @@ function ppLoadFiles() {
       ppRerenderIfRelevant({ clubKey: STATE.activeClub, folderKey: STATE.activeFolder });
     });
   });
+}
+
+function ppLoadNlAssetsFolders() {
+  var db = firebase.database();
+  return db.ref(TOOL_DATA_PATH + '/nl-assets-folders').once('value').then(function(snap) {
+    STATE.nlAssetsFolders = snap.val() || {};
+    /* live updates: fold create/rename/delete back into UI */
+    db.ref(TOOL_DATA_PATH + '/nl-assets-folders').on('child_added', function(s) {
+      STATE.nlAssetsFolders[s.key] = s.val();
+      ppRerenderIfNlAssets();
+    });
+    db.ref(TOOL_DATA_PATH + '/nl-assets-folders').on('child_changed', function(s) {
+      STATE.nlAssetsFolders[s.key] = s.val();
+      ppRerenderIfNlAssets();
+    });
+    db.ref(TOOL_DATA_PATH + '/nl-assets-folders').on('child_removed', function(s) {
+      delete STATE.nlAssetsFolders[s.key];
+      /* If the active folder was removed, pop back up the breadcrumb */
+      if (STATE.activeClub === '_nl-central') {
+        var path = STATE.nlAssetsPath;
+        var idx = path.indexOf(s.key);
+        if (idx !== -1) {
+          STATE.nlAssetsPath = path.slice(0, idx);
+        }
+      }
+      ppRerenderIfNlAssets();
+    });
+  });
+}
+
+function ppRerenderIfNlAssets() {
+  if (STATE.activeClub === '_nl-central') ppRenderMainPanel();
 }
 
 function ppRerenderIfRelevant(meta) {
@@ -1249,17 +1433,18 @@ function ppRenderMyClubBanner() {
     subParts.push('no uploads yet');
   }
 
-  /* CTA — varies based on whether already viewing own club */
-  var ctaLabel, ctaAction;
+  /* CTA — varies based on whether already viewing own club.
+     - Already on own folder grid: no CTA (avoid redundant "scroll to folders")
+     - Inside one of our folders: "← All folders"
+     - Anywhere else: "Manage your pack →" */
+  var ctaHtml = '';
   if (STATE.activeClub === club.key && !STATE.activeFolder) {
-    ctaLabel = '↓ Scroll to folders';
-    ctaAction = "var g=document.querySelector('.pp-folder-grid');if(g)g.scrollIntoView({behavior:'smooth',block:'start'});";
+    /* Already showing this club's folder grid — no CTA needed */
+    ctaHtml = '';
   } else if (STATE.activeClub === club.key && STATE.activeFolder) {
-    ctaLabel = '← All folders';
-    ctaAction = 'ppBackToFolders()';
+    ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppBackToFolders()">← All folders</button>';
   } else {
-    ctaLabel = 'Manage your pack →';
-    ctaAction = "ppSelectClub('" + NL.escJ(club.key) + "')";
+    ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppSelectClub(\'' + NL.escJ(club.key) + '\')">Manage your pack →</button>';
   }
 
   var crestHtml = '<img class="pp-myclub-banner__crest" src="' + NL.escHtml(ppCrestUrl(club.name)) + '" '
@@ -1273,7 +1458,7 @@ function ppRenderMyClubBanner() {
       + '<div class="pp-myclub-banner__title">' + NL.escHtml(club.name) + '</div>'
       + '<div class="pp-myclub-banner__sub">' + subParts.join(' · ') + '</div>'
     + '</div>'
-    + '<button class="pp-myclub-banner__cta" onclick="' + ctaAction + '">' + NL.escHtml(ctaLabel) + '</button>'
+    + ctaHtml
   + '</div>';
   el.style.display = '';
 }
@@ -1357,6 +1542,7 @@ function ppSelectClub(clubKey) {
   STATE.activeClub = clubKey;
   STATE.activeFolder = null;
   STATE.search = '';
+  STATE.nlAssetsPath = [];   /* always start at NL Assets root when entering it */
   ppRenderMyClubBanner();
   ppRenderClubList();
   ppRenderMainPanel();
@@ -1367,6 +1553,11 @@ function ppSelectClub(clubKey) {
    ============================================================================ */
 
 function ppRenderMainPanel() {
+  /* NL Assets is a different beast — dynamic folders, breadcrumbs */
+  if (STATE.activeClub === '_nl-central') {
+    ppRenderNlAssets();
+    return;
+  }
   if (STATE.activeFolder) ppRenderFilesView();
   else ppRenderFolderGrid();
 }
@@ -1390,7 +1581,7 @@ function ppRenderFolderGrid() {
 
   var subText;
   if (club.isCentral) {
-    subText = 'NL staff reference library — visible to all clubs';
+    subText = 'National League Assets — admin-managed library';
   } else {
     subText = totalFiles + ' file' + (totalFiles === 1 ? '' : 's')
       + ' · ' + filledCount + ' of ' + STATE.folders.length + ' folders filled';
@@ -1426,7 +1617,7 @@ function ppRenderFolderGrid() {
       + '<div class="pp-panel__head__left">'
         + crestHtml
         + '<div>'
-          + '<h2 class="pp-panel__title">' + NL.escHtml(club.isCentral ? 'NL Central Library' : club.name) + '</h2>'
+          + '<h2 class="pp-panel__title">' + NL.escHtml(club.isCentral ? 'National League Assets' : club.name) + '</h2>'
           + '<div class="pp-panel__sub">' + NL.escHtml(subText) + '</div>'
         + '</div>'
       + '</div>'
@@ -1571,6 +1762,462 @@ function ppOnSortChange(val) {
 }
 
 /* ============================================================================
+   NL ASSETS — dynamic folder tree (admin-managed)
+   ============================================================================
+   Different shape to club views. Admins see breadcrumbs, "+ New folder",
+   rename/delete on each folder. Files live alongside folders at the same
+   level. Files use clubKey='_nl-central' and folderKey={nl-assets folderId}.
+   ============================================================================ */
+
+function ppNlfChildren(parentId) {
+  var out = [];
+  var pid = parentId || null;
+  Object.keys(STATE.nlAssetsFolders).forEach(function(fid) {
+    var f = STATE.nlAssetsFolders[fid];
+    if (!f) return;
+    if ((f.parentId || null) === pid) {
+      var copy = {};
+      Object.keys(f).forEach(function(k) { copy[k] = f[k]; });
+      copy.id = fid;
+      out.push(copy);
+    }
+  });
+  out.sort(function(a, b) {
+    /* alphabetical by name (sortOrder still stored for future custom ordering) */
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  return out;
+}
+
+function ppNlfFilesIn(folderId) {
+  var out = [];
+  Object.keys(STATE.files).forEach(function(id) {
+    var f = STATE.files[id];
+    if (!f || f.isDeleted) return;
+    if (f.clubKey !== '_nl-central') return;
+    /* Root level: folderKey is null/empty/undefined */
+    if (!folderId) {
+      if (!f.folderKey) {
+        var copy1 = {}; Object.keys(f).forEach(function(k) { copy1[k] = f[k]; }); copy1.id = id;
+        out.push(copy1);
+      }
+      return;
+    }
+    if (f.folderKey === folderId) {
+      var copy2 = {}; Object.keys(f).forEach(function(k) { copy2[k] = f[k]; }); copy2.id = id;
+      out.push(copy2);
+    }
+  });
+  return out;
+}
+
+function ppNlfPathTrail() {
+  /* Returns [{id, name}] for breadcrumbs based on STATE.nlAssetsPath */
+  var trail = [];
+  STATE.nlAssetsPath.forEach(function(fid) {
+    var f = STATE.nlAssetsFolders[fid];
+    if (f) trail.push({ id: fid, name: f.name });
+  });
+  return trail;
+}
+
+function ppCurrentNlfId() {
+  var path = STATE.nlAssetsPath;
+  return path.length > 0 ? path[path.length - 1] : null;
+}
+
+function ppNlfDepth(folderId) {
+  var depth = 0;
+  var current = STATE.nlAssetsFolders[folderId];
+  while (current && current.parentId) {
+    depth++;
+    if (depth > 10) break;
+    current = STATE.nlAssetsFolders[current.parentId];
+  }
+  return depth;
+}
+
+function ppRenderNlAssets() {
+  var panel  = document.getElementById('ppMainPanel');
+  var canEdit = STATE.isAdmin;
+  var currentId = ppCurrentNlfId();
+  var childFolders = ppNlfChildren(currentId);
+  var filesHere    = ppNlfFilesIn(currentId);
+
+  /* Apply search across both folders + files at current level */
+  var foldersFiltered = childFolders;
+  var filesFiltered   = filesHere;
+  if (STATE.search) {
+    var q = STATE.search.toLowerCase();
+    foldersFiltered = childFolders.filter(function(f) {
+      return (f.name || '').toLowerCase().indexOf(q) !== -1;
+    });
+    filesFiltered = filesHere.filter(function(f) {
+      return (f.name || '').toLowerCase().indexOf(q) !== -1
+          || (f.description || '').toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  /* Sort files (folders stay alphabetical) */
+  filesFiltered.sort(function(a, b) {
+    if (STATE.sortBy === 'name')      return (a.name || '').localeCompare(b.name || '');
+    if (STATE.sortBy === 'date-asc')  return (a.uploadedAt || 0) - (b.uploadedAt || 0);
+    if (STATE.sortBy === 'size')      return (b.size || 0) - (a.size || 0);
+    return (b.uploadedAt || 0) - (a.uploadedAt || 0);
+  });
+
+  /* === Header === */
+  var crestHtml = '<div class="pp-panel__crest pp-panel__crest--text">NL</div>';
+  var trail = ppNlfPathTrail();
+  var atRoot = trail.length === 0;
+
+  var breadcrumbsHtml = '<button class="pp-breadcrumb__root' + (atRoot ? ' is-active' : '') + '" onclick="ppNlfNavigateTo([])">National League Assets</button>';
+  trail.forEach(function(crumb, idx) {
+    var pathSlice = STATE.nlAssetsPath.slice(0, idx + 1);
+    var isLast = (idx === trail.length - 1);
+    breadcrumbsHtml += '<span class="pp-breadcrumb__sep">›</span>';
+    breadcrumbsHtml += '<button class="pp-breadcrumb' + (isLast ? ' is-active' : '') + '" onclick="ppNlfNavigateTo(' + JSON.stringify(pathSlice) + ')">' + NL.escHtml(crumb.name) + '</button>';
+  });
+
+  var totalFolders = childFolders.length;
+  var totalFiles   = filesHere.length;
+  var subText = totalFolders + ' folder' + (totalFolders === 1 ? '' : 's') + ' · ' + totalFiles + ' file' + (totalFiles === 1 ? '' : 's');
+  if (canEdit) subText += ' · admin can manage';
+
+  /* === Header actions === */
+  var headerActions = '';
+  if (canEdit) {
+    /* "New folder" only if depth allows */
+    var depthOk = !currentId || (ppNlfDepth(currentId) + 1 < 3);
+    if (depthOk) {
+      headerActions += '<button class="btn btn--ghost btn--sm" onclick="ppOpenNlfCreate(' + (currentId ? "'" + NL.escJ(currentId) + "'" : 'null') + ')">+ New folder</button>';
+    }
+    headerActions += ' <button class="btn btn--primary btn--sm" onclick="ppOpenNlfUpload()">⬆ Upload file</button>';
+  }
+  if (currentId && canEdit) {
+    var meta = STATE.nlAssetsFolders[currentId];
+    if (meta) {
+      headerActions += ' <button class="btn btn--ghost btn--sm" onclick="ppOpenNlfRename(\'' + NL.escJ(currentId) + '\')">Rename folder</button>';
+      headerActions += ' <button class="btn btn--ghost btn--sm" style="color:var(--red);" onclick="ppOpenNlfDelete(\'' + NL.escJ(currentId) + '\')">Delete folder</button>';
+    }
+  }
+
+  /* === Body === */
+  var bodyHtml = '';
+
+  /* Folders block */
+  if (foldersFiltered.length > 0) {
+    bodyHtml += '<div class="pp-nlf-section-label">Folders</div>';
+    bodyHtml += '<div class="pp-folder-grid">';
+    bodyHtml += foldersFiltered.map(function(f) {
+      var inner = ppNlfChildren(f.id);
+      var innerFiles = ppNlfFilesIn(f.id);
+      var totalInside = inner.length + innerFiles.length;
+      var subline = totalInside === 0 ? 'Empty' :
+        (inner.length > 0 ? inner.length + ' folder' + (inner.length === 1 ? '' : 's') + (innerFiles.length > 0 ? ' · ' + innerFiles.length + ' file' + (innerFiles.length === 1 ? '' : 's') : '') : innerFiles.length + ' file' + (innerFiles.length === 1 ? '' : 's'));
+      return '<div class="pp-folder-card" onclick="ppNlfOpen(\'' + NL.escJ(f.id) + '\')">'
+        + '<div class="pp-folder-card__head">'
+          + '<div class="pp-folder-card__icon">📁</div>'
+          + '<div class="pp-folder-card__title">' + NL.escHtml(f.name) + '</div>'
+          + '<div class="pp-folder-card__status pp-folder-card__status--' + (totalInside > 0 ? 'green' : 'grey') + '"></div>'
+        + '</div>'
+        + '<div class="pp-folder-card__meta">' + NL.escHtml(subline) + '</div>'
+      + '</div>';
+    }).join('');
+    bodyHtml += '</div>';
+  }
+
+  /* Files block */
+  if (filesFiltered.length > 0) {
+    bodyHtml += '<div class="pp-nlf-section-label">Files</div>';
+    bodyHtml += '<div class="pp-files">';
+    bodyHtml += filesFiltered.map(function(f) {
+      var ic = ppFileTypeIcon(f.type);
+      var actions = '<button class="pp-file__btn pp-file__btn--primary" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓ Download</button>';
+      if (canEdit) {
+        actions += '<button class="pp-file__btn pp-file__btn--edit" onclick="event.stopPropagation();ppOpenReplace(\'' + NL.escJ(f.id) + '\')">Replace</button>';
+        actions += '<button class="pp-file__btn pp-file__btn--danger" onclick="event.stopPropagation();ppOpenDelete(\'' + NL.escJ(f.id) + '\')">Delete</button>';
+      }
+      return '<div class="pp-file" data-editable="' + (canEdit ? 'true' : 'false') + '" '
+        + 'onclick="ppOpenPreview(\'' + NL.escJ(f.id) + '\')">'
+        + '<div class="pp-file__icon pp-file__icon--' + ic.cls + '">' + ic.label + '</div>'
+        + '<div class="pp-file__main">'
+          + '<div class="pp-file__name">' + NL.escHtml(f.name) + '</div>'
+          + '<div class="pp-file__meta">' + NL.escHtml(ppDisplayUploader(f)) + (f.description ? ' · ' + NL.escHtml(f.description) : '') + '</div>'
+        + '</div>'
+        + '<div class="pp-file__date">' + ppFmtDate(f.uploadedAt) + '</div>'
+        + '<div class="pp-file__size">' + ppFmtSize(f.size) + '</div>'
+        + '<div class="pp-file__actions">' + actions + '</div>'
+        + '</div>';
+    }).join('');
+    bodyHtml += '</div>';
+  }
+
+  /* Empty state */
+  if (foldersFiltered.length === 0 && filesFiltered.length === 0) {
+    if (STATE.search) {
+      bodyHtml = '<div class="pp-files__empty"><div class="pp-files__empty__icon">🔍</div><div>No matches for "' + NL.escHtml(STATE.search) + '"</div></div>';
+    } else if (atRoot && totalFolders === 0 && totalFiles === 0) {
+      bodyHtml = '<div class="pp-files__empty">'
+        + '<div class="pp-files__empty__icon">📦</div>'
+        + '<div style="font-variation-settings:\'wght\' 700; color:var(--navy); margin-bottom:6px;">National League Assets is empty</div>'
+        + '<div style="font-size:13px;">' + (canEdit ? 'Create folders to organise programme ads, branding packs, templates, and other league-wide assets.' : 'Content will appear here once NL admins upload it.') + '</div>'
+        + (canEdit ? '<button class="btn btn--primary btn--sm" style="margin-top:14px;" onclick="ppOpenNlfCreate(null)">+ Create first folder</button>' : '')
+        + '</div>';
+    } else {
+      bodyHtml = '<div class="pp-files__empty">'
+        + '<div class="pp-files__empty__icon">📂</div>'
+        + '<div>This folder is empty.</div>'
+        + (canEdit ? '<div style="margin-top:14px;"><button class="btn btn--primary btn--sm" onclick="ppOpenNlfUpload()">⬆ Upload file</button> <button class="btn btn--ghost btn--sm" onclick="ppOpenNlfCreate(\'' + NL.escJ(currentId) + '\')">+ New subfolder</button></div>' : '')
+        + '</div>';
+    }
+  }
+
+  panel.innerHTML =
+    '<div class="pp-panel">'
+    + '<div class="pp-panel__head">'
+      + '<div class="pp-panel__head__left">'
+        + crestHtml
+        + '<div style="min-width:0; flex:1;">'
+          + '<div class="pp-breadcrumbs">' + breadcrumbsHtml + '</div>'
+          + '<div class="pp-panel__sub">' + NL.escHtml(subText) + '</div>'
+        + '</div>'
+      + '</div>'
+      + '<div class="pp-panel__actions">' + headerActions + '</div>'
+    + '</div>'
+    + '<div class="pp-filterbar">'
+      + '<input type="text" class="pp-filterbar__search" id="ppSearchInput" placeholder="Search NL Assets…" value="' + NL.escHtml(STATE.search) + '" oninput="ppOnSearchInput(this.value)">'
+      + '<select class="pp-filterbar__select" id="ppSortSelect" onchange="ppOnSortChange(this.value)">'
+        + '<option value="date-desc"' + (STATE.sortBy === 'date-desc' ? ' selected' : '') + '>Newest first</option>'
+        + '<option value="date-asc"'  + (STATE.sortBy === 'date-asc'  ? ' selected' : '') + '>Oldest first</option>'
+        + '<option value="name"'      + (STATE.sortBy === 'name'      ? ' selected' : '') + '>Name (A–Z)</option>'
+        + '<option value="size"'      + (STATE.sortBy === 'size'      ? ' selected' : '') + '>Largest first</option>'
+      + '</select>'
+    + '</div>'
+    + bodyHtml
+  + '</div>';
+
+  /* refocus search if needed */
+  var input = document.getElementById('ppSearchInput');
+  if (input && STATE.search && document.activeElement !== input) {
+    /* leave focus alone — only a search-typing oninput would refocus, handled in ppOnSearchInput */
+  }
+}
+
+function ppNlfOpen(folderId) {
+  STATE.nlAssetsPath = STATE.nlAssetsPath.concat([folderId]);
+  STATE.search = '';
+  ppRenderMainPanel();
+}
+
+function ppNlfNavigateTo(pathArr) {
+  STATE.nlAssetsPath = pathArr.slice();
+  STATE.search = '';
+  ppRenderMainPanel();
+}
+
+/* === Folder create modal === */
+
+function ppOpenNlfCreate(parentId) {
+  if (!STATE.isAdmin) { NL.toast('Admins only.', 'error'); return; }
+  var modal = document.getElementById('ppNlfCreateModal');
+  modal.dataset.parentId = parentId || '';
+  document.getElementById('ppNlfCreateInput').value = '';
+  /* Show parent context */
+  var parentLabel = parentId
+    ? (STATE.nlAssetsFolders[parentId] ? STATE.nlAssetsFolders[parentId].name : '(unknown)')
+    : 'National League Assets (root)';
+  document.getElementById('ppNlfCreateParent').textContent = parentLabel;
+  modal.classList.add('open');
+  setTimeout(function() { document.getElementById('ppNlfCreateInput').focus(); }, 50);
+}
+
+function ppCloseNlfCreate() {
+  document.getElementById('ppNlfCreateModal').classList.remove('open');
+}
+
+function ppDoNlfCreate() {
+  var modal = document.getElementById('ppNlfCreateModal');
+  var name  = document.getElementById('ppNlfCreateInput').value.trim();
+  if (!name) { NL.toast('Folder name required.', 'error'); return; }
+
+  var parentId = modal.dataset.parentId || null;
+  var btn = document.getElementById('ppNlfCreateConfirm');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+
+  ppCallGas({
+    action:   'pp_nlf_create',
+    name:     name,
+    parentId: parentId || null
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.error || 'Create failed');
+    NL.toast('Folder created.', 'success');
+    /* live listener will re-render; navigate into new folder */
+    STATE.nlAssetsPath = (parentId ? STATE.nlAssetsPath : []).concat([r.folderId]);
+    ppCloseNlfCreate();
+    btn.disabled = false;
+    btn.textContent = 'Create';
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Create';
+    NL.toast('Error: ' + err.message, 'error');
+  });
+}
+
+/* === Folder rename modal === */
+
+function ppOpenNlfRename(folderId) {
+  if (!STATE.isAdmin) { NL.toast('Admins only.', 'error'); return; }
+  var meta = STATE.nlAssetsFolders[folderId];
+  if (!meta) return;
+  var modal = document.getElementById('ppNlfRenameModal');
+  modal.dataset.folderId = folderId;
+  document.getElementById('ppNlfRenameInput').value = meta.name;
+  document.getElementById('ppNlfRenameOldName').textContent = meta.name;
+  modal.classList.add('open');
+  setTimeout(function() {
+    var inp = document.getElementById('ppNlfRenameInput');
+    inp.focus();
+    inp.select();
+  }, 50);
+}
+
+function ppCloseNlfRename() {
+  document.getElementById('ppNlfRenameModal').classList.remove('open');
+}
+
+function ppDoNlfRename() {
+  var modal = document.getElementById('ppNlfRenameModal');
+  var folderId = modal.dataset.folderId;
+  var newName  = document.getElementById('ppNlfRenameInput').value.trim();
+  if (!newName) { NL.toast('Name required.', 'error'); return; }
+
+  var btn = document.getElementById('ppNlfRenameConfirm');
+  btn.disabled = true;
+  btn.textContent = 'Renaming…';
+
+  ppCallGas({
+    action:   'pp_nlf_rename',
+    folderId: folderId,
+    name:     newName
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.error || 'Rename failed');
+    NL.toast('Folder renamed.', 'success');
+    ppCloseNlfRename();
+    btn.disabled = false;
+    btn.textContent = 'Rename';
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Rename';
+    NL.toast('Error: ' + err.message, 'error');
+  });
+}
+
+/* === Folder delete (hard) modal === */
+
+function ppOpenNlfDelete(folderId) {
+  if (!STATE.isAdmin) { NL.toast('Admins only.', 'error'); return; }
+  var meta = STATE.nlAssetsFolders[folderId];
+  if (!meta) return;
+
+  /* Count what's about to die so the confirm message is accurate */
+  var subtreeFolderIds = [folderId];
+  var queue = [folderId];
+  while (queue.length > 0) {
+    var current = queue.shift();
+    Object.keys(STATE.nlAssetsFolders).forEach(function(fid) {
+      var f = STATE.nlAssetsFolders[fid];
+      if (f && f.parentId === current) {
+        subtreeFolderIds.push(fid);
+        queue.push(fid);
+      }
+    });
+  }
+  var fileCount = 0;
+  Object.keys(STATE.files).forEach(function(id) {
+    var f = STATE.files[id];
+    if (!f || f.isDeleted) return;
+    if (f.clubKey === '_nl-central' && subtreeFolderIds.indexOf(f.folderKey) !== -1) {
+      fileCount++;
+    }
+  });
+
+  var modal = document.getElementById('ppNlfDeleteModal');
+  modal.dataset.folderId = folderId;
+  document.getElementById('ppNlfDeleteName').textContent = meta.name;
+  document.getElementById('ppNlfDeleteFolderCount').textContent = subtreeFolderIds.length;
+  document.getElementById('ppNlfDeleteFileCount').textContent = fileCount;
+  document.getElementById('ppNlfDeleteTypeInput').value = '';
+  document.getElementById('ppNlfDeleteConfirm').disabled = true;
+  modal.classList.add('open');
+  setTimeout(function() { document.getElementById('ppNlfDeleteTypeInput').focus(); }, 50);
+}
+
+function ppCloseNlfDelete() {
+  document.getElementById('ppNlfDeleteModal').classList.remove('open');
+}
+
+function ppOnNlfDeleteTypeInput() {
+  var val = document.getElementById('ppNlfDeleteTypeInput').value;
+  document.getElementById('ppNlfDeleteConfirm').disabled = (val !== 'DELETE');
+}
+
+function ppDoNlfDelete() {
+  var modal = document.getElementById('ppNlfDeleteModal');
+  var folderId = modal.dataset.folderId;
+  var btn = document.getElementById('ppNlfDeleteConfirm');
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+
+  ppCallGas({
+    action:   'pp_nlf_delete',
+    folderId: folderId
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.error || 'Delete failed');
+    NL.toast('Deleted ' + r.foldersRemoved + ' folder' + (r.foldersRemoved === 1 ? '' : 's') + ' and ' + r.filesRemoved + ' file' + (r.filesRemoved === 1 ? '' : 's') + '.', 'success');
+    /* If we were inside the deleted folder, walk back up */
+    if (STATE.nlAssetsPath.indexOf(folderId) !== -1) {
+      var idx = STATE.nlAssetsPath.indexOf(folderId);
+      STATE.nlAssetsPath = STATE.nlAssetsPath.slice(0, idx);
+    }
+    ppCloseNlfDelete();
+    btn.disabled = false;
+    btn.textContent = 'Delete folder';
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Delete folder';
+    NL.toast('Error: ' + err.message, 'error');
+  });
+}
+
+/* === Upload to current NL Assets folder === */
+
+function ppOpenNlfUpload() {
+  if (!STATE.isAdmin) { NL.toast('Admins only.', 'error'); return; }
+  var currentId = ppCurrentNlfId();
+  if (!currentId) {
+    NL.toast('Files must be inside a folder. Create or open a folder first.', 'error');
+    return;
+  }
+  var meta = STATE.nlAssetsFolders[currentId];
+  if (!meta) return;
+
+  STATE.upload = { mode: 'create', file: null, replaceFileId: null, replaceFilename: null, nlAssetsFolderId: currentId };
+  document.getElementById('ppUploadTitle').textContent = 'Upload file';
+  /* Build path string for clarity */
+  var pathLabel = 'National League Assets';
+  ppNlfPathTrail().forEach(function(crumb) { pathLabel += ' › ' + crumb.name; });
+  document.getElementById('ppUploadDest').value = pathLabel;
+  document.getElementById('ppUploadDesc').value = '';
+  document.getElementById('ppDropzoneFilename').textContent = '';
+  document.getElementById('ppFileInput').value = '';
+  document.getElementById('ppUploadProgress').style.display = 'none';
+  document.getElementById('ppUploadConfirm').disabled = false;
+  document.getElementById('ppUploadModal').classList.add('open');
+}
+
+/* ============================================================================
    UPLOAD
    ============================================================================ */
 
@@ -1635,9 +2282,29 @@ function ppDoUpload() {
     return;
   }
 
-  var folder = ppCurrentFolder();
-  var club   = ppCurrentClub();
-  if (!folder || !club) return;
+  /* Determine target: NL Assets or club folder.
+     - NL Assets: STATE.upload.nlAssetsFolderId is set (set by ppOpenNlfUpload)
+     - Club:      use current ppCurrentClub() + ppCurrentFolder()
+     For replace mode in either world, we pull club/folder from the existing record. */
+  var clubKey, folderKey, destLabel;
+  if (STATE.upload.mode === 'replace' && STATE.upload.replaceFileId) {
+    var existing = STATE.files[STATE.upload.replaceFileId];
+    if (!existing) { NL.toast('Original file not found.', 'error'); return; }
+    clubKey   = existing.clubKey;
+    folderKey = existing.folderKey;
+    destLabel = existing.name;
+  } else if (STATE.upload.nlAssetsFolderId) {
+    clubKey   = '_nl-central';
+    folderKey = STATE.upload.nlAssetsFolderId;
+    destLabel = 'NL Assets';
+  } else {
+    var folder = ppCurrentFolder();
+    var club   = ppCurrentClub();
+    if (!folder || !club) { NL.toast('No destination folder.', 'error'); return; }
+    clubKey   = club.key;
+    folderKey = folder.key;
+    destLabel = club.name + ' / ' + folder.name;
+  }
 
   var btn = document.getElementById('ppUploadConfirm');
   btn.disabled = true;
@@ -1651,8 +2318,8 @@ function ppDoUpload() {
       document.getElementById('ppUploadProgressText').textContent = 'Uploading to Drive…';
       return ppCallGas({
         action:      'pp_upload',
-        clubKey:     club.key,
-        folderKey:   folder.key,
+        clubKey:     clubKey,
+        folderKey:   folderKey,
         filename:    file.name,
         mimeType:    file.type || 'application/octet-stream',
         dataB64:     b64,
@@ -1666,8 +2333,8 @@ function ppDoUpload() {
       ppAudit(STATE.upload.mode === 'replace' ? 'replaced' : 'uploaded', {
         fileId:    result.fileId,
         fileName:  file.name,
-        clubKey:   club.key,
-        folderKey: folder.key
+        clubKey:   clubKey,
+        folderKey: folderKey
       });
 
       /* If replacing, soft-delete the old metadata */
