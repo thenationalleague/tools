@@ -3,10 +3,24 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 1.3
+  Version: 1.4
   Date: 25/04/2026
 
   CHANGELOG
+  v1.4 (25/04/2026)
+    - Fix: club reps couldn't see their own club's banner / pinned sidebar
+      entry / upload buttons. Cause: session.club is the display name
+      ("Darlington") but the tool internally uses slugs ("darlington").
+      All comparisons silently failed.
+    - Added ppResolveMyClub() that maps raw session.club to a known club
+      key, tolerating display name / slug / case-insensitive name match.
+      Logs a warning if no match found.
+    - GAS pp_upload also fixed: slugifies user.club before comparing to
+      body.clubKey. Companion fix in ProgrammePacks.gs (must redeploy).
+    - Note: RTDB rules don't need changing — the create-branch of files/$fileId
+      only triggers for direct browser writes, which we don't use (uploads go
+      via GAS, which bypasses rules via RTDB_SECRET).
+
   v1.3 (25/04/2026)
     - Sidebar reorder: user's own club now pinned at the top under a "Your
       club" header, separated from the rest. Sidebar still shows everyone.
@@ -19,47 +33,18 @@
 
   v1.2 (25/04/2026)
     - Uploader display: shows user's name and org/club instead of email.
-      Reads from /users/ once at boot, caches in STATE.users. Falls back
-      to email-prefix or stored name for legacy uploads.
     - Role checks tidied to match Attendance idiom: STATE.isClub /
-      isStaffLike / isAdmin (was: a tools[]+role mishmash). Same behaviour,
-      cleaner code.
-    - Back button restyled: now a proper button with chevron, not a faded
-      text link.
+      isStaffLike / isAdmin (was: a tools[]+role mishmash).
+    - Back button restyled: now a proper button with chevron.
     - Download button: now navy-filled with "Download" label, always visible.
-      Replace + Delete remain hover-only (less prominent, destructive).
-    - Preview loading state: shows file size + "routed through Drive" hint
-      so users understand why larger files take a moment. Performance
-      itself is constrained by GAS proxy + base64 encoding — Phase 1.5 will
-      add signed direct-from-Drive URLs to make this fast.
+    - Preview loading state: shows file size + "routed through Drive" hint.
 
   v1.1 (25/04/2026)
     - Fix: PERMISSION_DENIED reading folders-config / files on first load.
-      Cause: NL.session is restored from sessionStorage faster than Firebase
-      Auth's token. RTDB reads of auth-required paths fired before the real
-      auth was ready. Wrapped initial data loaders in NL.ensureAuth() per
-      the documented gotcha in nl-tools skill.
+      Wrapped initial data loaders in NL.ensureAuth().
 
   v1.0 (25/04/2026)
-    - Initial tool page (Phase 1 of Programme Packs build).
-    - Browse view: club sidebar + folder grid + file list per folder.
-    - Upload via GAS pp_upload (base64 → Drive blob); single-file download
-      via pp_download (returns base64, browser triggers Blob download).
-    - Replace re-uses upload (overwrites Drive file in place — phase 1
-      simplification: replace = delete-then-upload at the GAS layer; from
-      user POV identical filename, treated as replacement).
-    - Delete is soft: writes isDeleted:true to RTDB metadata (file remains
-      in Drive — Phase 3 will add admin restore + trash purge).
-    - Preview: PDF/image/video render inline; office docs fall through to
-      download. Uses pp_preview Drive embed URL.
-    - Audit logging on every write (NL.writeAudit + tool-scoped audit at
-      /app-data/ops-programme-packs/audit/).
-    - Search + sort within a folder.
-    - 8 seeded folders pulled from /app-data/ops-programme-packs/folders-config/.
-    - Club list pulled from clubs-meta.json + virtual NL Central entry.
-    - File metadata read directly from RTDB /app-data/ops-programme-packs/files/
-      (filtered client-side by clubKey + folderKey + isDeleted).
-    - Matrix view + bulk download deferred to Phase 2/3.
+    - Initial Phase 1 build.
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -941,16 +926,16 @@ window.nlAuthReady = function(session) {
   STATE.uid     = session.uid;
   STATE.email   = session.email;
   STATE.role    = session.role || '';
-  STATE.myClub  = session.club || null;
+  /* Raw club from session — may be display name ("Darlington"), slug
+     ("darlington"), or null. Resolved to canonical slug after clubs load. */
+  STATE.myClubRaw = session.club || null;
+  STATE.myClub    = null;
 
   /* Role-based checks — pattern matches Attendance tool. */
   var role = STATE.role;
   STATE.isStaffLike = (role === 'staff' || role === 'admin' || role === 'superadmin');
   STATE.isAdmin     = (role === 'admin' || role === 'superadmin');
   STATE.isClub      = (role === 'club');
-
-  /* Default active club: own club if member; else first non-central club */
-  if (STATE.myClub) STATE.activeClub = STATE.myClub;
 
   /* CRITICAL: wrap RTDB reads in NL.ensureAuth() — auth-guard's sessionStorage
      fast-path means nlAuthReady can fire before Firebase Auth's token has fully
@@ -961,10 +946,21 @@ window.nlAuthReady = function(session) {
       return Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles(), ppLoadUsersIfNeeded()]);
     })
     .then(function() {
+      /* Resolve myClubRaw to a canonical clubKey (slug). Tolerates display
+         name ("Darlington"), slug ("darlington"), or any name containing
+         the value. Matches Attendance's expectation that session.club is
+         the display name, while internally the tool uses slugs. */
+      STATE.myClub = ppResolveMyClub(STATE.myClubRaw);
+
+      /* Default active club: own club if known, else first non-central */
       if (!STATE.activeClub) {
-        var first = STATE.clubs.find(function(c) { return !c.isCentral; });
-        STATE.activeClub = first ? first.key : (STATE.clubs[0] && STATE.clubs[0].key);
+        if (STATE.myClub) STATE.activeClub = STATE.myClub;
+        else {
+          var first = STATE.clubs.find(function(c) { return !c.isCentral; });
+          STATE.activeClub = first ? first.key : (STATE.clubs[0] && STATE.clubs[0].key);
+        }
       }
+
       ppRenderMyClubBanner();
       ppRenderClubList();
       ppRenderMainPanel();
@@ -973,6 +969,26 @@ window.nlAuthReady = function(session) {
       NL.toast('Failed to load library: ' + err.message, 'error');
     });
 };
+
+/* Resolve raw session.club value (display name OR slug) to a canonical
+   clubKey from STATE.clubs. Returns null if no match. */
+function ppResolveMyClub(raw) {
+  if (!raw) return null;
+  /* 1. Already a known slug? */
+  if (STATE.clubsByKey[raw]) return raw;
+  /* 2. Slug version of display name? */
+  var slugged = ppClubKey(raw);
+  if (STATE.clubsByKey[slugged]) return slugged;
+  /* 3. Direct name match (case-insensitive)? */
+  var lower = String(raw).toLowerCase();
+  var match = STATE.clubs.find(function(c) {
+    return c.name && c.name.toLowerCase() === lower;
+  });
+  if (match) return match.key;
+  /* 4. No match — log and give up so the rest of the tool still works */
+  console.warn('[Programme Packs] Could not resolve session.club="' + raw + '" to any known club. User won\'t see club-specific features.');
+  return null;
+}
 
 /* ============================================================================
    DATA LOADING
