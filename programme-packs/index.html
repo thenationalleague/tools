@@ -3,10 +3,37 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 3.0
+  Version: 3.1
   Date: 25/04/2026
 
   CHANGELOG
+  v3.1 (25/04/2026)
+    - Removed persistent "Your club" banner above layout. Sidebar pinning +
+      colour highlight already signpost it; banner was just taking space.
+    - Header bar colours swapped to match sidebar:
+      * Own club: navy (was crimson) — now consistent across sidebar + header
+      * NL Assets: red (was navy) — now consistent across sidebar + header
+    - Bulk download (zip) re-architected:
+      * GAS now saves zip to Drive, returns a direct-download URL
+      * Browser opens URL in a tab — native download manager handles progress
+      * Cap raised: 30→100 files, 50MB→250MB
+      * No more browser-side base64 decoding (was locking up tabs on big zips)
+      * Auto-cleanup: temp zips trashed 1h after creation via scheduled trigger
+    - Hard delete (replaces soft delete):
+      * File delete now sets Drive trash + removes RTDB record
+      * Drive's native 30-day trash gives recovery — no need for our own
+      * Replace flow also hard-deletes the old file once new upload succeeds
+      * Delete modal copy updated to be honest ("Drive's trash holds it for
+        30 days") instead of the previous restore lie
+    - One-shot orphan cleanup: superadmin can run window.ppPurgeOrphans()
+      from console to hard-delete legacy soft-deleted records.
+    - GAS additions (must redeploy):
+      * pp_zip rewritten (Drive URL approach)
+      * pp_delete (hard delete)
+      * pp_purge_orphans (one-shot legacy cleanup)
+      * pp_setupCleanupTrigger() — run once from GAS editor to install hourly
+        cleanup of temp zips
+
   v3.0 (25/04/2026)
     - Bulk download (Download all):
       * Pack-level: button on club's folder grid header — zips every file
@@ -20,14 +47,9 @@
     - Folder cards bigger again: minmax 340→380, padding 22→28, icon
       46→56, title 17→19. Better presence at wide viewports.
     - Sidebar colours strengthened (was very faint):
-      * NL Assets: full red fill, white text, white-on-translucent count.
-      * Own club: full navy fill, white text, white-on-translucent count.
-      * YOU badge changed from red-on-navy (muddy) to white-on-translucent.
-      * Filled folder dots invert to white when on coloured backgrounds so
-        the progress is still readable.
-    - NL Assets root: Upload button now hidden (root can only contain
-      folders, not files). Still shown when inside a folder.
-    - GAS additions (must redeploy): pp_zip handler.
+      * NL Assets: full red fill, white text.
+      * Own club: full navy fill, white text.
+    - NL Assets root: Upload button now hidden (root only contains folders).
 
   v2.2 (25/04/2026)
     - Removed redundant "Programme Packs" page heading + subtitle (topbar
@@ -108,6 +130,16 @@
 
   /* Public-facing "What's new" — shown when users click the version badge. */
   window.NL_CHANGELOG = [
+    {
+      date:    '25 April 2026',
+      version: 'v3.1',
+      items: [
+        'Bigger downloads: pack ZIPs can now be up to 250MB (was 50MB).',
+        'Faster downloads: ZIPs stream directly from Drive — no more browser hangs.',
+        'Cleaner header colours: own club is navy, NL Assets is red — matches the sidebar.',
+        'Deleted files now go to Drive\'s Trash (30-day recovery) rather than disappearing into hidden limbo.'
+      ]
+    },
     {
       date:    '25 April 2026',
       version: 'v3.0',
@@ -376,11 +408,11 @@
   gap: 16px;
   flex-wrap: wrap;
 }
-/* Crimson header when viewing OWN club's pack (club rep's own).
+/* Navy header when viewing OWN club's pack (matches sidebar pinned navy row).
    Title goes white, sub goes light. */
 .pp-panel__head--own {
-  background: var(--primary);
-  border-bottom-color: var(--primary-dim);
+  background: var(--navy);
+  border-bottom-color: var(--navy-mid);
 }
 .pp-panel__head--own .pp-panel__title { color: var(--white); }
 .pp-panel__head--own .pp-panel__sub   { color: rgba(255,255,255,0.85); }
@@ -393,10 +425,19 @@
   background: rgba(255,255,255,0.28);
   color: var(--white);
 }
-/* Navy header when viewing NL Assets (all users). */
+.pp-panel__head--own .btn--ghost {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.25);
+  color: var(--white);
+}
+.pp-panel__head--own .btn--ghost:hover {
+  background: rgba(255,255,255,0.25);
+  color: var(--white);
+}
+/* Red header when viewing NL Assets (matches sidebar pinned red row). */
 .pp-panel__head--nl {
-  background: var(--navy);
-  border-bottom-color: var(--navy-mid);
+  background: var(--primary);
+  border-bottom-color: var(--primary-dim);
 }
 .pp-panel__head--nl .pp-panel__title  { color: var(--white); }
 .pp-panel__head--nl .pp-panel__sub    { color: rgba(255,255,255,0.85); }
@@ -1143,9 +1184,6 @@
 
   <div class="main">
 
-    <!-- "Your club" banner — populated only when user has a myClub -->
-    <div id="ppMyClubBanner" style="display:none;"></div>
-
     <div class="pp-layout">
 
       <aside class="pp-sidebar">
@@ -1215,7 +1253,7 @@
       <p style="margin:0 0 12px;">You're about to delete:</p>
       <p style="background:var(--off-white); padding:10px 14px; border-radius:4px; font-variation-settings:'wght' 700;" id="ppDeleteFilename">—</p>
       <p style="margin:14px 0 0; font-size:13px; color:var(--text-muted);">
-        The file will be hidden from the library. An admin can restore it within 30 days.
+        The file is removed from the library and moved to Drive's Trash. Drive holds it for 30 days before permanent deletion.
       </p>
     </div>
     <div class="modal__footer">
@@ -1699,65 +1737,10 @@ function ppLoadUsersIfNeeded() {
    ============================================================================ */
 
 function ppRenderMyClubBanner() {
-  var el = document.getElementById('ppMyClubBanner');
-  if (!STATE.myClub) { el.style.display = 'none'; return; }
-
-  var club = STATE.clubsByKey[STATE.myClub];
-  if (!club) { el.style.display = 'none'; return; }
-
-  var filledCount = STATE.folders.filter(function(f) { return ppFolderHasContent(club.key, f.key); }).length;
-  var total       = STATE.folders.length;
-  var pct         = total > 0 ? Math.round((filledCount / total) * 100) : 0;
-  var totalFiles  = ppFilesIn(club.key).length;
-  var lastTs      = 0;
-  Object.keys(STATE.files).forEach(function(id) {
-    var f = STATE.files[id];
-    if (f && !f.isDeleted && f.clubKey === club.key) {
-      var t = f.lastModifiedAt || f.uploadedAt || 0;
-      if (t > lastTs) lastTs = t;
-    }
-  });
-
-  /* Sub line: progress + last upload */
-  var subParts = [];
-  subParts.push('<strong>' + filledCount + ' of ' + total + '</strong> folders filled<span class="pp-myclub-banner__progress-bar"><span class="pp-myclub-banner__progress-fill" style="width:' + pct + '%;"></span></span>');
-  if (totalFiles > 0) {
-    subParts.push('<strong>' + totalFiles + '</strong> file' + (totalFiles === 1 ? '' : 's'));
-  }
-  if (lastTs) {
-    subParts.push('last upload ' + ppFmtDate(lastTs));
-  } else {
-    subParts.push('no uploads yet');
-  }
-
-  /* CTA — varies based on whether already viewing own club.
-     - Already on own folder grid: no CTA (avoid redundant "scroll to folders")
-     - Inside one of our folders: "← All folders"
-     - Anywhere else: "Manage your pack →" */
-  var ctaHtml = '';
-  if (STATE.activeClub === club.key && !STATE.activeFolder) {
-    /* Already showing this club's folder grid — no CTA needed */
-    ctaHtml = '';
-  } else if (STATE.activeClub === club.key && STATE.activeFolder) {
-    ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppBackToFolders()">← All folders</button>';
-  } else {
-    ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppSelectClub(\'' + NL.escJ(club.key) + '\')">Manage your pack</button>';
-  }
-
-  var crestHtml = '<img class="pp-myclub-banner__crest" src="' + NL.escHtml(ppCrestUrl(club.name)) + '" '
-    + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
-
-  el.innerHTML =
-    '<div class="pp-myclub-banner">'
-    + crestHtml
-    + '<div class="pp-myclub-banner__text">'
-      + '<div class="pp-myclub-banner__kicker">Your club</div>'
-      + '<div class="pp-myclub-banner__title">' + NL.escHtml(club.name) + '</div>'
-      + '<div class="pp-myclub-banner__sub">' + subParts.join(' · ') + '</div>'
-    + '</div>'
-    + ctaHtml
-  + '</div>';
-  el.style.display = '';
+  /* v3.1: banner removed — sidebar pinning + colour highlight does the
+     same job without taking vertical space. Function kept as a no-op so
+     existing callers don't error; can be removed entirely later. */
+  return;
 }
 
 /* ============================================================================
@@ -2847,18 +2830,18 @@ function ppDoUpload() {
         folderKey: folderKey
       });
 
-      /* If replacing, soft-delete the old metadata */
+      /* If replacing, hard-delete the old file (Drive trashed + RTDB removed).
+         Drive's 30-day trash provides recovery. We only do this *after* the
+         new upload succeeded — so a failed replace leaves the old file intact. */
       if (STATE.upload.mode === 'replace' && STATE.upload.replaceFileId) {
         var oldId = STATE.upload.replaceFileId;
-        return NL.ensureAuth().then(function() {
-          return firebase.database().ref(TOOL_DATA_PATH + '/files/' + oldId).update({
-            isDeleted:    true,
-            deletedAt:    Date.now(),
-            deletedBy:    STATE.uid,
-            replacedBy:   result.fileId
-          });
-        }).then(function() {
-          NL.toast('File replaced.', 'success');
+        return ppCallGas({ action: 'pp_delete', fileId: oldId }).then(function(r) {
+          if (!r.ok) {
+            /* Don't fail the whole flow — new file is up. Warn and continue. */
+            NL.toast('Replaced — but couldn\'t remove old file: ' + r.error, 'info');
+          } else {
+            NL.toast('File replaced.', 'success');
+          }
         });
       }
 
@@ -2937,8 +2920,8 @@ function ppTriggerBrowserDownload(b64, mimeType, filename) {
    we fail fast with a friendly message rather than waiting for GAS to refuse.
    ============================================================================ */
 
-var PP_ZIP_MAX_FILES = 30;
-var PP_ZIP_MAX_BYTES = 50 * 1024 * 1024;
+var PP_ZIP_MAX_FILES = 100;
+var PP_ZIP_MAX_BYTES = 250 * 1024 * 1024;
 
 function ppCollectFileIds(filterFn) {
   var ids = [];
@@ -2996,14 +2979,11 @@ function ppDoBulkZip(fileIds, totalBytes, zipName, descriptiveLabel) {
   }
   if (totalBytes > PP_ZIP_MAX_BYTES) {
     var mb = Math.round(totalBytes / 1024 / 1024);
-    NL.toast(descriptiveLabel + ' is ' + mb + 'MB (max 50MB per zip). Download by folder instead.', 'error');
+    NL.toast(descriptiveLabel + ' is ' + mb + 'MB (max 250MB per zip). Download by folder instead.', 'error');
     return;
   }
 
-  /* Spinner-style toast — no progress bar from GAS, but we can at least say
-     it's happening. Pre-zip estimates are rough — most large packs are images
-     where ZIP compression saves little. */
-  NL.toast('Preparing ZIP of ' + fileIds.length + ' file' + (fileIds.length === 1 ? '' : 's') + '… this can take a moment.', 'info');
+  NL.toast('Building ZIP of ' + fileIds.length + ' file' + (fileIds.length === 1 ? '' : 's') + '… this can take 10-30 seconds for large packs.', 'info');
 
   ppCallGas({
     action:   'pp_zip',
@@ -3011,9 +2991,26 @@ function ppDoBulkZip(fileIds, totalBytes, zipName, descriptiveLabel) {
     zipName:  zipName
   }).then(function(r) {
     if (!r.ok) throw new Error(r.error || 'ZIP failed');
-    ppTriggerBrowserDownload(r.dataB64, r.mimeType || 'application/zip', r.filename || zipName);
+
+    /* New Drive-link approach: open the URL in a new tab/window. The browser's
+       native download manager takes over from there. Much faster + handles
+       large files with progress UI baked into the browser. */
+    if (!r.downloadUrl) throw new Error('No download URL returned');
+
+    /* Use a hidden <a> with download attr + target=_blank to start download
+       without leaving the page. */
+    var a = document.createElement('a');
+    a.href = r.downloadUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    /* Note: the `download` attribute is ignored cross-origin (Drive serves
+       Content-Disposition itself, which gives the right filename anyway). */
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
     var skippedNote = (r.skipped && r.skipped.length) ? ' (' + r.skipped.length + ' skipped)' : '';
-    NL.toast('Downloaded ' + (r.fileCount || fileIds.length) + ' files' + skippedNote, 'success');
+    NL.toast('Download started — ' + (r.fileCount || fileIds.length) + ' file' + (r.fileCount === 1 ? '' : 's') + skippedNote, 'success');
     ppAudit('zip_downloaded', {
       fileCount:  r.fileCount || fileIds.length,
       totalBytes: totalBytes,
@@ -3053,16 +3050,17 @@ function ppDoDelete() {
 
   var btn = document.getElementById('ppDeleteConfirm');
   btn.disabled = true;
+  btn.textContent = 'Deleting…';
 
-  NL.ensureAuth().then(function() {
-    return firebase.database().ref(TOOL_DATA_PATH + '/files/' + fileId).update({
-      isDeleted: true,
-      deletedAt: Date.now(),
-      deletedBy: STATE.uid
-    });
-  }).then(function() {
+  /* v3.1: hard delete via GAS — Drive setTrashed (30-day Drive trash gives
+     recovery) + RTDB record removed. No more soft-delete metadata churn. */
+  ppCallGas({
+    action: 'pp_delete',
+    fileId: fileId
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.error || 'Delete failed');
     NL.toast('File deleted.', 'success');
-    ppAudit('deleted', {
+    ppAudit('hard_deleted', {
       fileId:    fileId,
       fileName:  meta.name,
       clubKey:   meta.clubKey,
@@ -3070,8 +3068,10 @@ function ppDoDelete() {
     });
     ppCloseDelete();
     btn.disabled = false;
+    btn.textContent = 'Delete';
   }).catch(function(err) {
     btn.disabled = false;
+    btn.textContent = 'Delete';
     NL.toast('Delete failed: ' + err.message, 'error');
   });
 }
@@ -3221,6 +3221,38 @@ function ppAudit(action, details) {
     NL.writeAudit('programme_packs_' + action, detailStr);
   }
 }
+
+/* ============================================================================
+   ADMIN UTILITIES — call from browser console
+   ============================================================================
+   These exist for one-shot maintenance and aren't wired to UI buttons.
+   ============================================================================ */
+
+/* Hard-delete every file with isDeleted: true (legacy soft-deleted records
+   from before pp_delete existed). Run once after deploying v3.1 to clean up
+   historic orphans. Confirms before running. */
+window.ppPurgeOrphans = function() {
+  if (!STATE.isAdmin) {
+    console.warn('ppPurgeOrphans: admins only');
+    return;
+  }
+  if (!confirm('Purge orphan files?\n\nThis hard-deletes every file currently marked isDeleted: true — Drive files trashed (30-day Drive recovery), RTDB records removed.\n\nThis is a one-shot cleanup of legacy soft-deletes. Continue?')) {
+    return;
+  }
+  console.log('ppPurgeOrphans: scanning…');
+  ppCallGas({ action: 'pp_purge_orphans' }).then(function(r) {
+    if (!r.ok) {
+      console.error('Purge failed:', r.error);
+      NL.toast('Purge failed: ' + r.error, 'error');
+      return;
+    }
+    console.log('Purge result:', r);
+    NL.toast('Purged ' + r.driveTrashed + ' Drive file(s), cleaned ' + r.rtdbCleaned + ' RTDB record(s).' + (r.driveErrors.length ? ' ' + r.driveErrors.length + ' Drive errors.' : ''), 'success');
+  }).catch(function(err) {
+    console.error('Purge error:', err);
+    NL.toast('Purge error: ' + err.message, 'error');
+  });
+};
 </script>
 
 </body>
