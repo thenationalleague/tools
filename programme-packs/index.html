@@ -3,23 +3,58 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 2.1
+  Version: 3.0
   Date: 25/04/2026
 
   CHANGELOG
+  v3.0 (25/04/2026)
+    - Bulk download (Download all):
+      * Pack-level: button on club's folder grid header — zips every file
+        in the pack across all 8 folders.
+      * Folder-level (clubs): button on each folder's file view.
+      * Folder-level (NL Assets): button on each NL Assets folder.
+      * Server-side ZIP via new pp_zip GAS action; size guards 30 files /
+        50MB total uncompressed. Pre-flight check on client gives a fast
+        friendly error if exceeded, suggesting download by smaller folder.
+      * Audit logged on every successful zip.
+    - Folder cards bigger again: minmax 340→380, padding 22→28, icon
+      46→56, title 17→19. Better presence at wide viewports.
+    - Sidebar colours strengthened (was very faint):
+      * NL Assets: full red fill, white text, white-on-translucent count.
+      * Own club: full navy fill, white text, white-on-translucent count.
+      * YOU badge changed from red-on-navy (muddy) to white-on-translucent.
+      * Filled folder dots invert to white when on coloured backgrounds so
+        the progress is still readable.
+    - NL Assets root: Upload button now hidden (root can only contain
+      folders, not files). Still shown when inside a folder.
+    - GAS additions (must redeploy): pp_zip handler.
+
+  v2.2 (25/04/2026)
+    - Removed redundant "Programme Packs" page heading + subtitle (topbar
+      already has the title).
+    - Removed arrow from "Manage your pack" CTA — cleaner.
+    - Panel header bar is now coloured by context:
+      * Crimson when viewing your own club's pack (club rep)
+      * Navy when viewing National League Assets (everyone)
+      * Plain white for any other club
+    - Folder cards 60% bigger — minmax(220→340), gap 12→18, padding 14→22,
+      title 14→17, icon 32→46. More room for description text too.
+    - File grid view (NEW DEFAULT for files):
+      * Image files: lazy-loaded thumbnail via Drive's getThumbnail()
+      * PDF/DOC/XLS/VID/Other: large coloured type icon
+      * IntersectionObserver — only requests thumbnails for cards in view
+        (or within 200px of viewport)
+      * Thumbnails cached in-memory per session; opening preview, switching
+        view modes, or returning to a folder doesn't re-fetch
+    - List ⇄ Grid toggle in filterbar. Choice persists per-user via
+      localStorage key 'pp_view_mode'.
+    - GAS additions (must redeploy): pp_thumbnail handler.
+
   v2.1 (25/04/2026)
-    - Fix: PERMISSION_DENIED on /nl-assets-folders for all users. The new node
-      had no read rule and was being blocked by parent default-deny. Added rule
-      patch (must merge into Firebase rules) — read for any authed user, writes
-      blocked at browser (GAS handles via secret).
-    - Sidebar restructured per design feedback:
-      - National League Assets pinned at top with red left bar, rose crest
-        on white circle (no more "NL" text disc, no more "Reference library").
-      - Own club pinned at position 2 with navy left bar.
-      - Visual divider before the rest of the league.
-      - Removed the "YOUR CLUB" / "ALL CLUBS" section headers — visual
-        styling does the work.
-    - NL Assets main panel uses the same rose-on-white crest treatment.
+    - Fix: PERMISSION_DENIED on /nl-assets-folders. Added rule patch.
+    - Sidebar: NL Assets first (red bar), own club second (navy bar),
+      then divider, then alphabetical.
+    - NL Assets uses rose-on-white crest treatment.
 
   v2.0 (25/04/2026)
     - National League Assets — admin-managed folder tree (3-level cap).
@@ -75,40 +110,46 @@
   window.NL_CHANGELOG = [
     {
       date:    '25 April 2026',
+      version: 'v3.0',
+      items: [
+        'Download all — grab a whole club\'s pack, or a single folder, as a ZIP.',
+        'Sidebar is more striking: National League Assets in red, your own club in navy.',
+        'Folder cards a bit larger again so titles read more comfortably.'
+      ]
+    },
+    {
+      date:    '25 April 2026',
+      version: 'v2.2',
+      items: [
+        'Files now show as a grid of cards by default, with thumbnails for images.',
+        'Toggle between grid and list view from the filter bar — your choice is remembered.',
+        'Folder cards are bigger and easier to read.',
+        'Header bar of your own club\'s pack is now red; National League Assets is navy.'
+      ]
+    },
+    {
+      date:    '25 April 2026',
       version: 'v2.0',
       items: [
         'New: National League Assets — a free-form library where NL admins can create folders for programme ads, branding, FA Cup info, templates, etc.',
         'NL admins can create folders, rename them, and delete them (with confirmation).',
-        'Folders can nest up to 3 levels deep.',
-        'Club folders unchanged — same eight categories per club.'
+        'Folders can nest up to 3 levels deep.'
       ]
     },
     {
       date:    '25 April 2026',
       version: 'v1.3',
       items: [
-        'Your own club is now pinned at the top of the sidebar, separated from the rest of the league.',
-        'New "Your club" banner shows your progress at a glance: how many folders are filled, total files, last upload date.',
+        'Your own club is now pinned at the top of the sidebar.',
+        'New "Your club" banner shows your progress at a glance.',
         'Quick "Manage your pack" button takes you straight to your folders.'
-      ]
-    },
-    {
-      date:    '25 April 2026',
-      version: 'v1.2',
-      items: [
-        'Uploaders now show by name and organisation, not email.',
-        'Download button restyled — clearer and always visible.',
-        'Preview shows file size while loading so longer waits feel less mysterious.'
       ]
     },
     {
       date:    '25 April 2026',
       version: 'v1.0',
       items: [
-        'Initial release — shared club asset library for matchday programmes.',
-        'Eight seeded folders per club: Club Identity, Stadium, Squad, Players, Management, History, Action, Miscellaneous.',
-        'Upload to your own club folder. Browse, preview and download from any club.',
-        'Files marked with green dots when present, grey when empty.'
+        'Initial release — shared club asset library for matchday programmes.'
       ]
     }
   ];
@@ -191,30 +232,61 @@
   border-left-color: var(--primary);
   font-variation-settings: 'wght' 700;
 }
-/* NL Assets row — always red left bar to flag its different role.
-   When inactive: 3px red bar always visible.
-   When active: stays red (don't override with primary). */
+/* NL Assets row — full red bar treatment to flag its special role. */
 .pp-club-list__item--nl {
-  border-left-color: var(--primary);
-  background: linear-gradient(to right, rgba(158,0,0,0.04), transparent 60%);
+  border-left-color: var(--primary-dim);
+  background: var(--primary);
+  color: var(--white);
 }
 .pp-club-list__item--nl:hover {
-  background: linear-gradient(to right, rgba(158,0,0,0.09), var(--off-white) 60%);
+  background: var(--primary-dim);
+}
+.pp-club-list__item--nl.is-active {
+  background: var(--primary-dim);
+  border-left-color: var(--white);
 }
 .pp-club-list__item--nl .pp-club-list__name {
-  color: var(--navy);
+  color: var(--white);
   font-variation-settings: 'wght' 800;
 }
-/* Own club row — navy left bar always, distinct from active-state red. */
+.pp-club-list__item--nl .pp-club-list__progress {
+  color: rgba(255,255,255,0.85);
+}
+.pp-club-list__item--nl .pp-club-list__count {
+  background: rgba(255,255,255,0.2);
+  color: var(--white);
+}
+
+/* Own club row — full navy bar, distinct from NL red. */
 .pp-club-list__item.is-own:not(.pp-club-list__item--nl) {
-  border-left-color: var(--navy);
-  background: linear-gradient(to right, rgba(10,22,40,0.04), transparent 60%);
+  border-left-color: var(--navy-light);
+  background: var(--navy);
+  color: var(--white);
 }
 .pp-club-list__item.is-own:not(.pp-club-list__item--nl):hover {
-  background: linear-gradient(to right, rgba(10,22,40,0.08), var(--off-white) 60%);
+  background: var(--navy-mid);
 }
 .pp-club-list__item.is-own.is-active:not(.pp-club-list__item--nl) {
-  border-left-color: var(--navy);  /* keep navy even when active */
+  background: var(--navy-mid);
+  border-left-color: var(--white);
+}
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl) .pp-club-list__name {
+  color: var(--white);
+  font-variation-settings: 'wght' 800;
+}
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl) .pp-club-list__progress {
+  color: rgba(255,255,255,0.85);
+}
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl) .pp-club-list__count {
+  background: rgba(255,255,255,0.2);
+  color: var(--white);
+}
+/* Own club: keep the dots visible on navy background — bump grey dots a touch */
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl) .pp-club-list__dot {
+  background: rgba(255,255,255,0.3);
+}
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl) .pp-club-list__dot.is-green {
+  background: var(--white);  /* white dots on navy = filled */
 }
 
 .pp-club-list__crest {
@@ -280,12 +352,13 @@
   display: inline-block;
   margin-left: 6px;
   font-size: 9px;
-  background: var(--primary);
+  background: rgba(255,255,255,0.25);
   color: var(--white);
   padding: 1px 5px;
   border-radius: 3px;
   letter-spacing: 0.05em;
   vertical-align: middle;
+  font-variation-settings: 'wght' 800;
 }
 
 /* Content panel */
@@ -302,6 +375,49 @@
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+}
+/* Crimson header when viewing OWN club's pack (club rep's own).
+   Title goes white, sub goes light. */
+.pp-panel__head--own {
+  background: var(--primary);
+  border-bottom-color: var(--primary-dim);
+}
+.pp-panel__head--own .pp-panel__title { color: var(--white); }
+.pp-panel__head--own .pp-panel__sub   { color: rgba(255,255,255,0.85); }
+.pp-panel__head--own .pp-back-link {
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.3);
+  color: var(--white);
+}
+.pp-panel__head--own .pp-back-link:hover {
+  background: rgba(255,255,255,0.28);
+  color: var(--white);
+}
+/* Navy header when viewing NL Assets (all users). */
+.pp-panel__head--nl {
+  background: var(--navy);
+  border-bottom-color: var(--navy-mid);
+}
+.pp-panel__head--nl .pp-panel__title  { color: var(--white); }
+.pp-panel__head--nl .pp-panel__sub    { color: rgba(255,255,255,0.85); }
+.pp-panel__head--nl .pp-breadcrumb__root,
+.pp-panel__head--nl .pp-breadcrumb,
+.pp-panel__head--nl .pp-breadcrumb__sep { color: rgba(255,255,255,0.7); }
+.pp-panel__head--nl .pp-breadcrumb__root.is-active,
+.pp-panel__head--nl .pp-breadcrumb.is-active { color: var(--white); }
+.pp-panel__head--nl .pp-breadcrumb__root:hover,
+.pp-panel__head--nl .pp-breadcrumb:hover {
+  background: rgba(255,255,255,0.12);
+  color: var(--white);
+}
+.pp-panel__head--nl .btn--ghost {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.25);
+  color: var(--white);
+}
+.pp-panel__head--nl .btn--ghost:hover {
+  background: rgba(255,255,255,0.25);
+  color: var(--white);
 }
 .pp-panel__head__left {
   display: flex;
@@ -358,43 +474,46 @@
 
 /* Folder grid */
 .pp-folder-grid {
-  padding: 18px 24px;
+  padding: 24px 24px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 20px;
 }
 .pp-folder-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  padding: 28px 28px 26px;
   cursor: pointer;
   background: var(--white);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.08s;
 }
 .pp-folder-card:hover {
   border-color: var(--navy);
-  box-shadow: 0 4px 14px rgba(10,22,40,0.08);
+  box-shadow: 0 6px 18px rgba(10,22,40,0.10);
+}
+.pp-folder-card:active {
+  transform: translateY(1px);
 }
 .pp-folder-card__head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 16px;
+  margin-bottom: 14px;
 }
 .pp-folder-card__icon {
-  width: 32px;
-  height: 32px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--off-white);
-  font-size: 17px;
+  font-size: 28px;
   flex-shrink: 0;
 }
 .pp-folder-card__title {
   font-variation-settings: 'wght' 800;
-  font-size: 14px;
+  font-size: 19px;
   color: var(--navy);
   flex: 1;
   min-width: 0;
@@ -403,15 +522,15 @@
   text-overflow: ellipsis;
 }
 .pp-folder-card__status {
-  width: 9px;
-  height: 9px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .pp-folder-card__status--green { background: var(--green); }
 .pp-folder-card__status--grey  { background: #c0c8d0; }
 .pp-folder-card__meta {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 .pp-folder-card__meta--empty {
@@ -419,10 +538,10 @@
   color: #8590a4;
 }
 .pp-folder-card__desc {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
-  margin-top: 6px;
-  line-height: 1.4;
+  margin-top: 10px;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -508,6 +627,149 @@
 .pp-files {
   padding: 0;
 }
+
+/* === File grid view (alternative to .pp-files list rows) === */
+.pp-file-grid {
+  padding: 18px 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.pp-file-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.08s;
+}
+.pp-file-card:hover {
+  border-color: var(--navy);
+  box-shadow: 0 6px 18px rgba(10,22,40,0.10);
+}
+.pp-file-card:active { transform: translateY(1px); }
+
+.pp-card__thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--off-white);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+}
+.pp-card__thumb:not(.is-loaded):not(.pp-card__thumb--icon)::after {
+  /* Image card placeholder while thumbnail loads */
+  content: '';
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(34,59,124,0.15);
+  border-top-color: var(--navy);
+  border-radius: 50%;
+  animation: pp-spin 0.7s linear infinite;
+}
+@keyframes pp-spin {
+  to { transform: rotate(360deg); }
+}
+.pp-card__thumb.is-loaded::after { content: none; }
+
+.pp-card__thumb--icon {
+  background: var(--off-white);
+}
+.pp-card__big-icon {
+  font-size: 38px;
+  font-variation-settings: 'wght' 900;
+  color: var(--white);
+  width: 78px;
+  height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  letter-spacing: 0.02em;
+}
+.pp-card__thumb--pdf .pp-card__big-icon   { background: var(--primary); }
+.pp-card__thumb--doc .pp-card__big-icon   { background: var(--blue, #1565c0); }
+.pp-card__thumb--xls .pp-card__big-icon   { background: var(--green); }
+.pp-card__thumb--vid .pp-card__big-icon   { background: var(--navy); }
+.pp-card__thumb--other .pp-card__big-icon { background: var(--text-muted); }
+
+.pp-file-card__body {
+  padding: 12px 14px 8px;
+  flex: 1;
+  min-width: 0;
+}
+.pp-file-card__name {
+  font-variation-settings: 'wght' 800;
+  font-size: 13px;
+  color: var(--navy);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-file-card__meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.pp-file-card__by {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-file-card__actions {
+  padding: 8px 12px 12px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  background: var(--off-white);
+}
+.pp-file-card__actions .pp-file__btn--primary { flex: 1; }
+/* Keep replace/delete visible in grid view — hover-on-card pattern is awkward
+   because clicking the card opens preview; explicit visible buttons are clearer */
+.pp-file-card__actions .pp-file__btn--edit,
+.pp-file-card__actions .pp-file__btn--danger {
+  opacity: 1;
+}
+
+/* === View toggle (compact two-button group) === */
+.pp-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--white);
+}
+.pp-view-toggle__btn {
+  background: var(--white);
+  border: 0;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  line-height: 1;
+}
+.pp-view-toggle__btn:hover { background: var(--off-white); color: var(--navy); }
+.pp-view-toggle__btn.is-active {
+  background: var(--navy);
+  color: var(--white);
+}
+.pp-view-toggle__btn + .pp-view-toggle__btn {
+  border-left: 1px solid var(--border);
+}
+
 .pp-files__empty {
   padding: 50px 20px;
   text-align: center;
@@ -881,14 +1143,6 @@
 
   <div class="main">
 
-    <!-- Section header -->
-    <div class="section-head" style="margin-bottom:24px;">
-      <div>
-        <h1 style="margin:0 0 4px 0; font-size:clamp(22px,1.8vw+12px,32px); font-variation-settings:'wght' 900; color:var(--navy);">Programme Packs</h1>
-        <p id="ppSub" style="margin:0; color:var(--text-muted); font-size:14px;">Shared club assets for matchday programmes.</p>
-      </div>
-    </div>
-
     <!-- "Your club" banner — populated only when user has a myClub -->
     <div id="ppMyClubBanner" style="display:none;"></div>
 
@@ -1118,6 +1372,13 @@ window.nlAuthReady = function(session) {
   STATE.isStaffLike = (role === 'staff' || role === 'admin' || role === 'superadmin');
   STATE.isAdmin     = (role === 'admin' || role === 'superadmin');
   STATE.isClub      = (role === 'club');
+
+  /* Restore view preference (grid by default for new users) */
+  try {
+    var savedView = localStorage.getItem('pp_view_mode');
+    if (savedView === 'list' || savedView === 'grid') STATE.view = savedView;
+    else STATE.view = 'grid';
+  } catch (e) { STATE.view = 'grid'; }
 
   /* CRITICAL: wrap RTDB reads in NL.ensureAuth() — auth-guard's sessionStorage
      fast-path means nlAuthReady can fire before Firebase Auth's token has fully
@@ -1480,7 +1741,7 @@ function ppRenderMyClubBanner() {
   } else if (STATE.activeClub === club.key && STATE.activeFolder) {
     ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppBackToFolders()">← All folders</button>';
   } else {
-    ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppSelectClub(\'' + NL.escJ(club.key) + '\')">Manage your pack →</button>';
+    ctaHtml = '<button class="pp-myclub-banner__cta" onclick="ppSelectClub(\'' + NL.escJ(club.key) + '\')">Manage your pack</button>';
   }
 
   var crestHtml = '<img class="pp-myclub-banner__crest" src="' + NL.escHtml(ppCrestUrl(club.name)) + '" '
@@ -1671,9 +1932,18 @@ function ppRenderFolderGrid() {
     + '</div>';
   }).join('');
 
+  var headClass = 'pp-panel__head';
+  if (ppIsOwnClub(club.key)) headClass += ' pp-panel__head--own';
+
+  /* Download all in pack — all files across all 8 folders. Show only if any. */
+  var packActionsHtml = '';
+  if (totalFiles > 0) {
+    packActionsHtml = '<button class="btn btn--ghost btn--sm" onclick="ppDownloadAllInClub(\'' + NL.escJ(club.key) + '\')" title="Download every file in this club\'s pack as a ZIP">↓ Download pack</button>';
+  }
+
   panel.innerHTML =
     '<div class="pp-panel">'
-    + '<div class="pp-panel__head">'
+    + '<div class="' + headClass + '">'
       + '<div class="pp-panel__head__left">'
         + crestHtml
         + '<div>'
@@ -1681,6 +1951,7 @@ function ppRenderFolderGrid() {
           + '<div class="pp-panel__sub">' + NL.escHtml(subText) + '</div>'
         + '</div>'
       + '</div>'
+      + '<div class="pp-panel__actions">' + packActionsHtml + '</div>'
     + '</div>'
     + '<div class="pp-folder-grid">' + foldersHtml + '</div>'
   + '</div>';
@@ -1732,9 +2003,13 @@ function ppRenderFilesView() {
     ? (allFiles.length + ' file' + (allFiles.length === 1 ? '' : 's') + (lastTs ? ' · last updated ' + ppFmtDate(lastTs) : ''))
     : 'No files yet';
 
-  var actionsHtml = canEdit
-    ? '<button class="btn btn--primary btn--sm" onclick="ppOpenUpload()">⬆ Upload file</button>'
-    : '';
+  var actionsHtml = '';
+  if (allFiles.length > 0) {
+    actionsHtml += '<button class="btn btn--ghost btn--sm" onclick="ppDownloadAllInFolder(\'' + NL.escJ(club.key) + '\', \'' + NL.escJ(folder.key) + '\')" title="Download every file in this folder as a ZIP">↓ Download all</button>';
+  }
+  if (canEdit) {
+    actionsHtml += '<button class="btn btn--primary btn--sm" onclick="ppOpenUpload()">⬆ Upload file</button>';
+  }
 
   var filesHtml;
   if (files.length === 0 && !STATE.search) {
@@ -1750,6 +2025,8 @@ function ppRenderFilesView() {
       + '<div class="pp-files__empty__icon">🔍</div>'
       + '<div>No files match "' + NL.escHtml(STATE.search) + '"</div>'
       + '</div>';
+  } else if (STATE.view === 'grid') {
+    filesHtml = ppRenderFileGrid(files, canEdit);
   } else {
     filesHtml = files.map(function(f) {
       var ic = ppFileTypeIcon(f.type);
@@ -1773,9 +2050,12 @@ function ppRenderFilesView() {
     }).join('');
   }
 
+  var headClass2 = 'pp-panel__head';
+  if (ppIsOwnClub(club.key)) headClass2 += ' pp-panel__head--own';
+
   panel.innerHTML =
     '<div class="pp-panel">'
-    + '<div class="pp-panel__head">'
+    + '<div class="' + headClass2 + '">'
       + '<div class="pp-panel__head__left">'
         + '<button class="pp-back-link" onclick="ppBackToFolders()" title="Back to folder list"><span class="pp-back-link__chevron">‹</span> All folders</button>'
         + '<div style="font-size:24px;">' + NL.escHtml(folder.icon) + '</div>'
@@ -1784,7 +2064,7 @@ function ppRenderFilesView() {
           + '<div class="pp-panel__sub">' + NL.escHtml(club.name) + ' · ' + NL.escHtml(subText) + '</div>'
         + '</div>'
       + '</div>'
-      + '<div>' + actionsHtml + '</div>'
+      + '<div class="pp-panel__actions">' + actionsHtml + '</div>'
     + '</div>'
     + (folder.description ? '<div class="pp-folder-instructions"><strong>What goes here</strong>' + NL.escHtml(folder.description) + '</div>' : '')
     + '<div class="pp-filterbar">'
@@ -1795,9 +2075,13 @@ function ppRenderFilesView() {
         + '<option value="name"'      + (STATE.sortBy === 'name'      ? ' selected' : '') + '>Name (A–Z)</option>'
         + '<option value="size"'      + (STATE.sortBy === 'size'      ? ' selected' : '') + '>Largest first</option>'
       + '</select>'
+      + ppViewToggleHtml()
     + '</div>'
     + '<div class="pp-files">' + filesHtml + '</div>'
   + '</div>';
+
+  /* Wire lazy thumbs for grid view */
+  if (STATE.view === 'grid') ppAttachThumbObservers();
 }
 
 function ppOnSearchInput(val) {
@@ -1818,7 +2102,162 @@ function ppOnSearchInput(val) {
 
 function ppOnSortChange(val) {
   STATE.sortBy = val;
-  ppRenderFilesView();
+  /* re-render whichever view we're in */
+  if (STATE.activeClub === '_nl-central') ppRenderNlAssets();
+  else ppRenderFilesView();
+}
+
+/* ============================================================================
+   VIEW TOGGLE + THUMBNAIL CACHE
+   ============================================================================ */
+
+function ppSetView(mode) {
+  if (mode !== 'list' && mode !== 'grid') return;
+  if (STATE.view === mode) return;
+  STATE.view = mode;
+  try { localStorage.setItem('pp_view_mode', mode); } catch (e) {}
+  ppRenderMainPanel();
+}
+
+/* Thumbnail cache lives outside STATE because it holds blob URLs we want to
+   keep across re-renders. Map of fileId → { url, status }
+   status: 'pending' | 'loaded' | 'failed' */
+var ppThumbCache = {};
+var ppThumbObserver = null;
+
+/* IntersectionObserver: starts thumbnail fetch when the card scrolls in.
+   Singleton — re-uses across renders. */
+function ppGetThumbObserver() {
+  if (ppThumbObserver) return ppThumbObserver;
+  if (typeof IntersectionObserver === 'undefined') return null;  /* very old browsers */
+
+  ppThumbObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (!entry.isIntersecting) return;
+      var el = entry.target;
+      var fileId = el.dataset.thumbFileId;
+      if (!fileId) return;
+      ppThumbObserver.unobserve(el);  /* one-shot per element */
+      ppLoadThumb(fileId);
+    });
+  }, { rootMargin: '200px' });  /* preload slightly before card enters viewport */
+
+  return ppThumbObserver;
+}
+
+function ppLoadThumb(fileId) {
+  /* Already loaded or in-flight? Just paint it. */
+  var existing = ppThumbCache[fileId];
+  if (existing && existing.status === 'loaded') {
+    ppPaintThumb(fileId, existing.url);
+    return;
+  }
+  if (existing && existing.status === 'pending') return;
+  if (existing && existing.status === 'failed') return;  /* don't retry within session */
+
+  ppThumbCache[fileId] = { status: 'pending' };
+
+  ppCallGas({ action: 'pp_thumbnail', fileId: fileId })
+    .then(function(r) {
+      if (!r.ok) throw new Error(r.error || 'No thumbnail');
+      var byteChars = atob(r.dataB64);
+      var bytes = new Uint8Array(byteChars.length);
+      for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      var blob = new Blob([bytes], { type: r.mimeType || 'image/png' });
+      var url = URL.createObjectURL(blob);
+      ppThumbCache[fileId] = { status: 'loaded', url: url };
+      ppPaintThumb(fileId, url);
+    })
+    .catch(function() {
+      ppThumbCache[fileId] = { status: 'failed' };
+      /* Card already shows fallback icon, do nothing extra. */
+    });
+}
+
+function ppPaintThumb(fileId, url) {
+  /* There may be more than one card on the page for the same file — paint
+     them all. (Rare but possible: same file listed in matrix view later.) */
+  var els = document.querySelectorAll('[data-thumb-file-id="' + fileId + '"]');
+  els.forEach(function(el) {
+    var bg = el.querySelector('.pp-card__thumb');
+    if (!bg) return;
+    bg.style.backgroundImage = 'url("' + url + '")';
+    bg.classList.add('is-loaded');
+  });
+}
+
+/* Renders the file list as a grid of cards instead of rows. Each card has a
+   thumbnail area (background-image, lazy-loaded for image files), the name,
+   and meta. Same actions/preview-on-click behaviour as list view. */
+function ppRenderFileGrid(files, canEdit) {
+  if (files.length === 0) return '';
+  var html = '<div class="pp-file-grid">';
+  html += files.map(function(f) {
+    var ic = ppFileTypeIcon(f.type);
+    var isImage = (f.type === 'img');
+    var thumbAttr = isImage ? ' data-thumb-file-id="' + NL.escHtml(f.id) + '"' : '';
+    var thumbInner;
+    if (isImage) {
+      /* If already cached, paint immediately */
+      var cached = ppThumbCache[f.id];
+      if (cached && cached.status === 'loaded') {
+        thumbInner = '<div class="pp-card__thumb is-loaded" style="background-image:url(\'' + cached.url + '\');"></div>';
+      } else {
+        thumbInner = '<div class="pp-card__thumb"></div>';
+      }
+    } else {
+      /* Big type icon for non-images */
+      thumbInner = '<div class="pp-card__thumb pp-card__thumb--icon pp-card__thumb--' + ic.cls + '">'
+        + '<div class="pp-card__big-icon">' + ic.label + '</div>'
+        + '</div>';
+    }
+
+    var actions = '<button class="pp-file__btn pp-file__btn--primary" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓ Download</button>';
+    if (canEdit) {
+      actions += '<button class="pp-file__btn pp-file__btn--edit" onclick="event.stopPropagation();ppOpenReplace(\'' + NL.escJ(f.id) + '\')">Replace</button>';
+      actions += '<button class="pp-file__btn pp-file__btn--danger" onclick="event.stopPropagation();ppOpenDelete(\'' + NL.escJ(f.id) + '\')">Delete</button>';
+    }
+
+    return '<div class="pp-file-card" onclick="ppOpenPreview(\'' + NL.escJ(f.id) + '\')"' + thumbAttr + '>'
+      + thumbInner
+      + '<div class="pp-file-card__body">'
+        + '<div class="pp-file-card__name" title="' + NL.escHtml(f.name) + '">' + NL.escHtml(f.name) + '</div>'
+        + '<div class="pp-file-card__meta">' + ppFmtDate(f.uploadedAt) + ' · ' + ppFmtSize(f.size) + '</div>'
+        + '<div class="pp-file-card__by">' + NL.escHtml(ppDisplayUploader(f)) + '</div>'
+      + '</div>'
+      + '<div class="pp-file-card__actions">' + actions + '</div>'
+    + '</div>';
+  }).join('');
+  html += '</div>';
+  return html;
+}
+
+/* Wires lazy-loading after the grid HTML is in the DOM. */
+function ppAttachThumbObservers() {
+  var observer = ppGetThumbObserver();
+  if (!observer) {
+    /* Fallback for ancient browsers — load all thumbs immediately */
+    document.querySelectorAll('[data-thumb-file-id]').forEach(function(el) {
+      var fileId = el.dataset.thumbFileId;
+      if (fileId) ppLoadThumb(fileId);
+    });
+    return;
+  }
+  document.querySelectorAll('[data-thumb-file-id]').forEach(function(el) {
+    /* If thumb is already painted (cached), don't re-observe */
+    var thumb = el.querySelector('.pp-card__thumb');
+    if (thumb && thumb.classList.contains('is-loaded')) return;
+    observer.observe(el);
+  });
+}
+
+function ppViewToggleHtml() {
+  /* Compact two-button toggle for the filterbar */
+  var grid = STATE.view === 'grid';
+  return '<div class="pp-view-toggle" role="group" aria-label="View mode">'
+    + '<button class="pp-view-toggle__btn ' + (grid ? 'is-active' : '') + '" onclick="ppSetView(\'grid\')" title="Grid view">▦</button>'
+    + '<button class="pp-view-toggle__btn ' + (!grid ? 'is-active' : '') + '" onclick="ppSetView(\'list\')" title="List view">≡</button>'
+  + '</div>';
 }
 
 /* ============================================================================
@@ -1946,19 +2385,28 @@ function ppRenderNlAssets() {
 
   /* === Header actions === */
   var headerActions = '';
+
+  /* Download all in current folder — anyone (not admin-only) when inside a folder with files */
+  if (currentId && filesHere.length > 0) {
+    headerActions += '<button class="btn btn--ghost btn--sm" onclick="ppDownloadAllInNlfFolder(\'' + NL.escJ(currentId) + '\')" title="Download every file in this folder as a ZIP">↓ Download all</button>';
+  }
+
   if (canEdit) {
     /* "New folder" only if depth allows */
     var depthOk = !currentId || (ppNlfDepth(currentId) + 1 < 3);
     if (depthOk) {
       headerActions += '<button class="btn btn--ghost btn--sm" onclick="ppOpenNlfCreate(' + (currentId ? "'" + NL.escJ(currentId) + "'" : 'null') + ')">+ New folder</button>';
     }
-    headerActions += ' <button class="btn btn--primary btn--sm" onclick="ppOpenNlfUpload()">⬆ Upload file</button>';
+    if (currentId) {
+      /* Upload only makes sense inside a folder, not at the root level */
+      headerActions += '<button class="btn btn--primary btn--sm" onclick="ppOpenNlfUpload()">⬆ Upload file</button>';
+    }
   }
   if (currentId && canEdit) {
     var meta = STATE.nlAssetsFolders[currentId];
     if (meta) {
-      headerActions += ' <button class="btn btn--ghost btn--sm" onclick="ppOpenNlfRename(\'' + NL.escJ(currentId) + '\')">Rename folder</button>';
-      headerActions += ' <button class="btn btn--ghost btn--sm" style="color:var(--red);" onclick="ppOpenNlfDelete(\'' + NL.escJ(currentId) + '\')">Delete folder</button>';
+      headerActions += '<button class="btn btn--ghost btn--sm" onclick="ppOpenNlfRename(\'' + NL.escJ(currentId) + '\')">Rename folder</button>';
+      headerActions += '<button class="btn btn--ghost btn--sm" style="color:var(--red);" onclick="ppOpenNlfDelete(\'' + NL.escJ(currentId) + '\')">Delete folder</button>';
     }
   }
 
@@ -1990,27 +2438,31 @@ function ppRenderNlAssets() {
   /* Files block */
   if (filesFiltered.length > 0) {
     bodyHtml += '<div class="pp-nlf-section-label">Files</div>';
-    bodyHtml += '<div class="pp-files">';
-    bodyHtml += filesFiltered.map(function(f) {
-      var ic = ppFileTypeIcon(f.type);
-      var actions = '<button class="pp-file__btn pp-file__btn--primary" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓ Download</button>';
-      if (canEdit) {
-        actions += '<button class="pp-file__btn pp-file__btn--edit" onclick="event.stopPropagation();ppOpenReplace(\'' + NL.escJ(f.id) + '\')">Replace</button>';
-        actions += '<button class="pp-file__btn pp-file__btn--danger" onclick="event.stopPropagation();ppOpenDelete(\'' + NL.escJ(f.id) + '\')">Delete</button>';
-      }
-      return '<div class="pp-file" data-editable="' + (canEdit ? 'true' : 'false') + '" '
-        + 'onclick="ppOpenPreview(\'' + NL.escJ(f.id) + '\')">'
-        + '<div class="pp-file__icon pp-file__icon--' + ic.cls + '">' + ic.label + '</div>'
-        + '<div class="pp-file__main">'
-          + '<div class="pp-file__name">' + NL.escHtml(f.name) + '</div>'
-          + '<div class="pp-file__meta">' + NL.escHtml(ppDisplayUploader(f)) + (f.description ? ' · ' + NL.escHtml(f.description) : '') + '</div>'
-        + '</div>'
-        + '<div class="pp-file__date">' + ppFmtDate(f.uploadedAt) + '</div>'
-        + '<div class="pp-file__size">' + ppFmtSize(f.size) + '</div>'
-        + '<div class="pp-file__actions">' + actions + '</div>'
-        + '</div>';
-    }).join('');
-    bodyHtml += '</div>';
+    if (STATE.view === 'grid') {
+      bodyHtml += ppRenderFileGrid(filesFiltered, canEdit);
+    } else {
+      bodyHtml += '<div class="pp-files">';
+      bodyHtml += filesFiltered.map(function(f) {
+        var ic = ppFileTypeIcon(f.type);
+        var actions = '<button class="pp-file__btn pp-file__btn--primary" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓ Download</button>';
+        if (canEdit) {
+          actions += '<button class="pp-file__btn pp-file__btn--edit" onclick="event.stopPropagation();ppOpenReplace(\'' + NL.escJ(f.id) + '\')">Replace</button>';
+          actions += '<button class="pp-file__btn pp-file__btn--danger" onclick="event.stopPropagation();ppOpenDelete(\'' + NL.escJ(f.id) + '\')">Delete</button>';
+        }
+        return '<div class="pp-file" data-editable="' + (canEdit ? 'true' : 'false') + '" '
+          + 'onclick="ppOpenPreview(\'' + NL.escJ(f.id) + '\')">'
+          + '<div class="pp-file__icon pp-file__icon--' + ic.cls + '">' + ic.label + '</div>'
+          + '<div class="pp-file__main">'
+            + '<div class="pp-file__name">' + NL.escHtml(f.name) + '</div>'
+            + '<div class="pp-file__meta">' + NL.escHtml(ppDisplayUploader(f)) + (f.description ? ' · ' + NL.escHtml(f.description) : '') + '</div>'
+          + '</div>'
+          + '<div class="pp-file__date">' + ppFmtDate(f.uploadedAt) + '</div>'
+          + '<div class="pp-file__size">' + ppFmtSize(f.size) + '</div>'
+          + '<div class="pp-file__actions">' + actions + '</div>'
+          + '</div>';
+      }).join('');
+      bodyHtml += '</div>';
+    }
   }
 
   /* Empty state */
@@ -2035,7 +2487,7 @@ function ppRenderNlAssets() {
 
   panel.innerHTML =
     '<div class="pp-panel">'
-    + '<div class="pp-panel__head">'
+    + '<div class="pp-panel__head pp-panel__head--nl">'
       + '<div class="pp-panel__head__left">'
         + crestHtml
         + '<div style="min-width:0; flex:1;">'
@@ -2053,15 +2505,13 @@ function ppRenderNlAssets() {
         + '<option value="name"'      + (STATE.sortBy === 'name'      ? ' selected' : '') + '>Name (A–Z)</option>'
         + '<option value="size"'      + (STATE.sortBy === 'size'      ? ' selected' : '') + '>Largest first</option>'
       + '</select>'
+      + ppViewToggleHtml()
     + '</div>'
     + bodyHtml
   + '</div>';
 
-  /* refocus search if needed */
-  var input = document.getElementById('ppSearchInput');
-  if (input && STATE.search && document.activeElement !== input) {
-    /* leave focus alone — only a search-typing oninput would refocus, handled in ppOnSearchInput */
-  }
+  /* Wire lazy thumbs for grid view */
+  if (STATE.view === 'grid') ppAttachThumbObservers();
 }
 
 function ppNlfOpen(folderId) {
@@ -2472,6 +2922,106 @@ function ppTriggerBrowserDownload(b64, mimeType, filename) {
   a.click();
   document.body.removeChild(a);
   setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+}
+
+/* ============================================================================
+   BULK DOWNLOAD — server-side ZIP via pp_zip
+   ============================================================================
+   Three entry points:
+     ppDownloadAllInClub(clubKey)       — every file in a club's pack (across
+                                          all 8 seeded folders)
+     ppDownloadAllInFolder(clubKey,fk)  — every file in one club folder
+     ppDownloadAllInNlfFolder(folderId) — every file in one NL Assets folder
+
+   Limits enforced by GAS: 30 files / 50MB total. Frontend pre-checks both so
+   we fail fast with a friendly message rather than waiting for GAS to refuse.
+   ============================================================================ */
+
+var PP_ZIP_MAX_FILES = 30;
+var PP_ZIP_MAX_BYTES = 50 * 1024 * 1024;
+
+function ppCollectFileIds(filterFn) {
+  var ids = [];
+  var totalBytes = 0;
+  Object.keys(STATE.files).forEach(function(id) {
+    var f = STATE.files[id];
+    if (!f || f.isDeleted) return;
+    if (!filterFn(f)) return;
+    ids.push(id);
+    totalBytes += parseInt(f.size, 10) || 0;
+  });
+  return { ids: ids, totalBytes: totalBytes };
+}
+
+function ppDownloadAllInClub(clubKey) {
+  var club = STATE.clubsByKey[clubKey];
+  if (!club) return;
+  var collected = ppCollectFileIds(function(f) { return f.clubKey === clubKey; });
+  var slug = clubKey.replace(/^_/, '');
+  ppDoBulkZip(collected.ids, collected.totalBytes, slug + '-pack.zip', club.name + ' pack');
+}
+
+function ppDownloadAllInFolder(clubKey, folderKey) {
+  var club = STATE.clubsByKey[clubKey];
+  var folder = STATE.folders.find(function(f) { return f.key === folderKey; });
+  if (!club || !folder) return;
+  var collected = ppCollectFileIds(function(f) { return f.clubKey === clubKey && f.folderKey === folderKey; });
+  var slug = clubKey.replace(/^_/, '') + '-' + folderKey;
+  ppDoBulkZip(collected.ids, collected.totalBytes, slug + '.zip', club.name + ' / ' + folder.name);
+}
+
+function ppDownloadAllInNlfFolder(folderId) {
+  var meta = STATE.nlAssetsFolders[folderId];
+  if (!meta) return;
+
+  /* Collect this folder + descendant folders (admins can choose to bulk
+     download a whole branch). For now: just files in this exact folder.
+     If admin wants nested files, they navigate down and download per folder. */
+  var collected = ppCollectFileIds(function(f) {
+    return f.clubKey === '_nl-central' && f.folderKey === folderId;
+  });
+  var nameSafe = (meta.name || 'folder').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
+  ppDoBulkZip(collected.ids, collected.totalBytes, 'nl-assets-' + nameSafe + '.zip', 'National League Assets / ' + meta.name);
+}
+
+function ppDoBulkZip(fileIds, totalBytes, zipName, descriptiveLabel) {
+  if (!fileIds.length) {
+    NL.toast('No files to download.', 'info');
+    return;
+  }
+  /* Pre-flight: catch obvious problems before round-trip to GAS */
+  if (fileIds.length > PP_ZIP_MAX_FILES) {
+    NL.toast(descriptiveLabel + ' has ' + fileIds.length + ' files (max ' + PP_ZIP_MAX_FILES + ' per zip). Download by folder instead.', 'error');
+    return;
+  }
+  if (totalBytes > PP_ZIP_MAX_BYTES) {
+    var mb = Math.round(totalBytes / 1024 / 1024);
+    NL.toast(descriptiveLabel + ' is ' + mb + 'MB (max 50MB per zip). Download by folder instead.', 'error');
+    return;
+  }
+
+  /* Spinner-style toast — no progress bar from GAS, but we can at least say
+     it's happening. Pre-zip estimates are rough — most large packs are images
+     where ZIP compression saves little. */
+  NL.toast('Preparing ZIP of ' + fileIds.length + ' file' + (fileIds.length === 1 ? '' : 's') + '… this can take a moment.', 'info');
+
+  ppCallGas({
+    action:   'pp_zip',
+    fileIds:  fileIds,
+    zipName:  zipName
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.error || 'ZIP failed');
+    ppTriggerBrowserDownload(r.dataB64, r.mimeType || 'application/zip', r.filename || zipName);
+    var skippedNote = (r.skipped && r.skipped.length) ? ' (' + r.skipped.length + ' skipped)' : '';
+    NL.toast('Downloaded ' + (r.fileCount || fileIds.length) + ' files' + skippedNote, 'success');
+    ppAudit('zip_downloaded', {
+      fileCount:  r.fileCount || fileIds.length,
+      totalBytes: totalBytes,
+      label:      descriptiveLabel
+    });
+  }).catch(function(err) {
+    NL.toast('Download failed: ' + err.message, 'error');
+  });
 }
 
 /* ============================================================================
