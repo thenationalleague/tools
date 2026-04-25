@@ -3,41 +3,39 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 2.0
+  Version: 2.1
   Date: 25/04/2026
 
   CHANGELOG
+  v2.1 (25/04/2026)
+    - Fix: PERMISSION_DENIED on /nl-assets-folders for all users. The new node
+      had no read rule and was being blocked by parent default-deny. Added rule
+      patch (must merge into Firebase rules) — read for any authed user, writes
+      blocked at browser (GAS handles via secret).
+    - Sidebar restructured per design feedback:
+      - National League Assets pinned at top with red left bar, rose crest
+        on white circle (no more "NL" text disc, no more "Reference library").
+      - Own club pinned at position 2 with navy left bar.
+      - Visual divider before the rest of the league.
+      - Removed the "YOUR CLUB" / "ALL CLUBS" section headers — visual
+        styling does the work.
+    - NL Assets main panel uses the same rose-on-white crest treatment.
+
   v2.0 (25/04/2026)
-    - "NL Central" renamed to "National League Assets" — different model from
-      club folders. Admin-managed dynamic folder tree (up to 3 levels deep).
-      Files live alongside folders inside any folder; root cannot hold files.
-    - NL admins can create / rename / hard-delete folders. Hard-delete cascades:
-      removes all subtree folders + soft-deletes all files inside (Drive folder
-      goes to trash, taking contents with it).
-    - Hard-delete requires typing DELETE to confirm.
-    - GAS additions (must redeploy): pp_nlf_create / pp_nlf_rename / pp_nlf_delete.
-      pp_upload now routes NL Assets uploads via nl-assets-folders lookup.
-    - "Scroll to folders" CTA dropped — banner shows no CTA when already on own
-      club's folder grid.
-    - Note: existing "_NL Central" Drive folder retained as the storage root for
-      NL Assets — bootstrap is unchanged. The 8 seeded folders previously
-      created inside it are unused and can be ignored or manually deleted.
+    - National League Assets — admin-managed folder tree (3-level cap).
+      Create / rename / hard-delete folders. Hard-delete cascades.
+    - "Scroll to folders" CTA dropped from banner.
 
   v1.4 (25/04/2026)
     - Fix: club reps couldn't see club-specific UI. session.club is display
-      name ("Darlington") but tool uses slugs internally ("darlington").
-      Added ppResolveMyClub() + GAS-side slug normalisation in pp_upload.
+      name; tool uses slugs. Added ppResolveMyClub() + GAS-side normalisation.
 
   v1.3 (25/04/2026)
-    - Sidebar: own club pinned at top under "Your club" header.
-    - "Your club" banner above layout: progress bar, file count, last upload,
-      contextual CTA.
+    - Sidebar: own club pinned. "Your club" banner above layout.
 
   v1.2 (25/04/2026)
     - Uploader display: name + org instead of email.
-    - Role checks tidied to match Attendance idiom.
-    - Back button + Download button restyled.
-    - Preview shows file size while loading.
+    - Role checks tidied. Back/Download buttons restyled.
 
   v1.1 (25/04/2026)
     - Fix: PERMISSION_DENIED on first load. Wrapped initial loads in NL.ensureAuth().
@@ -168,24 +166,13 @@
   padding: 0;
   margin: 0;
 }
-.pp-club-list__section-header {
-  padding: 12px 18px 6px;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.13em;
-  font-variation-settings: 'wght' 800;
-  color: var(--text-muted);
-  background: var(--off-white);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.pp-club-list__section-header:first-child {
-  border-top: 0;
-}
-.pp-club-list__section-header--own {
-  background: linear-gradient(to right, rgba(158,0,0,0.06), transparent);
-  color: var(--primary);
-  border-top: 0;
+/* Visual divider between pinned items (NL Assets, own club) and the rest of the league */
+.pp-club-list__divider {
+  height: 1px;
+  margin: 6px 14px;
+  background: var(--border);
+  list-style: none;
+  padding: 0;
 }
 .pp-club-list__item {
   display: grid;
@@ -204,23 +191,55 @@
   border-left-color: var(--primary);
   font-variation-settings: 'wght' 700;
 }
+/* NL Assets row — always red left bar to flag its different role.
+   When inactive: 3px red bar always visible.
+   When active: stays red (don't override with primary). */
+.pp-club-list__item--nl {
+  border-left-color: var(--primary);
+  background: linear-gradient(to right, rgba(158,0,0,0.04), transparent 60%);
+}
+.pp-club-list__item--nl:hover {
+  background: linear-gradient(to right, rgba(158,0,0,0.09), var(--off-white) 60%);
+}
+.pp-club-list__item--nl .pp-club-list__name {
+  color: var(--navy);
+  font-variation-settings: 'wght' 800;
+}
+/* Own club row — navy left bar always, distinct from active-state red. */
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl) {
+  border-left-color: var(--navy);
+  background: linear-gradient(to right, rgba(10,22,40,0.04), transparent 60%);
+}
+.pp-club-list__item.is-own:not(.pp-club-list__item--nl):hover {
+  background: linear-gradient(to right, rgba(10,22,40,0.08), var(--off-white) 60%);
+}
+.pp-club-list__item.is-own.is-active:not(.pp-club-list__item--nl) {
+  border-left-color: var(--navy);  /* keep navy even when active */
+}
+
 .pp-club-list__crest {
   width: 28px;
   height: 28px;
   object-fit: contain;
   flex-shrink: 0;
 }
-.pp-club-list__crest--text {
+/* NL Assets crest: white circle with the rose inside */
+.pp-club-list__crest--nl {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--primary);
-  color: var(--white);
+  background: var(--white);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-variation-settings: 'wght' 800;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.pp-club-list__crest--nl img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 .pp-club-list__info { min-width: 0; }
 .pp-club-list__name {
@@ -308,6 +327,23 @@
   justify-content: center;
   font-variation-settings: 'wght' 900;
   font-size: 14px;
+}
+.pp-panel__crest--nl {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--white);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.pp-panel__crest--nl img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
 }
 .pp-panel__title {
   font-size: 22px;
@@ -1474,28 +1510,39 @@ function ppRenderClubList() {
     return;
   }
 
-  /* Build the sorted view at render time:
-     1. Own club (pinned) — only if user has one
-     2. Section header
-     3. NL Central
-     4. Everyone else, alphabetical (own club excluded since it's pinned)
+  /* Sidebar order:
+     1. National League Assets (always first, red accent)
+     2. Own club (if user has one) — navy accent
+     3. Visual break
+     4. All other clubs, alphabetical
   */
   var ownClub = STATE.myClub ? STATE.clubsByKey[STATE.myClub] : null;
-  var others  = STATE.clubs.filter(function(c) {
+  var nlAssets = STATE.clubsByKey['_nl-central'];
+
+  var others = STATE.clubs.filter(function(c) {
+    if (c.isCentral) return false;
     if (ownClub && c.key === ownClub.key) return false;
     return true;
   });
 
   var html = '';
 
-  /* Pinned own club */
-  if (ownClub) {
-    html += '<li class="pp-club-list__section-header pp-club-list__section-header--own">Your club</li>';
-    html += ppRenderClubItem(ownClub);
-    html += '<li class="pp-club-list__section-header">All clubs</li>';
+  /* 1. NL Assets pinned top */
+  if (nlAssets) {
+    html += ppRenderClubItem(nlAssets);
   }
 
-  /* Everyone else (NL Central first by virtue of its existing position in STATE.clubs) */
+  /* 2. Own club (if any) */
+  if (ownClub) {
+    html += ppRenderClubItem(ownClub);
+  }
+
+  /* 3. Divider before the rest of the league */
+  if (nlAssets || ownClub) {
+    html += '<li class="pp-club-list__divider"></li>';
+  }
+
+  /* 4. Everyone else, alphabetical */
   html += others.map(ppRenderClubItem).join('');
 
   ul.innerHTML = html;
@@ -1515,19 +1562,32 @@ function ppRenderClubItem(c) {
 
   var totalFiles = ppFilesIn(c.key).length;
 
+  /* Crest: NL Assets uses the rose on white circle; clubs use their own crest */
   var crestHtml;
   if (c.isCentral) {
-    crestHtml = '<div class="pp-club-list__crest pp-club-list__crest--text">NL</div>';
+    crestHtml = '<div class="pp-club-list__crest pp-club-list__crest--nl">'
+      + '<img src="' + FALLBACK_CREST + '" alt="NL">'
+      + '</div>';
   } else {
     crestHtml = '<img class="pp-club-list__crest" src="' + NL.escHtml(ppCrestUrl(c.name)) + '" '
       + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
   }
 
+  /* Sub line: NL Assets shows nothing extra; clubs show their progress */
   var progressHtml = c.isCentral
-    ? '<div class="pp-club-list__progress">Reference library</div>'
+    ? ''
     : '<div class="pp-club-list__progress"><span>' + filledCount + '/' + STATE.folders.length + '</span><div class="pp-club-list__dots">' + dotsHtml + '</div></div>';
 
-  return '<li class="pp-club-list__item ' + (isActive ? 'is-active' : '') + ' ' + (isOwn ? 'is-own' : '') + '" '
+  /* Modifier classes:
+     - is-nl     → red left bar (NL Assets)
+     - is-own    → navy left bar + "YOU" badge (own club)
+     - is-active → highlighted background */
+  var modClass = '';
+  if (c.isCentral) modClass += ' pp-club-list__item--nl';
+  if (isOwn)       modClass += ' is-own';
+  if (isActive)    modClass += ' is-active';
+
+  return '<li class="pp-club-list__item' + modClass + '" '
     + 'onclick="ppSelectClub(\'' + NL.escJ(c.key) + '\')">'
     + crestHtml
     + '<div class="pp-club-list__info">'
@@ -1573,7 +1633,7 @@ function ppRenderFolderGrid() {
 
   var crestHtml;
   if (club.isCentral) {
-    crestHtml = '<div class="pp-panel__crest pp-panel__crest--text">NL</div>';
+    crestHtml = '<div class="pp-panel__crest pp-panel__crest--nl"><img src="' + FALLBACK_CREST + '" alt="NL"></div>';
   } else {
     crestHtml = '<img class="pp-panel__crest" src="' + NL.escHtml(ppCrestUrl(club.name)) + '" '
       + 'onerror="this.onerror=null;this.src=\'' + FALLBACK_CREST + '\'" alt="">';
@@ -1867,7 +1927,7 @@ function ppRenderNlAssets() {
   });
 
   /* === Header === */
-  var crestHtml = '<div class="pp-panel__crest pp-panel__crest--text">NL</div>';
+  var crestHtml = '<div class="pp-panel__crest pp-panel__crest--nl"><img src="' + FALLBACK_CREST + '" alt="NL"></div>';
   var trail = ppNlfPathTrail();
   var atRoot = trail.length === 0;
 
