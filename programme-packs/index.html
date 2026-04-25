@@ -3,10 +3,26 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 1.1
+  Version: 1.2
   Date: 25/04/2026
 
   CHANGELOG
+  v1.2 (25/04/2026)
+    - Uploader display: shows user's name and org/club instead of email.
+      Reads from /users/ once at boot, caches in STATE.users. Falls back
+      to email-prefix or stored name for legacy uploads.
+    - Role checks tidied to match Attendance idiom: STATE.isClub /
+      isStaffLike / isAdmin (was: a tools[]+role mishmash). Same behaviour,
+      cleaner code.
+    - Back button restyled: now a proper button with chevron, not a faded
+      text link.
+    - Download button: now navy-filled with "Download" label, always visible.
+      Replace + Delete remain hover-only (less prominent, destructive).
+    - Preview loading state: shows file size + "routed through Drive" hint
+      so users understand why larger files take a moment. Performance
+      itself is constrained by GAS proxy + base64 encoding — Phase 1.5 will
+      add signed direct-from-Drive URLs to make this fast.
+
   v1.1 (25/04/2026)
     - Fix: PERMISSION_DENIED reading folders-config / files on first load.
       Cause: NL.session is restored from sessionStorage faster than Firebase
@@ -65,6 +81,15 @@
 
   /* Public-facing "What's new" — shown when users click the version badge. */
   window.NL_CHANGELOG = [
+    {
+      date:    '25 April 2026',
+      version: 'v1.2',
+      items: [
+        'Uploaders now show by name and organisation, not email.',
+        'Download button restyled — clearer and always visible.',
+        'Preview shows file size while loading so longer waits feel less mysterious.'
+      ]
+    },
     {
       date:    '25 April 2026',
       version: 'v1.0',
@@ -384,21 +409,31 @@
   cursor: pointer;
 }
 .pp-back-link {
-  background: transparent;
-  border: 0;
-  color: var(--text-muted);
+  background: var(--off-white);
+  border: 1px solid var(--border);
+  color: var(--navy);
   font-family: inherit;
-  font-size: 13px;
-  padding: 5px 10px;
+  font-size: 12px;
+  font-variation-settings: 'wght' 700;
+  padding: 7px 12px 7px 10px;
   cursor: pointer;
-  border-radius: 4px;
-  display: flex;
+  border-radius: var(--radius);
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  margin-right: 4px;
 }
 .pp-back-link:hover {
   background: var(--white);
-  color: var(--navy);
+  border-color: var(--navy);
+  color: var(--navy-mid);
+}
+.pp-back-link__chevron {
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* File list */
@@ -470,10 +505,20 @@
 .pp-file__actions {
   display: flex;
   gap: 5px;
+  align-items: center;
+}
+/* Replace + Delete hidden until hover (destructive actions, less prominent) */
+.pp-file__btn--edit,
+.pp-file__btn--danger {
   opacity: 0;
   transition: opacity 0.12s;
 }
-.pp-file:hover .pp-file__actions { opacity: 1; }
+.pp-file:hover .pp-file__btn--edit,
+.pp-file:hover .pp-file__btn--danger {
+  opacity: 1;
+}
+/* Download stays visible \u2014 it's the most common action */
+.pp-file__btn--primary { opacity: 1; }
 .pp-file__btn {
   background: var(--white);
   border: 1px solid var(--border);
@@ -488,6 +533,16 @@
   font-family: inherit;
 }
 .pp-file__btn:hover { background: var(--off-white); }
+.pp-file__btn--primary {
+  background: var(--navy);
+  color: var(--white);
+  border-color: var(--navy);
+}
+.pp-file__btn--primary:hover {
+  background: var(--navy-mid);
+  border-color: var(--navy-mid);
+  color: var(--white);
+}
 .pp-file__btn--danger:hover {
   background: var(--red-light);
   color: var(--red);
@@ -727,13 +782,16 @@
 var STATE = {
   uid:           null,
   email:         null,
-  role:          null,         /* superadmin | admin | nl-admin | nl-staff | club | etc */
+  role:          null,         /* superadmin | admin | staff | club */
   myClub:        null,         /* slug from /users/{uid}/club, e.g. 'aldershot-town' */
-  isAdmin:       false,        /* superadmin or admin (full edit) */
+  isStaffLike:   false,        /* staff | admin | superadmin */
+  isAdmin:       false,        /* admin | superadmin (excludes staff) */
+  isClub:        false,        /* role === 'club' */
   clubs:         [],           /* sorted [{ key, name, short, division, isCentral }] */
   clubsByKey:    {},
   folders:       [],           /* sorted [{ key, name, icon, description, sortOrder }] */
   files:         {},           /* fileId → metadata */
+  users:         {},           /* uid → { name, email, org } — for upload-by display */
   activeClub:    null,         /* clubKey */
   activeFolder:  null,         /* folderKey or null (folder grid mode) */
   search:        '',
@@ -759,12 +817,11 @@ window.nlAuthReady = function(session) {
   STATE.role    = session.role || '';
   STATE.myClub  = session.club || null;
 
-  /* Determine admin status the standard way */
-  var toolEntry = session.tools && session.tools[NL_TOOL_KEY];
-  var toolAdmin = false;
-  if (toolEntry && typeof toolEntry === 'object')      toolAdmin = !!toolEntry.admin;
-  else if (typeof toolEntry === 'string')              toolAdmin = (toolEntry === 'admin');
-  STATE.isAdmin = (STATE.role === 'superadmin' || STATE.role === 'admin' || toolAdmin);
+  /* Role-based checks — pattern matches Attendance tool. */
+  var role = STATE.role;
+  STATE.isStaffLike = (role === 'staff' || role === 'admin' || role === 'superadmin');
+  STATE.isAdmin     = (role === 'admin' || role === 'superadmin');
+  STATE.isClub      = (role === 'club');
 
   /* Default active club: own club if member; else first non-central club */
   if (STATE.myClub) STATE.activeClub = STATE.myClub;
@@ -775,7 +832,7 @@ window.nlAuthReady = function(session) {
      fail with permission_denied. ensureAuth waits for the real auth state. */
   NL.ensureAuth()
     .then(function() {
-      return Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles()]);
+      return Promise.all([ppLoadClubs(), ppLoadFolders(), ppLoadFiles(), ppLoadUsersIfNeeded()]);
     })
     .then(function() {
       if (!STATE.activeClub) {
@@ -962,6 +1019,53 @@ function ppCanEditClub(clubKey) {
 
 function ppIsOwnClub(clubKey) {
   return STATE.myClub && STATE.myClub === clubKey;
+}
+
+/* Format an uploader for display: "Richard Dorman (NL)" preferred,
+   "Richard Dorman" if no org, falls back to the stored name (might be
+   email for legacy uploads). */
+function ppDisplayUploader(meta) {
+  if (!meta) return 'Unknown';
+  var u = STATE.users[meta.uploadedBy];
+  if (u && u.name) {
+    var label = u.name;
+    var orgLabel = ppOrgLabel(u.org, u.orgKey, u.club);
+    if (orgLabel) label += ' (' + orgLabel + ')';
+    return label;
+  }
+  /* Legacy fallback: stored uploadedByName is the email — strip @domain */
+  var stored = meta.uploadedByName || '';
+  if (stored.indexOf('@') !== -1) return stored.split('@')[0];
+  return stored || 'Unknown';
+}
+
+function ppOrgLabel(org, orgKey, club) {
+  if (club) {
+    /* Club user — show short club code if possible */
+    var c = STATE.clubsByKey[club];
+    if (c && c.short) return c.short;
+    if (c) return c.name;
+    return club;
+  }
+  if (orgKey === 'nl') return 'NL';
+  if (orgKey === 'trust') return 'NL Trust';
+  if (orgKey === 'u19') return 'U19 Alliance';
+  if (org) return org;
+  return '';
+}
+
+/* Load user records for all uploaders we don't already have cached.
+   Single bulk read is cheaper than per-uid; users node is small (~tens of records). */
+function ppLoadUsersIfNeeded() {
+  /* Only load once — users rarely change during a session. */
+  if (STATE._usersLoaded) return Promise.resolve();
+  return firebase.database().ref('users').once('value').then(function(snap) {
+    var val = snap.val() || {};
+    STATE.users = val;
+    STATE._usersLoaded = true;
+  }).catch(function() {
+    /* Fail silently — tool still works with email fallback */
+  });
 }
 
 /* ============================================================================
@@ -1159,7 +1263,7 @@ function ppRenderFilesView() {
   } else {
     filesHtml = files.map(function(f) {
       var ic = ppFileTypeIcon(f.type);
-      var actions = '<button class="pp-file__btn" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓</button>';
+      var actions = '<button class="pp-file__btn pp-file__btn--primary" onclick="event.stopPropagation();ppDoDownload(\'' + NL.escJ(f.id) + '\')">↓ Download</button>';
       if (canEdit) {
         actions +=
             '<button class="pp-file__btn pp-file__btn--edit" onclick="event.stopPropagation();ppOpenReplace(\'' + NL.escJ(f.id) + '\')">Replace</button>'
@@ -1170,7 +1274,7 @@ function ppRenderFilesView() {
         + '<div class="pp-file__icon pp-file__icon--' + ic.cls + '">' + ic.label + '</div>'
         + '<div class="pp-file__main">'
           + '<div class="pp-file__name">' + NL.escHtml(f.name) + '</div>'
-          + '<div class="pp-file__meta">' + NL.escHtml(f.uploadedByName || 'Unknown') + (f.description ? ' · ' + NL.escHtml(f.description) : '') + '</div>'
+          + '<div class="pp-file__meta">' + NL.escHtml(ppDisplayUploader(f)) + (f.description ? ' · ' + NL.escHtml(f.description) : '') + '</div>'
         + '</div>'
         + '<div class="pp-file__date">' + ppFmtDate(f.uploadedAt) + '</div>'
         + '<div class="pp-file__size">' + ppFmtSize(f.size) + '</div>'
@@ -1183,7 +1287,7 @@ function ppRenderFilesView() {
     '<div class="pp-panel">'
     + '<div class="pp-panel__head">'
       + '<div class="pp-panel__head__left">'
-        + '<button class="pp-back-link" onclick="ppBackToFolders()">← All folders</button>'
+        + '<button class="pp-back-link" onclick="ppBackToFolders()" title="Back to folder list"><span class="pp-back-link__chevron">‹</span> All folders</button>'
         + '<div style="font-size:24px;">' + NL.escHtml(folder.icon) + '</div>'
         + '<div>'
           + '<h2 class="pp-panel__title">' + NL.escHtml(folder.name) + '</h2>'
@@ -1467,7 +1571,14 @@ function ppOpenPreview(fileId) {
 
   document.getElementById('ppPreviewTitle').textContent = meta.name;
   var canvas = document.getElementById('ppPreviewCanvas');
-  canvas.innerHTML = '<div class="spinner" style="filter:invert(1);"></div>';
+  /* Loading state with size hint — gives users an honest sense of how long this might take */
+  var sizeHint = ppFmtSize(meta.size);
+  canvas.innerHTML =
+    '<div style="text-align:center; color:rgba(255,255,255,0.85);">'
+    + '<div class="spinner" style="filter:invert(1); margin:0 auto 14px;"></div>'
+    + '<div style="font-size:13px; font-variation-settings:\'wght\' 700;">Loading preview…</div>'
+    + '<div style="font-size:11px; opacity:0.7; margin-top:4px;">' + NL.escHtml(sizeHint) + ' · routed through Drive</div>'
+    + '</div>';
 
   /* Meta */
   var club   = STATE.clubsByKey[meta.clubKey];
@@ -1475,7 +1586,7 @@ function ppOpenPreview(fileId) {
   document.getElementById('ppPreviewMeta').innerHTML =
     '<div><strong>Club</strong>'    + NL.escHtml(club ? club.name : meta.clubKey)         + '</div>'
     + '<div><strong>Folder</strong>' + NL.escHtml(folder ? folder.name : meta.folderKey) + '</div>'
-    + '<div><strong>Uploaded by</strong>' + NL.escHtml(meta.uploadedByName || '—') + '</div>'
+    + '<div><strong>Uploaded by</strong>' + NL.escHtml(ppDisplayUploader(meta)) + '</div>'
     + '<div><strong>Date</strong>'   + NL.escHtml(ppFmtDate(meta.uploadedAt))  + '</div>'
     + '<div><strong>Size</strong>'   + NL.escHtml(ppFmtSize(meta.size))        + '</div>';
 
