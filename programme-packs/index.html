@@ -3,25 +3,28 @@
 <head>
 <!--
   NL Tools — Programme Packs
-  Version: 3.2
+  Version: 3.3
   Date: 25/04/2026
 
   CHANGELOG
+  v3.3 (25/04/2026)
+    - Lazy auto-sync on folder open (admins only):
+      * When an admin opens a club folder or NL Assets folder, the tool fires
+        pp_reconcile_folder in the background if not synced this session
+        within last 15 mins.
+      * Cached view renders immediately — sync is fire-and-forget; live RTDB
+        listener picks up any drift seamlessly.
+      * Per-folder cooldown (in-memory) prevents bouncing in/out from
+        re-firing. Manual "↻ Sync with Drive" button still works for
+        force-now needs.
+      * Audited only when something actually changed; no toast for no-op syncs.
+      * Silent on failure — cached view is fine; manual button is the
+        explicit recovery path.
+
   v3.2 (25/04/2026)
-    - Bulk upload: file picker now allows multi-select. Each file uploads
-      sequentially with a per-file status row (Ready → Uploading → Done /
-      Failed). Files >25MB filtered out at selection. Description applies
-      to all files in a batch. Replace flow stays single-file.
-    - Thumbnail grid loads ~5x faster: switched to batched pp_thumbnails
-      GAS call (up to 20 thumbs per request, debounced ~60ms after observer
-      fires). Files stay private — no anyone-with-link sharing.
-    - Admin Drive sync:
-      * "↻ Sync with Drive" button on club folder views and NL Assets folder
-        views (admin only). Calls new pp_reconcile_folder GAS action.
-      * Imports new files dropped into Drive directly, fixes renames in
-        Drive, marks RTDB orphans as deleted.
-      * Self-healing on download: pp_download silently patches RTDB if
-        Drive's filename has drifted. Cheap and continuous.
+    - Bulk upload: file picker now allows multi-select.
+    - Thumbnail grid loads ~5x faster via pp_thumbnails batched calls.
+    - Admin Drive sync: "↻ Sync with Drive" button + self-healing pp_download.
 
   v3.1 (25/04/2026)
     - Removed persistent "Your club" banner above layout.
@@ -126,6 +129,14 @@
 
   /* Public-facing "What's new" — shown when users click the version badge. */
   window.NL_CHANGELOG = [
+    {
+      date:    '25 April 2026',
+      version: 'v3.3',
+      items: [
+        'NL admins: dropping files into Drive now works automatically — files are picked up the next time you open the folder. No need to click Sync.',
+        'Manual "↻ Sync with Drive" button still there for force-now needs.'
+      ]
+    },
     {
       date:    '25 April 2026',
       version: 'v3.2',
@@ -2015,6 +2026,11 @@ function ppOpenFolder(folderKey) {
   STATE.search = '';
   ppRenderMyClubBanner();
   ppRenderMainPanel();
+
+  /* Background sync if this admin hasn't synced this folder in the cooldown
+     window. Cached view renders first; live listener catches any imports. */
+  var club = ppCurrentClub();
+  if (club && !club.isCentral) ppMaybeAutoSync(club.key, folderKey);
 }
 
 function ppBackToFolders() {
@@ -2624,12 +2640,17 @@ function ppNlfOpen(folderId) {
   STATE.nlAssetsPath = STATE.nlAssetsPath.concat([folderId]);
   STATE.search = '';
   ppRenderMainPanel();
+  /* Background sync — Drive may have changes admins didn't make through the tool. */
+  ppMaybeAutoSync('_nl-central', folderId);
 }
 
 function ppNlfNavigateTo(pathArr) {
   STATE.nlAssetsPath = pathArr.slice();
   STATE.search = '';
   ppRenderMainPanel();
+  /* If we landed on a non-root NL Assets folder, sync it. */
+  var currentId = pathArr.length > 0 ? pathArr[pathArr.length - 1] : null;
+  if (currentId) ppMaybeAutoSync('_nl-central', currentId);
 }
 
 /* === Folder create modal === */
@@ -3286,8 +3307,74 @@ function ppDoReconcile(clubKey, folderKey) {
       renamed:      r.renamed,
       orphanedRtdb: r.orphanedRtdb
     });
+
+    /* Mark this folder as synced now so lazy auto-sync doesn't fire soon. */
+    ppMarkSynced(clubKey, folderKey);
   }).catch(function(err) {
     NL.toast('Sync failed: ' + err.message, 'error');
+  });
+}
+
+/* ============================================================================
+   LAZY AUTO-SYNC — fires on folder open if stale, admins only
+   ============================================================================
+   When an admin opens a folder, kick off a background reconcile if we haven't
+   synced this folder in the current session within the cooldown window. The
+   user sees the cached view immediately; if Drive has drifted, the live RTDB
+   listener picks up the changes and the view updates seamlessly.
+
+   Tracked in memory only — each session re-syncs once per folder per session.
+   Coordinating across users would need a /lastSyncedAt RTDB node, which is
+   over-engineered for this use case. Worst case: each admin who opens the
+   folder does one extra reconcile. That's fine.
+   ============================================================================ */
+
+var PP_AUTOSYNC_COOLDOWN_MS = 15 * 60 * 1000;   /* 15 minutes per folder per session */
+var ppLastSyncedAt = {};                          /* "{clubKey}::{folderKey}" → timestamp */
+
+function ppMarkSynced(clubKey, folderKey) {
+  ppLastSyncedAt[clubKey + '::' + folderKey] = Date.now();
+}
+
+function ppMaybeAutoSync(clubKey, folderKey) {
+  /* Gate: admins only — non-admins would fail GAS permission check anyway */
+  if (!STATE.isAdmin) return;
+  if (!clubKey || !folderKey) return;
+
+  var key = clubKey + '::' + folderKey;
+  var last = ppLastSyncedAt[key] || 0;
+  if (Date.now() - last < PP_AUTOSYNC_COOLDOWN_MS) return;
+
+  /* Mark optimistically — prevents a rapid second invocation if user
+     bounces in/out before the response lands. */
+  ppLastSyncedAt[key] = Date.now();
+
+  ppCallGas({
+    action:    'pp_reconcile_folder',
+    clubKey:   clubKey,
+    folderKey: folderKey
+  }).then(function(r) {
+    if (!r.ok) {
+      /* Roll back the optimistic timestamp so a manual click still works.
+         Stay silent — the cached view is fine. */
+      ppLastSyncedAt[key] = last;
+      return;
+    }
+    /* Audit only if anything changed — don't pollute the log with no-ops. */
+    if (r.imported || r.renamed || r.orphanedRtdb) {
+      ppAudit('reconciled', {
+        clubKey:      clubKey,
+        folderKey:    folderKey,
+        imported:     r.imported,
+        renamed:      r.renamed,
+        orphanedRtdb: r.orphanedRtdb,
+        trigger:      'auto-on-open'
+      });
+    }
+    /* Live RTDB listener picks up the changes — no manual rerender needed. */
+  }).catch(function() {
+    /* Silent — manual sync button is the explicit option if it matters. */
+    ppLastSyncedAt[key] = last;
   });
 }
 
