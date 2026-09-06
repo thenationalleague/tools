@@ -2,7 +2,14 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.8 (06/09/2026)
+  v2.9 (06/09/2026)
+
+  v2.9 (06/09/2026) — By club rebuilt around fairness: Base (the mean
+  away trip a club's fixture list owes it) beside its mean moved trip,
+  with "vs base" as the default sort — geography stops counting against
+  the broadcaster. Means only in this tab. Off-Sat replaced by batched
+  slot counts (Fri / Sat early / Sat late / Sun / Mon, either venue);
+  a lens only shows slots that occur in it.
 
   v2.8 (06/09/2026) — Week-by-week band headers wear the division colour
   with logo and full league name.
@@ -162,6 +169,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.9", date: "06/09/2026", changes: ["By club: moved trips measured against each club's own baseline, and kick-off slot counts replace Off-Sat"] },
       { version: "v2.8", date: "06/09/2026", changes: ["Week-by-week league headers in division colours with logos"] },
       { version: "v2.7", date: "06/09/2026", changes: ["By club: average miles replaces total; rows carry club crests"] },
       { version: "v2.6", date: "06/09/2026", changes: ["By club tab: who gets the brunt — away miles, moved counts and off-Saturday days per club, sortable"] },
@@ -411,7 +419,7 @@ let divSel = "ALL", weIdx = null, activeFx = -1, mode = "season", showUp = false
 try { mode = localStorage.getItem("tbf-mode") || "season"; } catch (e) {}
 if (!["season", "week", "club"].includes(mode)) mode = "season";
 /* By-club sort: column key + direction, tap a header to change. */
-let clubSort = { k: "avgMi", d: -1 };
+let clubSort = { k: "vsBase", d: -1 };
 /* Club crests for the by-club table. The artifact build nulls CREST_BASE —
    its sandbox blocks remote images and 116 inlined crests is silly weight —
    and the code falls back to division marks there. One feed-vs-file alias. */
@@ -559,29 +567,50 @@ function median(a) { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; 
 
 /* By club — who gets the brunt. One row per club of the toggled league(s),
    zero-pick clubs included (an untouched club is part of the spread). Miles
-   land on the AWAY side only; Off-Sat counts Fri/Sun/Mon games either venue
-   (a Friday home game still takes the Saturday). Tap a header to sort. */
+   land on the AWAY side only, and means throughout — per-club samples are a
+   handful of trips, and a mean compares cleanly with the club's own
+   baseline: the mean away trip its fixture list already owes it (distance
+   to every divisional rival — pure geography). "vs base" is the honest
+   burden column and the default sort: a far-flung club whose moved trips
+   match its normal trips reads near 0%. Slot columns count games either
+   venue (a Friday home game still takes the Saturday), batched so a rogue
+   kick-off folds into its batch, and a lens only shows slots it uses. */
+const SLOTS = [
+  ["fri", "Fri", "Friday, either venue", f => f.day.startsWith("Fri")],
+  ["satE", "Sat E", "Saturday before 3pm, either venue", f => f.day.startsWith("Sat") && f.t < "15:00"],
+  ["satL", "Sat L", "Saturday after 3pm, either venue", f => f.day.startsWith("Sat") && f.t > "15:00"],
+  ["sun", "Sun", "Sunday, either venue", f => f.day.startsWith("Sun")],
+  ["mon", "Mon", "Monday, either venue", f => f.day.startsWith("Mon")]
+];
+const havMi = (a, b) => { const t = x => x * Math.PI / 180;
+  const h = Math.sin(t(b.lat - a.lat) / 2) ** 2 + Math.cos(t(a.lat)) * Math.cos(t(b.lat)) * Math.sin(t(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371e3 * Math.asin(Math.sqrt(h)) / 1609.344; };
 function renderClubTable() {
   const agg = {};
   for (const name in CLUBS) {
     const c = CLUBS[name];
     if (divSel === "ALL" || c.div === divSel)
-      agg[name] = { name, div: c.div, moved: 0, away: 0, awayMi: 0, trips: [], offSat: 0 };
+      agg[name] = { name, div: c.div, moved: 0, away: 0, trips: [], fri: 0, satE: 0, satL: 0, sun: 0, mon: 0 };
   }
   FX.forEach(f => {
+    const slot = SLOTS.find(s => s[3](f));
     for (const [name, isAway] of [[f.h, false], [f.a, true]]) {
       const c = agg[name]; if (!c) continue;
       c.moved++;
-      if (isAway) { c.away++; c.awayMi += f.mi; c.trips.push(f.mi); }
-      if (!f.day.startsWith("Sat")) c.offSat++;
+      if (isAway) { c.away++; c.trips.push(f.mi); }
+      if (slot) c[slot[0]]++;
     }
   });
   const rows = Object.values(agg);
   rows.forEach(r => {
+    /* Baseline: a double round-robin visits every divisional rival once,
+       so the club's normal away trip is its mean distance to them. */
+    const others = Object.values(CLUBS).filter(c => c.div === r.div && c !== CLUBS[r.name]);
+    r.base = Math.round(mean(others.map(c => havMi(CLUBS[r.name], c))));
     r.avgMi = r.trips.length ? Math.round(mean(r.trips)) : null;
-    r.med = r.trips.length ? Math.round(median(r.trips)) : null;
+    r.vsBase = r.avgMi === null ? null : Math.round((r.avgMi - r.base) / r.base * 100);
   });
-  const val = (r, k) => (k === "name" ? r.name : (r[k] === null ? -1 : r[k]));
+  const val = (r, k) => (k === "name" ? r.name : (r[k] === null ? -999 : r[k]));
   rows.sort((a, b) => {
     const x = val(a, clubSort.k), y = val(b, clubSort.k);
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
@@ -591,20 +620,26 @@ function renderClubTable() {
     const vs = rows.filter(r => r[k] !== null).map(r => r[k]);
     return vs.length ? [Math.min(...vs), Math.max(...vs)] : [0, 1];
   };
-  const [avLo, avHi] = scale("avgMi"), [mdLo, mdHi] = scale("med");
-  const osHi = Math.max(1, ...rows.map(r => r.offSat));
+  const [avLo, avHi] = scale("avgMi"), [bsLo, bsHi] = scale("base");
+  const liveSlots = SLOTS.filter(s => rows.some(r => r[s[0]] > 0));
+  const slotHi = Object.fromEntries(liveSlots.map(s => [s[0], Math.max(1, ...rows.map(r => r[s[0]]))]));
   const COLS = [["name", "Club", ""], ["moved", "Moved", "Games moved (either venue)"],
-    ["away", "Away", "Moved games travelled to"], ["avgMi", "Avg mi", "Mean moved away trip"],
-    ["med", "Med mi", "Median moved away trip"], ["offSat", "Off-Sat", "Games on a Fri/Sun/Mon, home or away"]];
+    ["away", "Away", "Moved games travelled to"], ["avgMi", "Avg move", "Mean moved away trip"],
+    ["base", "Base", "Mean away trip the fixture list owes them — distance to every divisional rival"],
+    ["vsBase", "vs base", "Moved trips against the club's own normal"],
+    ...liveSlots.map(s => [s[0], s[1], s[2]])];
   const mi = (v, lo, hi) => '</td><td style="' + (v === null ? "" : heat(v, lo, hi)) + '">' + (v === null ? "—" : v);
+  const sign = v => (v >= 0 ? "+" : "") + v + "%";
   const ct = document.getElementById("clubTable");
   ct.innerHTML = "<thead><tr>" + COLS.map(([k, label, tip]) =>
     '<th data-k="' + k + '"' + (tip ? ' title="' + tip + '"' : "") +
     (k === clubSort.k ? ' class="sorted"' : "") + ">" + label + (k === clubSort.k ? (clubSort.d < 0 ? " ▾" : " ▴") : "") + "</th>"
   ).join("") + "</tr></thead><tbody>" + rows.map(r =>
     "<tr><td>" + crest(r.name, r.div) + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
-    mi(r.avgMi, avLo, avHi) + mi(r.med, mdLo, mdHi) +
-    '</td><td style="' + heat(r.offSat, 0, osHi) + '">' + r.offSat + "</td></tr>"
+    mi(r.avgMi, avLo, avHi) + mi(r.base, bsLo, bsHi) +
+    '</td><td style="' + (r.vsBase === null ? "" : heatPct(r.vsBase)) + '">' + (r.vsBase === null ? "—" : sign(r.vsBase)) +
+    liveSlots.map(s => '</td><td style="' + (r[s[0]] ? heat(r[s[0]], 0, slotHi[s[0]]) : "") + '">' + (r[s[0]] || "—")).join("") +
+    "</td></tr>"
   ).join("") + "</tbody>";
   [...ct.querySelectorAll("thead th")].forEach(th => th.addEventListener("click", () => {
     const k = th.dataset.k;
