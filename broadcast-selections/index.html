@@ -2,7 +2,12 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.9 (06/09/2026)
+  v2.10 (06/09/2026)
+
+  v2.10 (06/09/2026) — By-club slot counts gain a Home/Away switcher,
+  away the default. Both venues are tallied; the switcher picks which
+  set the slot columns show. The mileage trio stays away-only: home
+  trips have no miles.
 
   v2.9 (06/09/2026) — By club rebuilt around fairness: Base (the mean
   away trip a club's fixture list owes it) beside its mean moved trip,
@@ -169,6 +174,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.10", date: "06/09/2026", changes: ["By-club slot counts get a Home/Away switcher, away by default"] },
       { version: "v2.9", date: "06/09/2026", changes: ["By club: moved trips measured against each club's own baseline, and kick-off slot counts replace Off-Sat"] },
       { version: "v2.8", date: "06/09/2026", changes: ["Week-by-week league headers in division colours with logos"] },
       { version: "v2.7", date: "06/09/2026", changes: ["By club: average miles replaces total; rows carry club crests"] },
@@ -344,6 +350,11 @@
   }
   #clubTable thead th { position: sticky; top: 0; z-index: 2; background: var(--white); white-space: nowrap; cursor: pointer; user-select: none; }
   #clubTable thead th.sorted { color: var(--text); }
+  #haBar { display: flex; gap: 6px; }
+  #haBar[hidden] { display: none; }
+  #haBar button { appearance: none; background: var(--white); border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-family: var(--font); font-size: var(--text-xs); font-weight: 700; font-variation-settings: 'wght' 700; letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 5px 12px; cursor: pointer; }
+  #haBar button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--off-white); }
+  #haBar button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   #weekTable tbody tr { cursor: pointer; }
   #weekTable tr.now td:first-child { color: var(--primary); }
   #weekTable th, #weekTable td { padding: 6px 8px; }
@@ -372,6 +383,10 @@
         <button class="tab" id="mSeason">Full season</button>
         <button class="tab" id="mWeek">Week by week</button>
         <button class="tab" id="mClub">By club</button>
+      </div>
+      <div id="haBar" role="group" aria-label="Slot counts venue" hidden>
+        <button type="button" data-ha="away">Away</button>
+        <button type="button" data-ha="home">Home</button>
       </div>
     </div>
     <div class="table-wrap" id="divWrap"><table id="divTable"></table></div>
@@ -420,6 +435,11 @@ try { mode = localStorage.getItem("tbf-mode") || "season"; } catch (e) {}
 if (!["season", "week", "club"].includes(mode)) mode = "season";
 /* By-club sort: column key + direction, tap a header to change. */
 let clubSort = { k: "vsBase", d: -1 };
+/* Slot columns count one venue at a time; away is the pertinent lens and
+   the default — a home Friday costs the Saturday, an away one costs the
+   Saturday and the coach. The mileage trio is away-only regardless. */
+let clubHA = "away";
+try { if (localStorage.getItem("tbf-ha") === "home") clubHA = "home"; } catch (e) {}
 /* Club crests for the by-club table. The artifact build nulls CREST_BASE —
    its sandbox blocks remote images and 116 inlined crests is silly weight —
    and the code falls back to division marks there. One feed-vs-file alias. */
@@ -528,6 +548,12 @@ let dragMoved = false;
 document.getElementById("mSeason").addEventListener("click", () => { mode = "season"; try { localStorage.setItem("tbf-mode", mode); } catch (e) {} render(); });
 document.getElementById("mWeek").addEventListener("click", () => { mode = "week"; try { localStorage.setItem("tbf-mode", mode); } catch (e) {} render(); });
 document.getElementById("mClub").addEventListener("click", () => { mode = "club"; try { localStorage.setItem("tbf-mode", mode); } catch (e) {} render(); });
+[...document.querySelectorAll("#haBar button")].forEach(b => b.addEventListener("click", () => {
+  if (clubHA === b.dataset.ha) return;
+  clubHA = b.dataset.ha;
+  try { localStorage.setItem("tbf-ha", clubHA); } catch (e) {}
+  render();
+}));
 const upTog = document.getElementById("upTog");
 upTog.addEventListener("click", () => {
   showUp = !showUp; activeFx = -1;
@@ -576,11 +602,11 @@ function median(a) { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; 
    venue (a Friday home game still takes the Saturday), batched so a rogue
    kick-off folds into its batch, and a lens only shows slots it uses. */
 const SLOTS = [
-  ["fri", "Fri", "Friday, either venue", f => f.day.startsWith("Fri")],
-  ["satE", "Sat E", "Saturday before 3pm, either venue", f => f.day.startsWith("Sat") && f.t < "15:00"],
-  ["satL", "Sat L", "Saturday after 3pm, either venue", f => f.day.startsWith("Sat") && f.t > "15:00"],
-  ["sun", "Sun", "Sunday, either venue", f => f.day.startsWith("Sun")],
-  ["mon", "Mon", "Monday, either venue", f => f.day.startsWith("Mon")]
+  ["fri", "Fri", "Friday", f => f.day.startsWith("Fri")],
+  ["satE", "Sat E", "Saturday before 3pm", f => f.day.startsWith("Sat") && f.t < "15:00"],
+  ["satL", "Sat L", "Saturday after 3pm", f => f.day.startsWith("Sat") && f.t > "15:00"],
+  ["sun", "Sun", "Sunday", f => f.day.startsWith("Sun")],
+  ["mon", "Mon", "Monday", f => f.day.startsWith("Mon")]
 ];
 const havMi = (a, b) => { const t = x => x * Math.PI / 180;
   const h = Math.sin(t(b.lat - a.lat) / 2) ** 2 + Math.cos(t(a.lat)) * Math.cos(t(b.lat)) * Math.sin(t(b.lng - a.lng) / 2) ** 2;
@@ -590,7 +616,9 @@ function renderClubTable() {
   for (const name in CLUBS) {
     const c = CLUBS[name];
     if (divSel === "ALL" || c.div === divSel)
-      agg[name] = { name, div: c.div, moved: 0, away: 0, trips: [], fri: 0, satE: 0, satL: 0, sun: 0, mon: 0 };
+      agg[name] = { name, div: c.div, moved: 0, away: 0, trips: [],
+        a_fri: 0, a_satE: 0, a_satL: 0, a_sun: 0, a_mon: 0,
+        h_fri: 0, h_satE: 0, h_satL: 0, h_sun: 0, h_mon: 0 };
   }
   FX.forEach(f => {
     const slot = SLOTS.find(s => s[3](f));
@@ -598,7 +626,9 @@ function renderClubTable() {
       const c = agg[name]; if (!c) continue;
       c.moved++;
       if (isAway) { c.away++; c.trips.push(f.mi); }
-      if (slot) c[slot[0]]++;
+      /* Both venues tallied; the Home/Away switcher picks which set the
+         slot columns show. Away slot sums = Away; home = Moved - Away. */
+      if (slot) c[(isAway ? "a_" : "h_") + slot[0]]++;
     }
   });
   const rows = Object.values(agg);
@@ -610,7 +640,13 @@ function renderClubTable() {
     r.avgMi = r.trips.length ? Math.round(mean(r.trips)) : null;
     r.vsBase = r.avgMi === null ? null : Math.round((r.avgMi - r.base) / r.base * 100);
   });
-  const val = (r, k) => (k === "name" ? r.name : (r[k] === null ? -999 : r[k]));
+  const pre = clubHA === "away" ? "a_" : "h_";
+  const slotKeys = new Set(SLOTS.map(s => s[0]));
+  const val = (r, k) => {
+    if (k === "name") return r.name;
+    const v = slotKeys.has(k) ? r[pre + k] : r[k];
+    return v === null ? -999 : v;
+  };
   rows.sort((a, b) => {
     const x = val(a, clubSort.k), y = val(b, clubSort.k);
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
@@ -621,13 +657,13 @@ function renderClubTable() {
     return vs.length ? [Math.min(...vs), Math.max(...vs)] : [0, 1];
   };
   const [avLo, avHi] = scale("avgMi"), [bsLo, bsHi] = scale("base");
-  const liveSlots = SLOTS.filter(s => rows.some(r => r[s[0]] > 0));
-  const slotHi = Object.fromEntries(liveSlots.map(s => [s[0], Math.max(1, ...rows.map(r => r[s[0]]))]));
+  const liveSlots = SLOTS.filter(s => rows.some(r => r[pre + s[0]] > 0));
+  const slotHi = Object.fromEntries(liveSlots.map(s => [s[0], Math.max(1, ...rows.map(r => r[pre + s[0]]))]));
   const COLS = [["name", "Club", ""], ["moved", "Moved", "Games moved (either venue)"],
     ["away", "Away", "Moved games travelled to"], ["avgMi", "Avg move", "Mean moved away trip"],
     ["base", "Base", "Mean away trip the fixture list owes them — distance to every divisional rival"],
     ["vsBase", "vs base", "Moved trips against the club's own normal"],
-    ...liveSlots.map(s => [s[0], s[1], s[2]])];
+    ...liveSlots.map(s => [s[0], s[1], s[2] + " " + clubHA + " games"])];
   const mi = (v, lo, hi) => '</td><td style="' + (v === null ? "" : heat(v, lo, hi)) + '">' + (v === null ? "—" : v);
   const sign = v => (v >= 0 ? "+" : "") + v + "%";
   const ct = document.getElementById("clubTable");
@@ -638,7 +674,7 @@ function renderClubTable() {
     "<tr><td>" + crest(r.name, r.div) + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
     mi(r.avgMi, avLo, avHi) + mi(r.base, bsLo, bsHi) +
     '</td><td style="' + (r.vsBase === null ? "" : heatPct(r.vsBase)) + '">' + (r.vsBase === null ? "—" : sign(r.vsBase)) +
-    liveSlots.map(s => '</td><td style="' + (r[s[0]] ? heat(r[s[0]], 0, slotHi[s[0]]) : "") + '">' + (r[s[0]] || "—")).join("") +
+    liveSlots.map(s => '</td><td style="' + (r[pre + s[0]] ? heat(r[pre + s[0]], 0, slotHi[s[0]]) : "") + '">' + (r[pre + s[0]] || "—")).join("") +
     "</td></tr>"
   ).join("") + "</tbody>";
   [...ct.querySelectorAll("thead th")].forEach(th => th.addEventListener("click", () => {
@@ -794,6 +830,8 @@ function render() {
   document.getElementById("divWrap").hidden = mode !== "season";
   document.getElementById("weekWrap").hidden = mode !== "week";
   document.getElementById("clubWrap").hidden = mode !== "club";
+  document.getElementById("haBar").hidden = mode !== "club";
+  [...document.querySelectorAll("#haBar button")].forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ha === clubHA)));
   if (mode === "club") {
     renderClubTable();
   } else if (mode === "season") {
