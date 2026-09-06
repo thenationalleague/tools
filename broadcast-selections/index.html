@@ -2,7 +2,14 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.11 (06/09/2026)
+  v2.12 (06/09/2026)
+
+  v2.12 (06/09/2026) — The tab drives the whole stage. Full season: the
+  map becomes the fabric (every pick for the toggled league, dots not
+  pills, tap a trek for its card). By club: tap a row for that club's
+  season — away treks bold, home moved dimmed, unpicked toggle scoped to
+  them, Viewing chip to clear. Week by week unchanged. Base tooltip
+  clarified (all fixtures, midweek included).
 
   v2.11 (06/09/2026) — Band marks keep their original artwork (only the
   PL lion goes white); band lettering white on all five colours.
@@ -177,6 +184,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.12", date: "06/09/2026", changes: ["Tabs drive the map: Full season shows the whole fabric; tap a By-club row to see that club's season"] },
       { version: "v2.11", date: "06/09/2026", changes: ["Week-by-week band marks back to original artwork; lettering white throughout"] },
       { version: "v2.10", date: "06/09/2026", changes: ["By-club slot counts get a Home/Away switcher, away by default"] },
       { version: "v2.9", date: "06/09/2026", changes: ["By club: moved trips measured against each club's own baseline, and kick-off slot counts replace Off-Sat"] },
@@ -248,7 +256,11 @@
   .gwbar button[aria-pressed="true"] { background: var(--navy); color: var(--white); border-color: var(--navy); }
   .gwbar button[aria-pressed="true"] small { color: var(--white); opacity: 0.75; }
 
-  #upbar { margin: -2px 0 10px; }
+  #upbar { margin: -2px 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #lensChip { display: inline-flex; align-items: center; gap: 7px; background: var(--text); color: var(--off-white); border-radius: 999px; font-size: var(--text-xs); font-weight: 700; font-variation-settings: 'wght' 700; letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 5px 7px 5px 12px; }
+  #lensChip[hidden] { display: none; }
+  #lensChip button { appearance: none; background: none; border: none; color: var(--off-white); font: inherit; cursor: pointer; padding: 0 4px; opacity: 0.8; }
+  #lensChip button:hover { opacity: 1; }
   #upbar button { appearance: none; background: var(--white); border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-family: var(--font); font-size: var(--text-xs); font-weight: 700; font-variation-settings: 'wght' 700; letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 5px 12px; cursor: pointer; }
   #upbar button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--off-white); }
   #upbar button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -359,6 +371,8 @@
   #haBar button { appearance: none; background: var(--white); border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-family: var(--font); font-size: var(--text-xs); font-weight: 700; font-variation-settings: 'wght' 700; letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 5px 12px; cursor: pointer; }
   #haBar button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--off-white); }
   #haBar button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  #clubTable tbody tr { cursor: pointer; }
+  #clubTable tbody tr.lensed td { background: color-mix(in srgb, var(--primary) 8%, var(--white)); }
   #weekTable tbody tr { cursor: pointer; }
   #weekTable tr.now td:first-child { color: var(--primary); }
   #weekTable th, #weekTable td { padding: 6px 8px; }
@@ -398,7 +412,10 @@
   </div>
   <div class="chip-group" id="divbar" role="group" aria-label="League shown on the map and cards"></div>
   <div class="gwbar" id="gwbar" role="tablist" aria-label="Weekend"></div>
-  <div id="upbar"><button id="upTog" type="button" aria-pressed="false">Show unpicked games</button></div>
+  <div id="upbar">
+    <button id="upTog" type="button" aria-pressed="false">Show unpicked games</button>
+    <span id="lensChip" hidden>Viewing <b id="lensName"></b><button id="lensClear" type="button" aria-label="Clear club">✕</button></span>
+  </div>
   <div class="stage">
     <div class="mapbox">
       <svg id="map" viewBox="0 0 560 640" role="img" aria-label="Map of England and Wales with displaced fixtures plotted"></svg>
@@ -434,7 +451,9 @@ const UPX = DATA.UP || [];
 UPX.forEach(f => { f.u = 1; });
 
 let divSel = "ALL", weIdx = null, activeFx = -1, mode = "season", showUp = false;
-try { mode = localStorage.getItem("tbf-mode") || "season"; } catch (e) {}
+/* Fresh visitors land on Week by week: with the stage following the tab,
+   season mode opens on the bare fabric — a poor first screen. */
+try { mode = localStorage.getItem("tbf-mode") || "week"; } catch (e) {}
 if (!["season", "week", "club"].includes(mode)) mode = "season";
 /* By-club sort: column key + direction, tap a header to change. */
 let clubSort = { k: "vsBase", d: -1 };
@@ -443,6 +462,11 @@ let clubSort = { k: "vsBase", d: -1 };
    Saturday and the coach. The mileage trio is away-only regardless. */
 let clubHA = "away";
 try { if (localStorage.getItem("tbf-ha") === "home") clubHA = "home"; } catch (e) {}
+/* Club lens: tap a By-club row and the stage becomes that club's season.
+   Cleared by the chip beside the unpicked toggle; only powers club mode. */
+let clubLens = null;
+try { clubLens = localStorage.getItem("tbf-lens"); } catch (e) {}
+if (clubLens && !CLUBS[clubLens]) clubLens = null;
 /* Club crests for the by-club table. The artifact build nulls CREST_BASE —
    its sandbox blocks remote images and 116 inlined crests is silly weight —
    and the code falls back to division marks there. One feed-vs-file alias. */
@@ -563,6 +587,11 @@ upTog.addEventListener("click", () => {
   try { localStorage.setItem("tbf-up", showUp ? "1" : "0"); } catch (e) {}
   render();
 });
+document.getElementById("lensClear").addEventListener("click", () => {
+  clubLens = null; activeFx = -1;
+  try { localStorage.removeItem("tbf-lens"); } catch (e) {}
+  render();
+});
 
 /* Green (short, friendly) to red (long) — an alpha tint that works on
    both theme grounds. Scaled to the values actually on show. */
@@ -664,7 +693,7 @@ function renderClubTable() {
   const slotHi = Object.fromEntries(liveSlots.map(s => [s[0], Math.max(1, ...rows.map(r => r[pre + s[0]]))]));
   const COLS = [["name", "Club", ""], ["moved", "Moved", "Games moved (either venue)"],
     ["away", "Away", "Moved games travelled to"], ["avgMi", "Avg move", "Mean moved away trip"],
-    ["base", "Base", "Mean away trip the fixture list owes them — distance to every divisional rival"],
+    ["base", "Base", "Mean away trip the fixture list owes them — every divisional rival once, midweek fixtures included"],
     ["vsBase", "vs base", "Moved trips against the club's own normal"],
     ...liveSlots.map(s => [s[0], s[1], s[2] + " " + clubHA + " games"])];
   const mi = (v, lo, hi) => '</td><td style="' + (v === null ? "" : heat(v, lo, hi)) + '">' + (v === null ? "—" : v);
@@ -674,7 +703,7 @@ function renderClubTable() {
     '<th data-k="' + k + '"' + (tip ? ' title="' + tip + '"' : "") +
     (k === clubSort.k ? ' class="sorted"' : "") + ">" + label + (k === clubSort.k ? (clubSort.d < 0 ? " ▾" : " ▴") : "") + "</th>"
   ).join("") + "</tr></thead><tbody>" + rows.map(r =>
-    "<tr><td>" + crest(r.name, r.div) + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
+    '<tr data-name="' + r.name.replace(/"/g, "&quot;") + '"' + (r.name === clubLens ? ' class="lensed"' : "") + "><td>" + crest(r.name, r.div) + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
     mi(r.avgMi, avLo, avHi) + mi(r.base, bsLo, bsHi) +
     '</td><td style="' + (r.vsBase === null ? "" : heatPct(r.vsBase)) + '">' + (r.vsBase === null ? "—" : sign(r.vsBase)) +
     liveSlots.map(s => '</td><td style="' + (r[pre + s[0]] ? heat(r[pre + s[0]], 0, slotHi[s[0]]) : "") + '">' + (r[pre + s[0]] || "—")).join("") +
@@ -685,6 +714,14 @@ function renderClubTable() {
     if (clubSort.k === k) clubSort.d = -clubSort.d;
     else clubSort = { k, d: k === "name" ? 1 : -1 };
     renderClubTable();
+  }));
+  /* Tap a row: the stage becomes that club's season. Tap it again to clear. */
+  [...ct.querySelectorAll("tbody tr")].forEach(tr => tr.addEventListener("click", () => {
+    const name = tr.dataset.name;
+    clubLens = (clubLens === name ? null : name);
+    activeFx = -1;
+    try { clubLens ? localStorage.setItem("tbf-lens", clubLens) : localStorage.removeItem("tbf-lens"); } catch (e) {}
+    render();
   }));
 }
 
@@ -711,14 +748,28 @@ function render() {
   const sel = gwbar.querySelector('[aria-pressed="true"]');
   if (sel && !gwbar.dataset.scrolled) { sel.scrollIntoView({ inline: "center", block: "nearest" }); gwbar.dataset.scrolled = "1"; }
 
-  /* One index space: picked block first, then (on demand) the rest of the
-     round — everything downstream keys off f.u for the muted treatment. */
-  const fx = shownFx(weIdx).concat(showUp ? shownUp(weIdx) : []);
+  /* The tab is the lens for the whole stage, not just the table.
+     week   — the selected weekend, as ever (one index space: picked block
+              first, then on demand the rest of the round; f.u keys the
+              muted treatment downstream).
+     season — every pick for the toggled league at once: the fabric. Dots
+              not pills, tap a trek to inspect one card.
+     club   — no club chosen: the fabric again; a chosen club: their
+              season — away treks bold, home moved games dimmed (the
+              opponent's trek), and the unpicked toggle scoped to them. */
+  const lensGames = list => list.filter(f => f.h === clubLens || f.a === clubLens);
+  const inDiv = f => divSel === "ALL" || f.div === divSel;
+  let fx;
+  if (mode === "week") fx = shownFx(weIdx).concat(showUp ? shownUp(weIdx) : []);
+  else if (mode === "club" && clubLens) fx = lensGames(FX).concat(showUp ? lensGames(UPX) : []);
+  else fx = FX.filter(inDiv);
+  const fabric = mode !== "week" && !(mode === "club" && clubLens);
   const pos = fx.map(f => { const c = CLUBS[f.h]; const [x, y] = proj(c.lat, c.lng); return { x, y }; });
   for (let pass = 0; pass < 4; pass++) {
     for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) {
-      /* Unpicked games draw as dots at their true spot — only pills push. */
-      if (fx[i].u || fx[j].u) continue;
+      /* Unpicked games and the fabric draw dots at true spots — only
+         pills push. */
+      if (fabric || fx[i].u || fx[j].u) continue;
       const dx = pos[j].x - pos[i].x, dy = pos[j].y - pos[i].y, d = Math.hypot(dx, dy), min = 48;
       if (d < min && d > 0) { const push = (min - d) / 2, ux = dx / d, uy = dy / d;
         pos[i].x -= ux * push; pos[i].y -= uy * push; pos[j].x += ux * push; pos[j].y += uy * push; }
@@ -726,6 +777,9 @@ function render() {
   }
 
   trekLayer.innerHTML = ""; markerLayer.innerHTML = "";
+  /* A lens club's home moved games are the opponent's trek — drawn, but
+     quieter than the club's own journeys. */
+  const lensHome = f => mode === "club" && clubLens && !f.u && f.h === clubLens;
   fx.forEach((f, i) => {
     if (i === activeFx) return;
     const home = pos[i], away = proj(CLUBS[f.a].lat, CLUBS[f.a].lng);
@@ -736,8 +790,8 @@ function render() {
       el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--text)", opacity: 0.28 }, trekLayer);
       return;
     }
-    el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--primary)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: 0.2 }, trekLayer);
-    el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--primary)", opacity: 0.28 }, trekLayer);
+    el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--primary)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: lensHome(f) ? 0.1 : 0.2 }, trekLayer);
+    el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--primary)", opacity: lensHome(f) ? 0.14 : 0.28 }, trekLayer);
   });
   if (activeFx >= 0 && fx[activeFx]) {
     const f = fx[activeFx];
@@ -775,6 +829,16 @@ function render() {
       g.addEventListener("click", ev => { ev.stopPropagation(); selectFx(i, true); });
       return;
     }
+    if (fabric) {
+      /* The fabric speaks division colour at the home ground; the trek and
+         the tap carry the rest. */
+      const g = el("g", { cursor: "pointer", opacity: dim ? 0.35 : 1 }, markerLayer);
+      el("circle", { cx: p.x, cy: p.y, r: activeFx === i ? 5 : 3.5, fill: DIVMETA[f.div].col, stroke: "var(--white)", "stroke-width": 1.5 }, g);
+      el("title", {}, g).textContent = f.h + " v " + f.a + " — " + f.day + ", " + f.t + " (" + DIVS[f.div] + ")";
+      if (HOVERABLE) g.addEventListener("mouseenter", () => { if (activeFx !== i) { activeFx = i; render(); } });
+      g.addEventListener("click", ev => { ev.stopPropagation(); selectFx(i, true); });
+      return;
+    }
     const g = el("g", { cursor: "pointer", opacity: dim ? 0.35 : 1 }, markerLayer);
     const PW = 44, PH = 18, hw = PW / 2;
     const cid = "pc" + i;
@@ -798,6 +862,8 @@ function render() {
   rows.innerHTML = "";
   let upHeaded = false;
   fx.forEach((f, i) => {
+    /* The fabric shows one card at a time — the one under the finger. */
+    if (fabric && i !== activeFx) return;
     if (f.u && !upHeaded) {
       upHeaded = true;
       const h = document.createElement("div");
@@ -823,6 +889,11 @@ function render() {
 
   upTog.setAttribute("aria-pressed", String(showUp));
   upTog.classList.toggle("active", showUp);
+  gwbar.hidden = mode !== "week";
+  document.getElementById("upbar").hidden = mode === "season" || (mode === "club" && !clubLens);
+  const chip = document.getElementById("lensChip");
+  chip.hidden = !(mode === "club" && clubLens);
+  if (clubLens) document.getElementById("lensName").textContent = clubLens;
 
   /* Picks vs the division season baseline — the whole season's picks,
      every division, whatever is toggled: this is the headline comparison. */
