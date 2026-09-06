@@ -2,7 +2,12 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.6 (06/09/2026)
+  v2.7 (06/09/2026)
+
+  v2.7 (06/09/2026) — By club: average miles replaces total (the mean
+  trip beside the median — total rewarded simply being away more), and
+  rows carry club crests from /assets/crests/thumbs/ (all 116 covered;
+  one alias, Bournemouth → AFC Bournemouth).
 
   v2.6 (06/09/2026) — Third tab: By club, the brunt table. One row per
   club of the toggled league(s), zero-pick clubs included; Moved / Away /
@@ -154,6 +159,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.7", date: "06/09/2026", changes: ["By club: average miles replaces total; rows carry club crests"] },
       { version: "v2.6", date: "06/09/2026", changes: ["By club tab: who gets the brunt — away miles, moved counts and off-Saturday days per club, sortable"] },
       { version: "v2.5", date: "06/09/2026", changes: ["Unpicked routes drawn darker on the map — ink at full strength, dots not pills"] },
       { version: "v2.4", date: "06/09/2026", changes: ["Week-by-week Moved column header shortened to G"] },
@@ -398,7 +404,15 @@ let divSel = "ALL", weIdx = null, activeFx = -1, mode = "season", showUp = false
 try { mode = localStorage.getItem("tbf-mode") || "season"; } catch (e) {}
 if (!["season", "week", "club"].includes(mode)) mode = "season";
 /* By-club sort: column key + direction, tap a header to change. */
-let clubSort = { k: "awayMi", d: -1 };
+let clubSort = { k: "avgMi", d: -1 };
+/* Club crests for the by-club table. The artifact build nulls CREST_BASE —
+   its sandbox blocks remote images and 116 inlined crests is silly weight —
+   and the code falls back to division marks there. One feed-vs-file alias. */
+const CREST_BASE = "/assets/crests/thumbs/";
+const CREST_ALIAS = { "Bournemouth": "AFC Bournemouth" };
+const crest = (n, div) => CREST_BASE
+  ? '<img class="dlg" src="' + CREST_BASE + encodeURIComponent(CREST_ALIAS[n] || n) + '.png" alt="" onerror="this.onerror=null;this.style.display=\'none\'">'
+  : dlogo(div, "dlg");
 try { divSel = localStorage.getItem("tbf-div") || "ALL"; } catch (e) {}
 if (divSel !== "ALL" && !DIVS[divSel]) divSel = "ALL";
 try { weIdx = localStorage.getItem("tbf-we"); } catch (e) {}
@@ -556,28 +570,33 @@ function renderClubTable() {
     }
   });
   const rows = Object.values(agg);
-  rows.forEach(r => { r.med = r.trips.length ? Math.round(median(r.trips)) : null; });
+  rows.forEach(r => {
+    r.avgMi = r.trips.length ? Math.round(mean(r.trips)) : null;
+    r.med = r.trips.length ? Math.round(median(r.trips)) : null;
+  });
   const val = (r, k) => (k === "name" ? r.name : (r[k] === null ? -1 : r[k]));
   rows.sort((a, b) => {
     const x = val(a, clubSort.k), y = val(b, clubSort.k);
     const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
     return c ? c * clubSort.d : a.name.localeCompare(b.name);
   });
-  const miHi = Math.max(1, ...rows.map(r => r.awayMi));
+  const scale = k => {
+    const vs = rows.filter(r => r[k] !== null).map(r => r[k]);
+    return vs.length ? [Math.min(...vs), Math.max(...vs)] : [0, 1];
+  };
+  const [avLo, avHi] = scale("avgMi"), [mdLo, mdHi] = scale("med");
   const osHi = Math.max(1, ...rows.map(r => r.offSat));
-  const medAll = rows.filter(r => r.med !== null).map(r => r.med);
-  const medLo = medAll.length ? Math.min(...medAll) : 0, medHi = medAll.length ? Math.max(...medAll) : 1;
   const COLS = [["name", "Club", ""], ["moved", "Moved", "Games moved (either venue)"],
-    ["away", "Away", "Moved games travelled to"], ["awayMi", "Away mi", "Total miles travelled in moved games"],
-    ["med", "Med trip", "Median moved away trip"], ["offSat", "Off-Sat", "Games on a Fri/Sun/Mon, home or away"]];
+    ["away", "Away", "Moved games travelled to"], ["avgMi", "Avg mi", "Mean moved away trip"],
+    ["med", "Med mi", "Median moved away trip"], ["offSat", "Off-Sat", "Games on a Fri/Sun/Mon, home or away"]];
+  const mi = (v, lo, hi) => '</td><td style="' + (v === null ? "" : heat(v, lo, hi)) + '">' + (v === null ? "—" : v);
   const ct = document.getElementById("clubTable");
   ct.innerHTML = "<thead><tr>" + COLS.map(([k, label, tip]) =>
     '<th data-k="' + k + '"' + (tip ? ' title="' + tip + '"' : "") +
     (k === clubSort.k ? ' class="sorted"' : "") + ">" + label + (k === clubSort.k ? (clubSort.d < 0 ? " ▾" : " ▴") : "") + "</th>"
   ).join("") + "</tr></thead><tbody>" + rows.map(r =>
-    "<tr><td>" + dlogo(r.div, "dlg") + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
-    '</td><td style="' + heat(r.awayMi, 0, miHi) + '">' + r.awayMi +
-    '</td><td style="' + (r.med === null ? "" : heat(r.med, medLo, medHi)) + '">' + (r.med === null ? "—" : r.med) +
+    "<tr><td>" + crest(r.name, r.div) + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
+    mi(r.avgMi, avLo, avHi) + mi(r.med, mdLo, mdHi) +
     '</td><td style="' + heat(r.offSat, 0, osHi) + '">' + r.offSat + "</td></tr>"
   ).join("") + "</tbody>";
   [...ct.querySelectorAll("thead th")].forEach(th => th.addEventListener("click", () => {
