@@ -2,7 +2,23 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.4 (06/09/2026)
+  v2.7 (06/09/2026)
+
+  v2.7 (06/09/2026) — By club: average miles replaces total (the mean
+  trip beside the median — total rewarded simply being away more), and
+  rows carry club crests from /assets/crests/thumbs/ (all 116 covered;
+  one alias, Bournemouth → AFC Bournemouth).
+
+  v2.6 (06/09/2026) — Third tab: By club, the brunt table. One row per
+  club of the toggled league(s), zero-pick clubs included; Moved / Away /
+  Away mi / Med trip / Off-Sat columns, default sort total away miles
+  descending (miles land on the away side only; Off-Sat counts Fri/Sun/
+  Mon either venue). Tap a header to re-sort. Same freeze panes as the
+  weekly table.
+
+  v2.5 (06/09/2026) — Unpicked treks darken: same weight and opacity as
+  picked ones but ink instead of red, home dots ink too. Colour alone
+  now says picked/not-picked.
 
   v2.4 (06/09/2026) — Week-by-week "Moved" column header shortened to "G"
   (hover title "Games moved") to save width, per Richard.
@@ -143,6 +159,9 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.7", date: "06/09/2026", changes: ["By club: average miles replaces total; rows carry club crests"] },
+      { version: "v2.6", date: "06/09/2026", changes: ["By club tab: who gets the brunt — away miles, moved counts and off-Saturday days per club, sortable"] },
+      { version: "v2.5", date: "06/09/2026", changes: ["Unpicked routes drawn darker on the map — ink at full strength, dots not pills"] },
       { version: "v2.4", date: "06/09/2026", changes: ["Week-by-week Moved column header shortened to G"] },
       { version: "v2.3", date: "06/09/2026", changes: ["NEXT UP opponents shown by full name"] },
       { version: "v2.2", date: "06/09/2026", changes: ["EFL three-letter codes restored in NEXT UP lines"] },
@@ -304,13 +323,15 @@
   #weekTable thead th { position: sticky; top: 0; z-index: 2; background: var(--white); white-space: nowrap; }
   #weekTable thead tr:first-child th { height: 30px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; vertical-align: middle; }
   #weekTable thead tr:nth-child(2) th { top: 30px; }
-  #weekTable tbody td:first-child, #divTable tbody td:first-child {
+  #weekTable tbody td:first-child, #divTable tbody td:first-child, #clubTable tbody td:first-child {
     position: sticky; left: 0; z-index: 1; background: var(--white);
     white-space: nowrap; box-shadow: 1px 0 0 var(--border);
   }
-  #weekTable thead tr:first-child th:first-child, #divTable thead tr:first-child th:first-child {
+  #weekTable thead tr:first-child th:first-child, #divTable thead tr:first-child th:first-child, #clubTable thead tr:first-child th:first-child {
     position: sticky; left: 0; z-index: 3; background: var(--white); box-shadow: 1px 0 0 var(--border);
   }
+  #clubTable thead th { position: sticky; top: 0; z-index: 2; background: var(--white); white-space: nowrap; cursor: pointer; user-select: none; }
+  #clubTable thead th.sorted { color: var(--text); }
   #weekTable tbody tr { cursor: pointer; }
   #weekTable tr.now td:first-child { color: var(--primary); }
   #weekTable th, #weekTable td { padding: 6px 8px; }
@@ -335,10 +356,12 @@
       <div class="tabs" id="modebar" role="group" aria-label="Table mode">
         <button class="tab" id="mSeason">Full season</button>
         <button class="tab" id="mWeek">Week by week</button>
+        <button class="tab" id="mClub">By club</button>
       </div>
     </div>
     <div class="table-wrap" id="divWrap"><table id="divTable"></table></div>
     <div class="table-wrap scrollbox" id="weekWrap" hidden><table id="weekTable"></table></div>
+    <div class="table-wrap scrollbox" id="clubWrap" hidden><table id="clubTable"></table></div>
   </div>
   <div class="chip-group" id="divbar" role="group" aria-label="League shown on the map and cards"></div>
   <div class="gwbar" id="gwbar" role="tablist" aria-label="Weekend"></div>
@@ -379,6 +402,17 @@ UPX.forEach(f => { f.u = 1; });
 
 let divSel = "ALL", weIdx = null, activeFx = -1, mode = "season", showUp = false;
 try { mode = localStorage.getItem("tbf-mode") || "season"; } catch (e) {}
+if (!["season", "week", "club"].includes(mode)) mode = "season";
+/* By-club sort: column key + direction, tap a header to change. */
+let clubSort = { k: "avgMi", d: -1 };
+/* Club crests for the by-club table. The artifact build nulls CREST_BASE —
+   its sandbox blocks remote images and 116 inlined crests is silly weight —
+   and the code falls back to division marks there. One feed-vs-file alias. */
+const CREST_BASE = "/assets/crests/thumbs/";
+const CREST_ALIAS = { "Bournemouth": "AFC Bournemouth" };
+const crest = (n, div) => CREST_BASE
+  ? '<img class="dlg" src="' + CREST_BASE + encodeURIComponent(CREST_ALIAS[n] || n) + '.png" alt="" onerror="this.onerror=null;this.style.display=\'none\'">'
+  : dlogo(div, "dlg");
 try { divSel = localStorage.getItem("tbf-div") || "ALL"; } catch (e) {}
 if (divSel !== "ALL" && !DIVS[divSel]) divSel = "ALL";
 try { weIdx = localStorage.getItem("tbf-we"); } catch (e) {}
@@ -478,6 +512,7 @@ let dragMoved = false;
 })();
 document.getElementById("mSeason").addEventListener("click", () => { mode = "season"; try { localStorage.setItem("tbf-mode", mode); } catch (e) {} render(); });
 document.getElementById("mWeek").addEventListener("click", () => { mode = "week"; try { localStorage.setItem("tbf-mode", mode); } catch (e) {} render(); });
+document.getElementById("mClub").addEventListener("click", () => { mode = "club"; try { localStorage.setItem("tbf-mode", mode); } catch (e) {} render(); });
 const upTog = document.getElementById("upTog");
 upTog.addEventListener("click", () => {
   showUp = !showUp; activeFx = -1;
@@ -514,6 +549,63 @@ function fmtNext(name, n) {
 }
 function mean(a) { return a.reduce((s, v) => s + v, 0) / a.length; }
 function median(a) { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+
+/* By club — who gets the brunt. One row per club of the toggled league(s),
+   zero-pick clubs included (an untouched club is part of the spread). Miles
+   land on the AWAY side only; Off-Sat counts Fri/Sun/Mon games either venue
+   (a Friday home game still takes the Saturday). Tap a header to sort. */
+function renderClubTable() {
+  const agg = {};
+  for (const name in CLUBS) {
+    const c = CLUBS[name];
+    if (divSel === "ALL" || c.div === divSel)
+      agg[name] = { name, div: c.div, moved: 0, away: 0, awayMi: 0, trips: [], offSat: 0 };
+  }
+  FX.forEach(f => {
+    for (const [name, isAway] of [[f.h, false], [f.a, true]]) {
+      const c = agg[name]; if (!c) continue;
+      c.moved++;
+      if (isAway) { c.away++; c.awayMi += f.mi; c.trips.push(f.mi); }
+      if (!f.day.startsWith("Sat")) c.offSat++;
+    }
+  });
+  const rows = Object.values(agg);
+  rows.forEach(r => {
+    r.avgMi = r.trips.length ? Math.round(mean(r.trips)) : null;
+    r.med = r.trips.length ? Math.round(median(r.trips)) : null;
+  });
+  const val = (r, k) => (k === "name" ? r.name : (r[k] === null ? -1 : r[k]));
+  rows.sort((a, b) => {
+    const x = val(a, clubSort.k), y = val(b, clubSort.k);
+    const c = (typeof x === "string") ? x.localeCompare(y) : x - y;
+    return c ? c * clubSort.d : a.name.localeCompare(b.name);
+  });
+  const scale = k => {
+    const vs = rows.filter(r => r[k] !== null).map(r => r[k]);
+    return vs.length ? [Math.min(...vs), Math.max(...vs)] : [0, 1];
+  };
+  const [avLo, avHi] = scale("avgMi"), [mdLo, mdHi] = scale("med");
+  const osHi = Math.max(1, ...rows.map(r => r.offSat));
+  const COLS = [["name", "Club", ""], ["moved", "Moved", "Games moved (either venue)"],
+    ["away", "Away", "Moved games travelled to"], ["avgMi", "Avg mi", "Mean moved away trip"],
+    ["med", "Med mi", "Median moved away trip"], ["offSat", "Off-Sat", "Games on a Fri/Sun/Mon, home or away"]];
+  const mi = (v, lo, hi) => '</td><td style="' + (v === null ? "" : heat(v, lo, hi)) + '">' + (v === null ? "—" : v);
+  const ct = document.getElementById("clubTable");
+  ct.innerHTML = "<thead><tr>" + COLS.map(([k, label, tip]) =>
+    '<th data-k="' + k + '"' + (tip ? ' title="' + tip + '"' : "") +
+    (k === clubSort.k ? ' class="sorted"' : "") + ">" + label + (k === clubSort.k ? (clubSort.d < 0 ? " ▾" : " ▴") : "") + "</th>"
+  ).join("") + "</tr></thead><tbody>" + rows.map(r =>
+    "<tr><td>" + crest(r.name, r.div) + r.name + "</td><td>" + r.moved + "</td><td>" + r.away +
+    mi(r.avgMi, avLo, avHi) + mi(r.med, mdLo, mdHi) +
+    '</td><td style="' + heat(r.offSat, 0, osHi) + '">' + r.offSat + "</td></tr>"
+  ).join("") + "</tbody>";
+  [...ct.querySelectorAll("thead th")].forEach(th => th.addEventListener("click", () => {
+    const k = th.dataset.k;
+    if (clubSort.k === k) clubSort.d = -clubSort.d;
+    else clubSort = { k, d: k === "name" ? 1 : -1 };
+    renderClubTable();
+  }));
+}
 
 function render() {
   [...divbar.children].forEach(b => { const on = b.dataset.k === divSel; b.setAttribute("aria-pressed", String(on)); b.classList.toggle("active", on); });
@@ -557,8 +649,10 @@ function render() {
     if (i === activeFx) return;
     const home = pos[i], away = proj(CLUBS[f.a].lat, CLUBS[f.a].lng);
     if (f.u) {
-      el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--coast)", "stroke-width": 1, "stroke-dasharray": "2 4", opacity: 0.6 }, trekLayer);
-      el("circle", { cx: away[0], cy: away[1], r: 2.5, fill: "var(--coast)", opacity: 0.7 }, trekLayer);
+      /* Same weight and opacity as a picked trek, ink instead of wire —
+         the round reads as one fabric, colour alone says picked/not. */
+      el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--text)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: 0.2 }, trekLayer);
+      el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--text)", opacity: 0.28 }, trekLayer);
       return;
     }
     el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--primary)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: 0.2 }, trekLayer);
@@ -594,7 +688,7 @@ function render() {
       /* Unpicked: a small grey dot at the home ground — the card carries the
          names, the geography carries the point. Same hover/tap wiring. */
       const g = el("g", { cursor: "pointer", opacity: dim ? 0.35 : 1 }, markerLayer);
-      el("circle", { cx: p.x, cy: p.y, r: activeFx === i ? 5 : 3.5, fill: activeFx === i ? "var(--text)" : "var(--coast)", stroke: "var(--white)", "stroke-width": 1.5 }, g);
+      el("circle", { cx: p.x, cy: p.y, r: activeFx === i ? 5 : 3.5, fill: "var(--text)", "fill-opacity": activeFx === i ? 1 : 0.55, stroke: "var(--white)", "stroke-width": 1.5 }, g);
       el("title", {}, g).textContent = f.h + " v " + f.a + " — " + f.day + ", " + f.t + " (" + DIVS[f.div] + ", not selected)";
       if (HOVERABLE) g.addEventListener("mouseenter", () => { if (activeFx !== i) { activeFx = i; render(); } });
       g.addEventListener("click", ev => { ev.stopPropagation(); selectFx(i, true); });
@@ -651,12 +745,16 @@ function render() {
 
   /* Picks vs the division season baseline — the whole season's picks,
      every division, whatever is toggled: this is the headline comparison. */
-  const mS = document.getElementById("mSeason"), mW = document.getElementById("mWeek");
+  const mS = document.getElementById("mSeason"), mW = document.getElementById("mWeek"), mC = document.getElementById("mClub");
   mS.setAttribute("aria-pressed", String(mode === "season")); mS.classList.toggle("active", mode === "season");
   mW.setAttribute("aria-pressed", String(mode === "week")); mW.classList.toggle("active", mode === "week");
+  mC.setAttribute("aria-pressed", String(mode === "club")); mC.classList.toggle("active", mode === "club");
   document.getElementById("divWrap").hidden = mode !== "season";
   document.getElementById("weekWrap").hidden = mode !== "week";
-  if (mode === "season") {
+  document.getElementById("clubWrap").hidden = mode !== "club";
+  if (mode === "club") {
+    renderClubTable();
+  } else if (mode === "season") {
     const dt = document.getElementById("divTable");
     const pctN = (v, base) => Math.round((v - base) / base * 100);
     const rows = Object.keys(DIVS).map(k => {
