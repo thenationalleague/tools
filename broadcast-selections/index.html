@@ -2,7 +2,10 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.12 (06/09/2026)
+  v2.13 (06/09/2026)
+
+  v2.13 (06/09/2026) — Fabric treks in division colours, thicker and
+  stronger; fabric selections and mile chips follow suit.
 
   v2.12 (06/09/2026) — The tab drives the whole stage. Full season: the
   map becomes the fabric (every pick for the toggled league, dots not
@@ -184,6 +187,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.13", date: "06/09/2026", changes: ["Season-fabric routes drawn thicker in division colours"] },
       { version: "v2.12", date: "06/09/2026", changes: ["Tabs drive the map: Full season shows the whole fabric; tap a By-club row to see that club's season"] },
       { version: "v2.11", date: "06/09/2026", changes: ["Week-by-week band marks back to original artwork; lettering white throughout"] },
       { version: "v2.10", date: "06/09/2026", changes: ["By-club slot counts get a Home/Away switcher, away by default"] },
@@ -790,13 +794,17 @@ function render() {
       el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--text)", opacity: 0.28 }, trekLayer);
       return;
     }
-    el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--primary)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: lensHome(f) ? 0.1 : 0.2 }, trekLayer);
-    el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--primary)", opacity: lensHome(f) ? 0.14 : 0.28 }, trekLayer);
+    /* The fabric speaks division colour, thicker and a little stronger —
+       84 green treks argue harder than 84 faint red ones. */
+    const tc = fabric ? DIVMETA[f.div].col : "var(--primary)";
+    el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: tc, "stroke-width": fabric ? 1.75 : 1.25, "stroke-dasharray": "5 4", opacity: fabric ? 0.32 : (lensHome(f) ? 0.1 : 0.2) }, trekLayer);
+    el("circle", { cx: away[0], cy: away[1], r: 3, fill: tc, opacity: fabric ? 0.42 : (lensHome(f) ? 0.14 : 0.28) }, trekLayer);
   });
   if (activeFx >= 0 && fx[activeFx]) {
     const f = fx[activeFx];
-    /* A selected unpicked game speaks ink, not wire — red stays the story. */
-    const hue = f.u ? "var(--text)" : "var(--primary)";
+    /* A selected unpicked game speaks ink, not wire — red stays the story;
+       in the fabric the selection wears its division's colour. */
+    const hue = fabric ? DIVMETA[f.div].col : (f.u ? "var(--text)" : "var(--primary)");
     const home = pos[activeFx], away = proj(CLUBS[f.a].lat, CLUBS[f.a].lng);
     el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: hue, "stroke-width": 2, "stroke-dasharray": "5 4" }, trekLayer);
     el("circle", { cx: away[0], cy: away[1], r: 5, fill: hue }, trekLayer);
@@ -805,7 +813,7 @@ function render() {
     el("rect", { x: mx - lw / 2, y: my - 11, width: lw, height: 20, rx: 10, fill: hue }, trekLayer);
     /* On an ink chip the text must be paper — ink flips light in the
        artifact's dark theme, where a fixed white would vanish. */
-    const t = el("text", { x: mx, y: my + 4, "text-anchor": "middle", "font-size": 12, fill: f.u ? "var(--off-white)" : "var(--white)", class: "mchip" }, trekLayer);
+    const t = el("text", { x: mx, y: my + 4, "text-anchor": "middle", "font-size": 12, fill: fabric ? textFor(DIVMETA[f.div].col) : (f.u ? "var(--off-white)" : "var(--white)"), class: "mchip" }, trekLayer);
     t.textContent = label;
   }
   /* Every route gets a fat invisible hit line — the dotted trek itself is
