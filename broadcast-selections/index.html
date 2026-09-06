@@ -2,7 +2,11 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.4 (06/09/2026)
+  v2.5 (06/09/2026)
+
+  v2.5 (06/09/2026) — Unpicked treks darken: same weight and opacity as
+  picked ones but ink instead of red, home dots ink too. Colour alone
+  now says picked/not-picked.
 
   v2.4 (06/09/2026) — Week-by-week "Moved" column header shortened to "G"
   (hover title "Games moved") to save width, per Richard.
@@ -143,6 +147,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.5", date: "06/09/2026", changes: ["Unpicked routes drawn darker on the map — ink at full strength, dots not pills"] },
       { version: "v2.4", date: "06/09/2026", changes: ["Week-by-week Moved column header shortened to G"] },
       { version: "v2.3", date: "06/09/2026", changes: ["NEXT UP opponents shown by full name"] },
       { version: "v2.2", date: "06/09/2026", changes: ["EFL three-letter codes restored in NEXT UP lines"] },
@@ -557,8 +562,10 @@ function render() {
     if (i === activeFx) return;
     const home = pos[i], away = proj(CLUBS[f.a].lat, CLUBS[f.a].lng);
     if (f.u) {
-      el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--coast)", "stroke-width": 1, "stroke-dasharray": "2 4", opacity: 0.6 }, trekLayer);
-      el("circle", { cx: away[0], cy: away[1], r: 2.5, fill: "var(--coast)", opacity: 0.7 }, trekLayer);
+      /* Same weight and opacity as a picked trek, ink instead of wire —
+         the round reads as one fabric, colour alone says picked/not. */
+      el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--text)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: 0.2 }, trekLayer);
+      el("circle", { cx: away[0], cy: away[1], r: 3, fill: "var(--text)", opacity: 0.28 }, trekLayer);
       return;
     }
     el("line", { x1: home.x, y1: home.y, x2: away[0], y2: away[1], stroke: "var(--primary)", "stroke-width": 1.25, "stroke-dasharray": "5 4", opacity: 0.2 }, trekLayer);
@@ -594,7 +601,7 @@ function render() {
       /* Unpicked: a small grey dot at the home ground — the card carries the
          names, the geography carries the point. Same hover/tap wiring. */
       const g = el("g", { cursor: "pointer", opacity: dim ? 0.35 : 1 }, markerLayer);
-      el("circle", { cx: p.x, cy: p.y, r: activeFx === i ? 5 : 3.5, fill: activeFx === i ? "var(--text)" : "var(--coast)", stroke: "var(--white)", "stroke-width": 1.5 }, g);
+      el("circle", { cx: p.x, cy: p.y, r: activeFx === i ? 5 : 3.5, fill: "var(--text)", "fill-opacity": activeFx === i ? 1 : 0.55, stroke: "var(--white)", "stroke-width": 1.5 }, g);
       el("title", {}, g).textContent = f.h + " v " + f.a + " — " + f.day + ", " + f.t + " (" + DIVS[f.div] + ", not selected)";
       if (HOVERABLE) g.addEventListener("mouseenter", () => { if (activeFx !== i) { activeFx = i; render(); } });
       g.addEventListener("click", ev => { ev.stopPropagation(); selectFx(i, true); });
