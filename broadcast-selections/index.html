@@ -2,7 +2,11 @@
 <!--
   NL Tools — Broadcast selections (public standalone page)
   File: /broadcast-selections/index.html
-  v2.15 (06/09/2026)
+  v2.16 (06/09/2026)
+
+  v2.16 (06/09/2026) — Home state cut: the venue switcher is Away /
+  Both. Both keeps home games dimmed on the map and summed in the
+  table; Home's lone fact is Moved minus Away.
 
   v2.15 (06/09/2026) — Venue switcher relocates to the strip above the
   map, beside the unpicked toggle and Viewing chip.
@@ -194,6 +198,7 @@
   <script>
     window.NL_TOOL = { title: "Broadcast Travel", toolKey: "pub-broadcast-selections", kicker: "The National League", isPortal: true };
     window.NL_CHANGELOG = [
+      { version: "v2.16", date: "06/09/2026", changes: ["Venue switcher simplified to Away / Both"] },
       { version: "v2.15", date: "06/09/2026", changes: ["Venue switcher moved to sit over the map"] },
       { version: "v2.14", date: "06/09/2026", changes: ["Home/Away/Both switcher now filters the club map too; crest alignment fixed"] },
       { version: "v2.13", date: "06/09/2026", changes: ["Season-fabric routes drawn thicker in division colours"] },
@@ -427,7 +432,6 @@
     <button id="upTog" type="button" aria-pressed="false">Show unpicked games</button>
     <div id="haBar" role="group" aria-label="Venue" hidden>
       <button type="button" data-ha="away">Away</button>
-      <button type="button" data-ha="home">Home</button>
       <button type="button" data-ha="both">Both</button>
     </div>
     <span id="lensChip" hidden>Viewing <b id="lensName"></b><button id="lensClear" type="button" aria-label="Clear club">✕</button></span>
@@ -476,8 +480,11 @@ let clubSort = { k: "vsBase", d: -1 };
 /* Slot columns count one venue at a time; away is the pertinent lens and
    the default — a home Friday costs the Saturday, an away one costs the
    Saturday and the coach. The mileage trio is away-only regardless. */
+/* Two venues views only: Away is the story, Both the full picture with
+   home games dimmed. A separate Home state was cut — its one fact is
+   Moved minus Away. */
 let clubHA = "away";
-try { const ha = localStorage.getItem("tbf-ha"); if (ha === "home" || ha === "both") clubHA = ha; } catch (e) {}
+try { if (localStorage.getItem("tbf-ha") === "both") clubHA = "both"; } catch (e) {}
 /* Club lens: tap a By-club row and the stage becomes that club's season.
    Cleared by the chip beside the unpicked toggle; only powers club mode. */
 let clubLens = null;
@@ -689,8 +696,7 @@ function renderClubTable() {
     r.vsBase = r.avgMi === null ? null : Math.round((r.avgMi - r.base) / r.base * 100);
   });
   const slotKeys = new Set(SLOTS.map(s => s[0]));
-  const slotOf = (r, k) => clubHA === "both" ? r["a_" + k] + r["h_" + k]
-    : r[(clubHA === "away" ? "a_" : "h_") + k];
+  const slotOf = (r, k) => clubHA === "both" ? r["a_" + k] + r["h_" + k] : r["a_" + k];
   const val = (r, k) => {
     if (k === "name") return r.name;
     const v = slotKeys.has(k) ? slotOf(r, k) : r[k];
@@ -778,9 +784,7 @@ function render() {
   /* The venue switcher scopes the lens stage too: Away = their journeys,
      Home = games at their ground, Both = the lot. */
   const lensGames = list => list.filter(f =>
-    clubHA === "away" ? f.a === clubLens :
-    clubHA === "home" ? f.h === clubLens :
-    (f.h === clubLens || f.a === clubLens));
+    clubHA === "away" ? f.a === clubLens : (f.h === clubLens || f.a === clubLens));
   const inDiv = f => divSel === "ALL" || f.div === divSel;
   let fx;
   if (mode === "week") fx = shownFx(weIdx).concat(showUp ? shownUp(weIdx) : []);
